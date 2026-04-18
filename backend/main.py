@@ -84,6 +84,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.env == "development" else [
         "https://korymb.eludein.art",
+        "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
     ],
     allow_methods=["GET", "POST"],
