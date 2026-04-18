@@ -144,7 +144,7 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
     def execute():
         job_logs.append(f"[korymb] Mission démarrée — agent : {request.agent}")
         if request.agent == "coordinateur":
-            job_logs.append("[korymb] Mode orchestration — le CIO délègue aux agents.")
+            job_logs.append("[korymb] Mode CIO — analyse et synthèse stratégique.")
         crew = None
         try:
             crew = build_crew(

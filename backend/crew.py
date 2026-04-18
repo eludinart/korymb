@@ -1,8 +1,8 @@
 """
-crew.py — Construction des crews.
+crew.py — Construction des crews (mode séquentiel).
 
-- Mode "agent direct" : un seul agent exécute la tâche.
-- Mode "CIO orchestrateur" : le CIO dispatche aux autres agents (Process.hierarchical).
+Note : le mode hiérarchique CrewAI est incompatible avec Claude (bug tool_use/tool_result).
+Tous les agents tournent en séquentiel. Le CIO utilise ses outils et sa connaissance directement.
 """
 import logging
 import re
@@ -66,56 +66,7 @@ def build_crew(
         except Exception:
             pass
 
-    # ── Mode CIO orchestrateur ──────────────────────────────────────────────
-    if agent_key == "coordinateur":
-        from crewai import Agent, LLM
-        from config import settings as s
-
-        # Le manager en mode hiérarchique NE DOIT PAS avoir d'outils
-        manager_llm = LLM(
-            model=f"anthropic/{s.anthropic_model}",
-            api_key=s.anthropic_api_key,
-            temperature=0.3,
-        )
-        manager = Agent(
-            role=AGENTS["coordinateur"].role,
-            goal=AGENTS["coordinateur"].goal,
-            backstory=AGENTS["coordinateur"].backstory,
-            llm=manager_llm,
-            verbose=False,
-            allow_delegation=True,
-        )
-
-        workers = [
-            AGENTS["commercial"],
-            AGENTS["community_manager"],
-            AGENTS["developpeur"],
-            AGENTS["comptable"],
-        ]
-
-        task = Task(
-            description=(
-                f"{full_mission}\n\n"
-                "En tant que CIO, analyse la demande et délègue les sous-tâches "
-                "aux agents appropriés (Commercial, Community Manager, Développeur, Comptable). "
-                "Synthétise ensuite leurs résultats en un livrable final structuré."
-            ),
-            expected_output="Un rapport complet avec les contributions de chaque agent mobilisé et une synthèse décisionnelle.",
-            agent=manager,
-            callback=on_task_done,
-        )
-
-        crew = Crew(
-            agents=workers,
-            tasks=[task],
-            manager_agent=manager,
-            process=Process.hierarchical,
-            verbose=False,
-            memory=False,
-        )
-
-    # ── Mode agent direct ───────────────────────────────────────────────────
-    else:
+    if True:  # tous les agents en mode séquentiel direct
         agent = AGENTS.get(agent_key) or AGENTS["coordinateur"]
         task = Task(
             description=full_mission,
