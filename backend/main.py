@@ -205,34 +205,103 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
 
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT
 
+    def _call(client, system, user, max_tokens=4096):
+        """Appel Anthropic simple et propre."""
+        resp = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return resp.content[0].text, resp.usage.input_tokens, resp.usage.output_tokens
+
     def execute():
         job_logs.append(f"[korymb] Mission démarrée — {agent_cfg['label']}")
         context_str = f"\n\nContexte : {request.context}" if request.context else ""
-        user_msg = f"{request.mission}{context_str}"
+        mission_txt = f"{request.mission}{context_str}"
+        t_in_total = t_out_total = 0
+
         try:
-            job_logs.append("[korymb] Appel Claude en cours...")
             client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-            resp = client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_msg}],
-            )
-            result  = resp.content[0].text
-            t_in    = resp.usage.input_tokens
-            t_out   = resp.usage.output_tokens
-            _add_daily(t_in, t_out)
+
+            # ── Mode CIO : orchestration multi-agents ──────────────────────
+            if request.agent == "coordinateur":
+                job_logs.append("[korymb] CIO — analyse de la mission...")
+
+                # Étape 1 : CIO planifie et identifie les agents nécessaires
+                plan_txt, ti, to = _call(client,
+                    system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
+                    f"""Mission : {mission_txt}
+
+Analyse cette mission et réponds avec ce JSON exact (sans markdown) :
+{{
+  "agents": ["commercial"|"community_manager"|"developpeur"|"comptable"],
+  "sous_taches": {{"agent_key": "description de la sous-tâche"}},
+  "synthese_attendue": "ce que le CIO doit produire en synthèse finale"
+}}
+
+Choisis uniquement les agents VRAIMENT nécessaires (1 à 3 max)."""
+                )
+                t_in_total += ti; t_out_total += to
+
+                import json as _json
+                try:
+                    plan = _json.loads(plan_txt.strip())
+                except Exception:
+                    # Si le JSON échoue, exécution directe par le CIO
+                    plan = {"agents": [], "sous_taches": {}, "synthese_attendue": ""}
+
+                job_logs.append(f"[korymb] Plan : {list(plan.get('sous_taches', {}).keys()) or ['CIO direct']}")
+
+                # Étape 2 : chaque agent sous-traitant exécute sa tâche
+                resultats = {}
+                for agent_key, tache in plan.get("sous_taches", {}).items():
+                    if agent_key not in AGENTS_DEF:
+                        continue
+                    job_logs.append(f"[korymb] {AGENTS_DEF[agent_key]['label']} travaille...")
+                    agent_sys = AGENTS_DEF[agent_key]["system"] + FLEUR_CONTEXT
+                    res, ti, to = _call(client, agent_sys,
+                        f"Sous-mission : {tache}\n\nContexte de la mission globale : {request.mission}")
+                    t_in_total += ti; t_out_total += to
+                    resultats[agent_key] = res
+                    job_logs.append(f"[korymb] {AGENTS_DEF[agent_key]['label']} — terminé.")
+
+                # Étape 3 : CIO synthétise
+                job_logs.append("[korymb] CIO — synthèse finale...")
+                if resultats:
+                    contributions = "\n\n".join([
+                        f"=== {AGENTS_DEF[k]['label']} ===\n{v}"
+                        for k, v in resultats.items()
+                    ])
+                    synthese_user = (
+                        f"Mission originale : {request.mission}\n\n"
+                        f"Contributions des agents :\n{contributions}\n\n"
+                        f"Produis une synthèse décisionnelle structurée et actionnable."
+                    )
+                    result, ti, to = _call(client, system_prompt, synthese_user)
+                else:
+                    # CIO répond directement si aucun agent sous-traitant
+                    result, ti, to = _call(client, system_prompt, mission_txt)
+                t_in_total += ti; t_out_total += to
+
+            # ── Mode agent direct ──────────────────────────────────────────
+            else:
+                job_logs.append(f"[korymb] {agent_cfg['label']} travaille...")
+                result, t_in_total, t_out_total = _call(client, system_prompt, mission_txt)
+
+            _add_daily(t_in_total, t_out_total)
             active_jobs[job_id].update({
                 "status": "completed", "result": result,
-                "tokens_in": t_in, "tokens_out": t_out,
+                "tokens_in": t_in_total, "tokens_out": t_out_total,
             })
-            job_logs.append(f"[korymb] Terminé — {t_in}↑ {t_out}↓ tokens.")
-            update_job(job_id, "completed", result, job_logs, t_in, t_out)
-            logger.info("Job [%s] OK — %d tokens.", job_id, t_in + t_out)
+            job_logs.append(f"[korymb] Terminé — {t_in_total}↑ {t_out_total}↓ tokens.")
+            update_job(job_id, "completed", result, job_logs, t_in_total, t_out_total)
+            logger.info("Job [%s] OK — %d tokens.", job_id, t_in_total + t_out_total)
+
         except Exception as e:
             active_jobs[job_id]["status"] = f"error: {e}"
             job_logs.append(f"[korymb] Erreur : {e}")
-            update_job(job_id, f"error: {e}", None, job_logs, 0, 0)
+            update_job(job_id, f"error: {e}", None, job_logs, t_in_total, t_out_total)
             logger.error("Job [%s] échoué : %s", job_id, e)
 
     background_tasks.add_task(execute)
@@ -298,6 +367,24 @@ def get_job(job_id: str, log_offset: int = 0):
         "created_at": row.get("created_at"),
     }
 
+
+@app.delete("/jobs/{job_id}", dependencies=[Depends(verify_secret)])
+def delete_job(job_id: str):
+    active_jobs.pop(job_id, None)
+    from database import get_conn
+    with get_conn() as conn:
+        conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+        conn.commit()
+    return {"deleted": job_id}
+
+@app.delete("/jobs", dependencies=[Depends(verify_secret)])
+def clear_jobs():
+    active_jobs.clear()
+    from database import get_conn
+    with get_conn() as conn:
+        conn.execute("DELETE FROM jobs")
+        conn.commit()
+    return {"cleared": True}
 
 @app.get("/jobs", dependencies=[Depends(verify_secret)])
 def list_jobs(limit: int = 50):

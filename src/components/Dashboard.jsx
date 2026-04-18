@@ -380,12 +380,28 @@ function HistoryTab() {
   const [selected, setSelected] = useState(null);
   const [detail, setDetail]     = useState(null);
 
-  useEffect(() => {
+  const loadJobs = () => {
+    setLoading(true);
     fetch(`${API}/jobs`, { headers: authHeaders() })
       .then(r => r.json())
       .then(d => { setJobs(d.jobs||[]); setLoading(false); })
       .catch(() => setLoading(false));
-  }, []);
+  };
+
+  useEffect(() => { loadJobs(); }, []);
+
+  const deleteJob = async (jobId, e) => {
+    e.stopPropagation();
+    await fetch(`${API}/jobs/${jobId}`, { method: "DELETE", headers: authHeaders() });
+    if (selected === jobId) { setSelected(null); setDetail(null); }
+    setJobs(p => p.filter(j => j.job_id !== jobId));
+  };
+
+  const clearAll = async () => {
+    if (!window.confirm("Effacer tout l'historique ?")) return;
+    await fetch(`${API}/jobs`, { method: "DELETE", headers: authHeaders() });
+    setJobs([]); setSelected(null); setDetail(null);
+  };
 
   useEffect(() => {
     if (!selected) return;
@@ -400,31 +416,48 @@ function HistoryTab() {
     s==="completed" ? "Terminé" : s?.startsWith("error") ? "Erreur" : "En cours";
 
   if (loading) return <p className="text-sm text-slate-400">Chargement…</p>;
-  if (!jobs.length) return <p className="text-sm text-slate-400">Aucune mission enregistrée.</p>;
 
   return (
     <div className="flex gap-4">
-      <div className="w-72 shrink-0 flex flex-col gap-2 max-h-[600px] overflow-y-auto pr-1">
+      <div className="w-72 shrink-0 flex flex-col gap-2">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-slate-400">{jobs.length} mission{jobs.length!==1?"s":""}</span>
+          {jobs.length > 0 && (
+            <button onClick={clearAll}
+              className="text-xs text-red-400 hover:text-red-600 cursor-pointer border border-red-200 rounded-lg px-2 py-1">
+              Tout effacer
+            </button>
+          )}
+        </div>
+        {!jobs.length && <p className="text-sm text-slate-400">Aucune mission enregistrée.</p>}
+        <div className="max-h-[560px] overflow-y-auto flex flex-col gap-2 pr-1">
         {jobs.map(j => (
-          <button key={j.job_id} onClick={() => setSelected(j.job_id)}
-            className={`text-left border rounded-xl px-4 py-3 transition-all cursor-pointer
-              ${selected===j.job_id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white hover:border-slate-400"}`}>
+          <div key={j.job_id} className={`relative group border rounded-xl px-4 py-3 transition-all cursor-pointer
+            ${selected===j.job_id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white hover:border-slate-400"}`}
+            onClick={() => { setSelected(j.job_id); setDetail(null); }}>
             <div className="flex justify-between items-center mb-1">
               <span className={`text-xs ${selected===j.job_id?"text-slate-300":"text-slate-500"}`}>
                 {ICONS[j.agent]||"🤖"} {j.agent}
               </span>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
-                ${selected===j.job_id ? "bg-slate-700 text-slate-200" : statusCls(j.status)}`}>
-                {statusLabel(j.status)}
-              </span>
+              <div className="flex items-center gap-1">
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full
+                  ${selected===j.job_id ? "bg-slate-700 text-slate-200" : statusCls(j.status)}`}>
+                  {statusLabel(j.status)}
+                </span>
+                <button onClick={e => deleteJob(j.job_id, e)}
+                  className={`opacity-0 group-hover:opacity-100 text-xs px-1.5 py-0.5 rounded transition-opacity
+                    ${selected===j.job_id ? "text-red-300 hover:text-red-100" : "text-red-400 hover:text-red-600"}`}>
+                  ✕
+                </button>
+              </div>
             </div>
             <p className={`text-xs truncate ${selected===j.job_id?"text-slate-200":"text-slate-600"}`}>{j.mission}</p>
-            <div className={`flex items-center justify-between mt-1 ${selected===j.job_id?"text-slate-400":"text-slate-400"} text-xs`}>
+            <div className={`flex items-center justify-between mt-1 text-xs ${selected===j.job_id?"text-slate-400":"text-slate-400"}`}>
               {j.created_at && <span>{new Date(j.created_at+"Z").toLocaleString("fr-FR")}</span>}
               {(j.tokens_in||j.tokens_out) ? <span>{(j.tokens_in+j.tokens_out).toLocaleString()} tok</span> : null}
             </div>
-          </button>
-        ))}
+          </div>
+        ))}</div>
       </div>
 
       <div className="flex-1 min-w-0">
