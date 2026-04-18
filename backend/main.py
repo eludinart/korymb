@@ -82,7 +82,10 @@ app = FastAPI(title="Korymb — Moteur Agentique", version="2.0.0", lifespan=lif
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.env == "development" else ["https://korymb.eludein.art"],
+    allow_origins=["*"] if settings.env == "development" else [
+        "https://korymb.eludein.art",
+        "https://api-korymb.eludein.art",
+    ],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -189,32 +192,44 @@ async def chat(request: ChatRequest):
     Chat direct avec un agent (réponse synchrone, pas de job en arrière-plan).
     Idéal pour questions rapides, brainstorming, feedback immédiat.
     """
+    import anthropic
     from agents import AGENTS
-    from crewai import LLM
-    from config import settings as s
 
-    llm = LLM(
-        model=f"anthropic/{s.anthropic_model}",
-        api_key=s.anthropic_api_key,
-        temperature=0.5,
+    from knowledge import FLEUR_CONTEXT, _MANUEL
+    agent_def = AGENTS.get(request.agent) or AGENTS["coordinateur"]
+
+    # Contexte Fleur d'Amours complet injecté dans chaque conversation
+    knowledge_context = (
+        f"\n\n---\n## BASE DE CONNAISSANCE FLEUR D'AMOURS\n"
+        f"{FLEUR_CONTEXT}\n\n"
+        f"### Manuel (extrait — {len(_MANUEL)} caractères disponibles) :\n"
+        f"{_MANUEL[:6000]}\n---"
     )
 
-    agent_def = AGENTS.get(request.agent) or AGENTS["coordinateur"]
-    system_prompt = f"{agent_def.backstory}\n\nRéponds de façon concise et directe."
+    system_prompt = (
+        f"{agent_def.backstory}"
+        f"{knowledge_context}\n\n"
+        "Réponds de façon concise et directe en t'appuyant sur cette base de connaissance. "
+        "Tu es dans un chat interactif."
+    )
 
     messages = []
-    for h in request.history[-10:]:  # max 10 messages d'historique
-        messages.append({"role": h["role"], "content": h["content"]})
+    for h in request.history[-10:]:
+        if h.get("role") in ("user", "assistant"):
+            messages.append({"role": h["role"], "content": h["content"]})
     messages.append({"role": "user", "content": request.message})
 
     try:
-        response = llm.call(messages=messages, system=system_prompt)
-        token_counter = {"in": 0, "out": 0}
-        _add_daily(token_counter["in"], token_counter["out"])
-        return {
-            "response": str(response),
-            "agent": request.agent,
-        }
+        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+        resp = client.messages.create(
+            model=settings.anthropic_model,
+            max_tokens=2048,
+            system=system_prompt,
+            messages=messages,
+        )
+        text = resp.content[0].text
+        _add_daily(resp.usage.input_tokens, resp.usage.output_tokens)
+        return {"response": text, "agent": request.agent}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
