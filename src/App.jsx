@@ -7,6 +7,7 @@ import Manual from "./components/ManualPages";
 import CardList from "./components/CardList";
 import CardDetail from "./components/CardDetail";
 import Draw from "./components/Draw";
+import Dashboard from "./components/Dashboard";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
         <Route path="/cartes" element={<CardList />} />
         <Route path="/cartes/:id" element={<CardDetail />} />
         <Route path="/tirage" element={<Draw />} />
+        <Route path="/dashboard" element={<Dashboard />} />
       </Routes>
     </Layout>
   );

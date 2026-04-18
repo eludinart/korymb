@@ -11,6 +11,7 @@ export default function Layout({ children }) {
           <Link to="/manuel" style={styles.navLink}>Manuel</Link>
           <Link to="/cartes" style={styles.navLink}>Cartes</Link>
           <Link to="/tirage" style={styles.navLink}>Tirage</Link>
+          <Link to="/dashboard" style={{ ...styles.navLink, background: "#111", color: "#fff", borderColor: "#111" }}>Pilotage</Link>
         </nav>
       </header>
 
