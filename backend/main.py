@@ -155,7 +155,7 @@ app.add_middleware(
         "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
     ],
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["*"],
 )
 
