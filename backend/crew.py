@@ -68,13 +68,30 @@ def build_crew(
 
     # ── Mode CIO orchestrateur ──────────────────────────────────────────────
     if agent_key == "coordinateur":
+        from crewai import Agent, LLM
+        from config import settings as s
+
+        # Le manager en mode hiérarchique NE DOIT PAS avoir d'outils
+        manager_llm = LLM(
+            model=f"anthropic/{s.anthropic_model}",
+            api_key=s.anthropic_api_key,
+            temperature=0.3,
+        )
+        manager = Agent(
+            role=AGENTS["coordinateur"].role,
+            goal=AGENTS["coordinateur"].goal,
+            backstory=AGENTS["coordinateur"].backstory,
+            llm=manager_llm,
+            verbose=False,
+            allow_delegation=True,
+        )
+
         workers = [
             AGENTS["commercial"],
             AGENTS["community_manager"],
             AGENTS["developpeur"],
             AGENTS["comptable"],
         ]
-        manager = AGENTS["coordinateur"]
 
         task = Task(
             description=(
