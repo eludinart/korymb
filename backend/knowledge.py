@@ -27,9 +27,10 @@ def _load_text(filename: str) -> str:
     with open(path, encoding="utf-8", errors="replace") as f:
         return f.read()
 
-_CARDS: list = _load_json("cards.json")
-_PAGES: list = _load_json("manual_pages.json")
-_SITE: str   = _load_text("eludein_site.txt")
+_CARDS: list  = _load_json("cards.json")
+_PAGES: list  = _load_json("manual_pages.json")
+_SITE: str    = _load_text("eludein_site.txt")
+_MANUEL: str  = _load_text("manuel_complet.txt")  # texte nettoyé du manuel complet
 
 # ── Contexte système injecté dans chaque agent ─────────────────────────────
 
@@ -129,12 +130,10 @@ def get_fleur_context(topic: str = "general") -> str:
         ])
         return f"{FLEUR_CONTEXT}\n\n## Cartes disponibles :\n{cartes_summary}"
 
-    if topic == "manuel" and _PAGES:
-        intro = "\n".join([
-            f"Page {p.get('page','?')}: {p.get('texte','')[:200]}"
-            for p in _PAGES[:10]
-        ])
-        return f"{FLEUR_CONTEXT}\n\n## Extrait du manuel :\n{intro}"
+    if topic == "manuel":
+        # Retourne les 8000 premiers caractères du manuel nettoyé
+        excerpt = _MANUEL[:8000] if _MANUEL else ""
+        return f"{FLEUR_CONTEXT}\n\n## Manuel complet (extrait) :\n{excerpt}"
 
     if topic == "business":
         # Retourne les infos site focalisées business

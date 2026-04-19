@@ -31,6 +31,7 @@ dist-ssr
 *.sw?
 backend/.env
 backend/__pycache__/
+backend/knowledge/__pycache__/
 backend/data/
 backend/knowledge/eludein_site.txt
 backend/knowledge/manuel_complet.txt

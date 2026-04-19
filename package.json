@@ -1,10 +1,11 @@
 {
   "name": "tarot.app",
   "private": true,
-  "version": "0.0.0",
+  "version": "3.0.3",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "verify:api": "node tools/verify-korymb-health.mjs",
+    "dev": "node tools/verify-korymb-health.mjs && vite",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
