@@ -1,13 +1,8 @@
 /**
  * Schéma aligné sur backend/observability.py::make_event
  */
-export type MissionJobEvent = {
-  v?: number;
-  ts?: string;
-  type?: string;
-  agent?: string | null;
-  payload?: Record<string, unknown>;
-};
+import type { MissionJobEvent } from "@/lib/types";
+export type { MissionJobEvent } from "@/lib/types";
 
 const TYPE_LABELS_FR: Record<string, string> = {
   mission_start: "Démarrage mission",

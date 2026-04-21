@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
+import AgentActivationBoard from "../../components/AgentActivationBoard";
+import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
+import MissionDecisionCard from "../../components/MissionDecisionCard";
 import CollapsibleMissionSection from "../../components/CollapsibleMissionSection";
 import SimpleAccordion from "../../components/SimpleAccordion";
 import MissionEventTimeline from "../../components/MissionEventTimeline";
@@ -17,15 +20,7 @@ import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 
-type Job = {
-  job_id: string;
-  mission?: string;
-  status?: string;
-  agent?: string;
-  result?: string | null;
-  user_validated_at?: string | null;
-  mission_closed_by_user?: boolean;
-};
+import type { Job } from "../../lib/types";
 
 async function validateJob(jobId: string) {
   const headers = agentHeaders();
@@ -190,6 +185,12 @@ function MissionsContent() {
             {feedback}
           </p>
         ) : null}
+        {selected && detail.data ? (
+          <AgentActivationBoard
+            events={detail.data.events}
+            jobStatus={String(detail.data.status || "")}
+          />
+        ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
           const canValidate = j.status === "completed" && !closed;
@@ -225,7 +226,21 @@ function MissionsContent() {
                   <p className="text-xs text-slate-500 font-mono">
                     #{j.job_id} · {j.agent || "coordinateur"}
                   </p>
-                  {resultPreview ? (
+                  {selected === j.job_id && detail.data ? (
+                    <MissionDecisionCard
+                      job={{
+                        result: detail.data.result,
+                        status: detail.data.status,
+                        team: detail.data.team,
+                        tokens_total: Number(detail.data.tokens_total ?? 0),
+                        cost_usd: Number(detail.data.cost_usd ?? 0),
+                        events_total: Number(detail.data.events_total ?? 0),
+                        delivery_warnings: (detail.data.delivery_warnings as string[] | undefined) ?? [],
+                        delivery_blocked: Boolean(detail.data.delivery_blocked),
+                        created_at: detail.data.created_at as string | undefined,
+                      }}
+                    />
+                  ) : resultPreview ? (
                     <div className="max-h-32 min-h-0 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 text-left">
                       <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Aperçu livrable</p>
                       <AgentMessageMarkdown
@@ -258,11 +273,13 @@ function MissionsContent() {
         </div>
         <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           {!selected ? (
-            <p className="text-sm text-slate-500 leading-relaxed">
-              Sélectionne une mission : <span className="font-medium text-slate-700">résultat / synthèse</span> en tête,
-              le <span className="font-medium text-slate-700">détail par rôle</span> en dessous (repliable), puis le fil de
-              cadrage et les événements.
-            </p>
+            <div className="space-y-4">
+              <AgentMindMap />
+              <p className="text-xs text-slate-400 leading-relaxed">
+                Sélectionne une mission à gauche pour voir la{" "}
+                <span className="font-medium text-slate-600">synthèse & livrable</span> du CIO, le détail par rôle et les événements.
+              </p>
+            </div>
           ) : detail.isLoading ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.isError ? (

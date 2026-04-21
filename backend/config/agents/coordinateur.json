@@ -1,0 +1,15 @@
+{
+  "key": "coordinateur",
+  "petales": [
+    "strategie",
+    "orchestration",
+    "priorisation",
+    "synthese"
+  ],
+  "skills": [
+    "mission_decomposition",
+    "risk_review",
+    "human_alignment"
+  ],
+  "devil_advocate_default": "developpeur"
+}

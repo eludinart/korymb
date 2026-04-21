@@ -1,4 +1,5 @@
 import { normalizeMissionEvents } from "./missionEvents";
+import type { LiveFlowStep as _LiveFlowStepBase } from "@/lib/types";
 
 export type LiveFlowStep = {
   id: string;

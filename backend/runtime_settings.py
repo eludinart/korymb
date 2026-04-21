@@ -30,6 +30,8 @@ _KEYS = frozenset({
     "llm_price_input_per_million_usd",
     "llm_price_output_per_million_usd",
     "llm_tiers_json",
+    "token_alert_threshold",
+    "daily_budget_usd",
 })
 
 
@@ -62,6 +64,8 @@ def merge_with_env() -> dict[str, Any]:
         "llm_price_input_per_million_usd": settings.llm_price_input_per_million_usd,
         "llm_price_output_per_million_usd": settings.llm_price_output_per_million_usd,
         "llm_tiers_json": "",
+        "token_alert_threshold": settings.token_alert_threshold,
+        "daily_budget_usd": 0.0,
     }
     for k, v in disk.items():
         if k not in _KEYS:
@@ -70,9 +74,15 @@ def merge_with_env() -> dict[str, Any]:
             continue
         if isinstance(v, str) and not v.strip():
             continue
-        if k in ("llm_price_input_per_million_usd", "llm_price_output_per_million_usd"):
+        if k in ("llm_price_input_per_million_usd", "llm_price_output_per_million_usd", "daily_budget_usd"):
             try:
                 out[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+            continue
+        if k == "token_alert_threshold":
+            try:
+                out[k] = int(v)
             except (TypeError, ValueError):
                 continue
             continue
@@ -109,9 +119,15 @@ def save_partial(updates: dict[str, Any]) -> dict[str, Any]:
         if k in ("openrouter_http_referer", "openrouter_app_title"):
             current[k] = str(v) if v is not None else ""
             continue
-        if k in ("llm_price_input_per_million_usd", "llm_price_output_per_million_usd"):
+        if k in ("llm_price_input_per_million_usd", "llm_price_output_per_million_usd", "daily_budget_usd"):
             try:
                 current[k] = float(v)
+            except (TypeError, ValueError):
+                continue
+            continue
+        if k == "token_alert_threshold":
+            try:
+                current[k] = int(v)
             except (TypeError, ValueError):
                 continue
             continue

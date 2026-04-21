@@ -35,3 +35,14 @@ backend/knowledge/__pycache__/
 backend/data/
 backend/knowledge/eludein_site.txt
 backend/knowledge/manuel_complet.txt
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Next.js / build artifacts
+.next/
+admin/.next/
+build/
+coverage/

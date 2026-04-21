@@ -186,6 +186,7 @@ def _openrouter_chat(
     or_profile: str = "lite",
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     _assert_llm_ready(cfg)
     base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1")
@@ -203,11 +204,13 @@ def _openrouter_chat(
 
     model, tier_key, pin, pout = resolve_openrouter_tier(cfg, or_profile)
     model_id = _normalize_model_id(model, fallback="openai/gpt-4o-mini")
-    body = {
+    body: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
         "max_tokens": max_tokens,
     }
+    if temperature is not None:
+        body["temperature"] = float(temperature)
     with httpx.Client(timeout=120.0) as client:
         r = openrouter_post_with_retries(client, url, headers, body)
     if r.status_code >= 400:
@@ -246,6 +249,7 @@ def llm_turn(
     or_profile: str = "lite",
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     cfg = merge_with_env()
     prov = str(cfg.get("llm_provider") or "anthropic")
@@ -261,6 +265,7 @@ def llm_turn(
             or_profile=or_profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
 
     _assert_llm_ready(cfg)
@@ -268,12 +273,15 @@ def llm_turn(
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
     pout = float(cfg.get("llm_price_output_per_million_usd") or 0)
     client = anthropic.Anthropic(api_key=str(cfg["anthropic_api_key"]))
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": "user", "content": user_text}],
-    )
+    anthropic_kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": user_text}],
+    }
+    if temperature is not None:
+        anthropic_kwargs["temperature"] = float(temperature)
+    resp = client.messages.create(**anthropic_kwargs)
     tin = int(resp.usage.input_tokens or 0)
     tout = int(resp.usage.output_tokens or 0)
     log_llm_call_financial(
@@ -298,6 +306,7 @@ def llm_chat(
     or_profile: str = "lite",
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     cfg = merge_with_env()
     prov = str(cfg.get("llm_provider") or "anthropic")
@@ -319,6 +328,7 @@ def llm_chat(
             or_profile=or_profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
 
     _assert_llm_ready(cfg)
@@ -326,12 +336,15 @@ def llm_chat(
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
     pout = float(cfg.get("llm_price_output_per_million_usd") or 0)
     client = anthropic.Anthropic(api_key=str(cfg["anthropic_api_key"]))
-    resp = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=system,
-        messages=[{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in ("user", "assistant")],
-    )
+    anthropic_chat_kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in ("user", "assistant")],
+    }
+    if temperature is not None:
+        anthropic_chat_kwargs["temperature"] = float(temperature)
+    resp = client.messages.create(**anthropic_chat_kwargs)
     tin = int(resp.usage.input_tokens or 0)
     tout = int(resp.usage.output_tokens or 0)
     log_llm_call_financial(

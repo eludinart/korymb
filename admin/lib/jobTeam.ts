@@ -1,11 +1,6 @@
 /** Ligne équipe renvoyée par GET /jobs/{id} (coordinateur + sous-agents). */
-export type TeamRow = {
-  key?: string;
-  label?: string;
-  status?: string;
-  phase?: string;
-  detail?: string;
-};
+import type { TeamRow } from "@/lib/types";
+export type { TeamRow } from "@/lib/types";
 
 export function normalizeTeamRows(team: unknown): TeamRow[] {
   if (!Array.isArray(team)) return [];

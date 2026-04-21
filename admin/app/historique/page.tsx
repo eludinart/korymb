@@ -7,14 +7,7 @@ import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
 import { stripMarkdownLight } from "../../lib/normalizeLooseMarkdown";
 import { QK } from "../../lib/queryClient";
 
-type Job = {
-  job_id: string;
-  mission?: string;
-  status?: string;
-  agent?: string;
-  result?: string | null;
-  created_at?: string;
-};
+import type { Job } from "../../lib/types";
 
 export default function HistoriquePage() {
   const qc = useQueryClient();

@@ -1,0 +1,14 @@
+{
+  "key": "comptable",
+  "petales": [
+    "cashflow",
+    "conformite",
+    "marge",
+    "pilotage"
+  ],
+  "skills": [
+    "financial_reporting",
+    "pricing_sanity",
+    "cost_watch"
+  ]
+}

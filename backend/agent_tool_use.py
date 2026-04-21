@@ -1,6 +1,8 @@
 """
-Exécution d'outils gratuits (web, pages, LinkedIn DDG, email simulé, posts Meta simulés)
-dans le flux Korymb v3 via tool use Anthropic ou OpenAI-compatible (OpenRouter).
+Exécution d'outils dans le flux Korymb v3.1 via tool use Anthropic ou OpenAI-compatible.
+Providers de recherche : Tavily (TAVILY_API_KEY) → Brave (BRAVE_SEARCH_API_KEY) → DuckDuckGo.
+Lecture de pages : Jina AI Reader (sans clé) → httpx direct.
+Nouveaux outils : describe_image (Claude Haiku Vision), read_facebook_posts, read_instagram_media.
 """
 from __future__ import annotations
 
@@ -24,14 +26,18 @@ from llm_client import (
 from llm_tiers import resolve_openrouter_tier
 from runtime_settings import merge_with_env
 from tools import (
+    run_describe_image,
     run_post_facebook,
     run_post_instagram,
+    run_read_facebook_posts,
+    run_read_instagram_media,
     run_read_webpage,
     run_search_linkedin,
     run_send_email,
     run_upload_google_drive,
     run_web_search,
 )
+from tools.agent_tools import get_fleet_status, search_core_notes, validate_syntax
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
@@ -79,18 +85,25 @@ def _openrouter_extract_visible_text(msg: dict[str, Any]) -> str:
 
 # Clés AGENTS_DEF["tools"] → noms d'outils LLM
 _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
-    "web": ("web_search", "read_webpage"),
+    "web": ("web_search", "read_webpage", "describe_image"),
     "linkedin": ("search_linkedin",),
     "email": ("send_email",),
-    "instagram": ("post_instagram",),
-    "facebook": ("post_facebook",),
+    "instagram": ("post_instagram", "read_instagram_media"),
+    "facebook": ("post_facebook", "read_facebook_posts"),
     "drive": ("upload_google_drive",),
+    # Outils augmentés KORYMB v3 (agentic OS)
+    "knowledge": ("search_core_notes", "get_fleet_status"),
+    "validate": ("validate_syntax",),
 }
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "web_search",
-        "description": "Recherche web gratuite (DuckDuckGo). Utilise pour trouver prospects, annuaires, articles, sites.",
+        "description": (
+            "Recherche web multi-provider (Tavily → Brave → DuckDuckGo). "
+            "Retourne 10 résultats avec titre, URL et extrait. "
+            "Utilise pour : prospects, concurrents, actualités, tendances, annuaires, profils publics."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {"query": {"type": "string", "description": "Requête en français ou anglais"}},
@@ -99,68 +112,169 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "read_webpage",
-        "description": "Lit le texte d'une page http(s) (résultat de recherche, site vitrine). URL uniquement http/https.",
+        "description": (
+            "Lit le texte complet d'une page web (URL http/https). "
+            "Utilise Jina AI Reader pour les sites JavaScript modernes (LinkedIn, Insta, etc.). "
+            "Retourne jusqu'à 8 000 caractères de contenu propre. "
+            "Utilise pour lire un profil LinkedIn, un site vitrine, un article de blog."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"url": {"type": "string", "description": "URL complète"}},
+            "properties": {"url": {"type": "string", "description": "URL complète (http:// ou https://)"}},
             "required": ["url"],
         },
     },
     {
         "name": "search_linkedin",
-        "description": "Recherche ciblée profils / entreprises LinkedIn via moteur (résultats publics).",
+        "description": (
+            "Recherche profils individuels (linkedin.com/in/) et pages entreprises (linkedin.com/company/) "
+            "sur LinkedIn à partir de mots-clés (métier, ville, secteur, nom). "
+            "Pour lire le détail d'un profil trouvé : enchaîne avec read_webpage."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "Métier, ville, secteur, nom…"}},
+            "properties": {"query": {"type": "string", "description": "Métier, ville, secteur, nom, entreprise…"}},
             "required": ["query"],
         },
     },
     {
-        "name": "send_email",
-        "description": "Prépare ou envoie un email de prospection (sans SMTP : brouillon / simulation).",
+        "name": "describe_image",
+        "description": (
+            "Analyse et décrit le contenu visuel d'une image (URL publique http/https) via Claude Vision. "
+            "Retourne une description détaillée : personnes, textes visibles, couleurs, ambiance, "
+            "éléments marketing. Utilise pour : analyser un post Instagram, un visuel concurrent, "
+            "lire un texte dans une image, comprendre une photo de produit."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string"},
-                "subject": {"type": "string"},
-                "body": {"type": "string"},
+                "image_url": {"type": "string", "description": "URL publique de l'image (http:// ou https://)"},
+                "context": {"type": "string", "description": "Contexte optionnel pour guider l'analyse (ex: 'post Instagram concurrent')"},
+            },
+            "required": ["image_url"],
+        },
+    },
+    {
+        "name": "send_email",
+        "description": "Prépare ou envoie un email de prospection ou suivi (sans SMTP configuré : génère le brouillon).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Adresse email du destinataire"},
+                "subject": {"type": "string", "description": "Objet du message"},
+                "body": {"type": "string", "description": "Corps du message en texte brut"},
             },
             "required": ["to", "subject", "body"],
         },
     },
     {
         "name": "post_instagram",
-        "description": "Prépare une légende Instagram (publication réelle si tokens Meta configurés).",
+        "description": "Publie un post sur le compte Instagram d'Élude In Art (réel si tokens Meta configurés).",
         "input_schema": {
             "type": "object",
             "properties": {
-                "caption": {"type": "string"},
-                "image_url": {"type": "string", "description": "Optionnel, URL publique image"},
+                "caption": {"type": "string", "description": "Texte du post avec hashtags"},
+                "image_url": {"type": "string", "description": "Optionnel — URL publique de l'image"},
             },
             "required": ["caption"],
         },
     },
     {
-        "name": "post_facebook",
-        "description": "Prépare un post Facebook page (réel si tokens Meta configurés).",
+        "name": "read_instagram_media",
+        "description": (
+            "Lit les derniers médias publiés sur le compte Instagram d'Élude In Art. "
+            "Retourne caption, type, date, lien, URL image. "
+            "Utilise pour : auditer la présence Instagram, éviter les doublons, analyser les contenus passés."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"message": {"type": "string"}},
+            "properties": {
+                "limit": {"type": "integer", "description": "Nombre de posts à récupérer (max 20, défaut 10)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "post_facebook",
+        "description": "Publie un post sur la page Facebook d'Élude In Art (réel si tokens Meta configurés).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"message": {"type": "string", "description": "Texte du post"}},
             "required": ["message"],
         },
     },
     {
-        "name": "upload_google_drive",
-        "description": "Crée un fichier sur Google Drive (réel si token Drive configuré).",
+        "name": "read_facebook_posts",
+        "description": (
+            "Lit les derniers posts de la page Facebook d'Élude In Art. "
+            "Retourne texte, date, lien, image. "
+            "Utilise pour : auditer la présence Facebook, analyser l'engagement, éviter les doublons."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "filename": {"type": "string"},
-                "content": {"type": "string"},
+                "limit": {"type": "integer", "description": "Nombre de posts à récupérer (max 25, défaut 10)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "upload_google_drive",
+        "description": "Crée un fichier texte ou markdown sur Google Drive d'Élude In Art.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string", "description": "Nom du fichier avec extension"},
+                "content": {"type": "string", "description": "Contenu textuel du fichier"},
                 "mime_type": {"type": "string", "description": "Optionnel, ex. text/plain, text/markdown"},
-                "folder_id": {"type": "string", "description": "Optionnel, dossier Drive cible"},
+                "folder_id": {"type": "string", "description": "Optionnel, ID du dossier Drive cible"},
             },
             "required": ["filename", "content"],
+        },
+    },
+    # ── Outils augmentés KORYMB v3 ──────────────────────────────────────────
+    {
+        "name": "search_core_notes",
+        "description": (
+            "Recherche dans les notes et documentations internes KORYMB (CORE/*.md, docs/, .cursor/rules/). "
+            "Utilise pour trouver des contextes projet, décisions architecturales, règles métier."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Termes de recherche en français ou anglais"},
+                "max_results": {"type": "integer", "description": "Nombre max de résultats (défaut: 6)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "validate_syntax",
+        "description": (
+            "Vérifie la syntaxe d'un bloc de code sans l'exécuter (sandbox sécurisée). "
+            "Langages : python, js/javascript, ts/typescript."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {"type": "string", "description": "Code à vérifier"},
+                "language": {"type": "string", "description": "Langage : python | js | ts (défaut: python)"},
+            },
+            "required": ["code"],
+        },
+    },
+    {
+        "name": "get_fleet_status",
+        "description": (
+            "Retourne les constantes d'actifs de l'Empire Élude In Art : "
+            "Sivana (écolieu, contraintes terrain), Ti Spoun (ancrage artisanal), "
+            "Éric (dirigeant), Fleur d'ÅmÔurs (tarot, business model). "
+            "Utilise en début de mission pour ancrer les propositions dans la réalité terrain."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
         },
     },
 ]
@@ -216,13 +330,24 @@ def _execute_tool(name: str, inp: Any) -> str:
                 str(inp.get("subject", "")),
                 str(inp.get("body", "")),
             )
+        if name == "describe_image":
+            return run_describe_image(
+                str(inp.get("image_url", "")),
+                str(inp.get("context", "") or ""),
+            )
         if name == "post_instagram":
             return run_post_instagram(
                 str(inp.get("caption", "")),
                 str(inp.get("image_url", "") or ""),
             )
+        if name == "read_instagram_media":
+            limit = int(inp.get("limit") or 10)
+            return run_read_instagram_media(limit)
         if name == "post_facebook":
             return run_post_facebook(str(inp.get("message", "")))
+        if name == "read_facebook_posts":
+            limit = int(inp.get("limit") or 10)
+            return run_read_facebook_posts(limit)
         if name == "upload_google_drive":
             return run_upload_google_drive(
                 str(inp.get("filename", "")),
@@ -230,6 +355,18 @@ def _execute_tool(name: str, inp: Any) -> str:
                 str(inp.get("mime_type", "") or "text/plain"),
                 str(inp.get("folder_id", "") or ""),
             )
+        # ── Outils augmentés KORYMB v3 ────────────────────────────────────────
+        if name == "search_core_notes":
+            max_r = int(inp.get("max_results") or 6)
+            return search_core_notes(str(inp.get("query", "")), max_results=max_r)
+        if name == "validate_syntax":
+            result = validate_syntax(
+                str(inp.get("code", "")),
+                language=str(inp.get("language", "python")),
+            )
+            return json.dumps(result, ensure_ascii=False)
+        if name == "get_fleet_status":
+            return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
@@ -322,6 +459,7 @@ def llm_turn_maybe_tools(
     or_profile: str | None = None,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     names = tool_names_for_tags(tool_tags or [])
     if not names:
@@ -333,6 +471,7 @@ def llm_turn_maybe_tools(
             or_profile=prof,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
     return llm_turn_with_tools(
         system,
@@ -344,6 +483,7 @@ def llm_turn_maybe_tools(
         tool_actor=tool_actor,
         usage_job_id=usage_job_id,
         usage_context=usage_context,
+        temperature=temperature,
     )
 
 
@@ -358,12 +498,16 @@ def llm_turn_with_tools(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     allowed = set(tool_names)
     extra = (
-        "\n\nTu disposes d'outils pour prospecter et livrer : recherche web, lecture de pages, recherche LinkedIn publique, "
-        "brouillon d'email, création de fichier Google Drive. Appelle les outils quand tu as besoin de faits ou de contacts à l'instant T ; "
-        "ne invente pas d'URLs précises sans les avoir obtenues via web_search ou read_webpage."
+        "\n\nTu disposes d'outils puissants : recherche web multi-provider (Tavily/Brave/DuckDuckGo), "
+        "lecture de pages avec rendu JS (Jina Reader), recherche LinkedIn publique (profils + entreprises), "
+        "analyse d'images via Claude Vision (describe_image), lecture des posts Facebook/Instagram, "
+        "brouillon d'email, création de fichier Google Drive. "
+        "Appelle SYSTÉMATIQUEMENT les outils pour tout fait, contact ou contenu visuel à l'instant T. "
+        "Ne jamais inventer d'URLs — utilise web_search puis read_webpage pour les obtenir."
     )
     system_use = system + extra
     cfg = merge_with_env()
@@ -380,6 +524,7 @@ def llm_turn_with_tools(
             tool_actor,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
     return _anthropic_tool_loop(
         system_use,
@@ -392,6 +537,7 @@ def llm_turn_with_tools(
         tool_actor,
         usage_job_id=usage_job_id,
         usage_context=usage_context,
+        temperature=temperature,
     )
 
 
@@ -407,6 +553,7 @@ def _anthropic_tool_loop(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     from anthropic import Anthropic
 
@@ -423,6 +570,7 @@ def _anthropic_tool_loop(
             or_profile="standard",
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
 
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
@@ -432,15 +580,18 @@ def _anthropic_tool_loop(
     last_text = ""
     last_stop = ""
     used_followup = False
+    _tool_kwargs: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": system,
+        "messages": messages,
+        "tools": tools,
+    }
+    if temperature is not None:
+        _tool_kwargs["temperature"] = float(temperature)
 
     for _ in range(_MAX_TOOL_ROUNDS):
-        resp = client.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            system=system,
-            messages=messages,
-            tools=tools,
-        )
+        resp = client.messages.create(**{**_tool_kwargs, "messages": messages})
         ri = int(resp.usage.input_tokens or 0)
         ro = int(resp.usage.output_tokens or 0)
         t_in += ri
@@ -560,6 +711,7 @@ def _openrouter_tool_loop(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    temperature: float | None = None,
 ) -> tuple[str, int, int]:
     if not str(cfg.get("openrouter_api_key") or "").strip():
         raise RuntimeError("OPENROUTER_API_KEY manquant")
@@ -585,6 +737,7 @@ def _openrouter_tool_loop(
             or_profile="standard",
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            temperature=temperature,
         )
 
     om: list[dict[str, Any]] = []
@@ -605,6 +758,8 @@ def _openrouter_tool_loop(
                 "tools": otools,
                 "tool_choice": "auto",
             }
+            if temperature is not None:
+                body["temperature"] = float(temperature)
             r = openrouter_post_with_retries(http, url, headers, body)
             # Modèles gratuits / non-OpenAI (ex. Gemma sur OpenRouter) refusent souvent function calling → 400.
             if r.status_code in (400, 422) and otools and round_i == 0:
@@ -773,8 +928,10 @@ def llm_chat_with_tools(
 ) -> tuple[str, int, int]:
     allowed = set(tool_names)
     extra = (
-        "\n\nOutils disponibles : recherche web, lecture de page, recherche LinkedIn publique, brouillon email, création fichier Drive. "
-        "Utilise-les si la question exige des données à jour ou des sources."
+        "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), "
+        "recherche LinkedIn, analyse d'images (describe_image), lecture posts Facebook/Instagram, "
+        "brouillon email, création fichier Drive. "
+        "Utilise-les si la question exige des données à jour, des sources ou des visuels."
     )
     system_use = system + extra
     cfg = merge_with_env()

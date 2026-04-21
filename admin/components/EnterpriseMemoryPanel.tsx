@@ -7,11 +7,7 @@ import { agentHeaders, requestJson } from "../lib/api";
 
 const CONTEXT_FIELDS = MEMORY_CONTEXT_KEYS.map((key) => ({ key, title: MEMORY_CONTEXT_TITLES[key] }));
 
-type MemoryPayload = {
-  contexts?: Record<string, string>;
-  recent_missions?: unknown[];
-  updated_at?: string | null;
-};
+import type { MemoryPayload } from "../lib/types";
 
 export default function EnterpriseMemoryPanel() {
   const qc = useQueryClient();

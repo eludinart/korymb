@@ -189,8 +189,16 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{integrationDisplayName(id)}</p>
                   <p className="mt-0.5 font-mono text-[11px] text-slate-500">{id}</p>
+                  {"note" in row && row.note && !("probe_detail" in row && row.probe_detail) ? (
+                    <p className="mt-1 text-[11px] text-slate-400">{String(row.note).slice(0, 220)}</p>
+                  ) : null}
                   {"probe_detail" in row && row.probe_detail ? (
                     <p className="mt-1 text-xs text-amber-900">{String(row.probe_detail).slice(0, 220)}</p>
+                  ) : null}
+                  {"active_provider" in row && row.active_provider ? (
+                    <p className="mt-1 text-[11px] text-emerald-700">
+                      Provider actif : <span className="font-semibold">{String(row.active_provider)}</span>
+                    </p>
                   ) : null}
                 </div>
               </li>
@@ -201,21 +209,131 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
 
       {toolsProbe ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Sonde outils (copie admin)</p>
-          <ul className="mt-3 space-y-2 text-sm text-slate-700">
-            <li className="flex items-center gap-2">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Sonde outils — état en direct
+          </p>
+          <ul className="divide-y divide-slate-100">
+            {/* Recherche web */}
+            {(() => {
+              const ws = toolsProbe.web_search as { ok?: boolean; provider?: string; providers_configured?: Record<string, boolean> } | undefined;
+              const prov = ws?.provider ?? "?";
+              const provs = ws?.providers_configured ?? {};
+              return (
+                <li className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
+                  <HealthDot tone={ws?.ok ? "ok" : "bad"} label="Recherche web" className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">
+                      Recherche web
+                      {ws?.ok && (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                          {prov}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Chaîne : {" "}
+                      {[
+                        provs.tavily ? <span key="t" className="text-emerald-600 font-medium">Tavily ✓</span> : <span key="t" className="text-slate-400">Tavily —</span>,
+                        " → ",
+                        provs.brave ? <span key="b" className="text-emerald-600 font-medium">Brave ✓</span> : <span key="b" className="text-slate-400">Brave —</span>,
+                        " → ",
+                        <span key="d" className="text-slate-600">DuckDuckGo ✓</span>,
+                      ]}
+                    </p>
+                  </div>
+                </li>
+              );
+            })()}
+
+            {/* Lecture de pages */}
+            {(() => {
+              const rp = toolsProbe.read_webpage as { ok?: boolean; provider?: string; jina_available?: boolean } | undefined;
+              const prov = rp?.provider ?? "?";
+              return (
+                <li className="flex flex-wrap items-start gap-3 py-2.5">
+                  <HealthDot tone={rp?.ok ? "ok" : "bad"} label="Lecture de pages" className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">
+                      Lecture de pages (JS + HTML)
+                      {rp?.ok && (
+                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                          {prov}
+                        </span>
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Jina AI Reader (sans clé) → httpx direct · 8 000 caractères
+                    </p>
+                  </div>
+                </li>
+              );
+            })()}
+
+            {/* Analyse d'images */}
+            {(() => {
+              const img = toolsProbe.describe_image as { ok?: boolean; configured?: boolean } | undefined;
+              const hasKey = img != null ? img.configured : Boolean((toolsProbe as Record<string, unknown>)?.describe_image);
+              const tone = hasKey ? "ok" : "neutral";
+              return (
+                <li className="flex flex-wrap items-start gap-3 py-2.5">
+                  <HealthDot tone={tone} label="Analyse d'images" className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">Analyse d&apos;images (Vision)</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Claude Haiku Vision via ANTHROPIC_API_KEY · décrit photos, posts, visuels
+                    </p>
+                  </div>
+                </li>
+              );
+            })()}
+
+            {/* Instagram lecture */}
+            {(() => {
+              const ig = toolsProbe.instagram as { ok?: boolean; configured?: boolean } | undefined;
+              const ok = ig?.ok ?? ig?.configured;
+              return (
+                <li className="flex flex-wrap items-start gap-3 py-2.5">
+                  <HealthDot tone={ok ? "ok" : "neutral"} label="Instagram" className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">Instagram</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Lecture des médias + publication · INSTAGRAM_ACCESS_TOKEN + ACCOUNT_ID
+                    </p>
+                  </div>
+                </li>
+              );
+            })()}
+
+            {/* Facebook lecture */}
+            {(() => {
+              const fb = toolsProbe.facebook as { ok?: boolean; configured?: boolean } | undefined;
+              const ok = fb?.ok ?? fb?.configured;
+              return (
+                <li className="flex flex-wrap items-start gap-3 py-2.5">
+                  <HealthDot tone={ok ? "ok" : "neutral"} label="Facebook" className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-slate-800">Facebook</p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      Lecture des posts + publication · FACEBOOK_ACCESS_TOKEN + PAGE_ID
+                    </p>
+                  </div>
+                </li>
+              );
+            })()}
+
+            {/* LinkedIn */}
+            <li className="flex flex-wrap items-start gap-3 py-2.5">
               <HealthDot
                 tone={(toolsProbe.web_search as { ok?: boolean })?.ok ? "ok" : "bad"}
-                label="Recherche web"
+                label="LinkedIn"
+                className="mt-0.5"
               />
-              Recherche web (DDG)
-            </li>
-            <li className="flex items-center gap-2">
-              <HealthDot
-                tone={(toolsProbe.read_webpage as { ok?: boolean })?.ok ? "ok" : "bad"}
-                label="Lecture HTTP"
-              />
-              Lecture HTTP
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-800">Recherche LinkedIn</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  Profils + entreprises via moteur web ciblé · sans clé LinkedIn
+                </p>
+              </div>
             </li>
           </ul>
         </div>

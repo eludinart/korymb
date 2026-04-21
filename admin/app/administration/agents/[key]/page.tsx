@@ -13,15 +13,7 @@ import { QK } from "../../../../lib/queryClient";
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
 
-type AgentRow = {
-  key: string;
-  label: string;
-  role?: string;
-  tools?: string[];
-  is_manager?: boolean;
-  builtin?: boolean;
-  system?: string;
-};
+import type { Agent as AgentRow } from "../../../../lib/types";
 
 export default function AdministrationAgentDetailPage() {
   const params = useParams();

@@ -3,15 +3,19 @@ import type { HealthTone } from "./healthTone";
 export type IntegrationRow = Record<string, unknown>;
 
 const INTEGRATION_LABELS: Record<string, string> = {
-  llm_openrouter: "LLM — OpenRouter",
-  llm_anthropic: "LLM — Anthropic",
-  google_oauth: "Google OAuth / API",
-  google_drive: "Google Drive",
-  facebook: "Facebook",
-  instagram: "Instagram",
-  smtp: "SMTP (e-mail)",
-  fleur_db: "Base Fleur (MySQL)",
-  web_tools: "Outils web (DDG + HTTP)",
+  llm_openrouter:  "LLM — OpenRouter",
+  llm_anthropic:   "LLM — Anthropic",
+  google_oauth:    "Google OAuth / API",
+  google_drive:    "Google Drive",
+  facebook:        "Facebook (lecture + publication)",
+  instagram:       "Instagram (lecture + publication)",
+  smtp:            "SMTP (e-mail)",
+  fleur_db:        "Base Fleur (MySQL)",
+  // Recherche & lecture
+  tavily:          "Tavily AI Search",
+  brave_search:    "Brave Search",
+  jina_reader:     "Jina AI Reader (pages JS)",
+  web_tools:       "Recherche web (chaîne providers)",
 };
 
 export function integrationDisplayName(id: string): string {
@@ -34,6 +38,18 @@ export function healthToneForIntegration(id: string, row: IntegrationRow): Healt
     if (ok === true) return "ok";
     if (ok === false) return "bad";
     return "neutral";
+  }
+
+  if (id === "jina_reader") {
+    if (ok === true) return "ok";
+    if (ok === false) return "bad";
+    return "neutral";
+  }
+
+  // Tavily et Brave : optionnels, neutre si non configurés, ok si configurés
+  if (id === "tavily" || id === "brave_search") {
+    if (!configured) return "neutral";
+    return "ok";
   }
 
   if (id.startsWith("llm_")) {

@@ -173,6 +173,7 @@ def _hydrate_job_row(d: dict) -> dict:
         "recursive_refinement_enabled": False,
         "recursive_max_rounds": 0,
         "require_user_validation": True,
+        "mode": "cio",
     }
     merged = {**base_cfg, **{k: v for k, v in mc.items() if k in base_cfg}}
     merged["recursive_refinement_enabled"] = bool(merged.get("recursive_refinement_enabled"))
@@ -184,6 +185,10 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["require_user_validation"] = bool(mc.get("require_user_validation"))
     else:
         merged["require_user_validation"] = True
+    if "mode" in mc and str(mc.get("mode") or "cio") in ("cio", "triad", "single"):
+        merged["mode"] = str(mc["mode"])
+    else:
+        merged["mode"] = "cio"
     out["mission_config"] = merged
     out.pop("plan_json", None)
     out.pop("events_json", None)
@@ -237,8 +242,35 @@ def init_db():
         """)
         _ensure_llm_usage_table(conn)
         _ensure_custom_agents_table(conn)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mission_templates (
+                id              TEXT PRIMARY KEY,
+                name            TEXT NOT NULL,
+                description     TEXT NOT NULL DEFAULT '',
+                agent           TEXT NOT NULL DEFAULT 'coordinateur',
+                mission_text    TEXT NOT NULL,
+                variables_json  TEXT NOT NULL DEFAULT '[]',
+                config_json     TEXT NOT NULL DEFAULT '{}',
+                created_at      TEXT NOT NULL,
+                updated_at      TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS memory_history (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                contexts_json   TEXT NOT NULL,
+                comment         TEXT NOT NULL DEFAULT '',
+                created_at      TEXT NOT NULL
+            )
+        """)
         conn.commit()
     init_enterprise_memory_row()
+    # Graphe de connaissance entités (import tardif pour éviter les cycles)
+    try:
+        from services.knowledge import init_knowledge_table
+        init_knowledge_table()
+    except Exception:
+        pass  # non bloquant au démarrage
 
 
 def _ensure_llm_usage_table(conn) -> None:
@@ -373,6 +405,28 @@ def usage_cost_breakdown() -> dict[str, float | int]:
         "usage_tokens_last_hour": int(hour_in + hour_out),
         "usage_tokens_last_minute": int(min_in + min_out),
     }
+
+
+def usage_daily_breakdown(days: int = 7) -> list[dict]:
+    """Retourne le coût et les tokens par jour sur les `days` derniers jours (ordre croissant)."""
+    from datetime import date, timedelta
+
+    result = []
+    today = date.today()
+    with get_conn() as conn:
+        _ensure_llm_usage_table(conn)
+        for i in range(days - 1, -1, -1):
+            d = (today - timedelta(days=i)).isoformat()
+            row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd),0), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0) "
+                "FROM llm_usage_events WHERE substr(created_at,1,10) = ?",
+                (d,),
+            ).fetchone()
+            cost = float(row[0] or 0) if row else 0.0
+            ti = int(row[1] or 0) if row else 0
+            to = int(row[2] or 0) if row else 0
+            result.append({"date": d, "cost_usd": round(cost, 6), "tokens": ti + to})
+    return result
 
 
 def append_job_mission_thread(
@@ -566,6 +620,75 @@ def job_set_user_validated(job_id: str) -> bool:
         return cur.rowcount > 0
 
 
+def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
+    """Suspend le job en attente de validation HITL humaine."""
+    now = datetime.utcnow().isoformat()
+    gate_json = json.dumps(gate_payload, ensure_ascii=False)
+    with get_conn() as conn:
+        _ensure_jobs_hitl_column(conn)
+        cur = conn.execute(
+            "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, updated_at = ? "
+            "WHERE id = ? AND status = 'running'",
+            (gate_json, now, job_id),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
+def job_resume_after_hitl(job_id: str, *, approved: bool, comment: str = "") -> bool:
+    """Reprend ou annule un job suspendu en attente HITL."""
+    new_status = "running" if approved else "cancelled"
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_jobs_hitl_column(conn)
+        cur = conn.execute(
+            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, updated_at = ? "
+            "WHERE id = ? AND status = 'awaiting_validation'",
+            (new_status, now, (comment or "")[:1000], now, job_id),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
+def get_hitl_gate(job_id: str) -> dict | None:
+    """Retourne le payload de la gate HITL pour un job, ou None."""
+    with get_conn() as conn:
+        _ensure_jobs_hitl_column(conn)
+        row = conn.execute(
+            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment FROM jobs WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        gate = json.loads(d.get("hitl_gate_json") or "{}")
+    except json.JSONDecodeError:
+        gate = {}
+    return {
+        "gate": gate,
+        "resolved_at": d.get("hitl_resolved_at"),
+        "comment": d.get("hitl_comment"),
+    }
+
+
+def _ensure_jobs_hitl_column(conn) -> None:
+    """Ajoute les colonnes HITL si absentes (migration non-destructive)."""
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM jobs")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(jobs)")
+        cols = {row[1] for row in cur.fetchall()}
+    if "hitl_gate_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN hitl_gate_json TEXT")
+    if "hitl_resolved_at" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN hitl_resolved_at TEXT")
+    if "hitl_comment" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN hitl_comment TEXT")
+    conn.commit()
+
+
 def _hydrate_session_row(d: dict) -> dict:
     out = dict(d)
     try:
@@ -663,7 +786,7 @@ _CUSTOM_AGENT_RESERVED = frozenset(
     {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable"},
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
-    {"web", "linkedin", "email", "instagram", "facebook", "drive"},
+    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate"},
 )
 
 
@@ -895,3 +1018,143 @@ def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
             (json.dumps(lst, ensure_ascii=False), now),
         )
         conn.commit()
+
+
+# ── Mission Templates ─────────────────────────────────────────────────────────
+
+def list_mission_templates() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
+            "FROM mission_templates ORDER BY updated_at DESC"
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["variables"] = json.loads(d.pop("variables_json") or "[]")
+        except Exception:
+            d["variables"] = []
+        try:
+            d["config"] = json.loads(d.pop("config_json") or "{}")
+        except Exception:
+            d["config"] = {}
+        out.append(d)
+    return out
+
+
+def get_mission_template(template_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
+            "FROM mission_templates WHERE id=?",
+            (template_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["variables"] = json.loads(d.pop("variables_json") or "[]")
+    except Exception:
+        d["variables"] = []
+    try:
+        d["config"] = json.loads(d.pop("config_json") or "{}")
+    except Exception:
+        d["config"] = {}
+    return d
+
+
+def upsert_mission_template(
+    template_id: str,
+    *,
+    name: str,
+    description: str,
+    agent: str,
+    mission_text: str,
+    variables: list[str],
+    config: dict,
+    created_at: str | None = None,
+) -> dict:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        prev = conn.execute(
+            "SELECT created_at FROM mission_templates WHERE id=?", (template_id,)
+        ).fetchone()
+        c_at = created_at or (dict(prev)["created_at"] if prev else now)
+        conn.execute(
+            "INSERT OR REPLACE INTO mission_templates "
+            "(id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                template_id,
+                (name or "").strip(),
+                (description or "").strip(),
+                (agent or "coordinateur").strip(),
+                (mission_text or "").strip(),
+                json.dumps(variables or [], ensure_ascii=False),
+                json.dumps(config or {}, ensure_ascii=False),
+                c_at,
+                now,
+            ),
+        )
+        conn.commit()
+    return get_mission_template(template_id)  # type: ignore[return-value]
+
+
+def delete_mission_template(template_id: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM mission_templates WHERE id=?", (template_id,))
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
+# ── Memory History ────────────────────────────────────────────────────────────
+
+def snapshot_memory_history(comment: str = "") -> int:
+    """Capture l'état actuel de enterprise_memory.contexts_json dans memory_history. Retourne le nouvel id."""
+    mem = get_enterprise_memory()
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "INSERT INTO memory_history (contexts_json, comment, created_at) VALUES (?, ?, ?)",
+            (json.dumps(mem["contexts"], ensure_ascii=False), (comment or "").strip(), now),
+        )
+        conn.commit()
+        return int(cur.lastrowid or 0)
+
+
+def list_memory_history(limit: int = 20) -> list[dict]:
+    limit = max(1, min(limit, 100))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, comment, created_at, substr(contexts_json, 1, 120) AS preview "
+            "FROM memory_history ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_memory_history_snapshot(snapshot_id: int) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, contexts_json, comment, created_at FROM memory_history WHERE id=?",
+            (snapshot_id,),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["contexts"] = json.loads(d.pop("contexts_json") or "{}")
+    except Exception:
+        d["contexts"] = {}
+    return d
+
+
+def restore_memory_history_snapshot(snapshot_id: int) -> dict:
+    """Restaure un snapshot : crée un snapshot 'avant restauration' puis écrase la mémoire active."""
+    snap = get_memory_history_snapshot(snapshot_id)
+    if not snap:
+        raise ValueError(f"Snapshot {snapshot_id} introuvable")
+    snapshot_memory_history(comment=f"avant restauration snapshot #{snapshot_id}")
+    merge_enterprise_contexts(snap["contexts"])
+    return get_enterprise_memory()

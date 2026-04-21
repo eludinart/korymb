@@ -1,0 +1,14 @@
+{
+  "key": "developpeur",
+  "petales": [
+    "architecture",
+    "fiabilite",
+    "performance",
+    "delivery"
+  ],
+  "skills": [
+    "code_quality",
+    "api_contracts",
+    "refactor_safety"
+  ]
+}

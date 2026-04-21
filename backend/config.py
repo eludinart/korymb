@@ -77,3 +77,7 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# ── Températures LLM par profil cognitif ─────────────────────────────────────
+TEMP_TECH: float = 0.2   # exécution technique : code, analyse syntaxique, production déterministe
+TEMP_SYST: float = 0.7   # réflexion systémique : planification, critique, alignment

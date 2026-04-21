@@ -7,12 +7,7 @@ import { agentHeaders, requestJson } from "../../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../../lib/missionRefinement";
 import { QK } from "../../../lib/queryClient";
 
-type JobRow = {
-  job_id: string;
-  mission?: string;
-  status?: string;
-  agent?: string;
-};
+import type { JobRow, TriadMode, MissionConfig } from "../../../lib/types";
 
 const ACTIVE = new Set(["running", "pending"]);
 

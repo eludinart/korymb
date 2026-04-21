@@ -1,14 +1,9 @@
 import { stripMarkdownLight } from "./normalizeLooseMarkdown";
+import type { BossJobLike } from "@/lib/types";
 
 /** Vue « grand pilotage » : tri des missions et libellés de statut homogènes. */
 
-export type BossJobLike = {
-  job_id?: string;
-  status?: string;
-  result?: string | null;
-  user_validated_at?: string | null;
-  mission_closed_by_user?: boolean;
-};
+export type { BossJobLike } from "@/lib/types";
 
 export function missionStatusMeta(status?: string | null): { label: string; className: string } {
   const s = String(status || "unknown").toLowerCase();
@@ -20,6 +15,8 @@ export function missionStatusMeta(status?: string | null): { label: string; clas
     return { label: "Interrompue", className: "bg-orange-100 text-orange-950 ring-1 ring-orange-200" };
   if (s === "pending" || s === "accepted")
     return { label: "En attente", className: "bg-slate-100 text-slate-800 ring-1 ring-slate-200" };
+  if (s === "awaiting_validation")
+    return { label: "En attente HITL", className: "bg-violet-100 text-violet-950 ring-1 ring-violet-300" };
   if (s.startsWith("error") || s === "failed")
     return { label: "Erreur", className: "bg-red-100 text-red-950 ring-1 ring-red-200" };
   return { label: status || "—", className: "bg-slate-100 text-slate-800 ring-1 ring-slate-200" };

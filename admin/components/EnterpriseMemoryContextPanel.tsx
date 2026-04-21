@@ -4,11 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../lib/api";
 
-type MemoryPayload = {
-  contexts?: Record<string, string>;
-  recent_missions?: unknown[];
-  updated_at?: string | null;
-};
+import type { MemoryPayload } from "../lib/types";
 
 type Props = {
   contextKey: string;

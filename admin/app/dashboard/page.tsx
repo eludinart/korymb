@@ -9,19 +9,7 @@ import { plainTextSnippet, sortJobsForBossView } from "../../lib/missionBossView
 import { normalizeTeamRows, type TeamRow } from "../../lib/jobTeam";
 import { QK } from "../../lib/queryClient";
 
-type AgentCard = { key: string; label: string; role?: string };
-
-type JobRow = {
-  job_id: string;
-  mission?: string;
-  status?: string;
-  agent?: string;
-  team?: unknown;
-  created_at?: string;
-  result?: string | null;
-  user_validated_at?: string | null;
-  mission_closed_by_user?: boolean;
-};
+import type { AgentCard, JobRow } from "../../lib/types";
 
 const AGENT_ICONS: Record<string, string> = {
   commercial: "💼",
@@ -301,43 +289,78 @@ export default function DashboardPage() {
       </section>
 
       <section className="bg-white border border-slate-200 rounded-2xl p-5">
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 className="text-sm font-semibold text-slate-900">Activité récente</h2>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <h2 className="text-base font-semibold text-slate-900">Activité récente</h2>
           <Link href="/missions" className="text-xs font-medium text-violet-800 hover:underline">
-            Toutes les missions
+            Toutes les missions →
           </Link>
         </div>
-        <p className="mb-3 text-xs text-slate-500">
-          Tri prioritaire : à traiter / en cours / avec livrable. Aperçu texte de la synthèse quand elle est déjà là.
+        <p className="mb-4 text-xs text-slate-400">
+          Tri : à valider · en cours · avec livrable · reste.
         </p>
         {jobs.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
         {jobs.isError ? <p className="text-sm text-red-700">Impossible de charger les missions.</p> : null}
-        {jobs.isSuccess && recentJobs.length === 0 ? <p className="text-sm text-slate-500">Aucune mission récente.</p> : null}
+        {jobs.isSuccess && recentJobs.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-8">Aucune mission récente.</p>
+        ) : null}
         {jobs.isSuccess && recentJobs.length > 0 ? (
-          <ul className="divide-y divide-slate-100">
+          <ul className="space-y-2">
             {recentJobs.map((j) => {
-              const snip = plainTextSnippet(j.result);
+              const snip = plainTextSnippet(j.result, 160);
+              const shortTitle = plainTextSnippet(j.mission, 120);
+              const dateStr = j.created_at
+                ? new Date(j.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })
+                : null;
               return (
-                <li key={j.job_id} className="py-3 flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1.5">
+                <li
+                  key={j.job_id}
+                  className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 hover:bg-slate-50 transition-colors"
+                >
+                  {/* icône agent */}
+                  <span className="mt-0.5 shrink-0 text-xl leading-none" aria-hidden>
+                    {agentIcon(j.agent || "coordinateur")}
+                  </span>
+
+                  {/* corps */}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    {/* ligne 1 : badge + titre */}
                     <div className="flex flex-wrap items-center gap-2">
                       <MissionStatusBadge status={j.status} />
+                      <p
+                        className="flex-1 min-w-0 text-sm font-semibold leading-snug text-slate-900 line-clamp-2"
+                        title={j.mission || undefined}
+                      >
+                        {shortTitle || "(sans titre)"}
+                      </p>
                     </div>
-                    <p className="text-sm font-medium leading-snug text-slate-900">{j.mission || "(sans titre)"}</p>
-                    <p className="text-xs text-slate-500 font-mono">
-                      #{j.job_id} · {j.agent || "coordinateur"}
+
+                    {/* ligne 2 : méta */}
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
+                      <span className="font-mono">#{j.job_id.slice(0, 8)}</span>
+                      <span>·</span>
+                      <span className="capitalize">{(j.agent || "coordinateur").replace(/_/g, " ")}</span>
+                      {dateStr ? (
+                        <>
+                          <span>·</span>
+                          <span>{dateStr}</span>
+                        </>
+                      ) : null}
                     </p>
+
+                    {/* ligne 3 : aperçu résultat */}
                     {snip ? (
-                      <p className="text-xs leading-relaxed text-slate-600 line-clamp-2" title={snip}>
+                      <p className="text-xs leading-relaxed text-slate-500 line-clamp-2 italic" title={snip}>
                         {snip}
                       </p>
                     ) : null}
                   </div>
+
+                  {/* action */}
                   <Link
                     href={`/missions?job=${encodeURIComponent(j.job_id)}`}
-                    className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-900 hover:bg-violet-100"
+                    className="shrink-0 self-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-900 hover:bg-violet-100 whitespace-nowrap"
                   >
-                    Synthèse CIO
+                    Voir →
                   </Link>
                 </li>
               );
