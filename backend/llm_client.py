@@ -63,6 +63,58 @@ _OPENROUTER_RETRY_STATUS = frozenset({429, 503})
 _OPENROUTER_MAX_RETRIES = max(1, int(os.getenv("OPENROUTER_MAX_RETRIES", "6")))
 
 
+def _normalize_chat_completions_url(base_url: str) -> str:
+    """Accepte une base API ou un endpoint complet /chat/completions."""
+    base = str(base_url or "").strip().rstrip("/")
+    if not base:
+        return "https://openrouter.ai/api/v1/chat/completions"
+    if base.endswith("/chat/completions"):
+        return base
+    return f"{base}/chat/completions"
+
+
+def _normalize_model_id(model: Any, *, fallback: str) -> str:
+    """
+    Garantit un model_id unique.
+    Protège contre une valeur saisie comme liste CSV dans les réglages.
+    """
+    raw = str(model or "").strip()
+    if not raw:
+        return fallback
+    if "," in raw:
+        chosen = raw.split(",", 1)[0].strip()
+        if chosen:
+            logger.warning("Model ID CSV détecté, premier modèle retenu: %s", chosen)
+            return chosen
+    return raw
+
+
+def format_llm_provider_http_error(response: httpx.Response, *, max_chars: int = 900) -> str:
+    """
+    Message court à afficher quand /chat/completions renvoie une erreur (OpenRouter, etc.).
+    """
+    raw = (response.text or "").strip().replace("\r\n", "\n")
+    preview = raw if len(raw) <= max_chars else raw[: max_chars - 3] + "..."
+    try:
+        data = response.json()
+    except Exception:
+        return preview or f"Réponse vide (HTTP {response.status_code})."
+    if not isinstance(data, dict):
+        return preview or f"HTTP {response.status_code}"
+    err = data.get("error")
+    if isinstance(err, dict):
+        inner = err.get("message") or err.get("msg") or err.get("code")
+        if inner is not None and str(inner).strip():
+            return str(inner).strip()[:max_chars]
+    if isinstance(err, str) and err.strip():
+        return err.strip()[:max_chars]
+    for key in ("message", "detail"):
+        v = data.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()[:max_chars]
+    return preview or f"HTTP {response.status_code}"
+
+
 def openrouter_post_with_retries(
     client: httpx.Client,
     url: str,
@@ -136,8 +188,8 @@ def _openrouter_chat(
     usage_context: Any = _UNSET,
 ) -> tuple[str, int, int]:
     _assert_llm_ready(cfg)
-    base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
-    url = f"{base}/chat/completions"
+    base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1")
+    url = _normalize_chat_completions_url(base)
     headers = {
         "Authorization": f"Bearer {cfg['openrouter_api_key']}",
         "Content-Type": "application/json",
@@ -150,16 +202,20 @@ def _openrouter_chat(
         headers["X-Title"] = title
 
     model, tier_key, pin, pout = resolve_openrouter_tier(cfg, or_profile)
+    model_id = _normalize_model_id(model, fallback="openai/gpt-4o-mini")
     body = {
-        "model": model,
+        "model": model_id,
         "messages": messages,
         "max_tokens": max_tokens,
     }
     with httpx.Client(timeout=120.0) as client:
         r = openrouter_post_with_retries(client, url, headers, body)
     if r.status_code >= 400:
-        logger.warning("OpenRouter HTTP %s — %s", r.status_code, r.text[:800])
-        r.raise_for_status()
+        hint = format_llm_provider_http_error(r)
+        logger.warning("LLM HTTP %s — %s", r.status_code, r.text[:800])
+        raise RuntimeError(
+            f"Le fournisseur LLM a répondu HTTP {r.status_code}. {hint}"
+        ) from None
     data = r.json()
     try:
         text = _message_content_to_text(data["choices"][0]["message"].get("content"))
@@ -170,7 +226,7 @@ def _openrouter_chat(
     ct = int(usage.get("completion_tokens") or 0)
     log_llm_call_financial(
         provider="openrouter",
-        model=model,
+        model=model_id,
         tier=tier_key,
         tokens_in=pt,
         tokens_out=ct,
@@ -201,7 +257,7 @@ def llm_turn(
         return _openrouter_chat(
             messages,
             max_tokens,
-            cfg,
+            dict(cfg),
             or_profile=or_profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
@@ -259,7 +315,7 @@ def llm_chat(
         return _openrouter_chat(
             om,
             max_tokens,
-            cfg,
+            dict(cfg),
             or_profile=or_profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,

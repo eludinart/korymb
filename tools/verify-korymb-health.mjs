@@ -37,7 +37,8 @@ function readBackendVersion() {
 }
 
 const expected = readBackendVersion();
-let base = readEnvValue("VITE_AI_BACKEND_URL").replace(/\/$/, "");
+let base = readEnvValue("NEXT_PUBLIC_KORYMB_API_URL").replace(/\/$/, "");
+if (!base) base = readEnvValue("VITE_AI_BACKEND_URL").replace(/\/$/, "");
 if (!base) base = "http://127.0.0.1:8020";
 
 const attempts = 12;

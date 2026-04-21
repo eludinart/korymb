@@ -5,19 +5,25 @@ Fichier : backend/data/runtime_settings.json (déjà ignoré par git via backend
 from __future__ import annotations
 
 import json
+import os
+import tempfile
+from threading import Lock
 from pathlib import Path
 from typing import Any
 
 from config import settings
 
 PATH = Path(__file__).parent / "data" / "runtime_settings.json"
+_WRITE_LOCK = Lock()
 
 _KEYS = frozenset({
     "llm_provider",
     "anthropic_api_key",
     "anthropic_model",
+    "anthropic_models",
     "openrouter_api_key",
     "openrouter_model",
+    "openrouter_models",
     "openrouter_base_url",
     "openrouter_http_referer",
     "openrouter_app_title",
@@ -46,8 +52,10 @@ def merge_with_env() -> dict[str, Any]:
         "llm_provider": settings.llm_provider,
         "anthropic_api_key": settings.anthropic_api_key,
         "anthropic_model": settings.anthropic_model,
+        "anthropic_models": settings.anthropic_models,
         "openrouter_api_key": settings.openrouter_api_key,
         "openrouter_model": settings.openrouter_model,
+        "openrouter_models": settings.openrouter_models,
         "openrouter_base_url": settings.openrouter_base_url,
         "openrouter_http_referer": settings.openrouter_http_referer,
         "openrouter_app_title": settings.openrouter_app_title,
@@ -72,6 +80,10 @@ def merge_with_env() -> dict[str, Any]:
             out[k] = str(v).strip() if v is not None else ""
             continue
         out[k] = v
+
+    # Ancien fournisseur LLM « google » (AI Studio direct) : bascule OpenRouter.
+    if str(out.get("llm_provider") or "").strip().lower() == "google":
+        out["llm_provider"] = "openrouter"
     return out
 
 
@@ -90,7 +102,8 @@ def save_partial(updates: dict[str, Any]) -> dict[str, Any]:
         if isinstance(v, str) and (not v.strip()) and k == "llm_provider":
             continue
         if isinstance(v, str) and (not v.strip()) and k in (
-            "anthropic_model", "openrouter_model", "openrouter_base_url",
+            "anthropic_model", "anthropic_models",
+            "openrouter_model", "openrouter_models", "openrouter_base_url",
         ):
             continue
         if k in ("openrouter_http_referer", "openrouter_app_title"):
@@ -115,8 +128,15 @@ def save_partial(updates: dict[str, Any]) -> dict[str, Any]:
             current[k] = v
         else:
             current[k] = v
-    with open(PATH, "w", encoding="utf-8") as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
+    PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(current, ensure_ascii=False, indent=2)
+    with _WRITE_LOCK:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(PATH.parent)) as tmp:
+            tmp.write(payload)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = tmp.name
+        os.replace(tmp_path, PATH)
     return merge_with_env()
 
 

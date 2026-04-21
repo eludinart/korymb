@@ -1,29 +1,133 @@
 """
-database.py — Persistance SQLite pour l'historique des jobs.
+database.py — Persistance backend (SQLite par défaut, MariaDB optionnel).
 
 Colonnes d'observabilité (plan CIO, flux d'événements) : extensibles vers
 pagination / table events séparée sans casser l'API si on garde events_json
 comme projection matérialisée.
 """
 import json
+import os
+import re
 import sqlite3
 from pathlib import Path
 from datetime import datetime
+from typing import Any
+from dotenv import load_dotenv
+
+try:
+    import pymysql
+    _PYMYSQL_OK = True
+except Exception:
+    pymysql = None  # type: ignore[assignment]
+    _PYMYSQL_OK = False
 
 DB_PATH = Path(__file__).parent / "data" / "korymb.db"
+# Source de vérité config backend
+load_dotenv(Path(__file__).with_name(".env"), override=True)
+DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
 
 
-def get_conn() -> sqlite3.Connection:
+def _is_mariadb() -> bool:
+    return DB_ENGINE in {"mariadb", "mysql"}
+
+
+def _maria_cfg() -> dict[str, Any]:
+    return {
+        "host": str(os.getenv("KORYMB_DB_HOST") or os.getenv("FLEUR_DB_HOST") or "127.0.0.1"),
+        "port": int(os.getenv("KORYMB_DB_PORT") or os.getenv("FLEUR_DB_PORT") or "3306"),
+        "user": str(os.getenv("KORYMB_DB_USER") or os.getenv("FLEUR_DB_USER") or ""),
+        "password": str(os.getenv("KORYMB_DB_PASSWORD") or os.getenv("FLEUR_DB_PASSWORD") or ""),
+        "database": str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb"),
+        "charset": "utf8mb4",
+        "connect_timeout": 5,
+        "read_timeout": 10,
+        "write_timeout": 10,
+        "autocommit": False,
+    }
+
+
+def _qmark_to_percent(sql: str) -> str:
+    return sql.replace("?", "%s")
+
+
+class _MariaRow(dict):
+    def __init__(self, data: dict[str, Any], order: list[str]):
+        super().__init__(data)
+        self._order = order
+
+    def __getitem__(self, key):  # type: ignore[override]
+        if isinstance(key, int):
+            if key < 0 or key >= len(self._order):
+                raise IndexError(key)
+            return dict.__getitem__(self, self._order[key])
+        return dict.__getitem__(self, key)
+
+
+class _MariaCursorAdapter:
+    def __init__(self, cur):
+        self._cur = cur
+        self.rowcount = int(getattr(cur, "rowcount", 0) or 0)
+
+    def _row_to_adapter(self, row: dict[str, Any] | None):
+        if row is None:
+            return None
+        order = list(row.keys())
+        return _MariaRow(row, order)
+
+    def fetchone(self):
+        return self._row_to_adapter(self._cur.fetchone())
+
+    def fetchall(self):
+        rows = self._cur.fetchall() or []
+        return [self._row_to_adapter(r) for r in rows]
+
+
+class _MariaConnAdapter:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def execute(self, sql: str, params: tuple | list | None = None):
+        sql_use = _qmark_to_percent(sql)
+        # Compat SQLite -> MariaDB
+        if "INSERT OR REPLACE INTO" in sql_use:
+            sql_use = sql_use.replace("INSERT OR REPLACE INTO", "REPLACE INTO")
+        cur = self._conn.cursor(pymysql.cursors.DictCursor)
+        cur.execute(sql_use, tuple(params or ()))
+        return _MariaCursorAdapter(cur)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if exc is not None:
+                self._conn.rollback()
+        finally:
+            self._conn.close()
+
+
+def get_conn():
+    if _is_mariadb():
+        if not _PYMYSQL_OK:
+            raise RuntimeError("KORYMB_DB_ENGINE=mariadb mais pymysql n'est pas installé.")
+        return _MariaConnAdapter(pymysql.connect(**_maria_cfg()))
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def _ensure_jobs_columns(conn: sqlite3.Connection) -> None:
+def _ensure_jobs_columns(conn) -> None:
     """Ajoute les colonnes manquantes si la DB a été créée avec une ancienne version."""
-    cur = conn.execute("PRAGMA table_info(jobs)")
-    cols = {row[1] for row in cur.fetchall()}
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM jobs")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(jobs)")
+        cols = {row[1] for row in cur.fetchall()}
     if "tokens_in" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN tokens_in INTEGER DEFAULT 0")
     if "tokens_out" not in cols:
@@ -73,7 +177,7 @@ def _hydrate_job_row(d: dict) -> dict:
     merged = {**base_cfg, **{k: v for k, v in mc.items() if k in base_cfg}}
     merged["recursive_refinement_enabled"] = bool(merged.get("recursive_refinement_enabled"))
     try:
-        merged["recursive_max_rounds"] = max(0, min(5, int(merged.get("recursive_max_rounds") or 0)))
+        merged["recursive_max_rounds"] = max(0, min(12, int(merged.get("recursive_max_rounds") or 0)))
     except (TypeError, ValueError):
         merged["recursive_max_rounds"] = 0
     if "require_user_validation" in mc:
@@ -132,11 +236,34 @@ def init_db():
             )
         """)
         _ensure_llm_usage_table(conn)
+        _ensure_custom_agents_table(conn)
         conn.commit()
     init_enterprise_memory_row()
 
 
-def _ensure_llm_usage_table(conn: sqlite3.Connection) -> None:
+def _ensure_llm_usage_table(conn) -> None:
+    if _is_mariadb():
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS llm_usage_events (
+                id              BIGINT PRIMARY KEY AUTO_INCREMENT,
+                created_at      TEXT NOT NULL,
+                job_id          TEXT,
+                context_label   TEXT NOT NULL,
+                tier            TEXT NOT NULL,
+                model           TEXT NOT NULL,
+                provider        TEXT NOT NULL,
+                tokens_in       INTEGER NOT NULL DEFAULT 0,
+                tokens_out      INTEGER NOT NULL DEFAULT 0,
+                cost_usd        DOUBLE NOT NULL DEFAULT 0
+            )
+            """
+        )
+        try:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)")
+        except Exception:
+            pass
+        return
     cur = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_usage_events'",
     ).fetchone()
@@ -372,6 +499,51 @@ def list_jobs(limit: int = 50) -> list[dict]:
     return [_hydrate_job_row(dict(row)) for row in rows]
 
 
+def list_jobs_prompt_digest(*, limit: int = 12, exclude_job_id: str | None = None) -> list[dict]:
+    """
+    Lignes jobs légères (sans hydratation JSON lourde) pour injection dans le prompt CIO :
+    missions terminées ou annulées avec un résultat exploitable.
+    """
+    lim = max(1, min(20, int(limit)))
+    overfetch = min(60, lim * 4)
+    ex = (exclude_job_id or "").strip()
+    with get_conn() as conn:
+        if ex:
+            rows = conn.execute(
+                "SELECT id, agent, mission, status, result, created_at, source FROM jobs "
+                "WHERE id != ? ORDER BY created_at DESC LIMIT ?",
+                (ex, overfetch),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, agent, mission, status, result, created_at, source FROM jobs "
+                "ORDER BY created_at DESC LIMIT ?",
+                (overfetch,),
+            ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        st = str(d.get("status") or "")
+        res = d.get("result")
+        txt = res.strip() if isinstance(res, str) else ""
+        if st not in ("completed", "cancelled"):
+            continue
+        if st == "cancelled" and not txt:
+            continue
+        out.append({
+            "id": str(d.get("id") or ""),
+            "agent": str(d.get("agent") or ""),
+            "mission": str(d.get("mission") or ""),
+            "status": st,
+            "result": txt,
+            "created_at": str(d.get("created_at") or ""),
+            "source": str(d.get("source") or ""),
+        })
+        if len(out) >= lim:
+            break
+    return out
+
+
 def sum_jobs_tokens_total() -> int:
     """Somme des tokens enregistrés sur toutes les missions (persistées)."""
     with get_conn() as conn:
@@ -474,9 +646,157 @@ def mission_session_commit(
         conn.commit()
 
 
-_CONTEXT_KEYS = frozenset(
+def delete_mission_session(session_id: str) -> bool:
+    """Supprime une ligne mission_sessions. Retourne True si une ligne a été effacée."""
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM mission_sessions WHERE id=?", (session_id,))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+_CONTEXT_KEYS_LEGACY = frozenset(
     {"global", "commercial", "community_manager", "developpeur", "comptable"},
 )
+
+CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
+_CUSTOM_AGENT_RESERVED = frozenset(
+    {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable"},
+)
+ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
+    {"web", "linkedin", "email", "instagram", "facebook", "drive"},
+)
+
+
+def _ensure_custom_agents_table(conn) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS custom_agents (
+            agent_key TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT '',
+            system_prompt TEXT NOT NULL,
+            tools_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def list_custom_agent_keys_raw() -> list[str]:
+    with get_conn() as conn:
+        _ensure_custom_agents_table(conn)
+        rows = conn.execute("SELECT agent_key FROM custom_agents ORDER BY agent_key").fetchall()
+    out: list[str] = []
+    for r in rows or []:
+        try:
+            k = r["agent_key"]
+        except (TypeError, KeyError, IndexError):
+            k = r[0] if r else ""
+        if k:
+            out.append(str(k))
+    return out
+
+
+def _memory_context_allowed_keys() -> frozenset[str]:
+    return _CONTEXT_KEYS_LEGACY | frozenset(list_custom_agent_keys_raw())
+
+
+def validate_custom_agent_key(raw: str) -> tuple[str, str | None]:
+    s = (raw or "").strip().lower().replace("-", "_")
+    if not s:
+        return "", "clé vide"
+    if not CUSTOM_AGENT_KEY_RE.match(s):
+        return (
+            "",
+            "clé invalide : 2 à 48 caractères, minuscules, chiffres et underscores, commence par une lettre",
+        )
+    if s in _CUSTOM_AGENT_RESERVED:
+        return "", f"clé réservée ou déjà utilisée par un rôle intégré : {s}"
+    return s, None
+
+
+def fetch_custom_agents_definitions_merge_shape() -> dict[str, dict[str, Any]]:
+    """Forme compatible avec BUILTIN_AGENTS_DEF (system, label, role, tools, is_manager)."""
+    with get_conn() as conn:
+        _ensure_custom_agents_table(conn)
+        rows = conn.execute(
+            "SELECT agent_key, label, role, system_prompt, tools_json FROM custom_agents ORDER BY agent_key"
+        ).fetchall()
+    out: dict[str, dict[str, Any]] = {}
+    for row in rows or []:
+        d = dict(row)
+        key = str(d.get("agent_key") or "").strip()
+        if not key:
+            continue
+        try:
+            tools_raw = json.loads(d.get("tools_json") or "[]")
+        except json.JSONDecodeError:
+            tools_raw = []
+        if not isinstance(tools_raw, list):
+            tools_raw = []
+        tools = [str(x).strip() for x in tools_raw if str(x).strip() in ALLOWED_AGENT_TOOL_TAGS]
+        label = str(d.get("label") or key).strip() or key
+        role = str(d.get("role") or "").strip()
+        system = str(d.get("system_prompt") or "").strip()
+        out[key] = {
+            "label": label,
+            "role": role,
+            "tools": tools,
+            "is_manager": False,
+            "system": system + ("\n\n" if system and not system.endswith("\n") else ""),
+        }
+    return out
+
+
+def upsert_custom_agent(
+    agent_key: str,
+    *,
+    label: str,
+    role: str,
+    system_prompt: str,
+    tools: list[str],
+) -> None:
+    canon, err = validate_custom_agent_key(agent_key)
+    if err:
+        raise ValueError(err)
+    tools_f = [str(t).strip() for t in (tools or []) if str(t).strip() in ALLOWED_AGENT_TOOL_TAGS]
+    now = datetime.utcnow().isoformat()
+    sys_clean = (system_prompt or "").strip()
+    if not sys_clean:
+        raise ValueError("prompt / périmètre (system) vide")
+    lab = (label or "").strip() or canon
+    role_s = (role or "").strip()
+    with get_conn() as conn:
+        _ensure_custom_agents_table(conn)
+        prev = conn.execute("SELECT created_at FROM custom_agents WHERE agent_key=?", (canon,)).fetchone()
+        created = now
+        if prev is not None:
+            try:
+                created = str(dict(prev)["created_at"])
+            except Exception:
+                try:
+                    created = str(prev[0])
+                except Exception:
+                    created = now
+        conn.execute(
+            "INSERT OR REPLACE INTO custom_agents "
+            "(agent_key, label, role, system_prompt, tools_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (canon, lab, role_s, sys_clean, json.dumps(tools_f, ensure_ascii=False), created, now),
+        )
+        conn.commit()
+
+
+def delete_custom_agent(agent_key: str) -> bool:
+    canon, err = validate_custom_agent_key(agent_key)
+    if err:
+        raise ValueError(err)
+    with get_conn() as conn:
+        _ensure_custom_agents_table(conn)
+        cur = conn.execute("DELETE FROM custom_agents WHERE agent_key=?", (canon,))
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
 def init_enterprise_memory_row() -> None:
@@ -509,17 +829,18 @@ def get_enterprise_memory() -> dict:
         row = conn.execute(
             "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE id=1",
         ).fetchone()
+    allowed = _memory_context_allowed_keys()
     if not row:
-        return {"contexts": {k: "" for k in _CONTEXT_KEYS}, "recent_missions": [], "updated_at": None}
+        return {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
     try:
         ctx = json.loads(row["contexts_json"] or "{}")
     except json.JSONDecodeError:
         ctx = {}
     if not isinstance(ctx, dict):
         ctx = {}
-    base = {k: "" for k in _CONTEXT_KEYS}
+    base = {k: "" for k in allowed}
     for k, v in ctx.items():
-        if k in _CONTEXT_KEYS and isinstance(v, str):
+        if k in allowed and isinstance(v, str):
             base[k] = v
     try:
         recent = json.loads(row["recent_missions_json"] or "[]")
@@ -538,9 +859,10 @@ def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
     """Fusionne les champs de contexte (texte libre par rôle + global)."""
     init_enterprise_memory_row()
     cur = get_enterprise_memory()
+    allowed = _memory_context_allowed_keys()
     base = dict(cur["contexts"])
     for k, v in (updates or {}).items():
-        if k in _CONTEXT_KEYS and isinstance(v, str):
+        if k in allowed and isinstance(v, str):
             base[k] = v
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
@@ -553,19 +875,19 @@ def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
 
 
 def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
-    """Ajoute une entrée courte dans l’historique des missions (mémoire opérationnelle)."""
+    """Ajoute une entrée dans l'historique des missions (mémoire opérationnelle, texte long pour le CIO)."""
     init_enterprise_memory_row()
     cur = get_enterprise_memory()
     lst = list(cur.get("recent_missions") or [])
     lst.append(
         {
             "job_id": job_id,
-            "mission": (mission or "")[:500],
-            "preview": (preview or "")[:450],
+            "mission": (mission or "")[:2000],
+            "preview": (preview or "")[:10000],
             "ts": datetime.utcnow().isoformat(),
         },
     )
-    lst = lst[-14:]
+    lst = lst[-10:]
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(

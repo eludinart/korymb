@@ -1,20 +1,16 @@
-from pathlib import Path
 from typing import Literal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-# Racine du dépôt : le `.env` Vite (OPENROUTER_*, LLM_*) y vit souvent ; `backend/.env` reste la source prioritaire (dernier chargé).
+from pathlib import Path
+
 _BACKEND_DIR = Path(__file__).resolve().parent
-_REPO_ROOT = _BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(
-            _REPO_ROOT / ".env",
-            _BACKEND_DIR / ".env",
-        ),
+        env_file=_BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -28,8 +24,8 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # Par défaut pydantic-settings : env puis .env → le shell écrase le fichier.
-        # Ici .env avant env : `backend/.env` reste aligné avec VITE_AGENT_SECRET (évite une AGENT_API_SECRET « coincée » dans le terminal).
+        # Un seul fichier .env : backend/.env.
+        # On conserve la priorité du fichier sur les variables shell.
         return init_settings, dotenv_settings, env_settings, file_secret_settings
 
     # ── Auth interne Korymb ─────────────────────────────────────────────────
@@ -40,14 +36,28 @@ class Settings(BaseSettings):
     def strip_agent_secret(cls, v):
         return v.strip() if isinstance(v, str) else v
 
-    # ── Fournisseur LLM : anthropic | openrouter ────────────────────────────
+    @field_validator("llm_provider", mode="before")
+    @classmethod
+    def coerce_legacy_google_llm_provider(cls, v):
+        """Ancien LLM_PROVIDER=google (AI Studio direct) : traité comme OpenRouter."""
+        if isinstance(v, str) and v.strip().lower() == "google":
+            return "openrouter"
+        return v
+
+    # ── Fournisseur LLM : anthropic | openrouter ─────────────────────────────
     llm_provider: Literal["anthropic", "openrouter"] = "anthropic"
 
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_models: str = "claude-sonnet-4-6,claude-3-5-haiku-latest"
 
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"
+    openrouter_models: str = (
+        "google/gemma-3-27b-it:free,google/gemma-2-9b-it:free,google/gemma-7b-it:free,"
+        "google/gemini-2.0-flash-exp:free,openai/gpt-4o-mini,google/gemini-2.5-flash-lite,"
+        "anthropic/claude-3.5-haiku"
+    )
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_http_referer: str = ""
     openrouter_app_title: str = "Korymb"

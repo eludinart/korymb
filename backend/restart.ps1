@@ -9,7 +9,7 @@
   Depuis PowerShell : .\restart.ps1 (le répertoire courant n’est pas dans le PATH des scripts).
 
 .PARAMETER Port
-  Port d'écoute. Si 0 : $env:UVICORN_PORT, puis VITE_PROXY_TARGET dans .env (racine ou local), sinon 8002.
+  Port d'écoute. Si 0 : $env:UVICORN_PORT, puis NEXT_PUBLIC_KORYMB_API_URL / VITE_PROXY_TARGET dans .env (racine ou local), sinon 8020.
 
 .PARAMETER BindHost
   Adresse d'écoute (défaut 127.0.0.1). Ne pas utiliser le nom Host (réservé PowerShell).
@@ -170,6 +170,7 @@ function Read-PortFromEnvFiles {
         if (-not (Test-Path -LiteralPath $p)) { continue }
         foreach ($line in Get-Content -LiteralPath $p -Encoding utf8 -ErrorAction SilentlyContinue) {
             if ($line -match '^\s*UVICORN_PORT\s*=\s*(\d+)\s*$') { return [int]$Matches[1] }
+            if ($line -match '^\s*NEXT_PUBLIC_KORYMB_API_URL\s*=\s*https?://[^:]+:\s*(\d+)') { return [int]$Matches[1] }
             if ($line -match '^\s*VITE_PROXY_TARGET\s*=\s*https?://[^:]+:\s*(\d+)') { return [int]$Matches[1] }
         }
     }
@@ -183,7 +184,7 @@ function Resolve-Port {
     if ($e -match '^\d+$') { return [int]$e }
     $fromFile = Read-PortFromEnvFiles
     if ($null -ne $fromFile) { return $fromFile }
-    return 8002
+    return 8020
 }
 
 function Stop-ListenersOnPort {
@@ -296,6 +297,18 @@ try {
         exit 1
     }
 
+    # Sous Windows, --reload peut parfois garder une vieille version si __pycache__ est coincé.
+    $pycRoot = Join-Path $backendDir "__pycache__"
+    if (Test-Path -LiteralPath $pycRoot) {
+        try {
+            Remove-Item -LiteralPath $pycRoot -Recurse -Force -ErrorAction Stop
+            Write-Host "Cache Python supprime : __pycache__ (racine backend)." -ForegroundColor DarkGray
+        }
+        catch {
+            Write-Warning ("Impossible de supprimer __pycache__ racine : {0} (poursuite.)" -f $_)
+        }
+    }
+
     # --app-dir : même si le script est lancé sans WorkingDirectory correct, Python charge
     # toujours `main` / `version` depuis ce dossier (sinon un autre `main.py` sur le PATH peut répondre en 3.0.0).
     if ($NoReload) {
@@ -309,7 +322,8 @@ try {
         $uvArgs = @(
             "-m", "uvicorn", "main:app",
             "--app-dir", $backendDir,
-            "--reload", "--host", $BindHost, "--port", "$Port"
+            "--reload", "--reload-dir", $backendDir,
+            "--host", $BindHost, "--port", "$Port"
         )
     }
 

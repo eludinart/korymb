@@ -1,7 +1,15 @@
 from crewai import Agent, LLM
 from config import settings
 from knowledge import search_knowledge, get_fleur_context, FLEUR_CONTEXT
-from tools import web_search, read_webpage, post_instagram, post_facebook, search_linkedin, send_email
+from tools import (
+    web_search,
+    read_webpage,
+    post_instagram,
+    post_facebook,
+    search_linkedin,
+    send_email,
+    upload_google_drive,
+)
 from db_fleur import db_list_tables, db_describe_table, db_query, db_analyze_users
 
 _llm = LLM(
@@ -29,7 +37,15 @@ commercial = Agent(
         "Ton terrain naturel : coachs, psys, facilitateurs, professionnels du lien."
         + _CONTEXT
     ),
-    tools=[search_knowledge, get_fleur_context, web_search, search_linkedin, send_email, read_webpage],
+    tools=[
+        search_knowledge,
+        get_fleur_context,
+        web_search,
+        search_linkedin,
+        send_email,
+        upload_google_drive,
+        read_webpage,
+    ],
     llm=_llm,
     verbose=True,
     allow_delegation=False,
@@ -51,7 +67,15 @@ community_manager = Agent(
         "les constellations, les accompagnements. Tu ne survends pas — tu invites."
         + _CONTEXT
     ),
-    tools=[search_knowledge, get_fleur_context, web_search, post_instagram, post_facebook, read_webpage],
+    tools=[
+        search_knowledge,
+        get_fleur_context,
+        web_search,
+        post_instagram,
+        post_facebook,
+        upload_google_drive,
+        read_webpage,
+    ],
     llm=_llm,
     verbose=True,
     allow_delegation=False,
@@ -113,8 +137,18 @@ coordinateur = Agent(
         "concrètes pour chaque agent et valides les livrables avant soumission à Éric."
         + _CONTEXT
     ),
-    tools=[search_knowledge, get_fleur_context, web_search, search_linkedin, read_webpage,
-           db_list_tables, db_describe_table, db_query, db_analyze_users],
+    tools=[
+        search_knowledge,
+        get_fleur_context,
+        web_search,
+        search_linkedin,
+        upload_google_drive,
+        read_webpage,
+        db_list_tables,
+        db_describe_table,
+        db_query,
+        db_analyze_users,
+    ],
     llm=_llm,
     verbose=True,
     allow_delegation=True,

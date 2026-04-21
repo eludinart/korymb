@@ -1,0 +1,15 @@
+---
+description: Backend reliability and API contract stability
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend Reliability Rules
+
+- Validate request payloads at route boundaries.
+- Keep API response shapes stable and explicit.
+- Return actionable error details without leaking secrets.
+- Ensure selected LLM provider/model is preserved through execution path.
+- Keep retries/timeouts bounded and logged.
+- Never let observability failures break primary business flow.
+- For config changes, test merge behavior with runtime overrides.

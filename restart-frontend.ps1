@@ -1,12 +1,12 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-  Libère le port du serveur Vite puis lance `npm run dev` (racine du dépôt).
+  Libère le port du serveur Next puis lance `npm run dev` (racine du dépôt).
 
   Depuis PowerShell : toujours préfixer par .\ (ex. .\restart-frontend.ps1) si tu es dans ce dossier.
 
 .PARAMETER Port
-  Port dev Vite. Si 0 : $env:VITE_DEV_PORT, puis VITE_DEV_PORT dans .env / .env.local, sinon 4000 (comme vite.config.js).
+  Port dev Next. Si 0 : $env:PORT, puis PORT dans .env / .env.local, sinon 3000.
 #>
 param(
     [int] $Port = 0
@@ -21,12 +21,12 @@ if (-not (Test-Path -LiteralPath (Join-Path $rootDir "package.json"))) {
     exit 1
 }
 
-function Read-ViteDevPortFromEnvFiles {
+function Read-NextDevPortFromEnvFiles {
     foreach ($name in @(".env", ".env.local")) {
         $p = Join-Path $rootDir $name
         if (-not (Test-Path -LiteralPath $p)) { continue }
         foreach ($line in Get-Content -LiteralPath $p -Encoding utf8 -ErrorAction SilentlyContinue) {
-            if ($line -match '^\s*VITE_DEV_PORT\s*=\s*(\d+)\s*$') { return [int]$Matches[1] }
+            if ($line -match '^\s*PORT\s*=\s*(\d+)\s*$') { return [int]$Matches[1] }
         }
     }
     return $null
@@ -35,11 +35,11 @@ function Read-ViteDevPortFromEnvFiles {
 function Resolve-DevPort {
     param([int] $Explicit)
     if ($Explicit -gt 0) { return $Explicit }
-    $e = $env:VITE_DEV_PORT
+    $e = $env:PORT
     if ($e -match '^\d+$') { return [int]$e }
-    $fromFile = Read-ViteDevPortFromEnvFiles
+    $fromFile = Read-NextDevPortFromEnvFiles
     if ($null -ne $fromFile) { return $fromFile }
-    return 4000
+    return 3000
 }
 
 function Stop-ListenersOnPort {
@@ -65,7 +65,7 @@ function Stop-ListenersOnPort {
 $Port = Resolve-DevPort -Explicit $Port
 
 Write-Host ("Repertoire frontend : {0}" -f $rootDir)
-Write-Host ("Port Vite : {0}" -f $Port)
+Write-Host ("Port Next : {0}" -f $Port)
 
 $npm = Get-Command npm -ErrorAction SilentlyContinue
 if (-not $npm) {
@@ -78,5 +78,5 @@ Stop-ListenersOnPort -ListenPort $Port
 Start-Sleep -Milliseconds 500
 
 Write-Host "Lancement : npm run dev"
-$env:VITE_DEV_PORT = "$Port"
+$env:PORT = "$Port"
 & npm run dev

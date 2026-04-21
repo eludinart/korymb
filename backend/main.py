@@ -2,16 +2,22 @@
 main.py — Korymb Backend v3 — LLM via Anthropic direct ou OpenRouter (config .env), sans CrewAI dans le flux.
 """
 import json
+import asyncio
 import logging
 import re
 import os
 import sys
+import time
+import socket
+import platform
+import shutil
 import unicodedata
 import uuid
 from pathlib import Path
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
+from dotenv import load_dotenv
 
 os.environ.setdefault("PYTHONUTF8", "1")
 if hasattr(sys.stdout, "reconfigure"):
@@ -19,8 +25,13 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query
-from fastapi.responses import JSONResponse
+# Garantit la disponibilité des variables backend/.env pour les sondes admin
+# (facebook/instagram/smtp/drive) qui lisent os.getenv directement.
+# override=True : le fichier backend/.env reste la source de vérité.
+load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
+
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict, Field
@@ -42,22 +53,30 @@ from database import (
     list_mission_sessions,
     append_session_message,
     mission_session_commit,
+    delete_mission_session,
     get_enterprise_memory,
     merge_enterprise_contexts,
     append_recent_mission,
     append_job_mission_thread,
+    list_jobs_prompt_digest,
     usage_cost_breakdown,
     usage_events_exist,
+    fetch_custom_agents_definitions_merge_shape,
+    upsert_custom_agent,
+    delete_custom_agent,
+    validate_custom_agent_key,
+    ALLOWED_AGENT_TOOL_TAGS,
 )
 from agent_tool_use import llm_chat_maybe_tools, llm_turn_maybe_tools
 from observability import make_event
 from llm_client import llm_turn, llm_chat
-from llm_tiers import tier_config_public
+from llm_tiers import resolve_openrouter_tier, tier_config_public
 from runtime_settings import merge_with_env, save_partial, to_public_dict
 from debug_ndjson import append_session_ndjson
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
+_PROCESS_STARTED_AT = time.time()
 
 
 def _cio_ndjson_trace(
@@ -72,12 +91,12 @@ def _cio_ndjson_trace(
     # endregion
 
 
-# ── Définitions des agents (statique, aucune dépendance CrewAI) ──────────────
-AGENTS_DEF = {
+# ── Définitions des agents intégrés (fusionnées à l'exécution avec SQLite custom_agents) ──
+BUILTIN_AGENT_DEFINITIONS = {
     "commercial": {
         "label": "Commercial",
         "role": "Prospection & emails",
-        "tools": ["web", "linkedin", "email"],
+        "tools": ["web", "linkedin", "email", "drive"],
         "system": (
             "Tu es le Commercial d'Élude In Art. Tu es expert en prospection et développement commercial "
             "pour le Tarot Fleur d'ÅmÔurs. Tu privilégies l'approche maïeutique : tu ouvres des espaces "
@@ -91,7 +110,7 @@ AGENTS_DEF = {
     "community_manager": {
         "label": "Community Manager",
         "role": "Instagram & Facebook",
-        "tools": ["web", "instagram", "facebook"],
+        "tools": ["web", "instagram", "facebook", "drive"],
         "system": (
             "Tu es le Community Manager d'Élude In Art. Tu crées du contenu engageant et authentique "
             "pour Instagram et Facebook autour du Tarot Fleur d'ÅmÔurs. Tu ne survends pas — tu invites.\n\n"
@@ -119,7 +138,7 @@ AGENTS_DEF = {
     "coordinateur": {
         "label": "CIO — Orchestrateur",
         "role": "Stratégie & délégation",
-        "tools": ["web", "linkedin"],
+        "tools": ["web", "linkedin", "drive"],
         "is_manager": True,
         "system": (
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "
@@ -130,10 +149,47 @@ AGENTS_DEF = {
             "intervenir un autre rôle : tu identifies qui est pertinent et tu lui confies une sous-tâche explicite.\n"
             "Pour la prospection, clients, veille marché ou « qui contacter » : délègue au **commercial** des sous-tâches "
             "concrètes du type « rechercher sur le web et LinkedIn public des X dans telle zone / secteur », "
-            "car c'est lui qui exécute les recherches Internet (outils web) — pas toi pendant l'étape plan JSON.\n\n"
+            "car c'est lui qui exécute les recherches Internet (outils web) — pas toi pendant l'étape plan JSON.\n"
+            "Tu reçois aussi un bloc « Historique missions Korymb » (missions déjà exécutées, avec livrables). "
+            "Exploite-le quand le dirigeant prolonge ou réutilise un travail passé (ex. courriers pour des pistes déjà trouvées) : "
+            "ne réponds pas « impossible » sans t'appuyer sur ces sources et citer les #job_id concernés.\n\n"
         ),
     },
 }
+
+_agents_merged_cache: dict[str, dict] | None = None
+
+
+def refresh_agents_definitions_cache() -> None:
+    global _agents_merged_cache
+    _agents_merged_cache = None
+
+
+def agents_def() -> dict[str, dict]:
+    global _agents_merged_cache
+    if _agents_merged_cache is None:
+        custom = fetch_custom_agents_definitions_merge_shape()
+        merged = dict(BUILTIN_AGENT_DEFINITIONS)
+        for k, v in custom.items():
+            if k not in BUILTIN_AGENT_DEFINITIONS:
+                merged[k] = v
+        _agents_merged_cache = merged
+    return _agents_merged_cache
+
+
+def delegatable_subagent_keys_ordered() -> tuple[str, ...]:
+    """Sous-agents exécutables (hors CIO), ordre stable : intégrés d'abord, puis customs triés."""
+    ad = agents_def()
+    prefer = ("commercial", "community_manager", "developpeur", "comptable")
+    out: list[str] = []
+    for k in prefer:
+        if k in ad and k != "coordinateur" and not ad[k].get("is_manager"):
+            out.append(k)
+    tail = sorted(
+        k for k in ad if k not in out and k != "coordinateur" and not ad[k].get("is_manager")
+    )
+    return tuple(out + tail)
+
 
 FLEUR_CONTEXT = (
     "Contexte métier Élude In Art :\n"
@@ -202,7 +258,7 @@ def _tache_to_str(v) -> str:
     return str(v).strip()
 
 
-# Alias clés plan / champ « agents » → clés AGENTS_DEF exécutables (hors coordinateur).
+# Alias clés plan / champ « agents » → clés d'agents exécutables (hors coordinateur).
 _DELEGATION_KEY_ALIASES: dict[str, str] = {
     "commercial": "commercial",
     "commerce": "commercial",
@@ -227,10 +283,10 @@ _DELEGATION_KEY_ALIASES: dict[str, str] = {
 
 def _canon_delegation_agent_key(raw_key: str) -> str | None:
     nk = re.sub(r"\s+", "_", _ascii_fold(raw_key)).replace("-", "_")
-    canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in AGENTS_DEF else None)
+    canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in agents_def() else None)
     if canon is None or canon == "coordinateur":
         return None
-    return canon if canon in AGENTS_DEF else None
+    return canon if canon in agents_def() else None
 
 
 def _plan_token_to_agent_key(token: object) -> str | None:
@@ -327,7 +383,7 @@ def _repair_plan_delegation_gaps(
         ctx = ctx[:2400] + "…"
 
     for ag in _plan_agents_json_valid_keys(raw_agents):
-        if ag not in AGENTS_DEF or ag == "coordinateur":
+        if ag not in agents_def() or ag == "coordinateur":
             continue
         if _tache_to_str(st.get(ag)).strip():
             continue
@@ -336,7 +392,7 @@ def _repair_plan_delegation_gaps(
             f"Exécute pour le dirigeant (français, réponse réelle, pas de simulation « en attente ») :\n\n{ctx}"
         )
         log(
-            f"[korymb] Correctif plan : sous-tâche générée pour {AGENTS_DEF[ag]['label']} "
+            f"[korymb] Correctif plan : sous-tâche générée pour {agents_def()[ag]['label']} "
             f"(présent dans « agents », absent ou vide dans « sous_taches »).",
         )
 
@@ -377,7 +433,7 @@ def _infer_agents_from_mission_keywords(t: str) -> list[str]:
         found.append("comptable")
     out: list[str] = []
     seen: set[str] = set()
-    for k in _AGENT_ORDER:
+    for k in delegatable_subagent_keys_ordered():
         if k in found and k not in seen:
             out.append(k)
             seen.add(k)
@@ -387,13 +443,13 @@ def _infer_agents_from_mission_keywords(t: str) -> list[str]:
 def _has_executable_subagent_tasks(st: dict) -> bool:
     return any(
         _tache_to_str(st.get(k)).strip()
-        for k in _AGENT_ORDER
-        if k in AGENTS_DEF and k != "coordinateur"
+        for k in delegatable_subagent_keys_ordered()
+        if k in agents_def() and k != "coordinateur"
     )
 
 
 def _recovery_task_for_sub_agent(agent_key: str, ctx: str) -> str:
-    lab = AGENTS_DEF[agent_key]["label"]
+    lab = agents_def()[agent_key]["label"]
     return (
         f"Le CIO t'a confié cette demande du dirigeant (le plan automatique était incomplet ou invalide). "
         f"Tu es le **{lab}** : exécute pour de vrai en français — réponse utile, faits ou limites honnêtes, "
@@ -425,7 +481,7 @@ def _materialize_subagents_when_plan_empty(
     if not keys:
         keys = _infer_agents_from_mission_keywords(blob)
     if not keys and _signals_explicit_multi_agent_communication(blob):
-        keys = list(_AGENT_ORDER)
+        keys = list(delegatable_subagent_keys_ordered())
     raw_agents = plan.get("agents")
     if not keys:
         if (
@@ -438,7 +494,7 @@ def _materialize_subagents_when_plan_empty(
 
     added: list[str] = []
     for ag in keys:
-        if ag not in AGENTS_DEF or ag == "coordinateur":
+        if ag not in agents_def() or ag == "coordinateur":
             continue
         if _tache_to_str(st.get(ag)).strip():
             continue
@@ -447,7 +503,7 @@ def _materialize_subagents_when_plan_empty(
     if added:
         log(
             "[korymb] Délégation matérialisée (aucune tâche exécutable dans le plan) : "
-            + ", ".join(AGENTS_DEF[x]["label"] for x in added),
+            + ", ".join(agents_def()[x]["label"] for x in added),
         )
     elif not _has_executable_subagent_tasks(st) and len(blob.strip()) >= 8:
         st["commercial"] = _recovery_task_for_sub_agent("commercial", ctx)
@@ -472,7 +528,7 @@ def _log_plan_agents_field_for_ops(raw: object, log) -> None:
 
 def _normalize_sous_taches(raw: dict) -> tuple[dict, list[str]]:
     """
-    Ramène les clés du plan (souvent mal typées par le LLM) vers les clés AGENTS_DEF.
+    Ramène les clés du plan (souvent mal typées par le LLM) vers les clés agents_def().
     Retourne (sous_taches_canoniques, clés_sources_ignorées).
     """
     out: dict[str, str] = {}
@@ -481,7 +537,7 @@ def _normalize_sous_taches(raw: dict) -> tuple[dict, list[str]]:
         if not isinstance(k, str):
             continue
         nk = re.sub(r"\s+", "_", _ascii_fold(k)).replace("-", "_")
-        canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in AGENTS_DEF else None)
+        canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in agents_def() else None)
         if canon is None or canon == "coordinateur":
             skipped.append(str(k))
             continue
@@ -632,7 +688,7 @@ def _blob_needs_developer_web_evidence(per: str) -> bool:
 
 
 def _agent_tool_tags_include_webish(agent_key: str) -> bool:
-    tags = AGENTS_DEF.get(agent_key, {}).get("tools") or []
+    tags = agents_def().get(agent_key, {}).get("tools") or []
     return any(x in ("web", "linkedin") for x in tags)
 
 
@@ -668,7 +724,7 @@ def _compute_delivery_warnings(
     """Alertes dirigeant : mission web attendue mais aucune trace d'outil correspondant."""
     warnings: list[str] = []
     for ag in resultats:
-        if ag not in AGENTS_DEF or ag == "coordinateur":
+        if ag not in agents_def() or ag == "coordinateur":
             continue
         if not _agent_tool_tags_include_webish(ag) and ag != "developpeur":
             continue
@@ -677,7 +733,7 @@ def _compute_delivery_warnings(
             continue
         tache = _tache_to_str(sous_taches.get(ag))
         per = f"{tache}\n{root_mission_label}\n{mission_txt}"
-        label = AGENTS_DEF[ag]["label"]
+        label = agents_def()[ag]["label"]
         if ag == "commercial" and _blob_needs_commercial_web_evidence(per):
             if _count_agent_tool_calls(events, ag, _WEB_RESEARCH_TOOL_NAMES) == 0:
                 warnings.append(
@@ -708,9 +764,6 @@ def _extract_delivery_warnings_from_events(events: list | None) -> list[str]:
         if isinstance(w, list):
             return [str(x).strip() for x in w if str(x).strip()]
     return []
-
-
-_AGENT_ORDER = ("commercial", "community_manager", "developpeur", "comptable")
 
 
 def _signals_explicit_multi_agent_communication(t: str) -> bool:
@@ -764,7 +817,7 @@ def _mentioned_sub_agents(t: str) -> list[str]:
         found.append("comptable")
     out: list[str] = []
     seen: set[str] = set()
-    for k in _AGENT_ORDER:
+    for k in delegatable_subagent_keys_ordered():
         if k in found and k not in seen:
             out.append(k)
             seen.add(k)
@@ -783,7 +836,7 @@ def _inject_sous_taches_for_mentioned_agents(
     """
     blob = _ascii_fold(f"{mission_txt}\n{root_mission_label}")
     for key in _mentioned_sub_agents(blob):
-        if key not in AGENTS_DEF or key == "coordinateur":
+        if key not in agents_def() or key == "coordinateur":
             continue
         if _tache_to_str(st.get(key)).strip():
             continue
@@ -796,7 +849,7 @@ def _inject_sous_taches_for_mentioned_agents(
             + ctx
         )
         log(
-            f"[korymb] Filet délégation : sous-tâche ajoutée pour {AGENTS_DEF[key]['label']} "
+            f"[korymb] Filet délégation : sous-tâche ajoutée pour {agents_def()[key]['label']} "
             "(rôle nommé dans la mission, absent ou invalide dans le plan JSON du modèle).",
         )
 
@@ -815,17 +868,17 @@ def _forced_multi_agent_sous_taches(mission_txt: str, root_mission_label: str) -
     elif len(mentioned) == 1:
         targets = mentioned
     elif re.search(r"differents.{0,14}agents|plusieurs agents|tous les agents|chaque agent", blob):
-        targets = list(_AGENT_ORDER)
+        targets = list(delegatable_subagent_keys_ordered())
     else:
         # « Test de communication », etc. : le signal est levé mais aucun rôle n’est nommé dans le texte —
         # sans cette branche on retombait en CIO seul alors que le dirigeant attend des tours réels.
-        targets = list(_AGENT_ORDER)
+        targets = list(delegatable_subagent_keys_ordered())
     ctx = (root_mission_label or mission_txt or "").strip()
     if len(ctx) > 720:
         ctx = ctx[:720] + "…"
     out: dict[str, str] = {}
     for k in targets:
-        label = AGENTS_DEF[k]["label"]
+        label = agents_def()[k]["label"]
         out[k] = (
             f"Le dirigeant demande un test de coordination via le CIO. "
             f"Réponds en français, 2 à 5 phrases : confirme que tu as bien reçu cette sollicitation ; "
@@ -842,8 +895,70 @@ def _clip_mem_text(s: str, max_len: int) -> str:
     return t[: max_len - 1] + "…"
 
 
-def _korymb_memory_prompt_for(agent_key: str) -> str:
-    """Bloc texte injecté dans le system prompt : mémoire entreprise + missions récentes."""
+def _past_missions_context_block(
+    *,
+    exclude_job_id: str | None,
+    max_total: int = 22_000,
+    digest_limit: int = 10,
+    compact: bool = False,
+) -> str:
+    """Synthèses des missions passées (SQLite) — continuité / science d'entreprise."""
+    try:
+        digest = list_jobs_prompt_digest(limit=digest_limit, exclude_job_id=exclude_job_id)
+    except Exception:
+        logger.exception("list_jobs_prompt_digest")
+        return ""
+    if not digest:
+        return ""
+    if compact:
+        header = "\n".join(
+            [
+                "--- Extraits missions passées (référence interne) ---",
+                "Tu peux t'appuyer sur ces livrables déjà produits ; cite #job_id si tu réutilises une source.",
+                "",
+            ]
+        )
+    else:
+        header = "\n".join(
+            [
+                "--- Historique missions Korymb (base locale) ---",
+                "Missions déjà exécutées. Réutilise ces livrables quand le dirigeant fait référence au travail passé, "
+                "à une mission précédente, ou à des éléments « déjà trouvés ». Cite le #job_id lorsque tu t'appuies sur une source.",
+                "",
+            ]
+        )
+    footer = "\n--- Fin historique missions ---\n"
+    budget = max(4000, max_total - len(header) - len(footer) - 80)
+    n = len(digest)
+    per0 = budget // max(1, n)
+    per = max(900, min(5200, per0))
+    parts: list[str] = [header]
+    used = 0
+    for d in digest:
+        jid = str(d.get("id") or "")
+        agent = str(d.get("agent") or "")
+        st = str(d.get("status") or "")
+        created = str(d.get("created_at") or "")[:22]
+        src = str(d.get("source") or "")
+        mis = _clip_mem_text(str(d.get("mission") or ""), 1400)
+        res_raw = str(d.get("result") or "").strip()
+        remain = budget - used
+        if remain < 400:
+            break
+        cap = min(per, remain - 120)
+        body = _clip_mem_text(res_raw, cap) if res_raw else "(aucun livrable textuel enregistré)"
+        block = (
+            f"### Mission #{jid} · agent pilote: {agent} · {st} · {created} · source {src}\n"
+            f"Consigne :\n{mis}\n\nSynthèse / livrable :\n{body}\n"
+        )
+        parts.append(block)
+        used += len(block)
+    parts.append(footer)
+    return "\n".join(parts)
+
+
+def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = None) -> str:
+    """Bloc texte injecté dans le system prompt : mémoire entreprise + missions récentes (+ historique DB pour le CIO)."""
     try:
         mem = get_enterprise_memory()
     except Exception:
@@ -857,8 +972,17 @@ def _korymb_memory_prompt_for(agent_key: str) -> str:
         v = contexts.get(k)
         return v.strip() if isinstance(v, str) else ""
 
-    has_roles = any(ctx(k) for k in ("commercial", "community_manager", "developpeur", "comptable"))
-    if not ctx("global") and not has_roles and not recent:
+    sub_keys = delegatable_subagent_keys_ordered()
+    has_roles = any(ctx(k) for k in sub_keys)
+
+    db_block = ""
+    if agent_key == "coordinateur":
+        try:
+            db_block = _past_missions_context_block(exclude_job_id=exclude_job_id)
+        except Exception:
+            logger.exception("_past_missions_context_block")
+
+    if not ctx("global") and not has_roles and not recent and not db_block:
         return ""
 
     lines: list[str] = ["", "--- Mémoire entreprise (persistante) ---"]
@@ -866,32 +990,53 @@ def _korymb_memory_prompt_for(agent_key: str) -> str:
     if agent_key == "coordinateur":
         if ctx("global"):
             lines.append("Contexte global :\n" + _clip_mem_text(ctx("global"), 4000))
-        for rk in ("commercial", "community_manager", "developpeur", "comptable"):
+        for rk in sub_keys:
             block = ctx(rk)
             if not block:
                 continue
-            label = AGENTS_DEF.get(rk, {}).get("label", rk)
+            label = agents_def().get(rk, {}).get("label", rk)
             lines.append(f"Périmètre {label} :\n" + _clip_mem_text(block, 1600))
+        if db_block.strip():
+            lines.append(db_block.rstrip())
     else:
         if ctx("global"):
             lines.append("Contexte global (extrait) :\n" + _clip_mem_text(ctx("global"), 1400))
         rk = agent_key
-        if rk in AGENTS_DEF and rk != "coordinateur":
+        if rk in agents_def() and rk != "coordinateur":
             block = ctx(rk)
             if block:
-                label = AGENTS_DEF[rk]["label"]
+                label = agents_def()[rk]["label"]
                 lines.append(f"Ton périmètre ({label}) :\n" + _clip_mem_text(block, 2400))
+        if sub_digest.strip():
+            lines.append(sub_digest.rstrip())
 
     if recent:
-        lines.append("Missions récentes (aperçu opérationnel) :")
-        tail = recent[-10:]
-        for item in tail:
-            if not isinstance(item, dict):
-                continue
-            jid = str(item.get("job_id") or "")
-            m = _clip_mem_text(str(item.get("mission") or ""), 140)
-            pv = _clip_mem_text(str(item.get("preview") or ""), 120)
-            lines.append(f"  · #{jid} {m} → {pv}")
+        if agent_key == "coordinateur":
+            shown_db = set()
+            if db_block:
+                for m in re.finditer(r"### Mission #([0-9a-fA-F-]{4,20})", db_block):
+                    shown_db.add(m.group(1))
+            lines.append("Missions récentes (mémoire de clôture — complément si une mission n'apparaît pas ci-dessus) :")
+            tail = recent[-8:]
+            for item in tail:
+                if not isinstance(item, dict):
+                    continue
+                jid = str(item.get("job_id") or "")
+                if jid and jid in shown_db:
+                    continue
+                m = _clip_mem_text(str(item.get("mission") or ""), 360)
+                pv = _clip_mem_text(str(item.get("preview") or ""), 2800)
+                lines.append(f"  · #{jid}\n    Consigne : {m}\n    Extrait livrable : {pv}")
+        else:
+            lines.append("Missions récentes (résumé — le CIO porte l'historique détaillé) :")
+            tail = recent[-6:]
+            for item in tail:
+                if not isinstance(item, dict):
+                    continue
+                jid = str(item.get("job_id") or "")
+                m = _clip_mem_text(str(item.get("mission") or ""), 160)
+                pv = _clip_mem_text(str(item.get("preview") or ""), 320)
+                lines.append(f"  · #{jid} {m} → {pv}")
 
     lines.append("--- Fin mémoire entreprise ---")
     return "\n".join(lines)
@@ -939,8 +1084,8 @@ def _persist_running_job_snapshot(job_id: str | None) -> None:
 
 def _human_dialogue_cio_assign(agent_key: str, tache: str, chain_prev: str) -> str:
     """Réplique orale courte du CIO vers un rôle (affichage « conversation humaine »)."""
-    lab = AGENTS_DEF[agent_key]["label"]
-    me = AGENTS_DEF["coordinateur"]["label"]
+    lab = agents_def()[agent_key]["label"]
+    me = agents_def()["coordinateur"]["label"]
     t = str(tache).strip().replace("\n", " ")
     if len(t) > 1400:
         t = t[:1400] + "…"
@@ -949,7 +1094,7 @@ def _human_dialogue_cio_assign(agent_key: str, tache: str, chain_prev: str) -> s
             f"Bonjour {lab}, c’est {me}. Pour ce que demande le dirigeant, j’ai besoin de ton regard. "
             f"Voilà ce que je te propose de traiter : {t}"
         )
-    prev = AGENTS_DEF[chain_prev]["label"]
+    prev = agents_def()[chain_prev]["label"]
     return (
         f"{lab}, toujours {me} — merci à {prev} pour sa partie ; j’enchaîne avec toi. "
         f"Peux-tu t’occuper de ceci : {t}"
@@ -957,10 +1102,10 @@ def _human_dialogue_cio_assign(agent_key: str, tache: str, chain_prev: str) -> s
 
 
 def _human_dialogue_cio_wrapup(agent_keys: list[str]) -> str:
-    me = AGENTS_DEF["coordinateur"]["label"]
+    me = agents_def()["coordinateur"]["label"]
     if not agent_keys:
         return f"{me} — Je synthétise tout ça pour le dirigeant."
-    labs = [AGENTS_DEF[k]["label"] for k in agent_keys if k in AGENTS_DEF]
+    labs = [agents_def()[k]["label"] for k in agent_keys if k in agents_def()]
     s = ", ".join(labs) if labs else "l’équipe"
     return (
         f"Parfait, merci {s}. Je recoupe vos retours et je rédige la synthèse pour le dirigeant — "
@@ -974,12 +1119,12 @@ def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
         return ""
     parts: list[str] = []
     for k, txt in resultats.items():
-        if k not in AGENTS_DEF or k == "coordinateur":
+        if k not in agents_def() or k == "coordinateur":
             continue
         body = (txt or "").strip()
         if len(body) > 14_000:
             body = body[:14_000] + "\n\n*(suite tronquée pour affichage)*"
-        parts.append(f"### {AGENTS_DEF[k]['label']}\n\n{body}")
+        parts.append(f"### {agents_def()[k]['label']}\n\n{body}")
     if not parts:
         return ""
     return (
@@ -1002,9 +1147,20 @@ def orchestrate_coordinateur_mission(
     root_mission_label : rappel court pour les sous-agents (souvent la demande brute utilisateur).
     job_id : si fourni (mission /run), met à jour active_jobs[job_id]["team"] pour l'interface.
     """
-    agent_cfg = AGENTS_DEF["coordinateur"]
-    memory_brain = _korymb_memory_prompt_for("coordinateur")
+    agent_cfg = agents_def()["coordinateur"]
+    memory_brain = _korymb_memory_prompt_for("coordinateur", exclude_job_id=job_id)
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain
+    deleg = delegatable_subagent_keys_ordered()
+    keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
+    if len(deleg) >= 2:
+        ex_a, ex_b = deleg[0], deleg[1]
+    elif len(deleg) == 1:
+        ex_a, ex_b = deleg[0], deleg[0]
+    else:
+        ex_a, ex_b = "commercial", "community_manager"
+    agents_example_json = json.dumps([ex_a, ex_b], ensure_ascii=False)
+    sous_example_json = json.dumps({ex_a: "...", ex_b: "..."}, ensure_ascii=False)
+    max_sub = min(4, len(deleg)) if deleg else 4
     t_in = t_out = 0
     team_rows: list[dict] = []
     cio_trace_run = f"orch_{uuid.uuid4().hex[:12]}"
@@ -1047,40 +1203,41 @@ def orchestrate_coordinateur_mission(
         )
 
     log("[korymb] CIO — analyse de la mission...")
+    _raise_if_job_cancelled(job_id)
     plan_txt, ti, to = llm_turn(
         system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
         f"""Mission : {mission_txt}
 
 Analyse cette mission et réponds avec ce JSON exact (sans markdown) :
 {{
-  "agents": ["commercial", "community_manager"],
-  "sous_taches": {{"commercial": "...", "community_manager": "..."}},
+  "agents": {agents_example_json},
+  "sous_taches": {sous_example_json},
   "synthese_attendue": "ce que le CIO doit produire en synthèse finale"
 }}
 
 Règles :
 - La clé du dictionnaire de délégation DOIT s'appeler exactement **sous_taches** (sans accent sur le « e »).
   Ne renomme pas ce champ en « sous_tâches », « subtasks » ou « tasks » : le parseur ne les lit qu'en secours.
-- Les clés dans "sous_taches" DOIVENT être EXACTEMENT en minuscules et underscores : commercial, community_manager, developpeur, comptable.
+- Les clés dans "sous_taches" DOIVENT être EXACTEMENT l'une des clés techniques suivantes (minuscules, underscores) : {keys_csv}.
   Pas de majuscules (pas "Commercial"), pas de libellés français à la place de la clé.
-- Choisis 1 à 4 agents VRAIMENT nécessaires (jusqu'à 4 si le dirigeant demande un test impliquant chaque rôle).
+- Choisis 1 à {max_sub} agents VRAIMENT nécessaires (jusqu'à {max_sub} si le dirigeant demande un test impliquant chaque rôle).
 - Test de communication, « chaque agent », « les différents agents » : une entrée dans "sous_taches" par rôle concerné,
   avec une consigne qui leur demande une courte réponse de confirmation — ne simule pas leurs réponses, fais-les passer.
-- Si l'utilisateur demande qu'un rôle précis agisse (ex. « le développeur », « la compta »), tu DOIS inclure
-  la clé correspondante (developpeur, comptable, etc.) dans sous_taches avec une sous-tâche actionnable.
-- Le champ "agents" est optionnel ; s'il est présent, ce doit être **uniquement** le tableau JSON des clés exactes
-  commercial, community_manager, developpeur, comptable (zéro ou plusieurs entrées). N'invente **aucun** autre libellé :
-  tout texte qui n'est pas une de ces quatre clés est ignoré par le moteur et **aucun** sous-agent ne part.
-  **Interdit** dans "agents" : « CIO », « CIO direct », « coordinateur », « solo », « seul », toute variante qui n'est pas une des quatre clés ci-dessus — sinon la délégation réelle échoue.
+- Si l'utilisateur demande qu'un rôle précis agisse (ex. « le développeur », « la compta », ou un rôle personnalisé par sa clé),
+  tu DOIS inclure la clé correspondante dans sous_taches avec une sous-tâche actionnable.
+- Le champ "agents" est optionnel ; s'il est présent, ce doit être **uniquement** le tableau JSON des clés exactes parmi : {keys_csv}
+  (zéro ou plusieurs entrées). N'invente **aucun** autre identifiant :
+  tout texte qui n'est pas une de ces clés est ignoré par le moteur et **aucun** sous-agent ne part.
+  **Interdit** dans "agents" : « CIO », « CIO direct », « coordinateur », « solo », « seul », toute variante qui n'est pas une clé de la liste — sinon la délégation réelle échoue.
 - Pour une mission sans délégation : "agents": [] **et** "sous_taches": {{}} — le CIO répondra seul après coup.
 - Chaque clé listée dans "agents" DOIT avoir une entrée non vide correspondante dans "sous_taches" (même clé),
   sinon ce rôle ne partira pas.
 - Si le dirigeant demande explicitement de solliciter un rôle (ex. « au commercial », « que le dev vérifie »), mets OBLIGATOIREMENT
   la clé correspondante dans "sous_taches" avec la consigne réelle ; ne remplace pas cela par une entrée « CIO seul ».
-- Prospection, clients, leads, « trouver qui contacter », veille concurrentielle : inclus **commercial** dans sous_taches
-  avec une consigne explicite de recherche (web + LinkedIn public + synthèse de pistes), car le commercial a les outils Internet.
+- Prospection, clients, leads, « trouver qui contacter », veille concurrentielle : si la clé **commercial** existe dans l'équipe,
+  inclus **commercial** dans sous_taches avec une consigne explicite de recherche (web + LinkedIn public + synthèse de pistes), car le commercial a les outils Internet.
 - Demande transverse sur l'activité Élude In Art (produit, offre, visibilité, partenariats, contenu, terrain) sans être
-  uniquement du code ou de la compta : inclus **commercial** avec une sous-tâche de veille / pistes / angle d'approche,
+  uniquement du code ou de la compta : si la clé **commercial** existe, inclus **commercial** avec une sous-tâche de veille / pistes / angle d'approche,
   sauf si l'utilisateur exige explicitement un autre seul rôle.
 - Ne renvoie pas un JSON vide si une délégation est demandée ou pertinente.""",
         max_tokens=4096,
@@ -1091,6 +1248,7 @@ Règles :
     t_in += ti
     t_out += to
     _sync_active_job_tokens(job_id, t_in, t_out)
+    _raise_if_job_cancelled(job_id)
 
     raw_plan = plan_txt.strip()
     if raw_plan.startswith("```"):
@@ -1131,8 +1289,8 @@ Règles :
         blob_sk = _ascii_fold(" ".join(skipped_st)).lower()
         if re.search(r"cio|coordinateur|direct", blob_sk):
             log(
-                "[korymb] Note : certaines clés du plan (coordinateur, intitulés hors les 4 rôles) ne lancent aucun "
-                "sous-agent — seules les clés commercial, community_manager, developpeur et comptable exécutent un tour."
+                "[korymb] Note : certaines clés du plan (coordinateur, intitulés hors rôles exécutables) ne lancent aucun "
+                f"sous-agent — seules les clés suivantes exécutent un tour : {keys_csv}."
             )
     _log_plan_agents_field_for_ops(plan.get("agents"), log)
     st.pop("coordinateur", None)
@@ -1145,18 +1303,20 @@ Règles :
         plan["sous_taches"] = st
         log(
             "[korymb] Délégation forcée (communication / test multi-rôles) : "
-            + ", ".join(AGENTS_DEF[k]["label"] for k in forced_st)
+            + ", ".join(agents_def()[k]["label"] for k in forced_st)
         )
 
     _inject_sous_taches_for_mentioned_agents(st, mission_txt, root_mission_label, log)
     plan["sous_taches"] = st
 
-    if not any(
-        _tache_to_str(st.get(k)).strip()
-        for k in st
-        if k in AGENTS_DEF and k != "coordinateur"
-    ) and _mission_suggests_commercial(
-        f"{mission_txt}\n{root_mission_label}"
+    if (
+        "commercial" in agents_def()
+        and not any(
+            _tache_to_str(st.get(k)).strip()
+            for k in st
+            if k in agents_def() and k != "coordinateur"
+        )
+        and _mission_suggests_commercial(f"{mission_txt}\n{root_mission_label}")
     ):
         st["commercial"] = (
             "Recherche web + LinkedIn public pour la demande du dirigeant ; "
@@ -1171,7 +1331,7 @@ Règles :
     plan["sous_taches"] = st
 
     for _rk in list(st.keys()):
-        if _rk in AGENTS_DEF and _rk != "coordinateur":
+        if _rk in agents_def() and _rk != "coordinateur":
             st[_rk] = _tache_to_str(st.get(_rk))
 
     # En chat, le plan JSON du CIO peut contenir une « sous-tâche » commerciale remplie mais
@@ -1183,7 +1343,7 @@ Règles :
         if len(ctx_chat) > 2200:
             ctx_chat = ctx_chat[:2200] + "…"
         for role in _mentioned_sub_agents(blob_chat):
-            if role not in AGENTS_DEF or role == "coordinateur":
+            if role not in agents_def() or role == "coordinateur":
                 continue
             st[role] = (
                 "Le dirigeant parle au CIO dans le chat ; le CIO te sollicite sur ce tour.\n"
@@ -1195,7 +1355,7 @@ Règles :
                 + ctx_chat
             )
             log(
-                f"[korymb] Chat : consigne prioritaire pour {AGENTS_DEF[role]['label']} "
+                f"[korymb] Chat : consigne prioritaire pour {agents_def()[role]['label']} "
                 "(rôle nommé par le dirigeant).",
             )
         plan["sous_taches"] = st
@@ -1203,17 +1363,17 @@ Règles :
     delegated = [
         k
         for k in st
-        if k in AGENTS_DEF
+        if k in agents_def()
         and k != "coordinateur"
         and _tache_to_str(st.get(k)).strip()
     ]
     if delegated:
-        log(f"[korymb] Délégation réelle : {', '.join(AGENTS_DEF[k]['label'] for k in delegated)}")
+        log(f"[korymb] Délégation réelle : {', '.join(agents_def()[k]['label'] for k in delegated)}")
         for k, desc in st.items():
-            if k in AGENTS_DEF and _tache_to_str(desc).strip():
+            if k in agents_def() and _tache_to_str(desc).strip():
                 ds = _tache_to_str(desc).strip()
                 short = ds.replace("\n", " ")[:160]
-                log(f"[korymb]   → {AGENTS_DEF[k]['label']} : {short}{'…' if len(ds) > 160 else ''}")
+                log(f"[korymb]   → {agents_def()[k]['label']} : {short}{'…' if len(ds) > 160 else ''}")
     else:
         log("[korymb] Délégation réelle : (aucun sous-agent) — le CIO répond seul sans commercial / CM / etc.")
 
@@ -1223,7 +1383,7 @@ Règles :
         "sous_taches": {
             k: (str(v)[:500] + ("…" if len(str(v)) > 500 else ""))
             for k, v in st.items()
-            if k in AGENTS_DEF and k != "coordinateur"
+            if k in agents_def() and k != "coordinateur"
         },
     }
     if job_id:
@@ -1240,12 +1400,12 @@ Règles :
     if job_id and team_rows:
         team_rows[0]["status"] = "done"
         for k in delegated:
-            if k not in AGENTS_DEF:
+            if k not in agents_def():
                 continue
             dtask = _tache_to_str(st.get(k)).strip().replace("\n", " ")[:220]
             team_rows.append({
                 "key": k,
-                "label": AGENTS_DEF[k]["label"],
+                "label": agents_def()[k]["label"],
                 "status": "pending",
                 "phase": "delegate",
                 "detail": dtask or "(sous-tâche)",
@@ -1253,11 +1413,11 @@ Règles :
         pub_team()
 
     exec_agent_order: list[str] = []
-    for k in _AGENT_ORDER:
-        if k in st and k in AGENTS_DEF and k != "coordinateur":
+    for k in delegatable_subagent_keys_ordered():
+        if k in st and k in agents_def() and k != "coordinateur":
             exec_agent_order.append(k)
     for k in st:
-        if k in AGENTS_DEF and k != "coordinateur" and k not in exec_agent_order:
+        if k in agents_def() and k != "coordinateur" and k not in exec_agent_order:
             exec_agent_order.append(k)
     # region agent log
     _cio_ndjson_trace(
@@ -1276,12 +1436,13 @@ Règles :
     resultats: dict[str, str] = {}
     chain_prev = "coordinateur"
     for agent_key in exec_agent_order:
+        _raise_if_job_cancelled(job_id)
         tache = _tache_to_str(st.get(agent_key)).strip()
-        if agent_key not in AGENTS_DEF or agent_key == "coordinateur":
+        if agent_key not in agents_def() or agent_key == "coordinateur":
             continue
         if not tache:
             log(
-                f"[korymb] Sous-tâche ignorée pour {AGENTS_DEF[agent_key]['label']} ({agent_key}) : "
+                f"[korymb] Sous-tâche ignorée pour {agents_def()[agent_key]['label']} ({agent_key}) : "
                 f"consigne vide après normalisation — aucun tour LLM.",
             )
             # region agent log
@@ -1297,13 +1458,13 @@ Règles :
         if job_id:
             if chain_prev == "coordinateur":
                 handoff_fr = (
-                    f"Le CIO adresse une consigne au {AGENTS_DEF[agent_key]['label']} "
+                    f"Le CIO adresse une consigne au {agents_def()[agent_key]['label']} "
                     "(sous-mission issue du plan)."
                 )
             else:
                 handoff_fr = (
-                    f"Après le livrable du {AGENTS_DEF[chain_prev]['label']}, "
-                    f"le CIO enchaîne avec le {AGENTS_DEF[agent_key]['label']}."
+                    f"Après le livrable du {agents_def()[chain_prev]['label']}, "
+                    f"le CIO enchaîne avec le {agents_def()[agent_key]['label']}."
                 )
             _emit_job_event(
                 job_id,
@@ -1334,8 +1495,8 @@ Règles :
             pub_team()
         else:
             assign_line = _human_dialogue_cio_assign(agent_key, tache, chain_prev)
-        log(f"[korymb] [CIO → {AGENTS_DEF[agent_key]['label']}] {_clip_one_line(assign_line, 1400)}")
-        log(f"[korymb] {AGENTS_DEF[agent_key]['label']} travaille...")
+        log(f"[korymb] [CIO → {agents_def()[agent_key]['label']}] {_clip_one_line(assign_line, 1400)}")
+        log(f"[korymb] {agents_def()[agent_key]['label']} travaille...")
         if job_id:
             _persist_running_job_snapshot(job_id)
         if job_id:
@@ -1347,7 +1508,7 @@ Règles :
                     "from": "coordinateur",
                     "instruction_excerpt": tache.replace("\n", " ")[:400],
                     "summary_fr": (
-                        f"Le {AGENTS_DEF[agent_key]['label']} a reçu la consigne du CIO et commence le traitement."
+                        f"Le {agents_def()[agent_key]['label']} a reçu la consigne du CIO et commence le traitement."
                     ),
                 },
             )
@@ -1357,7 +1518,7 @@ Règles :
                 agent_key,
                 {
                     "phase": "llm_tools",
-                    "summary_fr": f"{AGENTS_DEF[agent_key]['label']} : appels modèle / outils en cours…",
+                    "summary_fr": f"{agents_def()[agent_key]['label']} : appels modèle / outils en cours…",
                 },
             )
             _emit_job_event(
@@ -1366,7 +1527,9 @@ Règles :
                 agent_key,
                 {"task_preview": tache.replace("\n", " ")[:320]},
             )
-        agent_sys = AGENTS_DEF[agent_key]["system"] + FLEUR_CONTEXT + _korymb_memory_prompt_for(agent_key)
+        agent_sys = agents_def()[agent_key]["system"] + FLEUR_CONTEXT + _korymb_memory_prompt_for(
+            agent_key, exclude_job_id=job_id
+        )
 
         web_evidence_calls = 0
 
@@ -1405,7 +1568,7 @@ Règles :
             res, ti2, to2 = llm_turn_maybe_tools(
                 agent_sys,
                 sub_user_final,
-                AGENTS_DEF[agent_key].get("tools"),
+                agents_def()[agent_key].get("tools"),
                 job_logs,
                 on_tool=on_sub_tool if job_id else None,
                 tool_actor=agent_key,
@@ -1419,7 +1582,7 @@ Règles :
                 res2, tic2, toc2 = llm_turn_maybe_tools(
                     agent_sys,
                     sub_user_final + repair_suffix,
-                    AGENTS_DEF[agent_key].get("tools"),
+                    agents_def()[agent_key].get("tools"),
                     job_logs,
                     on_tool=on_sub_tool if job_id else None,
                     tool_actor=agent_key,
@@ -1432,14 +1595,14 @@ Règles :
                 to2 += toc2
                 if web_evidence_calls == 0:
                     log(
-                        f"[korymb] {AGENTS_DEF[agent_key]['label']} : besoin web détecté, "
+                        f"[korymb] {agents_def()[agent_key]['label']} : besoin web détecté, "
                         f"aucun appel web_search/read_webpage/search_linkedin après relance système.",
                     )
         except Exception as e:
             logger.exception("Sous-agent %s : exécution interrompue", agent_key)
             sub_agent_exc = type(e).__name__
             res = (
-                f"Erreur technique pendant l'exécution du rôle {AGENTS_DEF[agent_key]['label']} : {e}\n"
+                f"Erreur technique pendant l'exécution du rôle {agents_def()[agent_key]['label']} : {e}\n"
                 "Le CIO doit le signaler au dirigeant et proposer de relancer."
             )
             ti2, to2 = 0, 0
@@ -1456,7 +1619,7 @@ Règles :
                     )
                     log(
                         f"[korymb] Chat : réponse horaire de secours (fuseau Europe/Paris) "
-                        f"pour {AGENTS_DEF[agent_key]['label']}.",
+                        f"pour {agents_def()[agent_key]['label']}.",
                     )
                 except Exception:
                     pass
@@ -1481,7 +1644,7 @@ Règles :
         resultats[agent_key] = res
         reply_plain = (res or "").strip() or "Je n’ai pas de réponse textuelle à te renvoyer pour l’instant."
         reply_line_fr = _clip_dialogue_public(reply_plain)
-        log(f"[korymb] [{AGENTS_DEF[agent_key]['label']} → CIO] {_clip_one_line(reply_line_fr, 2000)}")
+        log(f"[korymb] [{agents_def()[agent_key]['label']} → CIO] {_clip_one_line(reply_line_fr, 2000)}")
         if job_id:
             _emit_job_event(
                 job_id,
@@ -1509,7 +1672,7 @@ Règles :
                     break
             pub_team()
             _persist_running_job_snapshot(job_id)
-        log(f"[korymb] {AGENTS_DEF[agent_key]['label']} — terminé.")
+        log(f"[korymb] {agents_def()[agent_key]['label']} — terminé.")
         chain_prev = agent_key
 
     if job_id and chain_prev != "coordinateur":
@@ -1522,7 +1685,7 @@ Règles :
                 "to": "coordinateur",
                 "mediator": "coordinateur",
                 "summary_fr": (
-                    f"Le {AGENTS_DEF[chain_prev]['label']} a terminé son tour ; "
+                    f"Le {agents_def()[chain_prev]['label']} a terminé son tour ; "
                     "le CIO récupère les livrables pour analyse et synthèse."
                 ),
             },
@@ -1550,6 +1713,7 @@ Règles :
 
     if job_id:
         _emit_job_event(job_id, "synthesis_start", "coordinateur", {"with_sub_results": bool(resultats)})
+    _raise_if_job_cancelled(job_id)
     log("[korymb] CIO — synthèse finale (rédaction à partir des livrables / mission)...")
     if job_id:
         _persist_running_job_snapshot(job_id)
@@ -1574,7 +1738,7 @@ Règles :
     )
     if resultats:
         contributions = "\n\n".join([
-            f"=== {AGENTS_DEF[k]['label']} ===\n{v}"
+            f"=== {agents_def()[k]['label']} ===\n{v}"
             for k, v in resultats.items()
         ])
         synthese_user = (
@@ -1667,6 +1831,8 @@ Règles :
         },
     )
     # endregion
+    if job_id and job_id in active_jobs:
+        active_jobs[job_id]["result"] = result if isinstance(result, str) else ""
     return result, t_in, t_out
 
 
@@ -1676,7 +1842,7 @@ class MissionRunConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     recursive_refinement_enabled: bool = False
-    recursive_max_rounds: int = Field(default=0, ge=0, le=5)
+    recursive_max_rounds: int = Field(default=0, ge=0, le=12)
     require_user_validation: bool = True
 
 
@@ -1690,6 +1856,10 @@ class MissionRequest(BaseModel):
     context: dict | None = None
     mission_config: MissionRunConfig | None = None
     user_validate_job_id: str | None = None
+    remove_mission_session_id: str | None = Field(
+        default=None,
+        description="Avec mission vide : supprime cette session de cadrage (même POST /run, utile si seul /run est autorisé).",
+    )
 
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -1728,6 +1898,10 @@ class RemoveJobPayload(BaseModel):
     job_id: str
 
 
+class RemoveMissionSessionPayload(BaseModel):
+    session_id: str
+
+
 class ValidateMissionPayload(BaseModel):
     job_id: str
 
@@ -1738,6 +1912,17 @@ class EnterpriseMemoryPut(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     contexts: dict[str, str] | None = None
+
+
+class AdminAgentUpsertBody(BaseModel):
+    """Création ou mise à jour d'un agent métier personnalisé (clé dans l'URL)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(..., min_length=1, max_length=160)
+    role: str = Field("", max_length=400)
+    system: str = Field(..., min_length=1, max_length=32000)
+    tools: list[str] = Field(default_factory=list)
 
 
 class AdminSettingsPut(BaseModel):
@@ -1764,9 +1949,49 @@ def verify_secret(key: str = Depends(api_key_header)) -> str:
     return key
 
 
+def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
+    msg = str(exc).strip() or type(exc).__name__
+    if len(msg) > max_len:
+        return msg[: max_len - 3] + "..."
+    return msg
+
+
+def _user_visible_job_failure_markdown(exc: BaseException) -> str:
+    """Contenu `jobs.result` + panneau mission quand l'exécution échoue."""
+    detail = _format_exc_for_user(exc)
+    return (
+        "## Échec de la mission\n\n"
+        f"**Cause :** {detail}\n\n"
+        "Consulte le **journal d'exécution** (section repliable) pour la trace complète. "
+        "Si le message évoque une **clé API**, un **modèle** ou un **quota**, ouvre **Administration → LLM**, "
+        "corrige la configuration, puis relance."
+    )
+
+
+def _user_visible_chat_sync_failure_text(exc: BaseException) -> str:
+    """Réponse HTTP /chat synchrone (sans job d'arrière-plan)."""
+    detail = _format_exc_for_user(exc, max_len=4000)
+    return (
+        "Impossible d'obtenir une réponse du modèle pour ce message.\n\n"
+        f"**Détail :** {detail}\n\n"
+        "Vérifie la configuration LLM (fournisseur, clé, modèle, quotas) ou réessaie plus tard."
+    )
+
+
 # ── État en mémoire ────────────────────────────────────────────────────────────
 active_jobs: dict[str, dict] = {}
 daily_tokens: dict[str, dict] = {}
+
+KORYMB_MAX_REFINEMENT_ROUNDS = 12
+
+
+class KorymbJobCancelled(Exception):
+    """Annulation demandée par l'utilisateur (POST /jobs/{id}/cancel)."""
+
+
+def _raise_if_job_cancelled(job_id: str | None) -> None:
+    if job_id and job_id in active_jobs and active_jobs[job_id].get("cancel_requested"):
+        raise KorymbJobCancelled()
 
 
 def _emit_job_event(job_id: str | None, typ: str, agent: str | None = None, payload: dict | None = None) -> None:
@@ -1876,7 +2101,7 @@ def _lifetime_tokens_total() -> int:
 
 
 def _planning_system(agent_key: str) -> str:
-    base = AGENTS_DEF.get(agent_key, AGENTS_DEF["coordinateur"])["system"] + FLEUR_CONTEXT
+    base = agents_def().get(agent_key, agents_def()["coordinateur"])["system"] + FLEUR_CONTEXT
     if agent_key == "coordinateur":
         return base + MODE_CADRAGE_CIO
     return base + MODE_CADRAGE_AGENT + SUB_AGENT_COORDINATION_FR
@@ -1929,15 +2154,16 @@ def _cio_refinement_round_mission(
     job_logs: list | None,
 ) -> tuple[str, int, int]:
     """
-    Boucle d'affinage : critique CIO puis, si besoin, **nouvelle** orchestration
-    (plan JSON → sous-agents concernés → synthèse), pour permettre plusieurs
+    Boucle d'exécution (aussi appelée boucle d'affinage) : critique CIO puis, si besoin,
+    **nouvelle** orchestration (plan JSON → sous-agents concernés → synthèse), pour plusieurs
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
-    crit_sys = AGENTS_DEF["coordinateur"]["system"] + FLEUR_CONTEXT
+    _raise_if_job_cancelled(job_id)
+    crit_sys = agents_def()["coordinateur"]["system"] + FLEUR_CONTEXT
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
-        f"Synthèse actuelle (affinage tour {round_idx}) :\n{(current_result or '')[:12000]}\n\n"
+        f"Synthèse actuelle (boucle d'exécution, tour {round_idx}) :\n{(current_result or '')[:12000]}\n\n"
         "Liste au maximum 5 lacunes, risques ou oublis par rapport à la mission. "
         "Une ligne par point, numérotée. Si la synthèse est déjà pleinement satisfaisante, réponds uniquement : RAS",
         max_tokens=900,
@@ -1947,7 +2173,7 @@ def _cio_refinement_round_mission(
     )
     t_in, t_out = ti1, to1
     if job_logs is not None:
-        job_logs.append(f"[korymb] Affinage CIO — tour {round_idx} analyse ({ti1}↑{to1}↓ tok).")
+        job_logs.append(f"[korymb] Boucle d'affinage CIO — tour {round_idx} analyse ({ti1}↑{to1}↓ tok).")
     _emit_job_event(
         job_id,
         "refinement_round",
@@ -1957,11 +2183,11 @@ def _cio_refinement_round_mission(
     crit_stripped = (critique or "").strip()
     if crit_stripped.upper().startswith("RAS") and len(crit_stripped) < 160:
         if job_logs is not None:
-            job_logs.append(f"[korymb] Affinage CIO — tour {round_idx} : RAS, pas de nouvelle passe équipe.")
+            job_logs.append(f"[korymb] Boucle d'affinage CIO — tour {round_idx} : RAS, pas de nouvelle passe équipe.")
         return current_result, t_in, t_out
 
     suffix = (
-        f"\n\n--- Affinage itératif : tour {round_idx} (même mission, poursuite du job) ---\n"
+        f"\n\n--- Boucle d'exécution (affinage) : tour {round_idx} (même mission, poursuite du job) ---\n"
         f"Synthèse actuelle du CIO à améliorer :\n{(current_result or '')[:10000]}\n\n"
         f"Lacunes et correctifs identifiés (à traiter) :\n{(critique or '')[:6500]}\n\n"
         "Produis un plan JSON **minimal** : ne relance que les rôles nécessaires pour combler ces points "
@@ -1971,13 +2197,18 @@ def _cio_refinement_round_mission(
         'mets "agents": [] et "sous_taches": {} — tu finaliseras alors seul à partir du contexte ci-dessus.'
     )
     if job_logs is not None:
-        job_logs.append(f"[korymb] Affinage tour {round_idx} : replanification et exécution équipe (si le plan le prévoit).")
+        job_logs.append(f"[korymb] Boucle d'exécution — tour {round_idx} : replanification et exécution équipe (si le plan le prévoit).")
     _emit_job_event(
         job_id,
         "refinement_round",
         "coordinateur",
-        {"round": round_idx, "phase": "orchestrate", "summary_fr": "Nouvelle passe plan / sous-agents / synthèse."},
+        {
+            "round": round_idx,
+            "phase": "orchestrate",
+            "summary_fr": "Boucle d'exécution : nouvelle passe plan / sous-agents / synthèse.",
+        },
     )
+    _raise_if_job_cancelled(job_id)
     improved, ti2, to2 = orchestrate_coordinateur_mission(
         f"{mission_txt_base}{suffix}",
         mission_plain,
@@ -1998,7 +2229,7 @@ def _cio_refinement_round_mission(
         },
     )
     if job_logs is not None:
-        job_logs.append(f"[korymb] Affinage tour {round_idx} orchestration terminée ({ti2}↑{to2}↓ tok).")
+        job_logs.append(f"[korymb] Boucle d'exécution — tour {round_idx} orchestration terminée ({ti2}↑{to2}↓ tok).")
     return (improved or current_result).strip(), t_in, t_out
 
 
@@ -2065,7 +2296,7 @@ def _schedule_mission_execution(
 ) -> None:
     job_logs: list[str] = []
     requested_agent_key = agent_key
-    agent_cfg = AGENTS_DEF.get(agent_key, AGENTS_DEF["coordinateur"])
+    agent_cfg = agents_def().get(agent_key, agents_def()["coordinateur"])
     now_iso = datetime.utcnow().isoformat()
     cfg = _mission_config_from_payload(mission_config)
     if cfg.get("recursive_refinement_enabled"):
@@ -2077,7 +2308,7 @@ def _schedule_mission_execution(
             cfg = {**cfg, "recursive_max_rounds": 1}
         if agent_key != "coordinateur":
             agent_key = "coordinateur"
-            agent_cfg = AGENTS_DEF["coordinateur"]
+            agent_cfg = agents_def()["coordinateur"]
     active_jobs[job_id] = {
         "status": "running",
         "agent": agent_key,
@@ -2094,7 +2325,7 @@ def _schedule_mission_execution(
         "mission_config": cfg,
     }
     save_job(job_id, agent_key, mission_plain, source=source_tag, mission_config=cfg)
-    mem = _korymb_memory_prompt_for(agent_key)
+    mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
@@ -2105,12 +2336,12 @@ def _schedule_mission_execution(
         cfg = active_jobs.get(job_id, {}).get("mission_config") or _mission_config_from_payload(None)
         if cfg.get("recursive_refinement_enabled"):
             job_logs.append(
-                f"[korymb] Config : affinage itératif CIO + équipe activé "
+                f"[korymb] Config : boucle d'affinage CIO + équipe activée "
                 f"({int(cfg.get('recursive_max_rounds') or 0)} tour(s) max) — "
                 "chaque tour peut relancer des sous-agents selon le plan."
             )
             if requested_agent_key != "coordinateur":
-                ra = AGENTS_DEF.get(requested_agent_key, AGENTS_DEF["coordinateur"])
+                ra = agents_def().get(requested_agent_key, agents_def()["coordinateur"])
                 job_logs.append(
                     f"[korymb] Agent de cadrage / demandé : {ra['label']} — exécution des boucles via le CIO "
                     "(orchestration multi-rôles)."
@@ -2128,18 +2359,21 @@ def _schedule_mission_execution(
             },
         )
         t_in_total = t_out_total = 0
+        result = ""
         try:
             if agent_key == "coordinateur":
                 result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
                     mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
                 )
+                _raise_if_job_cancelled(job_id)
                 if cfg.get("recursive_refinement_enabled"):
                     try:
                         mx = int(cfg.get("recursive_max_rounds") or 0)
                     except (TypeError, ValueError):
                         mx = 0
-                    mx = max(1, min(5, mx))
+                    mx = max(1, min(KORYMB_MAX_REFINEMENT_ROUNDS, mx))
                     for r in range(1, mx + 1):
+                        _raise_if_job_cancelled(job_id)
                         result, ti_r, to_r = _cio_refinement_round_mission(
                             job_id, mission_txt, mission_plain, result, r, job_logs,
                         )
@@ -2155,6 +2389,7 @@ def _schedule_mission_execution(
                     "detail": (mission_plain or "")[:220],
                 }]
                 job_logs.append(f"[korymb] {agent_cfg['label']} travaille...")
+                _raise_if_job_cancelled(job_id)
 
                 def on_tool(actor: str, tool_name: str, meta: dict):
                     _emit_job_event(job_id, "tool_call", actor, meta)
@@ -2204,7 +2439,7 @@ def _schedule_mission_execution(
                 append_recent_mission(
                     job_id,
                     mission_plain,
-                    ((result or "")[:450] if isinstance(result, str) else ""),
+                    (result or "") if isinstance(result, str) else "",
                 )
             except Exception:
                 logger.exception("append_recent_mission")
@@ -2217,9 +2452,46 @@ def _schedule_mission_execution(
                     active_jobs[job_id]["mission_closed_by_user"] = True
             logger.info("Job [%s] OK — %d tokens.", job_id, t_in_total + t_out_total)
 
-        except Exception as e:
+        except KorymbJobCancelled:
+            job_logs.append("[korymb] Mission interrompue — arrêt demandé par l'utilisateur.")
+            _emit_job_event(job_id, "mission_cancelled", None, {"reason": "user_cancel"})
+            snap = active_jobs.get(job_id, {})
+            res_partial = snap.get("result") if isinstance(snap.get("result"), str) else None
+            final_text = (res_partial or "").strip() or (
+                "## Mission interrompue\n\n"
+                "L'exécution a été **stoppée sur demande**. "
+                "Aucun livrable final n'a été consolidé ; tu peux relancer une mission ou reprendre depuis l'historique."
+            )
             if job_id in active_jobs:
-                active_jobs[job_id]["status"] = f"error: {e}"
+                active_jobs[job_id].update({
+                    "status": "cancelled",
+                    "result": final_text,
+                    "tokens_in": t_in_total,
+                    "tokens_out": t_out_total,
+                })
+            team_snap = active_jobs.get(job_id, {}).get("team", [])
+            plan_snap = active_jobs.get(job_id, {}).get("plan") or {}
+            events_snap = active_jobs.get(job_id, {}).get("events") or []
+            src = active_jobs.get(job_id, {}).get("source") or source_tag
+            update_job(
+                job_id,
+                "cancelled",
+                final_text,
+                job_logs,
+                t_in_total,
+                t_out_total,
+                team_trace=team_snap,
+                plan=plan_snap,
+                events=events_snap,
+                source=src,
+                mission_config=active_jobs.get(job_id, {}).get("mission_config"),
+            )
+            logger.info("Job [%s] annulé par l'utilisateur.", job_id)
+
+        except Exception as e:
+            user_result = _user_visible_job_failure_markdown(e)
+            if job_id in active_jobs:
+                active_jobs[job_id].update({"status": f"error: {e}", "result": user_result})
             job_logs.append(f"[korymb] Erreur : {e}")
             _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
             team_snap = active_jobs.get(job_id, {}).get("team", [])
@@ -2229,7 +2501,7 @@ def _schedule_mission_execution(
             update_job(
                 job_id,
                 f"error: {e}",
-                None,
+                user_result,
                 job_logs,
                 t_in_total,
                 t_out_total,
@@ -2274,6 +2546,144 @@ async def korymb_version_header_middleware(request, call_next):
     return response
 
 
+def _env_is_set(name: str) -> bool:
+    return bool(str(os.getenv(name, "")).strip())
+
+
+def _probe_tcp(host: str, port: int, timeout_s: float = 2.5) -> tuple[bool, str]:
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout_s):
+            return True, "reachable"
+    except Exception as e:
+        return False, str(e)
+
+
+def _system_metrics_snapshot() -> dict:
+    now = time.time()
+    out: dict[str, object] = {
+        "process_uptime_s": max(0, int(now - _PROCESS_STARTED_AT)),
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "cpu_count": os.cpu_count() or 1,
+    }
+    try:
+        import psutil  # type: ignore
+
+        vm = psutil.virtual_memory()
+        out["memory"] = {
+            "total_bytes": int(vm.total),
+            "available_bytes": int(vm.available),
+            "used_percent": float(vm.percent),
+        }
+        out["cpu_percent"] = float(psutil.cpu_percent(interval=0.15))
+    except Exception:
+        out["memory"] = {}
+        out["cpu_percent"] = None
+
+    try:
+        disk_root = str(Path.cwd().anchor or "/")
+        du = shutil.disk_usage(disk_root)
+        out["disk"] = {
+            "path": disk_root,
+            "total_bytes": int(du.total),
+            "free_bytes": int(du.free),
+            "used_percent": round((float(du.used) / float(du.total) * 100.0), 2) if du.total else 0.0,
+        }
+    except Exception:
+        out["disk"] = {}
+    return out
+
+
+def _integration_health_snapshot(*, refresh_tools: bool) -> dict:
+    from tools_health import probe_tools_health
+
+    tools_probe = probe_tools_health(force=bool(refresh_tools))
+    cfg = merge_with_env()
+
+    status: dict[str, dict[str, object]] = {
+        "llm_openrouter": {
+            "configured": _env_is_set("OPENROUTER_API_KEY"),
+            "provider_selected": str(cfg.get("llm_provider") or "") == "openrouter",
+        },
+        "llm_anthropic": {
+            "configured": _env_is_set("ANTHROPIC_API_KEY"),
+            "provider_selected": str(cfg.get("llm_provider") or "") == "anthropic",
+        },
+        "google_oauth": {
+            "configured": _env_is_set("GOOGLE_API_ACCESS_TOKEN")
+            or (
+                _env_is_set("GOOGLE_OAUTH_REFRESH_TOKEN")
+                and _env_is_set("GOOGLE_OAUTH_CLIENT_ID")
+                and _env_is_set("GOOGLE_OAUTH_CLIENT_SECRET")
+            ),
+        },
+        "google_drive": {
+            "configured": (
+                _env_is_set("GOOGLE_DRIVE_ACCESS_TOKEN")
+                or _env_is_set("GOOGLE_API_ACCESS_TOKEN")
+                or (
+                    _env_is_set("GOOGLE_OAUTH_REFRESH_TOKEN")
+                    and _env_is_set("GOOGLE_OAUTH_CLIENT_ID")
+                    and _env_is_set("GOOGLE_OAUTH_CLIENT_SECRET")
+                )
+            ),
+            "folder_id_set": _env_is_set("GOOGLE_DRIVE_FOLDER_ID"),
+        },
+        "facebook": {
+            "configured": _env_is_set("FACEBOOK_ACCESS_TOKEN") and _env_is_set("FACEBOOK_PAGE_ID"),
+        },
+        "instagram": {
+            "configured": _env_is_set("INSTAGRAM_ACCESS_TOKEN") and _env_is_set("INSTAGRAM_ACCOUNT_ID"),
+        },
+        "smtp": {
+            "configured": _env_is_set("SMTP_HOST") and _env_is_set("SMTP_USER") and _env_is_set("SMTP_PASS"),
+        },
+        "fleur_db": {
+            "configured": _env_is_set("FLEUR_DB_HOST") and _env_is_set("FLEUR_DB_USER"),
+        },
+        "web_tools": {
+            "configured": True,
+            "ok": bool(tools_probe.get("web_search", {}).get("ok")) and bool(tools_probe.get("read_webpage", {}).get("ok")),
+        },
+    }
+
+    # Probes réseau légères : best-effort, sans provoquer d'échec global.
+    smtp_host = str(os.getenv("SMTP_HOST", "")).strip()
+    if smtp_host:
+        ok, detail = _probe_tcp(smtp_host, 465)
+        status["smtp"]["reachable"] = ok
+        status["smtp"]["probe_detail"] = detail[:160]
+
+    try:
+        from db_fleur import _get_conn  # type: ignore
+
+        with _get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 AS ok")
+                _ = cur.fetchone()
+        status["fleur_db"]["reachable"] = True
+    except Exception as e:
+        status["fleur_db"]["reachable"] = False
+        status["fleur_db"]["probe_detail"] = str(e)[:180]
+
+    configured = 0
+    reachable = 0
+    for v in status.values():
+        if bool(v.get("configured")):
+            configured += 1
+        if bool(v.get("ok")) or bool(v.get("reachable")):
+            reachable += 1
+    return {
+        "integrations": status,
+        "tools_probe": tools_probe,
+        "summary": {
+            "configured_count": configured,
+            "reachable_count": reachable,
+            "total_integrations": len(status),
+        },
+    }
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/health")
 def health(
@@ -2295,6 +2705,8 @@ def health(
         # Aide au debug local : si la révision affichée ne suit pas ton repo, compare ce chemin
         # avec celui de ton clone (autre dossier / Docker / ancien venv = autre code).
         "code_dir": str(_KORYMB_BACKEND_DIR),
+        # Si false côté client alors que le repo contient la feature : mauvais processus sur le port / image Docker ancienne.
+        "mission_session_delete_routes": True,
     }
     if include_tools:
         from tools_health import probe_tools_health
@@ -2302,6 +2714,26 @@ def health(
         body["tools"] = probe_tools_health(force=bool(refresh_tools))
     return JSONResponse(
         content=body,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "X-Korymb-Version": BACKEND_VERSION,
+        },
+    )
+
+
+@app.get("/admin/system-health", dependencies=[Depends(verify_secret)])
+def admin_system_health(refresh_tools: bool = False):
+    """État d'administration consolidé : tokens configurés, intégrations joignables, métriques système."""
+    payload = {
+        "status": "ok",
+        "version": BACKEND_VERSION,
+        "revision_at": BACKEND_REVISION_AT or None,
+        "service": "korymb-backend",
+        "system": _system_metrics_snapshot(),
+        **_integration_health_snapshot(refresh_tools=bool(refresh_tools)),
+    }
+    return JSONResponse(
+        content=payload,
         headers={
             "Cache-Control": "no-store, max-age=0",
             "X-Korymb-Version": BACKEND_VERSION,
@@ -2341,24 +2773,46 @@ def probe_web_tools_endpoint(refresh: bool = False):
 
 @app.get("/agents")
 def list_agents():
-    return {"agents": [
-        {"key": k, "label": v["label"], "role": v["role"],
-         "tools": v.get("tools", []), "is_manager": v.get("is_manager", False)}
-        for k, v in AGENTS_DEF.items()
-    ]}
+    ad = agents_def()
+    return {
+        "agents": [
+            {
+                "key": k,
+                "label": v["label"],
+                "role": v["role"],
+                "tools": v.get("tools", []),
+                "is_manager": v.get("is_manager", False),
+                "builtin": k in BUILTIN_AGENT_DEFINITIONS,
+            }
+            for k, v in ad.items()
+        ],
+        "tool_tags": sorted(ALLOWED_AGENT_TOOL_TAGS),
+    }
 
 
 @app.get("/llm")
 def llm_public_info():
     """Fournisseur et modèle actifs (sans clés) — pour affichage dashboard."""
     cfg = merge_with_env()
-    if str(cfg.get("llm_provider")) == "openrouter":
-        return {
+    provider = str(cfg.get("llm_provider") or "anthropic").strip().lower()
+    if provider == "openrouter":
+        model, tier_key, _, _ = resolve_openrouter_tier(cfg, "lite")
+        payload = {
             "provider": "openrouter",
-            "model": cfg.get("openrouter_model"),
+            "model": model,
+            "model_fallback": cfg.get("openrouter_model"),
+            "tier": tier_key,
             "base_url": cfg.get("openrouter_base_url"),
         }
-    return {"provider": "anthropic", "model": cfg.get("anthropic_model")}
+        return JSONResponse(
+            payload,
+            headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": str(BACKEND_VERSION)},
+        )
+    payload = {"provider": "anthropic", "model": cfg.get("anthropic_model")}
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": str(BACKEND_VERSION)},
+    )
 
 
 @app.get("/memory", dependencies=[Depends(verify_secret)])
@@ -2393,8 +2847,58 @@ def admin_put_llm_settings(body: AdminSettingsPut):
     return to_public_dict(merged)
 
 
-@app.get("/tokens")
-def get_tokens():
+@app.get("/admin/agents", dependencies=[Depends(verify_secret)])
+def admin_agents_definitions():
+    """Définitions complètes (y compris prompts) + liste des tags d'outils autorisés."""
+    ad = agents_def()
+    return {
+        "agents": [
+            {
+                "key": k,
+                "label": v["label"],
+                "role": v.get("role", ""),
+                "system": v.get("system", ""),
+                "tools": v.get("tools", []),
+                "is_manager": v.get("is_manager", False),
+                "builtin": k in BUILTIN_AGENT_DEFINITIONS,
+            }
+            for k, v in ad.items()
+        ],
+        "tool_tags": sorted(ALLOWED_AGENT_TOOL_TAGS),
+    }
+
+
+@app.put("/admin/agents/custom/{agent_key}", dependencies=[Depends(verify_secret)])
+def admin_upsert_custom_agent(agent_key: str, body: AdminAgentUpsertBody):
+    raw = (agent_key or "").strip()
+    canon, err = validate_custom_agent_key(raw)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    try:
+        upsert_custom_agent(
+            canon,
+            label=body.label,
+            role=body.role,
+            system_prompt=body.system,
+            tools=body.tools,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    refresh_agents_definitions_cache()
+    return {"ok": True, "key": canon}
+
+
+@app.delete("/admin/agents/custom/{agent_key}", dependencies=[Depends(verify_secret)])
+def admin_delete_custom_agent(agent_key: str):
+    try:
+        deleted = delete_custom_agent((agent_key or "").strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    refresh_agents_definitions_cache()
+    return {"ok": True, "deleted": bool(deleted)}
+
+
+def _tokens_payload() -> dict:
     today = _today()
     t = daily_tokens.get(today, {"in": 0, "out": 0})
     cfg = merge_with_env()
@@ -2420,14 +2924,87 @@ def get_tokens():
     }
 
 
+@app.get("/tokens")
+def get_tokens():
+    payload = _tokens_payload()
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": str(BACKEND_VERSION)},
+    )
+
+
+def _runtime_sync_snapshot() -> dict:
+    """Petit snapshot unifié pour synchronisation live front (SSE)."""
+    cfg = merge_with_env()
+    provider = str(cfg.get("llm_provider") or "anthropic").strip().lower()
+    if provider == "openrouter":
+        model, _, _, _ = resolve_openrouter_tier(cfg, "lite")
+    else:
+        provider = "anthropic"
+        model = cfg.get("anthropic_model")
+    return {
+        "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat(),
+        "backend_version": BACKEND_VERSION,
+        "llm": {
+            "provider": provider,
+            "model": model,
+        },
+        "tokens": _tokens_payload(),
+        "health": {
+            "status": "ok",
+        },
+    }
+
+
+@app.get("/events/stream", dependencies=[Depends(verify_secret)])
+async def events_stream(request: Request):
+    async def gen():
+        last_payload = ""
+        event_id = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                snapshot = _runtime_sync_snapshot()
+                payload = json.dumps(snapshot, ensure_ascii=False)
+                if payload != last_payload:
+                    event_id += 1
+                    yield f"id: {event_id}\nevent: runtime_sync\ndata: {payload}\n\n"
+                    last_payload = payload
+                else:
+                    # heartbeat SSE pour garder la connexion active côté proxies
+                    yield "event: ping\ndata: {}\n\n"
+            except Exception as e:
+                err = json.dumps({"error": str(e), "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat()})
+                yield f"event: runtime_error\ndata: {err}\n\n"
+            await asyncio.sleep(2.0)
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "X-Korymb-Version": str(BACKEND_VERSION),
+        },
+    )
+
+
 @app.post("/run", response_model=MissionResponse, dependencies=[Depends(verify_secret)])
 async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks):
+    rsid = (request.remove_mission_session_id or "").strip()
+    if rsid:
+        if not delete_mission_session(rsid):
+            raise HTTPException(status_code=404, detail="Session introuvable.")
+        return MissionResponse(status="session_deleted", job_id=rsid, agent="coordinateur")
+
     vj = (request.user_validate_job_id or "").strip()
     if vj:
         out = _validate_mission_by_user_impl(vj)
         row = db_get_job(vj)
         agent_key = (row or {}).get("agent") or "coordinateur"
-        if agent_key not in AGENTS_DEF:
+        if agent_key not in agents_def():
             agent_key = "coordinateur"
         uva = out.get("user_validated_at")
         st = "already_validated" if out.get("already") else "validated"
@@ -2438,7 +3015,7 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
         raise HTTPException(status_code=400, detail="Mission vide.")
 
     job_id = str(uuid.uuid4())[:8]
-    agent_key = request.agent if request.agent in AGENTS_DEF else "coordinateur"
+    agent_key = request.agent if request.agent in agents_def() else "coordinateur"
     mcfg = request.mission_config.model_dump() if request.mission_config else _mission_config_from_payload(None)
     _schedule_mission_execution(
         background_tasks,
@@ -2454,7 +3031,7 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
 
 @app.post("/mission-sessions", dependencies=[Depends(verify_secret)])
 def mission_sessions_create(body: MissionSessionCreate):
-    agent_key = body.agent if body.agent in AGENTS_DEF else "coordinateur"
+    agent_key = body.agent if body.agent in agents_def() else "coordinateur"
     sid = str(uuid.uuid4()).replace("-", "")[:12]
     create_mission_session(sid, agent_key, (body.title or "").strip())
     if body.initial_message and str(body.initial_message).strip():
@@ -2481,6 +3058,21 @@ def mission_sessions_get(session_id: str):
     if not row:
         raise HTTPException(status_code=404, detail="Session introuvable.")
     return row
+
+
+@app.delete("/mission-sessions/{session_id}", dependencies=[Depends(verify_secret)])
+def mission_sessions_delete(session_id: str):
+    if not delete_mission_session(session_id):
+        raise HTTPException(status_code=404, detail="Session introuvable.")
+    return {"deleted": True, "session_id": session_id}
+
+
+@app.post("/mission-sessions/{session_id}/remove", dependencies=[Depends(verify_secret)])
+def mission_sessions_remove(session_id: str):
+    """Même effet que DELETE (fallback si un proxy bloque DELETE)."""
+    if not delete_mission_session(session_id):
+        raise HTTPException(status_code=404, detail="Session introuvable.")
+    return {"deleted": True, "session_id": session_id}
 
 
 @app.post("/mission-sessions/{session_id}/message", dependencies=[Depends(verify_secret)])
@@ -2514,7 +3106,7 @@ def mission_sessions_validate(
         raise HTTPException(status_code=404, detail="Session introuvable.")
     if s["status"] != "draft":
         raise HTTPException(status_code=400, detail="Déjà validée ou clôturée.")
-    agent_key = s["agent"] if s["agent"] in AGENTS_DEF else "coordinateur"
+    agent_key = s["agent"] if s["agent"] in agents_def() else "coordinateur"
     try:
         brief = _compose_mission_brief_from_session(s, body.brief)
     except HTTPException:
@@ -2537,18 +3129,56 @@ def mission_sessions_validate(
     return {"job_id": job_id, "session_id": session_id, "agent": agent_key, "brief": brief}
 
 
+def _mission_followup_context_from_parent(parent_job_id: str) -> str:
+    """Texte injecté dans le tour CIO « chat » pour reprendre une mission déjà exécutée (validée ou non)."""
+    row = db_get_job(parent_job_id)
+    if not row:
+        return ""
+    parts: list[str] = []
+    parts.append(f"--- Suite sur la même mission (dossier #{parent_job_id}) ---")
+    mission = (row.get("mission") or "").strip()
+    if mission:
+        parts.append(f"Consigne / titre de la mission d'origine :\n{mission[:4000]}")
+    res = (row.get("result") or "").strip()
+    if res:
+        parts.append(f"Livrable ou synthèse CIO en date de cette mission (référence) :\n{res[:16000]}")
+    mt = row.get("mission_thread") if isinstance(row.get("mission_thread"), list) else []
+    if mt:
+        lines: list[str] = []
+        for e in mt[-28:]:
+            if not isinstance(e, dict):
+                continue
+            r = str(e.get("role") or "")
+            ag = str(e.get("agent") or "").strip()
+            c = str(e.get("content") or "").strip()
+            if not c:
+                continue
+            tag = "Dirigeant" if r == "user" else (ag or "assistant")
+            lines.append(f"[{tag}] {c[:2800]}")
+        if lines:
+            parts.append("Échanges déjà enregistrés sur cette mission (fil) :\n" + "\n\n".join(lines))
+    parts.append(
+        "Tu traites une **demande de suite** : nouveaux objectifs, affinage du livrable, tâches additionnelles, "
+        "corrections ou itération sans repartir de zéro. Réutilise le contexte ci-dessus ; délègue aux sous-agents "
+        "si c'est pertinent pour cette suite."
+    )
+    return "\n\n".join(parts) + "\n\n"
+
+
 @app.post("/chat", dependencies=[Depends(verify_secret)])
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    agent_cfg = AGENTS_DEF.get(request.agent, AGENTS_DEF["coordinateur"])
+    agent_cfg = agents_def().get(request.agent, agents_def()["coordinateur"])
 
     try:
         # CIO : orchestration en arrière-plan (comme /run) pour que le front puisse poller /jobs/{id} en direct.
         if request.agent == "coordinateur":
             job_id = str(uuid.uuid4())[:8]
             now_iso = datetime.utcnow().isoformat()
-            hist_snap = list(request.history[-6:])
-            msg_snap = request.message
             linked_parent_id = (request.linked_job_id or "").strip()[:16]
+            # Reprise sur une mission existante : le contexte vient du job parent en base (mission_thread, etc.).
+            # Ne pas rejouer `request.history` (évite doublons et « seconde mission » côté modèle).
+            hist_snap = [] if linked_parent_id else list(request.history[-6:])
+            msg_snap = request.message
             save_job(
                 job_id,
                 "coordinateur",
@@ -2590,10 +3220,28 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             if isinstance(c, str):
                                 hist_lines.append(f"{role}: {c[:800]}")
                     conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-                    mission_txt = (
-                        f"Échanges récents :\n{conv}\n\n"
-                        f"Dernière demande à traiter maintenant :\n{msg_snap}"
+                    parent_blob = (
+                        _mission_followup_context_from_parent(linked_parent_id)
+                        if linked_parent_id
+                        else ""
                     )
+                    if parent_blob:
+                        mission_txt = (
+                            parent_blob
+                            + (
+                                "Échanges récents dans cette session (chat) :\n"
+                                + conv
+                                + "\n\nDernière demande à traiter maintenant :\n"
+                                + msg_snap
+                                if hist_snap
+                                else "Nouvelle demande du dirigeant (à traiter maintenant) :\n" + msg_snap
+                            )
+                        )
+                    else:
+                        mission_txt = (
+                            f"Échanges récents :\n{conv}\n\n"
+                            f"Dernière demande à traiter maintenant :\n{msg_snap}"
+                        )
                     text, ti, to = orchestrate_coordinateur_mission(
                         mission_txt, msg_snap, job_logs_ref, chat_mode=True, job_id=job_id,
                     )
@@ -2622,7 +3270,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         source="chat",
                     )
                     try:
-                        append_recent_mission(job_id, msg_snap, (text or "")[:450])
+                        append_recent_mission(job_id, msg_snap, text or "")
                     except Exception:
                         logger.exception("append_recent_mission (chat)")
                     if linked_parent_id and linked_parent_id != job_id:
@@ -2644,17 +3292,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         except Exception:
                             logger.exception("append_job_mission_thread (chat → mission liée)")
                 except Exception as e:
+                    user_result = _user_visible_job_failure_markdown(e)
                     team_snap = active_jobs.get(job_id, {}).get("team", [])
                     pl = active_jobs.get(job_id, {}).get("plan") or {}
                     ev = active_jobs.get(job_id, {}).get("events") or []
                     _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
                     job_logs_ref.append(f"[korymb] Erreur : {e}")
                     if job_id in active_jobs:
-                        active_jobs[job_id]["status"] = f"error: {e}"
+                        active_jobs[job_id].update({"status": f"error: {e}", "result": user_result})
                     update_job(
                         job_id,
                         f"error: {e}",
-                        None,
+                        user_result,
                         job_logs_ref,
                         0,
                         0,
@@ -2714,7 +3363,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 logger.exception("append_job_mission_thread (chat synchrone)")
         return {"response": reply, "agent": request.agent}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=_user_visible_chat_sync_failure_text(e)) from e
 
 
 def _delete_job_impl(job_id: str) -> dict:
@@ -2753,7 +3402,12 @@ def list_jobs(limit: int = 50):
         db_jobs[jid] = merged
     jobs = sorted(db_jobs.values(), key=lambda j: j.get("created_at", ""), reverse=True)
     out: list[dict] = []
-    for j in jobs[:limit]:
+    for j in jobs:
+        if len(out) >= limit:
+            break
+        # Jobs « tour technique » CIO liés à une mission (POST /chat + linked_job_id) : pas d’entrée métier à part.
+        if (j.get("parent_job_id") or "").strip() and str(j.get("source") or "") == "chat":
+            continue
         ev = j.get("events") or []
         if not isinstance(ev, list):
             ev = []
@@ -2940,6 +3594,24 @@ def validate_mission_by_user(job_id: str):
     return _validate_mission_by_user_impl(job_id)
 
 
+@app.post("/jobs/{job_id}/cancel", dependencies=[Depends(verify_secret)])
+def cancel_running_job(job_id: str):
+    """Demande d'arrêt coopératif : le worker vérifie le drapeau entre les étapes LLM."""
+    jid = (job_id or "").strip()
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = active_jobs.get(jid)
+    if not row:
+        raise HTTPException(
+            status_code=404,
+            detail="Mission introuvable en mémoire (déjà terminée ou redémarrage serveur).",
+        )
+    if row.get("status") != "running":
+        raise HTTPException(status_code=400, detail="La mission n'est pas en cours d'exécution.")
+    row["cancel_requested"] = True
+    return {"ok": True, "job_id": jid, "message": "Annulation enregistrée ; l'exécution s'arrête dès la prochaine étape."}
+
+
 @app.post("/jobs/{job_id}/remove", dependencies=[Depends(verify_secret)])
 def delete_job_post(job_id: str):
     return _delete_job_impl(job_id)
@@ -2954,6 +3626,17 @@ def delete_job(job_id: str):
 @app.post("/run/remove-job", dependencies=[Depends(verify_secret)])
 def run_remove_job(payload: RemoveJobPayload):
     return _delete_job_impl(payload.job_id)
+
+
+@app.post("/run/remove-mission-session", dependencies=[Depends(verify_secret)])
+def run_remove_mission_session(payload: RemoveMissionSessionPayload):
+    """Même effet que DELETE /mission-sessions/{id} ; chemin court pour proxys restrictifs."""
+    sid = str(payload.session_id or "").strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="session_id manquant.")
+    if not delete_mission_session(sid):
+        raise HTTPException(status_code=404, detail="Session introuvable.")
+    return {"deleted": True, "session_id": sid}
 
 
 @app.post("/run/validate-mission", dependencies=[Depends(verify_secret)])

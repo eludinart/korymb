@@ -45,7 +45,8 @@ function Stop-ListenersOnPort {
         if (-not $pids -or $pids.Count -eq 0) { break }
         foreach ($procId in $pids) {
             Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
-            & taskkill.exe /F /PID $procId 2>$null | Out-Null
+            # Ignore "process not found" races (PID may exit between scan and kill).
+            $null = cmd.exe /c "taskkill /F /PID $procId 2>nul 1>nul"
         }
         Start-Sleep -Milliseconds 400
     }
@@ -60,6 +61,15 @@ function Wait-PortListen {
         Start-Sleep -Milliseconds 250
     }
     return $false
+}
+
+function Stop-JobByNameIfExists {
+    param([string] $Name)
+    $j = Get-Job -Name $Name -ErrorAction SilentlyContinue
+    if ($null -ne $j) {
+        try { Stop-Job -Job $j -Force -ErrorAction SilentlyContinue } catch { }
+        try { Remove-Job -Job $j -Force -ErrorAction SilentlyContinue } catch { }
+    }
 }
 
 function Test-RestartScriptsPhase {
@@ -127,9 +137,8 @@ function Test-RestartScriptsPhase {
         Start-Sleep -Milliseconds 400
     }
 
-    # Vérification légère du script frontend : npm peut exécuter le script « dry » via -Port sur un port libre sans lancer vite longtemps —
-    # on ne lance pas Vite ici (trop lent / réseau). Le parse + npm suffit ; l'utilisateur valide le dev au premier restart-frontend.
-    Write-Host "  OK restart-frontend.ps1 (syntaxe + npm ; pas de démarrage Vite dans la phase de test)" -ForegroundColor Green
+    # Vérification légère du script frontend Next : on valide le parse + npm, puis l'utilisateur confirme au premier restart-frontend.
+    Write-Host "  OK restart-frontend.ps1 (syntaxe + npm ; pas de démarrage Next dans la phase de test)" -ForegroundColor Green
 
     Write-Host "=== Toutes les vérifications ont réussi ===" -ForegroundColor Cyan
 }
@@ -152,6 +161,8 @@ if (-not (Test-Path -LiteralPath $backendRestart) -or -not (Test-Path -LiteralPa
 }
 
 if ($NoNewWindows) {
+    Stop-JobByNameIfExists -Name "korymb-backend"
+    Stop-JobByNameIfExists -Name "tarot-frontend"
     Write-Host "Démarrage backend (job)…" -ForegroundColor Cyan
     $jobBe = Start-Job -Name "korymb-backend" -ScriptBlock {
         param($scriptPath, $wd)

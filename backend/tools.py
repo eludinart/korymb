@@ -4,8 +4,18 @@ Les fonctions run_* sont appelées par le flux v3 (tool use) et par les décorat
 """
 import os
 import re
+import time
+import logging
 import httpx
 from crewai.tools import tool
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Charge explicitement backend/.env pour les intégrations lues via os.getenv
+# (Meta, SMTP, Drive...). Sans cela, certaines clés restent invisibles selon
+# le mode de lancement du backend.
+load_dotenv(Path(__file__).with_name(".env"), override=True)
+logger = logging.getLogger(__name__)
 
 # ── Web Search (DuckDuckGo — sans clé API) ──────────────────────────────────
 try:
@@ -207,3 +217,141 @@ def send_email(to: str, subject: str, body: str) -> str:
     Nécessite SMTP_HOST, SMTP_USER, SMTP_PASS dans .env
     """
     return run_send_email(to, subject, body)
+
+
+# ── Google Drive (upload fichier texte) ─────────────────────────────────────
+# Priorité : token spécifique Drive, sinon token Google multi-scope.
+_GDRIVE_TOKEN = (os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN", "") or os.getenv("GOOGLE_API_ACCESS_TOKEN", "")).strip()
+_GDRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+_GOOGLE_REFRESH_TOKEN = os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
+_GOOGLE_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
+_GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+_GOOGLE_TOKEN_ENDPOINT = os.getenv("GOOGLE_OAUTH_TOKEN_ENDPOINT", "https://oauth2.googleapis.com/token").strip()
+_GOOGLE_TOKEN_CACHE: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
+
+
+def _refresh_google_access_token(force: bool = False) -> str:
+    """Renouvelle le token OAuth Google via refresh_token (si configuré)."""
+    if not (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
+        return ""
+    now = time.time()
+    cached = str(_GOOGLE_TOKEN_CACHE.get("access_token") or "")
+    exp = float(_GOOGLE_TOKEN_CACHE.get("expires_at") or 0.0)
+    if (not force) and cached and exp > now + 30:
+        return cached
+    try:
+        r = httpx.post(
+            _GOOGLE_TOKEN_ENDPOINT,
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": _GOOGLE_REFRESH_TOKEN,
+                "client_id": _GOOGLE_CLIENT_ID,
+                "client_secret": _GOOGLE_CLIENT_SECRET,
+            },
+            timeout=12,
+        )
+        r.raise_for_status()
+        data = r.json() if r.content else {}
+        token = str(data.get("access_token") or "").strip()
+        if not token:
+            return ""
+        expires_in = int(data.get("expires_in") or 3600)
+        _GOOGLE_TOKEN_CACHE["access_token"] = token
+        _GOOGLE_TOKEN_CACHE["expires_at"] = now + max(60, expires_in - 30)
+        return token
+    except Exception:
+        logger.exception("google_oauth_refresh_failed")
+        return ""
+
+
+def _get_google_drive_token() -> str:
+    # 1) token direct depuis .env ; 2) token cache/refreshed.
+    if _GDRIVE_TOKEN:
+        return _GDRIVE_TOKEN
+    refreshed = _refresh_google_access_token(force=False)
+    return refreshed or ""
+
+
+def run_upload_google_drive(
+    filename: str,
+    content: str,
+    mime_type: str = "text/plain",
+    folder_id: str = "",
+) -> str:
+    """Crée un fichier Google Drive depuis un texte brut."""
+    fn = (filename or "").strip()[:220]
+    if not fn:
+        return "Nom de fichier vide."
+    token = _get_google_drive_token()
+    if not token:
+        return (
+            "[SIMULATION] Fichier Drive prêt :\n"
+            f"Nom : {fn}\n"
+            f"MIME : {(mime_type or 'text/plain').strip() or 'text/plain'}\n"
+            f"Taille contenu : {len(content or '')} caractères\n"
+            "⚠️ Configure GOOGLE_API_ACCESS_TOKEN/GOOGLE_DRIVE_ACCESS_TOKEN "
+            "ou le trio GOOGLE_OAUTH_REFRESH_TOKEN + GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET "
+            "et optionnellement GOOGLE_DRIVE_FOLDER_ID "
+            "dans .env pour créer réellement le fichier."
+        )
+    effective_folder = (folder_id or _GDRIVE_FOLDER_ID or "").strip()
+    parent_json = f', "parents": ["{effective_folder}"]' if effective_folder else ""
+    safe_mime = (mime_type or "text/plain").strip() or "text/plain"
+    boundary = "korymb_drive_upload_boundary"
+    metadata = f'{{"name":"{fn}"{parent_json}}}'
+    body = (
+        f"--{boundary}\r\n"
+        "Content-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{metadata}\r\n"
+        f"--{boundary}\r\n"
+        f"Content-Type: {safe_mime}; charset=UTF-8\r\n\r\n"
+        f"{content or ''}\r\n"
+        f"--{boundary}--\r\n"
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"multipart/related; boundary={boundary}",
+    }
+    try:
+        r = httpx.post(
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+            headers=headers,
+            content=body.encode("utf-8"),
+            timeout=25,
+        )
+        if r.status_code == 401 and (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
+            refreshed = _refresh_google_access_token(force=True)
+            if refreshed:
+                headers["Authorization"] = f"Bearer {refreshed}"
+                r = httpx.post(
+                    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
+                    headers=headers,
+                    content=body.encode("utf-8"),
+                    timeout=25,
+                )
+        r.raise_for_status()
+        data = r.json() if r.content else {}
+        fid = data.get("id") or "?"
+        name = data.get("name") or fn
+        link = data.get("webViewLink")
+        if link:
+            return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}"
+        return f"✅ Fichier Drive créé : {name} (id: {fid})"
+    except Exception as e:
+        return f"Erreur Google Drive : {e}"
+
+
+@tool("Créer un fichier sur Google Drive")
+def upload_google_drive(
+    filename: str,
+    content: str,
+    mime_type: str = "text/plain",
+    folder_id: str = "",
+) -> str:
+    """
+    Crée un fichier sur Google Drive (texte ou markdown).
+    Nécessite GOOGLE_API_ACCESS_TOKEN (ou GOOGLE_DRIVE_ACCESS_TOKEN) dans .env.
+    Alternative durable : GOOGLE_OAUTH_REFRESH_TOKEN + GOOGLE_OAUTH_CLIENT_ID + GOOGLE_OAUTH_CLIENT_SECRET.
+    Optionnel : GOOGLE_DRIVE_FOLDER_ID pour le dossier cible par défaut.
+    """
+    return run_upload_google_drive(filename, content, mime_type, folder_id)

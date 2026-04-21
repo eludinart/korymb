@@ -1,0 +1,15 @@
+---
+description: Frontend UX and interaction consistency
+globs: admin/**/*.{js,jsx,ts,tsx}
+alwaysApply: false
+---
+
+# Frontend UX Rules
+
+- Use explicit action labels that describe effect, not implementation.
+- Avoid duplicate buttons that perform overlapping actions.
+- Keep status feedback immediate after submit actions.
+- Handle all states: loading, empty, success, and recoverable error.
+- Keep UI copy concise and task-oriented.
+- If a setting is "active", make the active value visible in the UI.
+- Prefer predictable state transitions over silent background mutations.

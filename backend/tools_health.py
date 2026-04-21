@@ -7,6 +7,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+import os
+
 from tools import run_read_webpage, run_web_search
 
 _CACHE: dict[str, Any] = {"t": 0.0, "ttl_s": 120, "payload": None}
@@ -63,6 +65,12 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         "search_linkedin": {
             "ok": ws_ok,
             "note": linkedin_note,
+        },
+        "google_drive": {
+            "ok": bool(
+                str(os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN", "") or os.getenv("GOOGLE_API_ACCESS_TOKEN", "")).strip()
+            ),
+            "note": "Nécessite GOOGLE_API_ACCESS_TOKEN (ou GOOGLE_DRIVE_ACCESS_TOKEN) et optionnellement GOOGLE_DRIVE_FOLDER_ID.",
         },
     }
     _CACHE["t"] = now

@@ -1,0 +1,21 @@
+Utilisation (terminal Cursor, racine du repo)
+1) Pre-requis (une fois):
+   - npm install
+   - npm --prefix admin install
+   - python -m pip install -r backend/requirements.txt
+2) Variables d'environnement:
+   - copy .env.example .env.local
+   - copy backend\.env.example backend\.env
+   - verifier que les secrets matchent:
+     - backend/.env -> AGENT_API_SECRET
+     - .env.local -> KORYMB_AGENT_SECRET
+     - .env.local -> NEXT_PUBLIC_KORYMB_AGENT_SECRET
+3) Démarrage:
+   - .\start-dev-cursor.ps1
+4) Arrêt:
+   - .\stop-dev-cursor.ps1
+
+Option dépannage:
+- .\start-dev-cursor.ps1 -SkipVerify
+- Front attendu: http://127.0.0.1:3000/dashboard
+- API attendue : http://127.0.0.1:8020/health

@@ -1,0 +1,15 @@
+---
+description: Core engineering guardrails for all changes
+alwaysApply: true
+---
+
+# Core Engineering Rules
+
+- Keep changes small, reversible, and focused on one concern.
+- Preserve runtime configuration behavior (`.env` baseline + runtime overrides).
+- Do not hardcode provider/model values in feature logic.
+- For backend route changes, verify payload validation and clear error details.
+- For frontend actions, always include loading, success, and error states.
+- Prefer explicit naming for buttons and user actions.
+- Update docs when architecture or developer workflow changes.
+- Run local quality checks before considering work complete.

@@ -14,7 +14,13 @@ ToolEmitFn = Callable[[str, str, dict[str, Any]], None]
 import anthropic
 import httpx
 
-from llm_client import _UNSET, llm_turn, log_llm_call_financial, openrouter_post_with_retries
+from llm_client import (
+    _UNSET,
+    format_llm_provider_http_error,
+    llm_turn,
+    log_llm_call_financial,
+    openrouter_post_with_retries,
+)
 from llm_tiers import resolve_openrouter_tier
 from runtime_settings import merge_with_env
 from tools import (
@@ -23,6 +29,7 @@ from tools import (
     run_read_webpage,
     run_search_linkedin,
     run_send_email,
+    run_upload_google_drive,
     run_web_search,
 )
 from debug_ndjson import append_session_ndjson
@@ -77,6 +84,7 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "email": ("send_email",),
     "instagram": ("post_instagram",),
     "facebook": ("post_facebook",),
+    "drive": ("upload_google_drive",),
 }
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
@@ -141,6 +149,20 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
             "required": ["message"],
         },
     },
+    {
+        "name": "upload_google_drive",
+        "description": "Crée un fichier sur Google Drive (réel si token Drive configuré).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {"type": "string"},
+                "content": {"type": "string"},
+                "mime_type": {"type": "string", "description": "Optionnel, ex. text/plain, text/markdown"},
+                "folder_id": {"type": "string", "description": "Optionnel, dossier Drive cible"},
+            },
+            "required": ["filename", "content"],
+        },
+    },
 ]
 
 
@@ -201,6 +223,13 @@ def _execute_tool(name: str, inp: Any) -> str:
             )
         if name == "post_facebook":
             return run_post_facebook(str(inp.get("message", "")))
+        if name == "upload_google_drive":
+            return run_upload_google_drive(
+                str(inp.get("filename", "")),
+                str(inp.get("content", "")),
+                str(inp.get("mime_type", "") or "text/plain"),
+                str(inp.get("folder_id", "") or ""),
+            )
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
@@ -332,8 +361,8 @@ def llm_turn_with_tools(
 ) -> tuple[str, int, int]:
     allowed = set(tool_names)
     extra = (
-        "\n\nTu disposes d'outils pour prospecter : recherche web, lecture de pages, recherche LinkedIn publique, "
-        "brouillon d'email. Appelle les outils quand tu as besoin de faits ou de contacts à l'instant T ; "
+        "\n\nTu disposes d'outils pour prospecter et livrer : recherche web, lecture de pages, recherche LinkedIn publique, "
+        "brouillon d'email, création de fichier Google Drive. Appelle les outils quand tu as besoin de faits ou de contacts à l'instant T ; "
         "ne invente pas d'URLs précises sans les avoir obtenues via web_search ou read_webpage."
     )
     system_use = system + extra
@@ -594,7 +623,10 @@ def _openrouter_tool_loop(
                 )
             if r.status_code >= 400:
                 logger.warning("OpenRouter tools HTTP %s — %s", r.status_code, r.text[:600])
-                r.raise_for_status()
+                hint = format_llm_provider_http_error(r)
+                raise RuntimeError(
+                    f"Le fournisseur LLM a répondu HTTP {r.status_code}. {hint}"
+                ) from None
             data = r.json()
             usage = data.get("usage") or {}
             pi = int(usage.get("prompt_tokens") or 0)
@@ -741,7 +773,7 @@ def llm_chat_with_tools(
 ) -> tuple[str, int, int]:
     allowed = set(tool_names)
     extra = (
-        "\n\nOutils disponibles : recherche web, lecture de page, recherche LinkedIn publique, brouillon email. "
+        "\n\nOutils disponibles : recherche web, lecture de page, recherche LinkedIn publique, brouillon email, création fichier Drive. "
         "Utilise-les si la question exige des données à jour ou des sources."
     )
     system_use = system + extra
@@ -963,7 +995,10 @@ def _openrouter_chat_tool_loop(
                 return llm_chat(system, messages, max_tokens=max_tokens, or_profile="standard")
             if r.status_code >= 400:
                 logger.warning("OpenRouter chat+tools HTTP %s — %s", r.status_code, r.text[:600])
-                r.raise_for_status()
+                hint = format_llm_provider_http_error(r)
+                raise RuntimeError(
+                    f"Le fournisseur LLM a répondu HTTP {r.status_code}. {hint}"
+                ) from None
             data = r.json()
             usage = data.get("usage") or {}
             pi = int(usage.get("prompt_tokens") or 0)
