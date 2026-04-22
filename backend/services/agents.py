@@ -93,7 +93,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "developpeur": {
         "label": "Développeur",
         "role": "Code & architecture",
-        "tools": ["web"],
+        "tools": ["web", "db"],
         "system": (
             "Tu es le Développeur d'Élude In Art. Tu développes et maintiens les outils numériques : "
             "Korymb (QG agents), app Fleur d'ÅmÔurs (Next.js), backend FastAPI, questionnaires Ritual. "
@@ -103,7 +103,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "comptable": {
         "label": "Comptable",
         "role": "Finances & facturation",
-        "tools": [],
+        "tools": ["db"],
         "system": (
             "Tu es le Comptable d'Élude In Art (micro-entreprise d'Éric, Tourves, Var). "
             "Tu suis les finances, prépares devis et factures, analyses les revenus.\n\n"
@@ -112,7 +112,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "coordinateur": {
         "label": "CIO — Orchestrateur",
         "role": "Stratégie & délégation",
-        "tools": ["web", "linkedin", "drive"],
+        "tools": ["web", "linkedin", "drive", "db"],
         "is_manager": True,
         "system": (
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "

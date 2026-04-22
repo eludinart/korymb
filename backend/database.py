@@ -841,7 +841,7 @@ _CUSTOM_AGENT_RESERVED = frozenset(
     {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable"},
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
-    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate"},
+    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate", "db"},
 )
 
 

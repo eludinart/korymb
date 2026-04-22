@@ -24,9 +24,9 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # Un seul fichier .env : backend/.env.
-        # On conserve la priorité du fichier sur les variables shell.
-        return init_settings, dotenv_settings, env_settings, file_secret_settings
+        # Baseline: backend/.env ; Runtime overrides: variables d'environnement
+        # (important en production Coolify).
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     # ── Auth interne Korymb ─────────────────────────────────────────────────
     agent_api_secret: str

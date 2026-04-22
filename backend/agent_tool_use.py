@@ -37,6 +37,7 @@ from tools import (
     run_upload_google_drive,
     run_web_search,
 )
+from db_fleur import db_analyze_users, db_describe_table, db_list_tables, db_query
 from tools.agent_tools import get_fleet_status, search_core_notes, validate_syntax
 from debug_ndjson import append_session_ndjson
 
@@ -91,6 +92,7 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "instagram": ("post_instagram", "read_instagram_media"),
     "facebook": ("post_facebook", "read_facebook_posts"),
     "drive": ("upload_google_drive",),
+    "db": ("db_list_tables", "db_describe_table", "db_query", "db_analyze_users"),
     # Outils augmentés KORYMB v3 (agentic OS)
     "knowledge": ("search_core_notes", "get_fleet_status"),
     "validate": ("validate_syntax",),
@@ -277,6 +279,60 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
             "required": [],
         },
     },
+    {
+        "name": "db_list_tables",
+        "description": (
+            "Liste les tables disponibles dans la base MariaDB Fleur d'Amours et le nombre de lignes "
+            "pour chaque table. Utiliser en premier pour cartographier la DB."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "db_describe_table",
+        "description": (
+            "Décrit la structure d'une table MariaDB Fleur d'Amours (colonnes et types). "
+            "Utiliser avant d'écrire une requête SQL."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "table_name": {"type": "string", "description": "Nom exact de la table à décrire"},
+            },
+            "required": ["table_name"],
+        },
+    },
+    {
+        "name": "db_query",
+        "description": (
+            "Exécute une requête SQL en lecture seule sur la base Fleur d'Amours. "
+            "Requêtes autorisées: SELECT, SHOW, DESCRIBE."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {"type": "string", "description": "Requête SQL lecture seule"},
+            },
+            "required": ["sql"],
+        },
+    },
+    {
+        "name": "db_analyze_users",
+        "description": (
+            "Répond à une question métier sur les utilisateurs Fleur d'Amours en construisant la requête SQL adaptée "
+            "(ex: total users, derniers inscrits, répartition des abonnements)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "Question métier en langage naturel"},
+            },
+            "required": ["question"],
+        },
+    },
 ]
 
 
@@ -367,6 +423,14 @@ def _execute_tool(name: str, inp: Any) -> str:
             return json.dumps(result, ensure_ascii=False)
         if name == "get_fleet_status":
             return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
+        if name == "db_list_tables":
+            return db_list_tables("")
+        if name == "db_describe_table":
+            return db_describe_table(str(inp.get("table_name", "")))
+        if name == "db_query":
+            return db_query(str(inp.get("sql", "")))
+        if name == "db_analyze_users":
+            return db_analyze_users(str(inp.get("question", "")))
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
@@ -403,6 +467,12 @@ def _classify_tool_outcome(name: str, preview: str) -> tuple[bool, str | None]:
             return False, "http_fetch"
         if t.startswith("URL refusée"):
             return False, "bad_url"
+        return True, None
+    if name in ("db_list_tables", "db_describe_table", "db_query", "db_analyze_users"):
+        if t.startswith("Connexion DB impossible") or t.startswith("Erreur SQL"):
+            return False, "db_unreachable"
+        if t.startswith("Requête non autorisée"):
+            return False, "db_query_rejected"
         return True, None
     if t.startswith("Erreur outil "):
         return False, "tool_error"
