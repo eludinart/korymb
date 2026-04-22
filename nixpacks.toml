@@ -1,0 +1,8 @@
+[phases.install]
+cmds = ["npm ci", "npm --prefix admin ci"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm --prefix admin run start"
