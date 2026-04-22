@@ -83,7 +83,7 @@ export default function MissionGuidedPage() {
     refetchInterval: (q) => {
       if (!effectiveJobId || typeof document === "undefined" || document.visibilityState !== "visible") return false;
       const st = String((q.state.data as { status?: string } | undefined)?.status || "");
-      return st === "running" ? 650 : 2200;
+      return st === "running" || st === "pending" || st === "awaiting_validation" ? 650 : 2200;
     },
   });
 

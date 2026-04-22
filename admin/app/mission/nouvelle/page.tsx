@@ -21,6 +21,8 @@ export default function MissionNouvellePage() {
   const [busy, setBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [jobId, setJobId] = useState("");
+  /** Si coché : pas de pause HITL sur le plan CIO (délégation immédiate). */
+  const [skipPlanHitl, setSkipPlanHitl] = useState(false);
   /** Consigne affichée au-dessus du fil d’exécution (la textarea est vidée après lancement). */
   const [lastMissionPrompt, setLastMissionPrompt] = useState("");
   const agents = useQuery({
@@ -45,7 +47,7 @@ export default function MissionNouvellePage() {
     refetchInterval: (q) => {
       if (!jobId || typeof document === "undefined" || document.visibilityState !== "visible") return false;
       const st = String((q.state.data as { status?: string } | undefined)?.status || "");
-      return st === "running" || st === "pending" ? 650 : 2200;
+      return st === "running" || st === "pending" || st === "awaiting_validation" ? 650 : 2200;
     },
   });
 
@@ -78,13 +80,26 @@ export default function MissionNouvellePage() {
       const payload: {
         mission: string;
         agent: string;
-        mission_config?: { recursive_refinement_enabled: boolean; recursive_max_rounds: number };
-      } = { mission: mission.trim(), agent };
-      if (refinementEnabled) {
-        payload.mission_config = {
-          recursive_refinement_enabled: true,
-          recursive_max_rounds: rounds,
+        mission_config?: {
+          recursive_refinement_enabled?: boolean;
+          recursive_max_rounds?: number;
+          cio_plan_hitl_enabled?: boolean;
         };
+      } = { mission: mission.trim(), agent };
+      const mcfg: {
+        recursive_refinement_enabled?: boolean;
+        recursive_max_rounds?: number;
+        cio_plan_hitl_enabled?: boolean;
+      } = {};
+      if (refinementEnabled) {
+        mcfg.recursive_refinement_enabled = true;
+        mcfg.recursive_max_rounds = rounds;
+      }
+      if (skipPlanHitl) {
+        mcfg.cio_plan_hitl_enabled = false;
+      }
+      if (Object.keys(mcfg).length) {
+        payload.mission_config = mcfg;
       }
       const { data } = await requestJson("/run", {
         method: "POST",
@@ -259,6 +274,18 @@ export default function MissionNouvellePage() {
                 </div>
               ) : null}
             </fieldset>
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800">
+              <input
+                type="checkbox"
+                checked={skipPlanHitl}
+                onChange={(e) => setSkipPlanHitl(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300"
+              />
+              <span className="leading-relaxed">
+                <strong>Sans pause</strong> sur le plan CIO : lancer la délégation aux sous-agents immédiatement (équivalent
+                désactiver la validation HITL du plan).
+              </span>
+            </label>
             <button
               type="submit"
               disabled={busy}

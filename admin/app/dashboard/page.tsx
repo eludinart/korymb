@@ -64,6 +64,26 @@ function formatAgentKeySubtitle(key: string): string {
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
 
+type PendingOutputRow = {
+  id: string;
+  output_type: string;
+  title: string;
+  target_platform: string;
+  created_at: string;
+};
+
+const OUTPUT_TYPE_LABELS: Record<string, string> = {
+  draft: "Brouillon",
+  article: "Article",
+  comment: "Commentaire",
+  veille_summary: "Synthèse veille",
+  mission_proposal: "Proposition de mission",
+};
+
+function outputTypeLabel(t: string): string {
+  return OUTPUT_TYPE_LABELS[t] || t || "Output";
+}
+
 export default function DashboardPage() {
   const [agentPanelKey, setAgentPanelKey] = useState<string | null>(null);
   const jobs = useQuery({
@@ -75,6 +95,16 @@ export default function DashboardPage() {
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
     refetchInterval: () => visibleInterval(30000),
+  });
+
+  const pendingApprovals = useQuery({
+    queryKey: ["scheduler-outputs", "dashboard-pending"],
+    queryFn: async () => {
+      const params = new URLSearchParams({ status: "pending", limit: "20" });
+      const { data } = await requestJson(`/scheduler/outputs?${params}`, { headers: agentHeaders() });
+      return ((data.outputs || []) as PendingOutputRow[]) ?? [];
+    },
+    refetchInterval: () => visibleInterval(10000),
   });
 
   const jobRows = useMemo(() => (jobs.data || []) as JobRow[], [jobs.data]);
@@ -121,7 +151,90 @@ export default function DashboardPage() {
         <Link href="/configuration" className="border border-slate-300 bg-white px-4 py-2 rounded-lg text-sm font-medium">
           Configuration
         </Link>
+        <Link
+          href="/administration/approbations"
+          className="border border-amber-200 bg-amber-50 px-4 py-2 rounded-lg text-sm font-medium text-amber-950 hover:bg-amber-100"
+        >
+          Approbations
+        </Link>
       </div>
+
+      <section
+        className={`rounded-2xl border p-5 ${
+          pendingApprovals.isSuccess && (pendingApprovals.data || []).length > 0
+            ? "border-amber-300 bg-gradient-to-br from-amber-50 to-white shadow-sm"
+            : "border-slate-200 bg-white"
+        }`}
+        aria-labelledby="dash-approvals-heading"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="dash-approvals-heading" className="text-base font-semibold text-slate-900">
+              File d&apos;approbation
+            </h2>
+            <p className="mt-1 max-w-2xl text-xs text-slate-600">
+              Outputs générés par les tâches autonomes ou les réponses sociales en attente de validation avant publication.
+            </p>
+          </div>
+          <Link
+            href="/administration/approbations"
+            className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+          >
+            Ouvrir la file →
+          </Link>
+        </div>
+        {pendingApprovals.isPending ? (
+          <p className="mt-4 text-sm text-slate-400">Chargement des approbations…</p>
+        ) : null}
+        {pendingApprovals.isError ? (
+          <p className="mt-4 text-sm text-red-700">Impossible de charger la file d&apos;approbation.</p>
+        ) : null}
+        {pendingApprovals.isSuccess && (pendingApprovals.data || []).length === 0 ? (
+          <p className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-500">
+            Aucun output en attente d&apos;approbation.
+          </p>
+        ) : null}
+        {pendingApprovals.isSuccess && (pendingApprovals.data || []).length > 0 ? (
+          <ul className="mt-4 space-y-2">
+            {(pendingApprovals.data || []).slice(0, 6).map((o) => {
+              const dateStr = o.created_at
+                ? new Date(o.created_at).toLocaleString("fr-FR", {
+                    day: "2-digit",
+                    month: "short",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : null;
+              return (
+                <li
+                  key={o.id}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-100 bg-white/90 px-3 py-2.5"
+                >
+                  <span className="rounded-md bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900">
+                    {outputTypeLabel(o.output_type)}
+                  </span>
+                  <span className="min-w-0 flex-1 text-sm font-medium text-slate-900 truncate" title={o.title}>
+                    {o.title || "(sans titre)"}
+                  </span>
+                  {o.target_platform ? (
+                    <span className="text-[10px] uppercase text-slate-400">{o.target_platform}</span>
+                  ) : null}
+                  {dateStr ? <span className="text-[11px] text-slate-400">{dateStr}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+        {pendingApprovals.isSuccess && (pendingApprovals.data || []).length > 6 ? (
+          <p className="mt-2 text-center text-xs text-slate-500">
+            + {(pendingApprovals.data || []).length - 6} autre(s) — voir la{" "}
+            <Link href="/administration/approbations" className="font-medium text-violet-800 hover:underline">
+              page Approbations
+            </Link>
+            .
+          </p>
+        ) : null}
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50/90 p-5">
         <h2 className="text-lg font-bold tracking-tight text-slate-900">État des agents</h2>

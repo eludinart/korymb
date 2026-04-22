@@ -9,6 +9,8 @@ const LINKS = [
   { href: "/administration/templates", label: "Templates de missions" },
   { href: "/administration/memory", label: "Mémoire entreprise" },
   { href: "/administration/budget", label: "Budget & Coûts" },
+  { href: "/administration/autonomie", label: "Tâches autonomes" },
+  { href: "/administration/approbations", label: "Approbations" },
 ];
 
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {

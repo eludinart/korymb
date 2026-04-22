@@ -8,6 +8,7 @@ import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
 import AgentActivationBoard from "../../components/AgentActivationBoard";
 import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
+import CioQuestionsPanel from "../../components/CioQuestionsPanel";
 import MissionDecisionCard from "../../components/MissionDecisionCard";
 import CollapsibleMissionSection from "../../components/CollapsibleMissionSection";
 import SimpleAccordion from "../../components/SimpleAccordion";
@@ -17,6 +18,7 @@ import MissionStatusBadge from "../../components/MissionStatusBadge";
 import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
+import { bestPreview } from "../../lib/missionBilan";
 import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 
@@ -47,6 +49,12 @@ function MissionsContent() {
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
+  const [cioQuestionBusy, setCioQuestionBusy] = useState(false);
+  // Toggle global : le CIO peut-il poser des questions en cours de mission ?
+  const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("cio_questions_enabled") !== "false";
+  });
   const jobs = useQuery({
     queryKey: QK.jobs,
     queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
@@ -55,6 +63,20 @@ function MissionsContent() {
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
   const sortedRows = useMemo(() => sortJobsForBossView(rows), [rows]);
+
+  // Pour chaque job parent, retrouver le job enfant le plus récent (continuation terminée)
+  const latestChildByParent = useMemo(() => {
+    const map = new Map<string, Job>();
+    for (const j of rows) {
+      const pid = j.parent_job_id;
+      if (!pid) continue;
+      const existing = map.get(pid);
+      if (!existing || (j.created_at ?? "") > (existing.created_at ?? "")) {
+        map.set(pid, j);
+      }
+    }
+    return map;
+  }, [rows]);
   useEffect(() => {
     const j = searchParams.get("job");
     if (j) setSelected(j);
@@ -101,13 +123,54 @@ function MissionsContent() {
     setCioResumeLiveId(null);
     setCioResumeInput("");
     setCioResumeBusy(false);
+    setCioQuestionBusy(false);
   }, [selected]);
+
+  // Extraire les questions CIO depuis les événements du job sélectionné
+  const cioQuestions = useMemo(() => {
+    const evts = (detail.data?.events || []) as Array<Record<string, unknown>>;
+    return evts
+      .filter((ev) => ev.type === "cio_question")
+      .map((ev) => ({
+        questions: (ev.data as Record<string, unknown>)?.questions as string[] ?? [],
+        answered: Boolean((ev.data as Record<string, unknown>)?.answered),
+        missionPreview: String((ev.data as Record<string, unknown>)?.mission_preview || ""),
+      }))
+      .filter((q) => q.questions.length > 0);
+  }, [detail.data?.events]);
+
+  const onAnswerCioQuestion = async (answer: string) => {
+    if (!selected || !answer.trim() || cioQuestionBusy) return;
+    setCioQuestionBusy(true);
+    setError("");
+    try {
+      // Injecter directement dans le fil de la mission courante (non-bloquant)
+      await requestJson(`/jobs/${encodeURIComponent(selected)}/cio-answer`, {
+        method: "POST",
+        headers: agentHeaders(),
+        timeoutMs: 10000,
+        body: JSON.stringify({ answer }),
+      });
+      // Rafraîchir les événements pour mettre à jour l'état "answered"
+      void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCioQuestionBusy(false);
+    }
+  };
 
   const cioResumeLiveDone = useMemo(() => {
     if (!cioResumeLive.data || !cioResumeLiveId) return false;
     const st = String(cioResumeLive.data.status || "");
     return st === "completed" || st.startsWith("error");
   }, [cioResumeLive.data, cioResumeLiveId]);
+
+  // Données actives : pendant la continuation → job de continuation ; sinon → job principal
+  const activeBoardData = useMemo(
+    () => (cioResumeLiveId && cioResumeLive.data ? cioResumeLive.data : (detail.data ?? null)),
+    [cioResumeLiveId, cioResumeLive.data, detail.data],
+  );
 
   useEffect(() => {
     if (!cioResumeLiveDone || !cioResumeLiveId) return;
@@ -133,14 +196,13 @@ function MissionsContent() {
           agent: "coordinateur",
           history: [],
           linked_job_id: selected,
+          mission_config: { cio_questions_enabled: cioQuestionsEnabled },
         }),
       });
       setCioResumeInput("");
       if (data?.status === "accepted" && data?.job_id) {
         setCioResumeLiveId(String(data.job_id));
-        setFeedback(
-          "Suite CIO en cours sur cette mission : le livrable et le fil de cadrage ci-dessus se mettront à jour à la fin du tour.",
-        );
+        setFeedback("");
       } else {
         setError("Réponse chat inattendue (pas de job_id).");
       }
@@ -185,17 +247,22 @@ function MissionsContent() {
             {feedback}
           </p>
         ) : null}
-        {selected && detail.data ? (
+        {selected && activeBoardData ? (
           <AgentActivationBoard
-            events={detail.data.events}
-            jobStatus={String(detail.data.status || "")}
+            events={activeBoardData.events}
+            jobStatus={String(activeBoardData.status || "")}
+            className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
           />
         ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
           const canValidate = j.status === "completed" && !closed;
-          const resultPreview = String(j.result || "").trim();
-          return (
+          // Si une continuation a été faite sur ce job, utiliser son résultat pour la preview
+          const latestChild = latestChildByParent.get(j.job_id);
+          const bestResultSource = latestChild ?? j;
+          const rawResult = String(bestResultSource.result || "").trim();
+          const previewText = bestPreview(rawResult, 25);
+                  return (
             <div
               key={j.job_id}
               className={`min-w-0 bg-white border rounded-2xl p-4 cursor-pointer transition-shadow ${
@@ -226,30 +293,45 @@ function MissionsContent() {
                   <p className="text-xs text-slate-500 font-mono">
                     #{j.job_id} · {j.agent || "coordinateur"}
                   </p>
-                  {selected === j.job_id && detail.data ? (
-                    <MissionDecisionCard
-                      job={{
-                        result: detail.data.result,
-                        status: detail.data.status,
-                        team: detail.data.team,
-                        tokens_total: Number(detail.data.tokens_total ?? 0),
-                        cost_usd: Number(detail.data.cost_usd ?? 0),
-                        events_total: Number(detail.data.events_total ?? 0),
-                        delivery_warnings: (detail.data.delivery_warnings as string[] | undefined) ?? [],
-                        delivery_blocked: Boolean(detail.data.delivery_blocked),
-                        created_at: detail.data.created_at as string | undefined,
-                      }}
-                    />
-                  ) : resultPreview ? (
-                    <div className="max-h-32 min-h-0 overflow-y-auto rounded-lg border border-slate-100 bg-white p-2 text-left">
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Aperçu livrable</p>
-                      <AgentMessageMarkdown
-                        source={resultPreview.length > 8000 ? `${resultPreview.slice(0, 8000)}\n\n…` : resultPreview}
-                        className="text-[11px] [&_h1]:mb-1 [&_h1]:text-[11px] [&_h2]:mb-1 [&_h2]:text-[11px] [&_h3]:text-[11px] [&_li]:text-[10px] [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
+                  {selected === j.job_id && detail.data ? (() => {
+                    // Priorité : live (continuation en cours) > enfant terminé > original
+                    const liveD = cioResumeLiveId && cioResumeLive.data
+                      ? cioResumeLive.data
+                      : (latestChild ?? detail.data);
+                    const hasChild = Boolean(latestChild && !cioResumeLiveId);
+                    return (
+                      <MissionDecisionCard
+                        job={{
+                          result: (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined,
+                          status: liveD.status,
+                          team: liveD.team ?? detail.data.team,
+                          tokens_total: Number(liveD.tokens_total ?? 0),
+                          cost_usd: Number(liveD.cost_usd ?? 0),
+                          events_total: Number(liveD.events_total ?? 0),
+                          delivery_warnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
+                          delivery_blocked: Boolean(liveD.delivery_blocked),
+                          created_at: detail.data.created_at as string | undefined,
+                        }}
+                        updatedByContinuation={hasChild}
                       />
-                    </div>
+                    );
+                  })() : previewText ? (
+                    <details className="group min-h-0 rounded-lg border border-slate-100 bg-white text-left">
+                      <summary className="flex cursor-pointer list-none items-center justify-between px-2.5 py-2 select-none">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Bilan CIO
+                        </p>
+                        <span className="text-[10px] text-slate-300 transition-transform group-open:rotate-180">▼</span>
+                      </summary>
+                      <div className="border-t border-slate-100 px-2.5 pb-2.5 pt-2">
+                        <AgentMessageMarkdown
+                          source={previewText}
+                          className="text-[11px] [&_h1]:mb-1 [&_h1]:text-[11px] [&_h2]:mb-1 [&_h2]:text-[11px] [&_h3]:text-[11px] [&_li]:text-[10px] [&_li]:my-0.5 [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
+                        />
+                      </div>
+                    </details>
                   ) : (
-                    <p className="text-xs text-slate-400">Pas encore de synthèse textuelle.</p>
+                    <p className="text-xs text-slate-400">Pas encore de synthèse disponible.</p>
                   )}
                 </div>
                 {canValidate ? (
@@ -286,18 +368,111 @@ function MissionsContent() {
             <p className="text-sm text-red-700">Impossible de charger le détail mission.</p>
           ) : detail.data ? (
             <div className="space-y-5">
-              <CioResultPanel
-                result={detail.data.result}
-                missionTitle={detail.data.mission}
-                jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
-              />
-              <MissionMetricsRow
-                status={detail.data.status}
-                tokensTotal={Number(detail.data.tokens_total || 0)}
-                costUsd={Number(detail.data.cost_usd || 0)}
-                eventsTotal={Number(detail.data.events_total || 0)}
-                logTotal={Number(detail.data.log_total || 0)}
-              />
+
+              {/* ── QUESTIONS CIO (non-bloquantes) ───────────────────────────── */}
+              {cioQuestions.length > 0 && !cioResumeLiveId && (
+                <CioQuestionsPanel
+                  questions={cioQuestions}
+                  onAnswer={(a) => onAnswerCioQuestion(a)}
+                  busy={cioQuestionBusy}
+                />
+              )}
+
+              {/* ── PANNEAU LIVE (haut de colonne, visible immédiatement) ─────── */}
+              {cioResumeLiveId ? (
+                <div className="overflow-hidden rounded-2xl border-2 border-violet-400 bg-white shadow-lg">
+                  {/* En-tête animé */}
+                  <div className="flex flex-wrap items-center gap-2 bg-violet-600 px-4 py-2.5">
+                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
+                    <p className="text-sm font-bold text-white">Agents au travail — Tour en cours</p>
+                    <span className="ml-auto rounded-full bg-violet-500 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
+                      ↻ 1,5 s
+                    </span>
+                  </div>
+                  {cioResumeLive.data ? (
+                    <div className="space-y-3 p-4">
+                      {/* Métriques temps réel */}
+                      <MissionMetricsRow
+                        status={String(cioResumeLive.data.status || "")}
+                        tokensTotal={Number(cioResumeLive.data.tokens_total || 0)}
+                        costUsd={Number(cioResumeLive.data.cost_usd || 0)}
+                        eventsTotal={Number(cioResumeLive.data.events_total || 0)}
+                        logTotal={Number(cioResumeLive.data.log_total || 0)}
+                      />
+                      {/* Derniers événements */}
+                      {((cioResumeLive.data.events || []) as Array<Record<string, unknown>>).length > 0 ? (
+                        <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-2">
+                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-500">
+                            Derniers événements agents
+                          </p>
+                          <ul className="space-y-1">
+                            {((cioResumeLive.data.events || []) as Array<Record<string, unknown>>)
+                              .slice(-6)
+                              .map((ev, i) => (
+                                <li key={i} className="flex min-w-0 gap-1.5 text-[11px]">
+                                  <span className="shrink-0 font-semibold text-violet-700">
+                                    {String(ev.actor || ev.agent || "—")}
+                                  </span>
+                                  <span className="text-slate-400">·</span>
+                                  <span className="text-slate-600">{String(ev.type || ev.event || "")}</span>
+                                  {ev.summary || ev.message ? (
+                                    <span className="truncate text-slate-400">
+                                      {String(ev.summary || ev.message || "").slice(0, 80)}
+                                    </span>
+                                  ) : null}
+                                </li>
+                              ))}
+                          </ul>
+                        </div>
+                      ) : null}
+                      {/* Journal en direct */}
+                      {((cioResumeLive.data.logs || []) as string[]).length > 0 ? (
+                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                            Journal en direct
+                          </p>
+                          <pre className="max-h-28 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-slate-600">
+                            {((cioResumeLive.data.logs || []) as string[]).slice(-8).join("\n")}
+                          </pre>
+                        </div>
+                      ) : (
+                        <p className="text-center text-xs text-slate-400">En attente de la première réponse agents…</p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2 p-6">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+                      <p className="text-sm text-slate-500">Initialisation du tour…</p>
+                    </div>
+                  )}
+                  {cioResumeLive.isError ? (
+                    <p className="px-4 pb-3 text-xs text-red-700">
+                      Impossible de suivre l&apos;état du tour en direct.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* ── Livrable CIO (atténué pendant la continuation) ──────────── */}
+              <div className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}>
+                <CioResultPanel
+                  result={detail.data.result}
+                  missionTitle={detail.data.mission}
+                  jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
+                />
+              </div>
+
+              {/* ── Métriques (job principal si pas de continuation) ────────── */}
+              {!cioResumeLiveId ? (
+                <MissionMetricsRow
+                  status={String(detail.data.status || "")}
+                  tokensTotal={Number(detail.data.tokens_total || 0)}
+                  costUsd={Number(detail.data.cost_usd || 0)}
+                  eventsTotal={Number(detail.data.events_total || 0)}
+                  logTotal={Number(detail.data.log_total || 0)}
+                />
+              ) : null}
+
               <SessionCadrageTimeline
                 messages={detail.data.mission_thread}
                 title="Fil de cadrage avec le CIO (contexte)"
@@ -305,48 +480,65 @@ function MissionsContent() {
               />
               {canResumeCio ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO sur cette mission</h3>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                    Vous restez sur <span className="font-medium text-slate-800">la même mission</span> : la suite est
-                    enregistrée dans le fil de cadrage et le livrable est mis à jour ici après exécution. Aucune nouvelle
-                    mission n&apos;apparaît dans la liste (pas d&apos;historique « mission » parallèle).
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Link
-                      href={`/chat?parent=${encodeURIComponent(String(selected))}`}
-                      className="text-xs font-medium text-violet-800 underline hover:text-violet-950"
-                    >
-                      Ouvrir dans Chat (même dossier)
-                    </Link>
-                  </div>
-                  <form onSubmit={onCioResumeSubmit} className="mt-4 space-y-3">
-                    <textarea
-                      value={cioResumeInput}
-                      onChange={(e) => setCioResumeInput(e.target.value)}
-                      disabled={cioResumeBusy || Boolean(cioResumeLiveId)}
-                      rows={4}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-                      placeholder="Ex. : affine la synthèse sur le volet X, ajoute une passe commercial pour…"
-                    />
-                    <div className="flex flex-wrap items-center gap-3">
-                      <button
-                        type="submit"
-                        disabled={cioResumeBusy || Boolean(cioResumeLiveId) || !cioResumeInput.trim()}
-                        className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40"
-                      >
-                        {cioResumeBusy ? "Envoi…" : cioResumeLiveId ? "Orchestration en cours…" : "Envoyer au CIO"}
-                      </button>
+                  {!cioResumeLiveId ? (
+                    <>
+                      <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO sur cette mission</h3>
+                      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                        Vous restez sur <span className="font-medium text-slate-800">la même mission</span> : la suite est
+                        enregistrée dans le fil de cadrage et le livrable est mis à jour ici après exécution.
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <Link
+                          href={`/chat?parent=${encodeURIComponent(String(selected))}`}
+                          className="text-xs font-medium text-violet-800 underline hover:text-violet-950"
+                        >
+                          Ouvrir dans Chat (même dossier)
+                        </Link>
+                      </div>
+                      {/* Toggle questions CIO */}
+                      <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div>
+                          <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
+                          <p className="text-[10px] text-slate-400">Le CIO peut vous poser des précisions pendant l&apos;exécution</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !cioQuestionsEnabled;
+                            setCioQuestionsEnabled(next);
+                            localStorage.setItem("cio_questions_enabled", String(next));
+                          }}
+                          className={`relative h-5 w-9 rounded-full transition-colors ${cioQuestionsEnabled ? "bg-violet-600" : "bg-slate-200"}`}
+                        >
+                          <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${cioQuestionsEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+                        </button>
+                      </div>
+                      <form onSubmit={onCioResumeSubmit} className="mt-3 space-y-3">
+                        <textarea
+                          value={cioResumeInput}
+                          onChange={(e) => setCioResumeInput(e.target.value)}
+                          disabled={cioResumeBusy}
+                          rows={4}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
+                          placeholder="Ex. : affine la synthèse sur le volet X, ajoute une passe commercial pour…"
+                        />
+                        <button
+                          type="submit"
+                          disabled={cioResumeBusy || !cioResumeInput.trim()}
+                          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40"
+                        >
+                          {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                        </button>
+                      </form>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
+                      <p className="text-xs text-violet-800">
+                        Tour en cours — le formulaire sera disponible à la fin du tour.
+                      </p>
                     </div>
-                  </form>
-                  {cioResumeLiveId ? (
-                    <p className="mt-4 rounded-xl border border-violet-100 bg-white px-3 py-2 text-xs leading-relaxed text-slate-600">
-                      Orchestration du CIO en cours sur ce dossier… Les messages et le livrable ci-dessus se rafraîchissent
-                      automatiquement à la fin du tour.
-                      {cioResumeLive.isError ? (
-                        <span className="mt-1 block text-red-700">Impossible de suivre l&apos;état du tour en direct.</span>
-                      ) : null}
-                    </p>
-                  ) : null}
+                  )}
                 </div>
               ) : null}
               <CollapsibleMissionSection

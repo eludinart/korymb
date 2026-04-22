@@ -187,6 +187,12 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         mt: list = (row_db["mission_thread"] if row_db and isinstance(row_db.get("mission_thread"), list) else [])
         dw = extract_delivery_warnings_from_events(ev)
         parent_out = job.get("parent_job_id") or ((row_db or {}).get("parent_job_id") if row_db else None)
+        hitl_block = None
+        if str(job.get("status") or "") == "awaiting_validation" or (
+            row_db and str(row_db.get("status") or "") == "awaiting_validation"
+        ):
+            from database import get_hitl_gate
+            hitl_block = get_hitl_gate(job_id)
         return {
             "job_id": job_id, "status": job["status"], "agent": job["agent"], "mission": job["mission"],
             "result": job.get("result"), "team": job.get("team") or [],
@@ -202,6 +208,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "mission_thread": mt, "mission_thread_count": len(mt),
             "delivery_warnings": dw, "delivery_blocked": bool(dw),
             "parent_job_id": parent_out or None,
+            "hitl": hitl_block,
         }
     row = db_get_job(job_id)
     if not row:
@@ -216,6 +223,10 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     mc = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
     mt = row.get("mission_thread") if isinstance(row.get("mission_thread"), list) else []
     dw = extract_delivery_warnings_from_events(ev)
+    hitl_block = None
+    if str(row.get("status") or "") == "awaiting_validation":
+        from database import get_hitl_gate
+        hitl_block = get_hitl_gate(job_id)
     return {
         "job_id": job_id, "status": row["status"], "agent": row["agent"], "mission": row["mission"],
         "result": row.get("result"), "team": parse_team_field(row),
@@ -231,6 +242,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "mission_config": mc, "mission_thread": mt, "mission_thread_count": len(mt),
         "delivery_warnings": dw, "delivery_blocked": bool(dw),
         "parent_job_id": row.get("parent_job_id") or None,
+        "hitl": hitl_block,
     }
 
 
@@ -247,10 +259,65 @@ def cancel_running_job(job_id: str):
     row = active_jobs.get(jid)
     if not row:
         raise HTTPException(status_code=404, detail="Mission introuvable en mémoire (déjà terminée ou redémarrage serveur).")
-    if row.get("status") != "running":
+    st = str(row.get("status") or "")
+    if st not in ("running", "awaiting_validation"):
         raise HTTPException(status_code=400, detail="La mission n'est pas en cours d'exécution.")
     row["cancel_requested"] = True
     return {"ok": True, "job_id": jid, "message": "Annulation enregistrée ; l'exécution s'arrête dès la prochaine étape."}
+
+
+@router.post("/jobs/{job_id}/cio-answer", dependencies=[Depends(verify_secret)])
+def cio_answer(job_id: str, payload: dict):
+    """
+    Stocke la réponse du dirigeant aux questions CIO dans le fil de la mission.
+    Injecte dans mission_thread (state + DB) pour que la synthèse CIO en cours ou future en tienne compte.
+    """
+    answer = str(payload.get("answer", "")).strip()
+    if not answer:
+        raise HTTPException(status_code=400, detail="Réponse vide.")
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Stocker dans active_jobs si la mission tourne encore
+    job = active_jobs.get(job_id)
+    if job is not None:
+        thread = job.setdefault("mission_thread", [])
+        thread.append({"role": "user", "agent": "dirigeant", "content": f"[Réponse questions CIO] {answer}", "ts": now})
+        # Émettre un événement cio_question_answer dans la liste d'events en mémoire
+        events = job.setdefault("events", [])
+        events.append({
+            "type": "cio_question_answer",
+            "actor": "dirigeant",
+            "ts": now,
+            "data": {"answer": answer},
+        })
+
+    # Persister en DB (mission_thread)
+    row = db_get_job(job_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    try:
+        with get_conn() as conn:
+            existing_thread = []
+            raw_mt = row.get("mission_thread")
+            if isinstance(raw_mt, str) and raw_mt.strip():
+                try:
+                    existing_thread = json.loads(raw_mt)
+                except Exception:
+                    pass
+            elif isinstance(raw_mt, list):
+                existing_thread = raw_mt
+            existing_thread.append({"role": "user", "agent": "dirigeant", "content": f"[Réponse questions CIO] {answer}", "ts": now})
+            conn.execute(
+                "UPDATE jobs SET mission_thread = ? WHERE job_id = ?",
+                (json.dumps(existing_thread, ensure_ascii=False), job_id),
+            )
+            conn.commit()
+    except Exception:
+        pass  # Ne pas faire échouer l'endpoint si la DB est indisponible
+
+    return {"ok": True, "job_id": job_id, "stored": True}
 
 
 @router.post("/jobs/{job_id}/remove", dependencies=[Depends(verify_secret)])

@@ -44,7 +44,7 @@ export default function CioResultPanel({ result, missionTitle, jobLine, classNam
     );
   }
 
-  const maxH = expanded ? "max-h-[min(78vh,920px)]" : "max-h-[min(38vh,420px)]";
+  const maxH = expanded ? "max-h-[min(82vh,1000px)]" : "max-h-[min(62vh,680px)]";
 
   return (
     <section
@@ -63,36 +63,45 @@ export default function CioResultPanel({ result, missionTitle, jobLine, classNam
         ) : null}
         {jobLine ? <p className="mt-2 font-mono text-[11px] text-slate-500">{jobLine}</p> : null}
       </header>
-      <div className={`overflow-y-auto px-4 py-4 sm:px-5 ${maxH}`}>
-        <div className="text-left text-sm leading-relaxed text-slate-800 [&_a]:text-violet-800 [&_a]:underline [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:ps-5 [&_pre]:overflow-x-auto [&_ul]:my-2 [&_ul]:list-disc [&_ul]:ps-5">
-          {split.primary ? (
-            <>
-              {split.rolesDetail ? (
-                <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-emerald-900/90">Synthèse & livrable</p>
-              ) : null}
-              <AgentMessageMarkdown source={split.primary} />
-            </>
-          ) : null}
-          {split.rolesDetail ? (
-            <SimpleAccordion
-              className="mt-6 rounded-xl border border-slate-200 bg-slate-50/90 shadow-sm"
-              triggerClassName="cursor-pointer rounded-t-xl px-3 py-2.5 hover:bg-slate-100/80"
-              panelClassName="border-t border-slate-200 px-3 py-3"
-              title="Détail par rôle (conversations dans la synthèse CIO)"
-              defaultOpen={false}
-            >
-              <AgentMessageMarkdown source={split.rolesDetail} />
-            </SimpleAccordion>
-          ) : null}
+      <div className="relative">
+        <div className={`overflow-y-auto px-4 py-4 sm:px-5 ${maxH}`}>
+          <div className="text-left text-sm leading-relaxed text-slate-800 [&_a]:text-violet-800 [&_a]:underline [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:ps-5 [&_pre]:overflow-x-auto [&_ul]:my-2 [&_ul]:list-disc [&_ul]:ps-5">
+            {split.primary ? (
+              <>
+                {split.rolesDetail ? (
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-emerald-900/90">Synthèse & livrable</p>
+                ) : null}
+                <AgentMessageMarkdown source={split.primary} />
+              </>
+            ) : null}
+            {split.rolesDetail ? (
+              <SimpleAccordion
+                className="mt-6 rounded-xl border border-slate-200 bg-slate-50/90 shadow-sm"
+                triggerClassName="cursor-pointer rounded-t-xl px-3 py-2.5 hover:bg-slate-100/80"
+                panelClassName="border-t border-slate-200 px-3 py-3"
+                title="Détail par rôle (conversations dans la synthèse CIO)"
+                defaultOpen={false}
+              >
+                <AgentMessageMarkdown source={split.rolesDetail} />
+              </SimpleAccordion>
+            ) : null}
+          </div>
         </div>
+        {/* Gradient de fin : indique visuellement qu'il y a encore du contenu */}
+        {!expanded && (
+          <div
+            className="pointer-events-none absolute bottom-0 left-0 right-0 h-16 rounded-b-xl"
+            style={{ background: "linear-gradient(to bottom, transparent, white 90%)" }}
+          />
+        )}
       </div>
       <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-violet-100 px-3 py-2">
         <button
           type="button"
-          className="rounded-lg px-2.5 py-1 text-xs font-medium text-violet-900 hover:bg-violet-50"
+          className="rounded-lg bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 active:bg-violet-200"
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? "Réduire la hauteur" : "Agrandir la lecture"}
+          {expanded ? "▲ Réduire" : "▼ Voir la suite"}
         </button>
       </footer>
     </section>

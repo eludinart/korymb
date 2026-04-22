@@ -174,6 +174,8 @@ def _hydrate_job_row(d: dict) -> dict:
         "recursive_max_rounds": 0,
         "require_user_validation": True,
         "mode": "cio",
+        "cio_questions_enabled": True,
+        "cio_plan_hitl_enabled": True,
     }
     merged = {**base_cfg, **{k: v for k, v in mc.items() if k in base_cfg}}
     merged["recursive_refinement_enabled"] = bool(merged.get("recursive_refinement_enabled"))
@@ -189,6 +191,8 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = str(mc["mode"])
     else:
         merged["mode"] = "cio"
+    merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
+    merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
     out["mission_config"] = merged
     out.pop("plan_json", None)
     out.pop("events_json", None)
@@ -202,6 +206,16 @@ def _hydrate_job_row(d: dict) -> dict:
         mt = []
     out["mission_thread"] = mt
     out.pop("mission_thread_json", None)
+    raw_hres = out.get("hitl_resolution_json")
+    if raw_hres:
+        try:
+            parsed_h = json.loads(raw_hres) if isinstance(raw_hres, str) else raw_hres
+            out["hitl_resolution"] = parsed_h if isinstance(parsed_h, dict) else None
+        except json.JSONDecodeError:
+            out["hitl_resolution"] = None
+    else:
+        out["hitl_resolution"] = None
+    out.pop("hitl_resolution_json", None)
     return out
 
 
@@ -265,6 +279,7 @@ def init_db():
         """)
         conn.commit()
     init_enterprise_memory_row()
+    _init_autonomous_tables()
     # Graphe de connaissance entités (import tardif pour éviter les cycles)
     try:
         from services.knowledge import init_knowledge_table
@@ -627,7 +642,8 @@ def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
     with get_conn() as conn:
         _ensure_jobs_hitl_column(conn)
         cur = conn.execute(
-            "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, updated_at = ? "
+            "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, hitl_resolved_at = NULL, "
+            "hitl_comment = '', hitl_resolution_json = NULL, updated_at = ? "
             "WHERE id = ? AND status = 'running'",
             (gate_json, now, job_id),
         )
@@ -635,16 +651,42 @@ def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
-def job_resume_after_hitl(job_id: str, *, approved: bool, comment: str = "") -> bool:
-    """Reprend ou annule un job suspendu en attente HITL."""
-    new_status = "running" if approved else "cancelled"
+def job_resume_after_hitl(
+    job_id: str,
+    *,
+    approved: bool | None = None,
+    comment: str = "",
+    decision: str | None = None,
+    resolution: dict | None = None,
+) -> bool:
+    """Reprend ou annule un job suspendu en attente HITL.
+
+    decision : approve | reject | amend (prioritaire sur approved legacy).
+    resolution : pour amend — ex. {"amended_plan": {...}, "feedback": "..."}.
+    """
+    dec = (decision or "").strip().lower()
+    if dec not in ("approve", "reject", "amend"):
+        if approved is False:
+            dec = "reject"
+        else:
+            dec = "approve"
+    if dec == "reject":
+        new_status = "cancelled"
+        res_blob = None
+    else:
+        new_status = "running"
+        if dec == "amend" and isinstance(resolution, dict) and resolution:
+            res_blob = json.dumps(resolution, ensure_ascii=False)
+        else:
+            res_blob = None
     now = datetime.utcnow().isoformat()
+    comment_s = (comment or "")[:8000]
     with get_conn() as conn:
         _ensure_jobs_hitl_column(conn)
         cur = conn.execute(
-            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, updated_at = ? "
-            "WHERE id = ? AND status = 'awaiting_validation'",
-            (new_status, now, (comment or "")[:1000], now, job_id),
+            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
+            "updated_at = ? WHERE id = ? AND status = 'awaiting_validation'",
+            (new_status, now, comment_s, res_blob, now, job_id),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
@@ -655,7 +697,7 @@ def get_hitl_gate(job_id: str) -> dict | None:
     with get_conn() as conn:
         _ensure_jobs_hitl_column(conn)
         row = conn.execute(
-            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment FROM jobs WHERE id = ?",
+            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
     if not row:
@@ -665,10 +707,19 @@ def get_hitl_gate(job_id: str) -> dict | None:
         gate = json.loads(d.get("hitl_gate_json") or "{}")
     except json.JSONDecodeError:
         gate = {}
+    res: dict | None = None
+    raw_res = d.get("hitl_resolution_json")
+    if raw_res:
+        try:
+            parsed = json.loads(raw_res)
+            res = parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            res = None
     return {
         "gate": gate,
         "resolved_at": d.get("hitl_resolved_at"),
         "comment": d.get("hitl_comment"),
+        "resolution": res,
     }
 
 
@@ -686,6 +737,8 @@ def _ensure_jobs_hitl_column(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN hitl_resolved_at TEXT")
     if "hitl_comment" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN hitl_comment TEXT")
+    if "hitl_resolution_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN hitl_resolution_json TEXT")
     conn.commit()
 
 
@@ -1158,3 +1211,287 @@ def restore_memory_history_snapshot(snapshot_id: int) -> dict:
     snapshot_memory_history(comment=f"avant restauration snapshot #{snapshot_id}")
     merge_enterprise_contexts(snap["contexts"])
     return get_enterprise_memory()
+
+
+# ── Autonomous Tasks & Outputs ─────────────────────────────────────────────────
+
+def _init_autonomous_tables() -> None:
+    with get_conn() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS scheduled_tasks (
+                id                    TEXT PRIMARY KEY,
+                name                  TEXT NOT NULL,
+                description           TEXT NOT NULL DEFAULT '',
+                task_type             TEXT NOT NULL DEFAULT 'mission',
+                agent                 TEXT NOT NULL DEFAULT 'coordinateur',
+                mission_template      TEXT NOT NULL DEFAULT '',
+                params_json           TEXT NOT NULL DEFAULT '{}',
+                schedule_type         TEXT NOT NULL DEFAULT 'interval',
+                schedule_config       TEXT NOT NULL DEFAULT '{}',
+                enabled               INTEGER NOT NULL DEFAULT 1,
+                requires_approval     INTEGER NOT NULL DEFAULT 1,
+                budget_tokens_per_run INTEGER NOT NULL DEFAULT 50000,
+                budget_runs_per_day   INTEGER NOT NULL DEFAULT 3,
+                last_run_at           TEXT,
+                next_run_at           TEXT,
+                created_at            TEXT NOT NULL,
+                updated_at            TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS autonomous_outputs (
+                id               TEXT PRIMARY KEY,
+                task_id          TEXT NOT NULL DEFAULT '',
+                job_id           TEXT NOT NULL DEFAULT '',
+                output_type      TEXT NOT NULL DEFAULT 'draft',
+                target_platform  TEXT NOT NULL DEFAULT '',
+                target_ref       TEXT NOT NULL DEFAULT '',
+                title            TEXT NOT NULL DEFAULT '',
+                content          TEXT NOT NULL DEFAULT '',
+                status           TEXT NOT NULL DEFAULT 'pending',
+                rejection_reason TEXT NOT NULL DEFAULT '',
+                approved_at      TEXT,
+                published_at     TEXT,
+                created_at       TEXT NOT NULL,
+                updated_at       TEXT NOT NULL
+            )
+        """)
+        conn.commit()
+
+
+def _hydrate_scheduled_task(row: dict) -> dict:
+    out = dict(row)
+    try:
+        out["params"] = json.loads(out.pop("params_json") or "{}")
+    except Exception:
+        out["params"] = {}
+    try:
+        out["schedule_config"] = json.loads(out.get("schedule_config") or "{}")
+    except Exception:
+        out["schedule_config"] = {}
+    out["enabled"] = bool(out.get("enabled"))
+    out["requires_approval"] = bool(out.get("requires_approval"))
+    return out
+
+
+def create_scheduled_task(
+    *,
+    name: str,
+    description: str = "",
+    task_type: str = "mission",
+    agent: str = "coordinateur",
+    mission_template: str = "",
+    params: dict | None = None,
+    schedule_type: str = "interval",
+    schedule_config: dict | None = None,
+    enabled: bool = True,
+    requires_approval: bool = True,
+    budget_tokens_per_run: int = 50000,
+    budget_runs_per_day: int = 3,
+) -> dict:
+    import uuid
+    task_id = str(uuid.uuid4())[:12]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO scheduled_tasks (id, name, description, task_type, agent, mission_template, "
+            "params_json, schedule_type, schedule_config, enabled, requires_approval, "
+            "budget_tokens_per_run, budget_runs_per_day, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                task_id, name, description, task_type, agent, mission_template,
+                json.dumps(params or {}, ensure_ascii=False),
+                schedule_type,
+                json.dumps(schedule_config or {}, ensure_ascii=False),
+                int(enabled), int(requires_approval),
+                int(budget_tokens_per_run), int(budget_runs_per_day),
+                now, now,
+            ),
+        )
+        conn.commit()
+    return get_scheduled_task(task_id)  # type: ignore[return-value]
+
+
+def get_scheduled_task(task_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)).fetchone()
+    if not row:
+        return None
+    return _hydrate_scheduled_task(dict(row))
+
+
+def list_scheduled_tasks() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
+        ).fetchall()
+    return [_hydrate_scheduled_task(dict(r)) for r in rows]
+
+
+def update_scheduled_task(
+    task_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    task_type: str | None = None,
+    agent: str | None = None,
+    mission_template: str | None = None,
+    params: dict | None = None,
+    schedule_type: str | None = None,
+    schedule_config: dict | None = None,
+    enabled: bool | None = None,
+    requires_approval: bool | None = None,
+    budget_tokens_per_run: int | None = None,
+    budget_runs_per_day: int | None = None,
+    last_run_at: str | None = None,
+    next_run_at: str | None = None,
+) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    sets: list[str] = ["updated_at=?"]
+    vals: list = [now]
+    if name is not None:
+        sets.append("name=?"); vals.append(name)
+    if description is not None:
+        sets.append("description=?"); vals.append(description)
+    if task_type is not None:
+        sets.append("task_type=?"); vals.append(task_type)
+    if agent is not None:
+        sets.append("agent=?"); vals.append(agent)
+    if mission_template is not None:
+        sets.append("mission_template=?"); vals.append(mission_template)
+    if params is not None:
+        sets.append("params_json=?"); vals.append(json.dumps(params, ensure_ascii=False))
+    if schedule_type is not None:
+        sets.append("schedule_type=?"); vals.append(schedule_type)
+    if schedule_config is not None:
+        sets.append("schedule_config=?"); vals.append(json.dumps(schedule_config, ensure_ascii=False))
+    if enabled is not None:
+        sets.append("enabled=?"); vals.append(int(enabled))
+    if requires_approval is not None:
+        sets.append("requires_approval=?"); vals.append(int(requires_approval))
+    if budget_tokens_per_run is not None:
+        sets.append("budget_tokens_per_run=?"); vals.append(int(budget_tokens_per_run))
+    if budget_runs_per_day is not None:
+        sets.append("budget_runs_per_day=?"); vals.append(int(budget_runs_per_day))
+    if last_run_at is not None:
+        sets.append("last_run_at=?"); vals.append(last_run_at)
+    if next_run_at is not None:
+        sets.append("next_run_at=?"); vals.append(next_run_at)
+    vals.append(task_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE scheduled_tasks SET {', '.join(sets)} WHERE id=?", vals)
+        conn.commit()
+    return get_scheduled_task(task_id)
+
+
+def delete_scheduled_task(task_id: str) -> bool:
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
+def create_autonomous_output(
+    *,
+    task_id: str,
+    job_id: str = "",
+    output_type: str = "draft",
+    target_platform: str = "",
+    target_ref: str = "",
+    title: str = "",
+    content: str,
+) -> dict:
+    import uuid
+    output_id = str(uuid.uuid4())[:16]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO autonomous_outputs (id, task_id, job_id, output_type, target_platform, "
+            "target_ref, title, content, status, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (output_id, task_id, job_id, output_type, target_platform, target_ref, title, content, "pending", now, now),
+        )
+        conn.commit()
+    return get_autonomous_output(output_id)  # type: ignore[return-value]
+
+
+def get_autonomous_output(output_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM autonomous_outputs WHERE id=?", (output_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_autonomous_outputs(
+    *,
+    status: str | None = None,
+    task_id: str | None = None,
+    output_type: str | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    clauses: list[str] = []
+    params: list = []
+    if status:
+        clauses.append("status=?"); params.append(status)
+    if task_id:
+        clauses.append("task_id=?"); params.append(task_id)
+    if output_type:
+        clauses.append("output_type=?"); params.append(output_type)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    params.append(max(1, min(limit, 200)))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM autonomous_outputs {where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_autonomous_output_status(
+    output_id: str,
+    status: str,
+    *,
+    rejection_reason: str = "",
+    approved_at: str | None = None,
+    published_at: str | None = None,
+) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    sets = ["status=?", "updated_at=?"]
+    vals: list = [status, now]
+    if rejection_reason:
+        sets.append("rejection_reason=?"); vals.append(rejection_reason)
+    if approved_at is not None:
+        sets.append("approved_at=?"); vals.append(approved_at)
+    if published_at is not None:
+        sets.append("published_at=?"); vals.append(published_at)
+    vals.append(output_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE autonomous_outputs SET {', '.join(sets)} WHERE id=?", vals)
+        conn.commit()
+    return get_autonomous_output(output_id)
+
+
+def count_autonomous_runs_today(task_id: str) -> int:
+    """Nombre de jobs autonomes lancés aujourd'hui pour cette tâche."""
+    from datetime import date
+    today = date.today().isoformat()
+    source_tag = f"autonomous:{task_id}"
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM jobs WHERE source=? AND substr(created_at,1,10)=?",
+            (source_tag, today),
+        ).fetchone()
+    return int(row[0] or 0) if row else 0
+
+
+def sum_autonomous_tokens_today(task_id: str) -> int:
+    """Total tokens (in+out) des jobs autonomes de cette tâche aujourd'hui."""
+    from datetime import date
+    today = date.today().isoformat()
+    source_tag = f"autonomous:{task_id}"
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) FROM jobs "
+            "WHERE source=? AND substr(created_at,1,10)=?",
+            (source_tag, today),
+        ).fetchone()
+    return int(row[0] or 0) if row else 0

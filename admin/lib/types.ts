@@ -109,6 +109,8 @@ export type HitlGatePayload = {
   mission: string;
   result_preview: string;
   reviewer: string;
+  kind?: string;
+  plan_public?: Record<string, unknown>;
 };
 
 export type HitlStatus = {
@@ -118,12 +120,16 @@ export type HitlStatus = {
     gate?: HitlGatePayload;
     resolved_at?: string | null;
     comment?: string | null;
+    resolution?: Record<string, unknown> | null;
   } | null;
 };
 
 export type HitlValidateRequest = {
-  approved: boolean;
+  approved?: boolean | null;
   comment?: string;
+  decision?: "approve" | "reject" | "amend";
+  amended_plan?: Record<string, unknown>;
+  feedback?: string;
 };
 
 // ── Events mission ────────────────────────────────────────────────────────────

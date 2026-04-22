@@ -38,6 +38,7 @@ export function sortJobsForBossView<T extends BossJobLike>(rows: T[]): T[] {
     const closed = j.user_validated_at || j.mission_closed_by_user;
     const canValidate = j.status === "completed" && !closed;
     if (canValidate) return 0;
+    if (j.status === "awaiting_validation") return 0.5;
     if (j.status === "running" || j.status === "in_progress") return 1;
     if (String(j.result || "").trim()) return 2;
     if (j.status === "completed") return 3;

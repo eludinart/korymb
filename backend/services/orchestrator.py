@@ -50,10 +50,13 @@ def prepare_hitl_gate(
     mission: str,
     result_preview: str,
     reviewer: str = "human_operator",
+    gate_extras: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Prépare une pause HITL pour le job spécifié.
     Met le job en statut 'awaiting_validation' et retourne l'enveloppe de gate.
+
+    gate_extras : champs additionnels (ex. kind, plan_public) fusionnés dans le payload.
 
     Returns:
         Enveloppe HITL avec status, job_id, payload.
@@ -64,6 +67,8 @@ def prepare_hitl_gate(
         "result_preview": (result_preview or "")[:2000],
         "reviewer": (reviewer or "human_operator")[:120],
     }
+    if gate_extras:
+        gate_payload.update(gate_extras)
 
     # Mise à jour du statut en base
     gate_persisted = False
@@ -100,23 +105,59 @@ def prepare_hitl_gate(
 def resume_hitl_gate(
     *,
     job_id: str,
-    approved: bool,
+    approved: bool | None = None,
     comment: str = "",
+    decision: str | None = None,
+    amended_plan: dict[str, Any] | None = None,
+    feedback: str = "",
 ) -> dict[str, Any]:
     """
     Reprend ou annule un job suspendu en attente de validation HITL.
 
     Args:
         job_id: identifiant du job
-        approved: True = reprendre, False = annuler
-        comment: commentaire optionnel du validateur humain
+        approved: legacy — True = approve, False = reject (si decision absent)
+        decision: approve | reject | amend
+        amended_plan: pour amend — dict aligné sur plan_public (synthese_attendue, sous_taches, agents)
+        feedback: note optionnelle du dirigeant
+        comment: alias / détail libre (persisté en hitl_comment)
 
     Returns:
         Résultat de la reprise avec nouveau statut.
     """
     try:
-        from database import job_resume_after_hitl, get_job
-        resumed = job_resume_after_hitl(job_id, approved=approved, comment=comment)
+        from database import job_resume_after_hitl
+
+        dec = (decision or "").strip().lower()
+        if dec not in ("approve", "reject", "amend"):
+            if approved is False:
+                dec = "reject"
+            else:
+                dec = "approve"
+        if dec == "amend" and (not amended_plan or not isinstance(amended_plan, dict)):
+            return {
+                "job_id": job_id,
+                "success": False,
+                "error": "decision=amend requiert amended_plan (objet JSON non vide).",
+                "new_status": None,
+            }
+
+        comment_merged = (comment or "").strip() or (feedback or "").strip()
+        resolution: dict[str, Any] | None = None
+        if dec == "amend":
+            resolution = {
+                "decision": "amend",
+                "amended_plan": amended_plan,
+                "feedback": (feedback or "")[:4000],
+            }
+
+        resumed = job_resume_after_hitl(
+            job_id,
+            approved=(dec != "reject"),
+            comment=comment_merged,
+            decision=dec,
+            resolution=resolution,
+        )
         if not resumed:
             return {
                 "job_id": job_id,
@@ -124,28 +165,30 @@ def resume_hitl_gate(
                 "error": "Job introuvable ou n'était pas en attente de validation.",
                 "new_status": None,
             }
+        new_status = "cancelled" if dec == "reject" else "running"
         # Mise à jour du cache in-memory
         try:
-            from state import active_jobs, KorymbJobCancelled
+            from state import active_jobs
             if job_id in active_jobs:
-                new_status = "running" if approved else "cancelled"
                 active_jobs[job_id]["status"] = new_status
+                if dec == "amend" and resolution:
+                    active_jobs[job_id]["hitl_resolution"] = resolution
         except Exception:
             pass
 
-        new_status = "running" if approved else "cancelled"
         logger.info(
             "HITL gate résolue pour job %s : %s — '%s'",
             job_id,
-            "approuvé" if approved else "rejeté",
-            comment[:80] if comment else "",
+            dec,
+            (comment or feedback or "")[:80],
         )
         return {
             "job_id": job_id,
             "success": True,
-            "approved": approved,
+            "approved": dec != "reject",
+            "decision": dec,
             "new_status": new_status,
-            "comment": comment[:1000] if comment else "",
+            "comment": comment[:8000] if comment else "",
         }
     except Exception as exc:
         logger.exception("resume_hitl_gate job %s", job_id)

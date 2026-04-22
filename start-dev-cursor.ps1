@@ -32,6 +32,23 @@ function Stop-ExistingJobByName {
   }
 }
 
+function Stop-ProcessesOnPort {
+  param([int] $Port, [string] $Label = "")
+  $tag = if ($Label) { " ($Label)" } else { "" }
+  $listening = @(
+    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -ExpandProperty OwningProcess -Unique
+  ) | Where-Object { $_ -and $_ -gt 0 } | Select-Object -Unique
+  foreach ($portPid in $listening) {
+    $proc = Get-Process -Id $portPid -ErrorAction SilentlyContinue
+    if ($proc) {
+      Write-Host ("  Arret PID {0} ({1}) sur port {2}{3}..." -f $portPid, $proc.ProcessName, $Port, $tag) -ForegroundColor DarkGray
+      $null = cmd.exe /c "taskkill /F /PID $portPid /T 2>nul 1>nul"
+      Stop-Process -Id $portPid -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
 if (-not (Test-Path -LiteralPath $backendRestart)) {
   throw "Script backend introuvable: $backendRestart"
 }
@@ -103,6 +120,10 @@ try {
 finally {
   Write-Host ""
   Write-Host "Arret des jobs..." -ForegroundColor Yellow
+  # Tuer les processus enfants orphelins (uvicorn, node/next) avant Stop-Job,
+  # sinon Stop-Job peut bloquer indéfiniment en attendant des sous-processus qui ne répondent pas.
+  Stop-ProcessesOnPort -Port 8020 -Label "backend/uvicorn"
+  Stop-ProcessesOnPort -Port 3000 -Label "frontend/next"
   foreach ($n in @($backendJobName, $frontendJobName)) {
     $j = Get-Job -Name $n -ErrorAction SilentlyContinue
     if ($null -ne $j) {

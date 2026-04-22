@@ -61,6 +61,8 @@ from routers.core_jobs import router as core_jobs_router
 from routers.core_missions import router as core_missions_router
 from routers.core_chat import router as core_chat_router
 from routers.core_templates import router as core_templates_router
+from routers.core_scheduler import router as core_scheduler_router
+from routers.core_social import router as core_social_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -73,8 +75,18 @@ _KORYMB_BACKEND_DIR = Path(__file__).resolve().parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    from scheduler import create_scheduler, register_db_tasks, set_scheduler
+    _scheduler = create_scheduler()
+    set_scheduler(_scheduler)
+    if _scheduler is not None:
+        register_db_tasks(_scheduler)
+        _scheduler.start()
+        logger.info("Scheduler autonome démarré")
     logger.info("Korymb backend démarré — build %s", BACKEND_VERSION)
     yield
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        logger.info("Scheduler autonome arrêté")
     logger.info("Korymb backend arrêté — build %s", BACKEND_VERSION)
 
 
@@ -105,6 +117,8 @@ app.include_router(core_jobs_router)
 app.include_router(core_missions_router)
 app.include_router(core_chat_router)
 app.include_router(core_templates_router)
+app.include_router(core_scheduler_router)
+app.include_router(core_social_router)
 
 
 @app.middleware("http")

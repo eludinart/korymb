@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -287,18 +288,23 @@ def _materialize_subagents_when_plan_empty(
     if len(ctx) > 2400:
         ctx = ctx[:2400] + "…"
 
+    raw_agents = plan.get("agents")
+    # Si le CIO a explicitement decide agents:[] (solo), ne pas surcharger avec heuristiques
+    cio_said_solo = isinstance(raw_agents, list) and len(raw_agents) == 0
+
     keys: list[str] = list(_mentioned_sub_agents(blob))
-    if not keys:
+    if not keys and not cio_said_solo:
         keys = _infer_agents_from_mission_keywords(blob)
     if not keys and _signals_explicit_multi_agent_communication(blob):
         keys = list(delegatable_subagent_keys_ordered())
-    raw_agents = plan.get("agents")
     if not keys:
+        if cio_said_solo:
+            log("[korymb] Plan CIO seul - aucune materialisation automatique d'agents.")
+            return
         if (
             _plan_agents_json_non_executable(raw_agents)
             or raw_agents is None
-            or (isinstance(raw_agents, list) and len(raw_agents) == 0)
-            or len(blob) > 40
+            or len(blob) > 80
         ):
             keys = ["commercial"]
 
@@ -673,16 +679,14 @@ def _forced_multi_agent_sous_taches(mission_txt: str, root_mission_label: str) -
     if not _signals_explicit_multi_agent_communication(blob):
         return None
     mentioned = _mentioned_sub_agents(blob)
-    if len(mentioned) >= 2:
-        targets = mentioned
-    elif len(mentioned) == 1:
+    if len(mentioned) >= 1:
         targets = mentioned
     elif re.search(r"differents.{0,14}agents|plusieurs agents|tous les agents|chaque agent", blob):
         targets = list(delegatable_subagent_keys_ordered())
     else:
-        # « Test de communication », etc. : le signal est levé mais aucun rôle n’est nommé dans le texte —
-        # sans cette branche on retombait en CIO seul alors que le dirigeant attend des tours réels.
-        targets = list(delegatable_subagent_keys_ordered())
+        # Signal vague (ex. test de communication) sans agent nomme :
+        # ne pas deployer toute l'equipe - laisser le CIO gerer seul.
+        return None
     ctx = (root_mission_label or mission_txt or "").strip()
     if len(ctx) > 720:
         ctx = ctx[:720] + "…"
@@ -921,6 +925,79 @@ def _human_dialogue_cio_wrapup(agent_keys: list[str]) -> str:
     )
 
 
+def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> dict:
+    """
+    Bloque jusqu'à résolution HITL (approve / reject / amend) pour le plan CIO.
+    Retourne {"decision": "approve"} ou {"decision": "amend", "amended_plan": {...}}.
+    Lève KorymbJobCancelled si le job est annulé ou rejeté.
+    """
+    max_wait = 7200
+    for i in range(max_wait):
+        _raise_if_job_cancelled(job_id)
+        row = db_get_job(job_id)
+        if not row:
+            time.sleep(0.28)
+            continue
+        st = str(row.get("status") or "")
+        if st == "awaiting_validation":
+            time.sleep(0.28)
+            continue
+        if st == "cancelled":
+            if job_logs is not None:
+                job_logs.append("[korymb] Plan CIO — rejet ou annulation dirigeant (HITL).")
+            raise KorymbJobCancelled()
+        if st == "running":
+            res = row.get("hitl_resolution")
+            if isinstance(res, dict) and res.get("decision") == "amend" and isinstance(res.get("amended_plan"), dict):
+                return res
+            return {"decision": "approve"}
+        time.sleep(0.28)
+        if i > 0 and i % 200 == 0 and job_logs is not None:
+            job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
+    raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+
+
+def _apply_cio_plan_amendment(
+    st: dict,
+    plan: dict,
+    amended: dict,
+    log,
+    job_id: str | None,
+) -> None:
+    """Fusionne la version dirigeant dans le plan exécutable (sous_tâches + synthèse)."""
+    subs = amended.get("sous_taches") if isinstance(amended.get("sous_taches"), dict) else {}
+    syn = amended.get("synthese_attendue")
+    if isinstance(syn, str) and syn.strip():
+        plan["synthese_attendue"] = syn.strip()
+    if subs:
+        for k, v in subs.items():
+            if k not in agents_def() or k == "coordinateur":
+                continue
+            vs = _tache_to_str(v).strip()
+            if vs:
+                st[k] = vs
+    agents_ov = amended.get("agents")
+    if isinstance(agents_ov, list) and agents_ov:
+        allowed = {str(k).strip() for k in agents_ov if str(k).strip() in agents_def() and str(k).strip() != "coordinateur"}
+        for k in list(st.keys()):
+            if k in agents_def() and k != "coordinateur" and k not in allowed:
+                del st[k]
+        for k in allowed:
+            if k not in st or not _tache_to_str(st.get(k)).strip():
+                raw = subs.get(k) if isinstance(subs, dict) else None
+                st[k] = _tache_to_str(raw).strip() or st.get(k, "")
+    plan["sous_taches"] = st
+    if log:
+        log("[korymb] Plan CIO — version dirigeant appliquée (amendement HITL).")
+    if job_id:
+        _emit_job_event(
+            job_id,
+            "cio_plan_hitl_resolved",
+            "coordinateur",
+            {"decision": "amend", "agents": list(st.keys())},
+        )
+
+
 def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
     """Annexe lisible dans le corps du résultat mission : textes intégraux des rôles."""
     if not resultats:
@@ -948,6 +1025,8 @@ def orchestrate_coordinateur_mission(
     job_logs: list | None,
     chat_mode: bool = False,
     job_id: str | None = None,
+    cio_questions_enabled: bool = True,
+    cio_plan_hitl_enabled: bool = False,
 ) -> tuple[str, int, int]:
     """
     Plan JSON → exécution par sous-agents → synthèse CIO.
@@ -1013,6 +1092,16 @@ def orchestrate_coordinateur_mission(
             {"chat_mode": chat_mode, "mission_preview": (root_mission_label or "")[:400]},
         )
 
+    cq_schema_field = (
+        ',\n  "clarifying_questions": []'
+        if cio_questions_enabled else ""
+    )
+    cq_rule = (
+        "- clarifying_questions : tableau de 1 à 3 questions courtes si la mission est ambigue sur des points clés "
+        "(budget, cible, priorité entre options). La mission s'exécute EN PARALLÈLE — ces questions ne bloquent rien. "
+        "Laisse vide [] si la mission est suffisamment claire.\n"
+        if cio_questions_enabled else ""
+    )
     log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
     plan_txt, ti, to = llm_turn(
@@ -1023,7 +1112,7 @@ Analyse cette mission et réponds avec ce JSON exact (sans markdown) :
 {{
   "agents": {agents_example_json},
   "sous_taches": {sous_example_json},
-  "synthese_attendue": "ce que le CIO doit produire en synthèse finale"
+  "synthese_attendue": "ce que le CIO doit produire en synthèse finale"{cq_schema_field}
 }}
 
 Règles :
@@ -1045,12 +1134,11 @@ Règles :
   sinon ce rôle ne partira pas.
 - Si le dirigeant demande explicitement de solliciter un rôle (ex. « au commercial », « que le dev vérifie »), mets OBLIGATOIREMENT
   la clé correspondante dans "sous_taches" avec la consigne réelle ; ne remplace pas cela par une entrée « CIO seul ».
-- Prospection, clients, leads, « trouver qui contacter », veille concurrentielle : si la clé **commercial** existe dans l'équipe,
-  inclus **commercial** dans sous_taches avec une consigne explicite de recherche (web + LinkedIn public + synthèse de pistes), car le commercial a les outils Internet.
-- Demande transverse sur l'activité Élude In Art (produit, offre, visibilité, partenariats, contenu, terrain) sans être
-  uniquement du code ou de la compta : si la clé **commercial** existe, inclus **commercial** avec une sous-tâche de veille / pistes / angle d'approche,
-  sauf si l'utilisateur exige explicitement un autre seul rôle.
-- Ne renvoie pas un JSON vide si une délégation est demandée ou pertinente.""",
+- Utilise ton JUGEMENT pour décider qui mobiliser : le dirigeant ne doit pas avoir à nommer les agents. Délègue dès qu'un agent apporterait une valeur réelle (recherche, contenu, code, compta), même sans demande explicite.
+- Commercial : prospection, recherche LinkedIn/web de contacts/prospects, veille concurrentielle. Community Manager : publications, contenu, réseaux sociaux, stratégie éditoriale. Développeur : code, API, bug, déploiement. Comptable : facturation, TVA, devis, trésorerie.
+- Ne mobilise PAS un agent pour "confirmer sa présence" ou "donner un avis général" sans action concrète à produire.
+- Pour une question simple que tu peux traiter seul (information générale, synthèse documentaire, réponse directe) : "agents": [] et "sous_taches": {{}} — réponds en CIO seul, plus rapide et plus économique.
+{cq_rule}- Ne renvoie pas un JSON vide si une délégation est demandée ou pertinente.""",
         max_tokens=4096,
         or_profile="standard",
         usage_job_id=job_id,
@@ -1106,6 +1194,24 @@ Règles :
     _log_plan_agents_field_for_ops(plan.get("agents"), log)
     st.pop("coordinateur", None)
     plan["sous_taches"] = st
+
+    # ── Questions du CIO pour le dirigeant (non-bloquant, si activé) ──────────
+    raw_cq = plan.get("clarifying_questions")
+    if cio_questions_enabled and isinstance(raw_cq, list) and raw_cq:
+        cq_valid = [str(q).strip() for q in raw_cq if str(q).strip()][:4]
+        if cq_valid:
+            log(f"[korymb] CIO : {len(cq_valid)} question(s) posée(s) au dirigeant (mission continue en parallèle).")
+            if job_id:
+                _emit_job_event(
+                    job_id,
+                    "cio_question",
+                    "coordinateur",
+                    {
+                        "questions": cq_valid,
+                        "mission_preview": (root_mission_label or mission_txt or "")[:200],
+                        "answered": False,
+                    },
+                )
 
     forced_st = _forced_multi_agent_sous_taches(mission_txt, root_mission_label)
     if forced_st:
@@ -1207,6 +1313,84 @@ Règles :
             {"to": delegated, "solo_cio": len(delegated) == 0},
         )
         _persist_running_job_snapshot(job_id)
+
+        if cio_plan_hitl_enabled and not chat_mode:
+            from services.orchestrator import prepare_hitl_gate
+
+            preview = json.dumps(plan_public, ensure_ascii=False, indent=2)
+            if len(preview) > 14000:
+                preview = preview[:14000] + "\n…"
+            prep = prepare_hitl_gate(
+                job_id=job_id,
+                mission=(root_mission_label or mission_txt or "")[:800],
+                result_preview=preview[:12000],
+                reviewer="dirigeant",
+                gate_extras={"kind": "cio_plan", "plan_public": plan_public},
+            )
+            if (prep.get("status") or "") != "awaiting_validation":
+                log("[korymb] HITL plan CIO : suspension impossible (état du job), poursuite sans attente.")
+            else:
+                log("[korymb] Plan CIO — attente validation dirigeant (approuver, modifier ou rejeter).")
+                _emit_job_event(
+                    job_id,
+                    "cio_plan_hitl",
+                    "coordinateur",
+                    {"status": "awaiting_validation", "kind": "cio_plan"},
+                )
+                try:
+                    j = active_jobs.get(job_id) or {}
+                    update_job(
+                        job_id,
+                        "awaiting_validation",
+                        j.get("result"),
+                        job_logs,
+                        int(j.get("tokens_in", 0)),
+                        int(j.get("tokens_out", 0)),
+                        j.get("team") or [],
+                        plan_public,
+                        j.get("events") or [],
+                        source=j.get("source"),
+                        mission_config=j.get("mission_config") if isinstance(j.get("mission_config"), dict) else None,
+                    )
+                except Exception:
+                    logger.exception("persist awaiting_validation snapshot")
+                outcome = _wait_for_cio_plan_hitl_resolution(job_id, job_logs)
+                dec = outcome.get("decision") if isinstance(outcome, dict) else "approve"
+                if dec == "amend":
+                    am = outcome.get("amended_plan")
+                    if isinstance(am, dict) and am:
+                        _apply_cio_plan_amendment(st, plan, am, log, job_id)
+                        delegated = [
+                            k
+                            for k in st
+                            if k in agents_def()
+                            and k != "coordinateur"
+                            and _tache_to_str(st.get(k)).strip()
+                        ]
+                        plan_public = {
+                            "agents": list(delegated),
+                            "synthese_attendue": str(plan.get("synthese_attendue") or "")[:800],
+                            "sous_taches": {
+                                k: (str(v)[:500] + ("…" if len(str(v)) > 500 else ""))
+                                for k, v in st.items()
+                                if k in agents_def() and k != "coordinateur"
+                            },
+                        }
+                        active_jobs[job_id]["plan"] = plan_public
+                        _emit_job_event(
+                            job_id,
+                            "plan_parsed",
+                            "coordinateur",
+                            {"plan": plan_public, "source": "cio_plan_hitl_amend"},
+                        )
+                else:
+                    _emit_job_event(
+                        job_id,
+                        "cio_plan_hitl_resolved",
+                        "coordinateur",
+                        {"decision": "approve"},
+                    )
+                _persist_running_job_snapshot(job_id)
 
     if job_id and team_rows:
         team_rows[0]["status"] = "done"
@@ -1554,13 +1738,30 @@ Règles :
         ])
         synthese_user = (
             f"Mission originale : {root_mission_label}\n\n"
-            f"Contributions des agents (textes réels exécutés par le moteur, à ne pas ignorer) :\n{contributions}\n\n"
-            "Obligation de forme : commence par une section « Réponses des rôles » avec un sous-paragraphe par rôle "
-            "ci-dessus (reprends faits et formulations utiles, y compris si une réponse est courte ou partielle). "
-            "Si une contribution est « (Aucune réponse textuelle.) », dis-le explicitement pour ce rôle. "
-            "Si la mission demandait une **réponse factuelle directe** (ex. l’heure), recopie-la explicitement "
-            "depuis la contribution du rôle concerné — le dirigeant doit la voir sans deviner. "
-            "Ensuite seulement, produis ta synthèse décisionnelle structurée et actionnable pour le dirigeant."
+            f"Contributions des agents (textes reels executes par le moteur) :\n{contributions}\n\n"
+            "OBLIGATION DE FORME STRICTE — respecte cet ordre :\n\n"
+            "1. ## BILAN OPERATIONNEL (TOUJOURS EN PREMIER)\n"
+            "Tableau de bord en 5 a 12 puces avec des CHIFFRES REELS tires des contributions.\n"
+            "Format : - [Role] * [N] [action] — ex: - Commercial * 8 profils LinkedIn identifies\n"
+            "Inclure : prospects identifies (nb + noms/secteurs), messages rediges (nb), posts reseaux sociaux (nb + plateformes),\n"
+            "documents crees (nb + noms), pages web lues (nb), recherches effectuees (nb).\n"
+            "Si rien de concret, le dire. Ce bloc se lit en 20 secondes.\n\n"
+            "2. Reponses des roles — un sous-paragraphe par agent ci-dessus "
+            "(reprends faits et formulations utiles, meme si reponse courte). "
+            "Si contribution absente, dis-le. "
+            "Si reponse factuelle directe demandee, recopie-la depuis la contribution.\n\n"
+            "3. Synthese decisionnelle — structuree et actionnable pour le dirigeant.\n\n"
+            "4. ## QUESTIONS STRATEGIQUES DU CIO (TOUJOURS EN DERNIER — ne pas omettre)\n"
+            "Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite.\n"
+            "Criteres stricts :\n"
+            "  - Question 1 : continuation directe de CETTE mission (approfondir un point precis, ajuster, relancer un axe).\n"
+            "  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art "
+            "(relie cette mission a la strategie, au produit, au marche, aux autres roles non mobilises).\n"
+            "  - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer "
+            "(une opportunite, un arbitrage, un risque identifie pendant cette mission).\n"
+            "Format : questions numerotees, ton direct CIO vers dirigeant (ex. 'Veux-tu qu'on...', 'Souhaites-tu...', 'Doit-on...'), "
+            "contextualisees aux resultats concrets ci-dessus — jamais generiques.\n"
+            "Chaque question doit ouvrir vers une action reelle : mission a lancer, element a valider, cap a donner."
         )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + synth_grounding,
@@ -1571,9 +1772,20 @@ Règles :
             usage_context="cio_synthesis",
         )
     else:
+        solo_questions_suffix = (
+            "" if chat_mode else
+            "\n\nOBLIGATION DE FORME — inclus toujours EN DERNIER, apres ta reponse :\n\n"
+            "## QUESTIONS STRATEGIQUES DU CIO\n"
+            "Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite :\n"
+            "  - Question 1 : continuation ou approfondissement de CETTE demande.\n"
+            "  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art "
+            "(relie cette demande a la strategie, au produit, au marche, a un role non encore mobilise).\n"
+            "  - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer.\n"
+            "Ton direct CIO vers dirigeant, questions numerotees, contextualisees — jamais generiques."
+        )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + synth_grounding,
-            mission_txt,
+            mission_txt + solo_questions_suffix,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,
@@ -1582,6 +1794,12 @@ Règles :
     t_in += ti3
     t_out += to3
     _sync_active_job_tokens(job_id, t_in, t_out)
+
+    # Supprime les code fences extérieures si le modèle a enveloppé toute la synthèse dans ```...```
+    if isinstance(result, str) and result.lstrip().startswith("```"):
+        result = re.sub(r"^```[a-zA-Z]*\s*\n?", "", result.lstrip(), count=1)
+        result = re.sub(r"\n?```\s*$", "", result.rstrip())
+        result = result.strip()
 
     if resultats:
         ann = _team_livrables_markdown_annex(resultats)
@@ -1655,6 +1873,10 @@ class MissionRunConfig(BaseModel):
     require_user_validation: bool = True
     # Mode d'orchestration : "cio" (défaut), "triad" (Architect/Executor/Critic), "single"
     mode: str = Field(default="cio", pattern="^(cio|triad|single)$")
+    # Autoriser le CIO à poser des questions au dirigeant en cours de mission
+    cio_questions_enabled: bool = True
+    # Pause HITL après le plan CIO (validation / amendement dirigeant avant délégation)
+    cio_plan_hitl_enabled: bool = True
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -1800,6 +2022,7 @@ def _cio_refinement_round_mission(
         job_logs,
         chat_mode=False,
         job_id=job_id,
+        cio_plan_hitl_enabled=False,
     )
     t_in += ti2
     t_out += to2
@@ -1969,6 +2192,8 @@ def _schedule_mission_execution(
             elif agent_key == "coordinateur":
                 result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
                     mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
+                    cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
+                    cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", True)),
                 )
                 _raise_if_job_cancelled(job_id)
                 if cfg.get("recursive_refinement_enabled"):
@@ -2149,9 +2374,16 @@ def _mission_followup_context_from_parent(parent_job_id: str) -> str:
         if lines:
             parts.append("Échanges déjà enregistrés sur cette mission (fil) :\n" + "\n\n".join(lines))
     parts.append(
-        "Tu traites une **demande de suite** : nouveaux objectifs, affinage du livrable, tâches additionnelles, "
-        "corrections ou itération sans repartir de zéro. Réutilise le contexte ci-dessus ; délègue aux sous-agents "
-        "si c'est pertinent pour cette suite."
+        "Tu traites une **demande de suite** : nouveaux objectifs, affinage du livrable, taches additionnelles, "
+        "corrections ou iteration sans repartir de zero. Reutilise le contexte ci-dessus ; delegue aux sous-agents "
+        "si c'est pertinent pour cette suite.\n\n"
+        "OBLIGATION DE FORME — commence ta synthese finale par ## BILAN CUMULE (toujours en premier) :\n"
+        "Structure en 3 blocs :\n"
+        "  A) Ce qui avait deja ete fait (sessions precedentes) — 2 a 4 puces avec chiffres issus du livrable de reference\n"
+        "  B) Ce qui a ete fait lors de CETTE session — chiffres et actions concretes\n"
+        "  C) Total cumule — bilan global depuis le debut de la mission\n"
+        "Format puce : '- [Role] * [N] [action]' (ex: '- Commercial * 12 profils LinkedIn identifies au total').\n"
+        "Ce bilan se lit en 30 secondes et reflete le travail total accompli depuis le debut."
     )
     return "\n\n".join(parts) + "\n\n"
 

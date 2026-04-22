@@ -4,6 +4,8 @@ routers/missions.py — Endpoints mission : peer review, HITL gate, HITL validat
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import verify_secret
@@ -30,8 +32,11 @@ class HitlGateRequest(BaseModel):
 class HitlValidateRequest(BaseModel):
     """Corps de la requête de validation HITL humaine."""
     model_config = ConfigDict(extra="forbid")
-    approved: bool
-    comment: str = Field(default="", max_length=2000)
+    approved: bool | None = None
+    comment: str = Field(default="", max_length=8000)
+    decision: Literal["approve", "reject", "amend"] | None = None
+    amended_plan: dict | None = None
+    feedback: str = Field(default="", max_length=4000)
 
 
 @router.post("/plan-peer-review", dependencies=[Depends(verify_secret)])
@@ -78,19 +83,22 @@ def job_hitl_gate(job_id: str, body: HitlGateRequest):
 def job_hitl_validate(job_id: str, body: HitlValidateRequest):
     """
     Valide ou rejette un job en attente de validation HITL.
-    - approved=true  : reprend l'exécution (statut → running)
-    - approved=false : annule le job (statut → cancelled)
+    - decision=approve (ou approved=true)  : reprend l'exécution
+    - decision=reject (ou approved=false) : annule le job
+    - decision=amend + amended_plan : reprend avec plan fusionné dirigeant
     """
     result = resume_hitl_gate(
         job_id=job_id,
         approved=body.approved,
         comment=body.comment,
+        decision=body.decision,
+        amended_plan=body.amended_plan,
+        feedback=body.feedback,
     )
     if not result.get("success"):
-        raise HTTPException(
-            status_code=404,
-            detail=result.get("error", "Job introuvable ou état invalide pour la validation HITL."),
-        )
+        err = str(result.get("error") or "").strip()
+        code = 400 if "amend" in err.lower() or "requiert" in err.lower() else 404
+        raise HTTPException(status_code=code, detail=err or "Job introuvable ou état invalide pour la validation HITL.")
     return result
 
 

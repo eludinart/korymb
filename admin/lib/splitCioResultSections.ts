@@ -19,8 +19,23 @@ function headingSliceStart(m: RegExpMatchArray): number {
  * Détecte `## Réponses des rôles` et `## Synthèse` / `## Synthèse décisionnelle` (insensible à la casse).
  * Si les deux existent et que les rôles précèdent la synthèse dans le texte, inverse l’ordre d’affichage.
  */
+/**
+ * Supprime les code fences extérieures si le modèle a enveloppé toute sa réponse dans ```...```
+ * (bug LLM fréquent qui rend tout le contenu comme un bloc de code avec fond sombre).
+ */
+function stripOuterCodeFence(s: string): string {
+  const trimmed = s.trim();
+  if (!trimmed.startsWith("```")) return s;
+  // Retire le marqueur d'ouverture (```markdown, ```json, ``` seul, etc.)
+  const afterOpen = trimmed.replace(/^```[a-zA-Z]*\r?\n?/, "");
+  // Retire le marqueur de fermeture final si présent
+  const afterClose = afterOpen.replace(/\r?\n?```\s*$/, "");
+  // N'applique que si le résultat a du sens (évite de stripper des vrais blocs de code courts)
+  return afterClose.trim().length > 40 ? afterClose.trim() : s;
+}
+
 export function splitCioSynthesisAndRoles(raw: string): CioResultSplit {
-  const src = String(raw ?? "").replace(/\r\n/g, "\n");
+  const src = stripOuterCodeFence(String(raw ?? "").replace(/\r\n/g, "\n"));
   if (!src.trim()) return { primary: "", rolesDetail: "" };
 
   const reRoles = /(?:^|\n)##\s+Réponses\s+des\s+rôles\b/im;

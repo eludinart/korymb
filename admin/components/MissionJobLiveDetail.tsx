@@ -9,6 +9,7 @@ import SimpleAccordion from "./SimpleAccordion";
 import MissionEventTimeline from "./MissionEventTimeline";
 import MissionMetricsRow from "./MissionMetricsRow";
 import SessionCadrageTimeline from "./SessionCadrageTimeline";
+import CioPlanHitlPanel from "./CioPlanHitlPanel";
 import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
 
 export type MissionJobLivePayload = {
@@ -25,6 +26,7 @@ export type MissionJobLivePayload = {
   mission_thread?: unknown[];
   team?: unknown;
   logs?: string[];
+  hitl?: Record<string, unknown> | null;
 };
 
 type LiveQuerySlice = {
@@ -58,7 +60,10 @@ export default function MissionJobLiveDetail({
 }: MissionJobLiveDetailProps) {
   const d = live.data;
   const st = String(d?.status || "").toLowerCase();
-  const canCancelMission = Boolean(jobId && (st === "running" || st === "pending"));
+  const canCancelMission = Boolean(jobId && (st === "running" || st === "pending" || st === "awaiting_validation"));
+  const hitlGate = d?.hitl as { gate?: { kind?: string } } | undefined;
+  const showCioPlanHitl =
+    st === "awaiting_validation" && String(hitlGate?.gate?.kind || "") === "cio_plan" && Boolean(d?.hitl);
   const consigne =
     (missionPrompt && missionPrompt.trim()) || (typeof d?.mission === "string" ? d.mission.trim() : "");
 
@@ -116,6 +121,7 @@ export default function MissionJobLiveDetail({
               </div>
             </div>
           ) : null}
+          {showCioPlanHitl ? <CioPlanHitlPanel jobId={jobId} hitl={d.hitl as Record<string, unknown>} /> : null}
           <LiveAgentInteractionStrip events={d.events} agentLabelMap={agentLabelMap} />
           <CioResultPanel
             result={d.result}
