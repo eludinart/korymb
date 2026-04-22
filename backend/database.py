@@ -221,9 +221,11 @@ def _hydrate_job_row(d: dict) -> dict:
 
 def init_db():
     with get_conn() as conn:
+        text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+        memory_pk = "BIGINT PRIMARY KEY AUTO_INCREMENT" if _is_mariadb() else "INTEGER PRIMARY KEY AUTOINCREMENT"
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
-                id            TEXT PRIMARY KEY,
+                id            """ + text_pk + """ PRIMARY KEY,
                 agent         TEXT NOT NULL,
                 mission       TEXT NOT NULL,
                 status        TEXT NOT NULL DEFAULT 'running',
@@ -243,7 +245,7 @@ def init_db():
         _ensure_jobs_columns(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS mission_sessions (
-                id              TEXT PRIMARY KEY,
+                id              """ + text_pk + """ PRIMARY KEY,
                 agent           TEXT NOT NULL,
                 title           TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'draft',
@@ -258,7 +260,7 @@ def init_db():
         _ensure_custom_agents_table(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS mission_templates (
-                id              TEXT PRIMARY KEY,
+                id              """ + text_pk + """ PRIMARY KEY,
                 name            TEXT NOT NULL,
                 description     TEXT NOT NULL DEFAULT '',
                 agent           TEXT NOT NULL DEFAULT 'coordinateur',
@@ -271,7 +273,7 @@ def init_db():
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS memory_history (
-                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                id              """ + memory_pk + """,
                 contexts_json   TEXT NOT NULL,
                 comment         TEXT NOT NULL DEFAULT '',
                 created_at      TEXT NOT NULL
@@ -844,10 +846,11 @@ ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
 
 
 def _ensure_custom_agents_table(conn) -> None:
+    agent_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS custom_agents (
-            agent_key TEXT PRIMARY KEY,
+            agent_key """ + agent_pk + """ PRIMARY KEY,
             label TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT '',
             system_prompt TEXT NOT NULL,
@@ -1217,9 +1220,11 @@ def restore_memory_history_snapshot(snapshot_id: int) -> dict:
 
 def _init_autonomous_tables() -> None:
     with get_conn() as conn:
+        task_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+        output_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
         conn.execute("""
             CREATE TABLE IF NOT EXISTS scheduled_tasks (
-                id                    TEXT PRIMARY KEY,
+                id                    """ + task_pk + """ PRIMARY KEY,
                 name                  TEXT NOT NULL,
                 description           TEXT NOT NULL DEFAULT '',
                 task_type             TEXT NOT NULL DEFAULT 'mission',
@@ -1240,7 +1245,7 @@ def _init_autonomous_tables() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS autonomous_outputs (
-                id               TEXT PRIMARY KEY,
+                id               """ + output_pk + """ PRIMARY KEY,
                 task_id          TEXT NOT NULL DEFAULT '',
                 job_id           TEXT NOT NULL DEFAULT '',
                 output_type      TEXT NOT NULL DEFAULT 'draft',
