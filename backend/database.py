@@ -5,10 +5,12 @@ Colonnes d'observabilité (plan CIO, flux d'événements) : extensibles vers
 pagination / table events séparée sans casser l'API si on garde events_json
 comme projection matérialisée.
 """
+import copy
 import json
 import os
 import re
 import sqlite3
+import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any
@@ -22,6 +24,9 @@ except Exception:
     _PYMYSQL_OK = False
 
 DB_PATH = Path(__file__).parent / "data" / "korymb.db"
+
+# Limite par entrée du fil mission (TEXT / LONGTEXT) — éviter les coupures milieu de phrase pour les longues synthèses CIO.
+MISSION_THREAD_CONTENT_MAX_CHARS = 250_000
 # Source de vérité config backend
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
@@ -110,6 +115,7 @@ class _MariaConnAdapter:
 
 
 def get_conn():
+    # MariaDB : connexion par bloc `with` (pas de pool PyMySQL intégré ici ; à ajouter si charge élevée).
     if _is_mariadb():
         if not _PYMYSQL_OK:
             raise RuntimeError("KORYMB_DB_ENGINE=mariadb mais pymysql n'est pas installé.")
@@ -676,7 +682,7 @@ def append_job_mission_thread(
         "role": (role or "")[:32],
         "agent": (agent or "")[:32],
         "source": (source or "chat")[:32],
-        "content": (content or "")[:12000],
+        "content": (content or "")[:MISSION_THREAD_CONTENT_MAX_CHARS],
     }
     cur.append(entry)
     cur = cur[-200:]
@@ -772,6 +778,39 @@ def get_job(job_id: str) -> dict | None:
     if not row:
         return None
     return _hydrate_job_row(dict(row))
+
+
+def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | None:
+    """Dernier job `source=chat` rattaché au parent (suite CIO). Utilisé pour l’UI du job mission."""
+    pid = (parent_job_id or "").strip()[:16]
+    if not pid:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, agent, status, result, created_at, team_trace, tokens_in, tokens_out, events_json "
+            "FROM jobs WHERE parent_job_id=? AND source=? ORDER BY created_at DESC LIMIT 1",
+            (pid, "chat"),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    ev_raw = d.get("events_json") or "[]"
+    try:
+        ev = json.loads(ev_raw) if isinstance(ev_raw, str) else ev_raw
+    except json.JSONDecodeError:
+        ev = []
+    ev_n = len(ev) if isinstance(ev, list) else 0
+    return {
+        "job_id": str(d.get("id") or ""),
+        "agent": str(d.get("agent") or "coordinateur"),
+        "status": str(d.get("status") or ""),
+        "result": str(d.get("result") or ""),
+        "created_at": str(d.get("created_at") or ""),
+        "team_trace": d.get("team_trace"),
+        "tokens_in": int(d.get("tokens_in") or 0),
+        "tokens_out": int(d.get("tokens_out") or 0),
+        "events_total": ev_n,
+    }
 
 
 def list_jobs(limit: int = 50) -> list[dict]:
@@ -1047,10 +1086,12 @@ def delete_mission_session(session_id: str) -> bool:
 _CONTEXT_KEYS_LEGACY = frozenset(
     {"global", "commercial", "community_manager", "developpeur", "comptable"},
 )
+# Champs système persistés dans contexts_json (hors volets métier édités par l’admin).
+_SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset({"auto_summary"})
 
 CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
 _CUSTOM_AGENT_RESERVED = frozenset(
-    {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable"},
+    {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable", "auto_summary"},
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
     {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate", "db"},
@@ -1090,7 +1131,18 @@ def list_custom_agent_keys_raw() -> list[str]:
 
 
 def _memory_context_allowed_keys() -> frozenset[str]:
-    return _CONTEXT_KEYS_LEGACY | frozenset(list_custom_agent_keys_raw())
+    return _CONTEXT_KEYS_LEGACY | _SYSTEM_ENTERPRISE_CONTEXT_KEYS | frozenset(list_custom_agent_keys_raw())
+
+
+# Cache lecture enterprise_memory (singleton) — invalidé à chaque écriture.
+_ENTERPRISE_MEM_CACHE: dict[str, Any] | None = None
+_ENTERPRISE_MEM_CACHE_AT: float = 0.0
+_ENTERPRISE_MEM_TTL_SEC = 2.0
+
+
+def invalidate_enterprise_memory_cache() -> None:
+    global _ENTERPRISE_MEM_CACHE
+    _ENTERPRISE_MEM_CACHE = None
 
 
 def validate_custom_agent_key(raw: str) -> tuple[str, str | None]:
@@ -1215,14 +1267,21 @@ def init_enterprise_memory_row() -> None:
 
 
 def get_enterprise_memory() -> dict:
+    global _ENTERPRISE_MEM_CACHE, _ENTERPRISE_MEM_CACHE_AT
     init_enterprise_memory_row()
+    now_m = time.monotonic()
+    if _ENTERPRISE_MEM_CACHE is not None and (now_m - _ENTERPRISE_MEM_CACHE_AT) < _ENTERPRISE_MEM_TTL_SEC:
+        return copy.deepcopy(_ENTERPRISE_MEM_CACHE)
     with get_conn() as conn:
         row = conn.execute(
             "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE id=1",
         ).fetchone()
     allowed = _memory_context_allowed_keys()
     if not row:
-        return {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
+        out = {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
+        _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
+        _ENTERPRISE_MEM_CACHE_AT = now_m
+        return copy.deepcopy(out)
     try:
         ctx = json.loads(row["contexts_json"] or "{}")
     except json.JSONDecodeError:
@@ -1239,16 +1298,20 @@ def get_enterprise_memory() -> dict:
         recent = []
     if not isinstance(recent, list):
         recent = []
-    return {
+    out = {
         "contexts": base,
         "recent_missions": recent,
         "updated_at": row["updated_at"],
     }
+    _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
+    _ENTERPRISE_MEM_CACHE_AT = now_m
+    return copy.deepcopy(out)
 
 
 def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
     """Fusionne les champs de contexte (texte libre par rôle + global)."""
     init_enterprise_memory_row()
+    invalidate_enterprise_memory_cache()
     cur = get_enterprise_memory()
     allowed = _memory_context_allowed_keys()
     base = dict(cur["contexts"])
@@ -1262,12 +1325,14 @@ def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
             (json.dumps(base, ensure_ascii=False), now),
         )
         conn.commit()
+    invalidate_enterprise_memory_cache()
     return get_enterprise_memory()
 
 
 def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
     """Ajoute une entrée dans l'historique des missions (mémoire opérationnelle, texte long pour le CIO)."""
     init_enterprise_memory_row()
+    invalidate_enterprise_memory_cache()
     cur = get_enterprise_memory()
     lst = list(cur.get("recent_missions") or [])
     lst.append(
@@ -1286,6 +1351,7 @@ def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
             (json.dumps(lst, ensure_ascii=False), now),
         )
         conn.commit()
+    invalidate_enterprise_memory_cache()
 
 
 # ── Mission Templates ─────────────────────────────────────────────────────────

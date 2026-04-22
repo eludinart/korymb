@@ -33,6 +33,18 @@ export type MissionConfig = {
   mode?: TriadMode;
 };
 
+/** Dernier tour « Poursuivre avec le CIO » (job enfant source=chat) pour enrichir l’UI du parent */
+export type LatestChatFollowup = {
+  job_id: string;
+  status?: string;
+  result?: string | null;
+  created_at?: string;
+  team?: unknown;
+  tokens_total?: number;
+  cost_usd?: number;
+  events_total?: number;
+};
+
 /** Job complet (GET /jobs/{id}) */
 export type Job = {
   job_id: string;
@@ -56,6 +68,8 @@ export type Job = {
   updated_at?: string;
   parent_job_id?: string | null;
   chat_session_id?: string | null;
+  /** Présent sur les jobs mission (parent) : dernier enfant chat terminé */
+  latest_chat_followup?: LatestChatFollowup | null;
 };
 
 /** Ligne Job légère (liste /jobs) */

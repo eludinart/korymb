@@ -44,7 +44,7 @@ export default function CioResultPanel({ result, missionTitle, jobLine, classNam
     );
   }
 
-  const maxH = expanded ? "max-h-[min(82vh,1000px)]" : "max-h-[min(62vh,680px)]";
+  const maxH = expanded ? "max-h-[min(88vh,1200px)]" : "max-h-[min(72vh,900px)]";
 
   return (
     <section
@@ -64,7 +64,7 @@ export default function CioResultPanel({ result, missionTitle, jobLine, classNam
         {jobLine ? <p className="mt-2 font-mono text-[11px] text-slate-500">{jobLine}</p> : null}
       </header>
       <div className="relative">
-        <div className={`overflow-y-auto px-4 py-4 sm:px-5 ${maxH}`}>
+        <div className={`min-h-0 overflow-y-auto overflow-x-hidden px-4 py-4 sm:px-5 ${maxH}`}>
           <div className="text-left text-sm leading-relaxed text-slate-800 [&_a]:text-violet-800 [&_a]:underline [&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:space-y-1 [&_ol]:ps-5 [&_pre]:overflow-x-auto [&_ul]:my-2 [&_ul]:list-disc [&_ul]:ps-5">
             {split.primary ? (
               <>

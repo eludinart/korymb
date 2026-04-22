@@ -4,16 +4,16 @@ Extrait de main.py — contrats API préservés à l'identique.
 """
 from __future__ import annotations
 
-import json
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from auth import verify_secret
 from config import settings
 from database import (
+    append_job_mission_thread,
     get_conn,
     get_job as db_get_job,
+    get_latest_chat_followup_snapshot,
     list_jobs as db_list_jobs,
     job_set_user_validated,
     delete_mission_session,
@@ -28,6 +28,31 @@ from state import (
 )
 
 router = APIRouter(tags=["jobs"])
+
+
+def _followup_payload_for_parent(job_id: str, row: dict, pin: float, pout: float) -> dict | None:
+    """Dernier tour CIO (job enfant chat) pour enrichir l’affichage du job mission parent."""
+    if str(row.get("source") or "") == "chat":
+        return None
+    if (str(row.get("parent_job_id") or "").strip()):
+        return None
+    snap = get_latest_chat_followup_snapshot(job_id)
+    if not snap:
+        return None
+    team = parse_team_field({"team_trace": snap.get("team_trace"), "team": []})
+    ti = int(snap.get("tokens_in") or 0)
+    to = int(snap.get("tokens_out") or 0)
+    total = ti + to
+    return {
+        "job_id": snap["job_id"],
+        "status": snap["status"],
+        "result": snap["result"],
+        "created_at": snap["created_at"],
+        "team": team,
+        "tokens_total": total,
+        "cost_usd": round((ti * pin + to * pout) / 1_000_000, 5),
+        "events_total": int(snap.get("events_total") or 0),
+    }
 
 
 # ── Modèles ───────────────────────────────────────────────────────────────────
@@ -194,7 +219,8 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         ):
             from database import get_hitl_gate
             hitl_block = get_hitl_gate(job_id)
-        return {
+        fb = _followup_payload_for_parent(job_id, row_db or {}, pin, pout) if row_db else None
+        out = {
             "job_id": job_id, "status": job["status"], "agent": job["agent"], "mission": job["mission"],
             "result": job.get("result"), "team": job.get("team") or [],
             "logs": logs[log_offset:], "log_total": len(logs),
@@ -212,6 +238,9 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
         }
+        if fb:
+            out["latest_chat_followup"] = fb
+        return out
     row = db_get_job(job_id)
     if not row:
         raise HTTPException(status_code=404, detail="Job introuvable.")
@@ -229,7 +258,8 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     if str(row.get("status") or "") == "awaiting_validation":
         from database import get_hitl_gate
         hitl_block = get_hitl_gate(job_id)
-    return {
+    fb = _followup_payload_for_parent(job_id, row, pin, pout)
+    out = {
         "job_id": job_id, "status": row["status"], "agent": row["agent"], "mission": row["mission"],
         "result": row.get("result"), "team": parse_team_field(row),
         "logs": logs[log_offset:], "log_total": len(logs),
@@ -247,6 +277,9 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "chat_session_id": row.get("chat_session_id") or None,
         "hitl": hitl_block,
     }
+    if fb:
+        out["latest_chat_followup"] = fb
+    return out
 
 
 @router.post("/jobs/{job_id}/validate-mission", dependencies=[Depends(verify_secret)])
@@ -280,14 +313,31 @@ def cio_answer(job_id: str, payload: dict):
         raise HTTPException(status_code=400, detail="Réponse vide.")
 
     from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).isoformat()
 
-    # Stocker dans active_jobs si la mission tourne encore
-    job = active_jobs.get(job_id)
-    if job is not None:
-        thread = job.setdefault("mission_thread", [])
-        thread.append({"role": "user", "agent": "dirigeant", "content": f"[Réponse questions CIO] {answer}", "ts": now})
-        # Émettre un événement cio_question_answer dans la liste d'events en mémoire
+    now = datetime.now(timezone.utc).isoformat()
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+
+    row = db_get_job(jid)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+
+    try:
+        append_job_mission_thread(
+            jid,
+            role="user",
+            agent="dirigeant",
+            content=f"[Réponse questions CIO] {answer}",
+            source="cio_question_answer",
+        )
+    except Exception:
+        raise HTTPException(status_code=500, detail="Impossible d'enregistrer la réponse sur le fil mission.") from None
+
+    refreshed = db_get_job(jid)
+    job = active_jobs.get(jid)
+    if job is not None and refreshed:
+        job["mission_thread"] = list(refreshed.get("mission_thread") or [])
         events = job.setdefault("events", [])
         events.append({
             "type": "cio_question_answer",
@@ -296,31 +346,7 @@ def cio_answer(job_id: str, payload: dict):
             "data": {"answer": answer},
         })
 
-    # Persister en DB (mission_thread)
-    row = db_get_job(job_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail="Mission introuvable.")
-    try:
-        with get_conn() as conn:
-            existing_thread = []
-            raw_mt = row.get("mission_thread")
-            if isinstance(raw_mt, str) and raw_mt.strip():
-                try:
-                    existing_thread = json.loads(raw_mt)
-                except Exception:
-                    pass
-            elif isinstance(raw_mt, list):
-                existing_thread = raw_mt
-            existing_thread.append({"role": "user", "agent": "dirigeant", "content": f"[Réponse questions CIO] {answer}", "ts": now})
-            conn.execute(
-                "UPDATE jobs SET mission_thread = ? WHERE job_id = ?",
-                (json.dumps(existing_thread, ensure_ascii=False), job_id),
-            )
-            conn.commit()
-    except Exception:
-        pass  # Ne pas faire échouer l'endpoint si la DB est indisponible
-
-    return {"ok": True, "job_id": job_id, "stored": True}
+    return {"ok": True, "job_id": jid, "stored": True}
 
 
 @router.post("/jobs/{job_id}/remove", dependencies=[Depends(verify_secret)])

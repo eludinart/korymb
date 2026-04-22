@@ -177,6 +177,34 @@ def read_active_memory(
     )
 
 
+def operational_memory_digest_prompt(
+    agent_key: str,
+    *,
+    exclude_job_id: str | None = None,
+    digest_limit: int = 8,
+) -> str:
+    """
+    Historique opérationnel court pour les sous-agents : auto_summary ou digest SQL,
+    sans dupliquer global/rôle (déjà dans _korymb_memory_prompt_for) ni les proposals repo.
+    """
+    _ = agent_key
+    mem = get_enterprise_memory()
+    contexts = mem.get("contexts") or {}
+    auto_summary = contexts.get("auto_summary", "") if isinstance(contexts, dict) else ""
+    if isinstance(auto_summary, str) and auto_summary.strip():
+        block = auto_summary.strip()[:2000]
+        return f"\n\n### Historique opérationnel (résumé)\n{block}\n"
+    digest = list_jobs_prompt_digest(limit=digest_limit, exclude_job_id=exclude_job_id)
+    if not digest:
+        return ""
+    rows = [
+        f"- #{row.get('id')} [{row.get('status')}] {row.get('agent')}: "
+        f"{str(row.get('mission') or '')[:180]}"
+        for row in digest
+    ]
+    return "\n\n### Historique opérationnel (missions récentes)\n" + "\n".join(rows) + "\n"
+
+
 def active_memory_prompt(
     agent_key: str,
     *,

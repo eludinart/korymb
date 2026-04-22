@@ -34,6 +34,7 @@ from state import active_jobs, daily_tokens, today, tokens_inflight
 from database import get_job as _db_get_job
 from version import BACKEND_REVISION_AT, BACKEND_VERSION
 from pathlib import Path
+from runtime_sse import RUNTIME_SSE_WAKE, drain_job_sse_events
 
 router = APIRouter(tags=["health"])
 
@@ -377,22 +378,36 @@ async def events_stream(request: Request):
     async def gen():
         last_payload = ""
         event_id = 0
+        first_tick = True
         while True:
             if await request.is_disconnected():
                 break
             try:
+                if first_tick:
+                    first_tick = False
+                    drained = drain_job_sse_events()
+                else:
+                    woke = await asyncio.to_thread(RUNTIME_SSE_WAKE.wait, 2.0)
+                    if woke:
+                        RUNTIME_SSE_WAKE.clear()
+                    drained = drain_job_sse_events()
+                for job_ev in drained:
+                    event_id += 1
+                    yield (
+                        f"id: {event_id}\nevent: job_event\ndata: "
+                        f"{json.dumps(job_ev, ensure_ascii=False)}\n\n"
+                    )
                 snapshot = _runtime_sync_snapshot()
                 payload = json.dumps(snapshot, ensure_ascii=False)
                 if payload != last_payload:
                     event_id += 1
                     yield f"id: {event_id}\nevent: runtime_sync\ndata: {payload}\n\n"
                     last_payload = payload
-                else:
+                elif not drained:
                     yield "event: ping\ndata: {}\n\n"
             except Exception as e:
                 err = json.dumps({"error": str(e), "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat()})
                 yield f"event: runtime_error\ndata: {err}\n\n"
-            await asyncio.sleep(2.0)
 
     return StreamingResponse(
         gen(),

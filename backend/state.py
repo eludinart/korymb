@@ -121,6 +121,19 @@ def emit_job_event(
         return
     ev = make_event(typ, agent, payload)
     active_jobs[job_id].setdefault("events", []).append(ev)
+    try:
+        from runtime_sse import enqueue_job_sse_event
+
+        enqueue_job_sse_event(
+            {
+                "job_id": job_id,
+                "type": typ,
+                "agent": agent,
+                "payload": payload if isinstance(payload, dict) else {},
+            }
+        )
+    except Exception:
+        pass
     if typ == "team_dialogue":
         pl = payload if isinstance(payload, dict) else {}
         line = str(pl.get("line_fr") or "").strip()
@@ -129,12 +142,13 @@ def emit_job_event(
             src = f"orchestration_{phase}"[:32]
             ag = (agent or "coordinateur")[:32]
             try:
-                from database import append_job_mission_thread
+                from database import MISSION_THREAD_CONTENT_MAX_CHARS, append_job_mission_thread
+
                 append_job_mission_thread(
                     job_id,
                     role="assistant",
                     agent=ag,
-                    content=line[:12000],
+                    content=line[:MISSION_THREAD_CONTENT_MAX_CHARS],
                     source=src,
                 )
             except Exception:

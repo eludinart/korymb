@@ -49,7 +49,7 @@ from services.agents import (
     MODE_CADRAGE_AGENT,
     _ascii_fold,
 )
-from services.memory import active_memory_prompt
+from services.memory import active_memory_prompt, operational_memory_digest_prompt
 from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
 from services.behavior_defaults import behavior_default_value
 from debug_ndjson import append_session_ndjson
@@ -1588,8 +1588,11 @@ def orchestrate_coordinateur_mission(
                 agent_key,
                 {"task_preview": tache.replace("\n", " ")[:320]},
             )
-        agent_sys = agents_def()[agent_key]["system"] + FLEUR_CONTEXT + _korymb_memory_prompt_for(
-            agent_key, exclude_job_id=job_id
+        agent_sys = (
+            agents_def()[agent_key]["system"]
+            + FLEUR_CONTEXT
+            + _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+            + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
         )
 
         web_evidence_calls = 0

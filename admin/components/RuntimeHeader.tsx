@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { requestJson } from "../lib/api";
+import { queryClient, QK } from "../lib/queryClient";
 
 type LlmMeta = { provider: string | null; model: string | null };
 type DbMeta = { engine: string | null; runtimeEnv: string | null };
@@ -65,6 +66,19 @@ export default function RuntimeHeader() {
           retryMs = 1500;
         } catch {
           setStatus("warning");
+        }
+      });
+      es.addEventListener("job_event", (ev) => {
+        try {
+          const d = JSON.parse(ev.data || "{}") as { job_id?: string };
+          void queryClient.invalidateQueries({ queryKey: QK.jobs });
+          const jid = d?.job_id != null ? String(d.job_id) : "";
+          if (jid) {
+            void queryClient.invalidateQueries({ queryKey: ["job-detail-live", jid] });
+            void queryClient.invalidateQueries({ queryKey: ["job-detail-historique-live", jid] });
+          }
+        } catch {
+          /* ignore */
         }
       });
       es.addEventListener("runtime_error", () => setStatus("error"));

@@ -276,15 +276,44 @@ function MissionsContent() {
           const latestChild = latestChildByParent.get(selected);
           const liveD = cioResumeLiveId && cioResumeLive.data ? cioResumeLive.data : (latestChild ?? detail.data);
           const hasChild = Boolean(latestChild && !cioResumeLiveId);
+          const fb = detail.data.latest_chat_followup;
+          const fbOk =
+            fb &&
+            String(fb.status || "") === "completed" &&
+            String(fb.result || "").trim().length > 0;
+          const liveSt = cioResumeLive.data ? String(cioResumeLive.data.status || "") : "";
+          const liveHasResult =
+            Boolean(cioResumeLiveId && cioResumeLive.data) &&
+            liveSt === "completed" &&
+            String(cioResumeLive.data?.result || "").trim().length > 0;
+          let cardResult =
+            (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined;
+          let cardTeam = liveD.team ?? detail.data.team;
+          let cardTokens = Number(liveD.tokens_total ?? 0);
+          let cardCost = Number(liveD.cost_usd ?? 0);
+          let cardEvents = Number(liveD.events_total ?? 0);
+          if (liveHasResult && cioResumeLive.data) {
+            cardResult = String(cioResumeLive.data.result || "");
+            cardTeam = cioResumeLive.data.team ?? cardTeam;
+            cardTokens = Number(cioResumeLive.data.tokens_total ?? cardTokens);
+            cardCost = Number(cioResumeLive.data.cost_usd ?? cardCost);
+            cardEvents = Number(cioResumeLive.data.events_total ?? cardEvents);
+          } else if (fbOk && fb && !cioResumeLiveId) {
+            cardResult = String(fb.result || "");
+            cardTeam = fb.team ?? cardTeam;
+            cardTokens = Number(fb.tokens_total ?? cardTokens);
+            cardCost = Number(fb.cost_usd ?? cardCost);
+            cardEvents = Number(fb.events_total ?? cardEvents);
+          }
           return (
             <MissionDecisionCard
               job={{
-                result: (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined,
+                result: cardResult,
                 status: liveD.status,
-                team: liveD.team ?? detail.data.team,
-                tokens_total: Number(liveD.tokens_total ?? 0),
-                cost_usd: Number(liveD.cost_usd ?? 0),
-                events_total: Number(liveD.events_total ?? 0),
+                team: cardTeam,
+                tokens_total: cardTokens,
+                cost_usd: cardCost,
+                events_total: cardEvents,
                 delivery_warnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
                 delivery_blocked: Boolean(liveD.delivery_blocked),
                 created_at: detail.data.created_at as string | undefined,

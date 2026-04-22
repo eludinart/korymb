@@ -79,6 +79,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             }
             job_logs_ref = active_jobs[job_id]["logs"]
 
+            if linked_parent_id and linked_parent_id != job_id:
+                try:
+                    append_job_mission_thread(
+                        linked_parent_id,
+                        role="user",
+                        agent="dirigeant",
+                        content=(msg_snap or ""),
+                        source="chat_suivi_mission",
+                    )
+                except Exception:
+                    logger.exception("append_job_mission_thread (ouverture tour chat → parent)")
+
             def execute_chat_cio():
                 try:
                     _emit_job_event(
@@ -151,20 +163,13 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         try:
                             append_job_mission_thread(
                                 linked_parent_id,
-                                role="user",
-                                agent="dirigeant",
-                                content=(msg_snap or "")[:8000],
-                                source="chat_suivi_mission",
-                            )
-                            append_job_mission_thread(
-                                linked_parent_id,
                                 role="assistant",
                                 agent="coordinateur",
-                                content=(text or "")[:14000],
+                                content=(text or ""),
                                 source="chat_suivi_mission",
                             )
                         except Exception:
-                            logger.exception("append_job_mission_thread (chat → mission liée)")
+                            logger.exception("append_job_mission_thread (réponse CIO → parent)")
                 except Exception as e:
                     user_result = _user_visible_job_failure_markdown(e)
                     team_snap = active_jobs.get(job_id, {}).get("team", [])
@@ -186,6 +191,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         events=ev,
                         source="chat",
                     )
+                    lp = (linked_parent_id or "").strip()[:16]
+                    if lp and lp != job_id:
+                        try:
+                            append_job_mission_thread(
+                                lp,
+                                role="assistant",
+                                agent="coordinateur",
+                                content=(user_result or ""),
+                                source="chat_suivi_mission_error",
+                            )
+                        except Exception:
+                            logger.exception("append_job_mission_thread (erreur CIO → parent)")
                 finally:
                     active_jobs.pop(job_id, None)
 
@@ -223,14 +240,14 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     link_th,
                     role="user",
                     agent="dirigeant",
-                    content=(request.message or "")[:8000],
+                    content=(request.message or ""),
                     source=f"chat_{request.agent}",
                 )
                 append_job_mission_thread(
                     link_th,
                     role="assistant",
                     agent=request.agent,
-                    content=(reply or "")[:14000],
+                    content=(reply or ""),
                     source=f"chat_{request.agent}",
                 )
             except Exception:
