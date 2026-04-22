@@ -156,6 +156,8 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
     if "chat_session_id" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN chat_session_id TEXT")
+    if "deliverables_ui_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN deliverables_ui_json TEXT NOT NULL DEFAULT '{}'")
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -233,6 +235,17 @@ def _hydrate_job_row(d: dict) -> dict:
         mt = []
     out["mission_thread"] = mt
     out.pop("mission_thread_json", None)
+    try:
+        du = json.loads(out.get("deliverables_ui_json") or "{}")
+    except json.JSONDecodeError:
+        du = {}
+    if not isinstance(du, dict):
+        du = {}
+    agents_u = du.get("agents")
+    if not isinstance(agents_u, dict):
+        agents_u = {}
+    out["deliverables_ui"] = {"agents": agents_u}
+    out.pop("deliverables_ui_json", None)
     raw_hres = out.get("hitl_resolution_json")
     if raw_hres:
         try:
@@ -778,6 +791,47 @@ def get_job(job_id: str) -> dict | None:
     if not row:
         return None
     return _hydrate_job_row(dict(row))
+
+
+def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any]] | None) -> dict | None:
+    """
+    Fusionne des métadonnées UI par agent (notes dirigeant, date d'acceptation livrable).
+    Clés d'agent autorisées : alphanum + underscore, max 48 chars.
+    """
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        return None
+    row = get_job(jid)
+    if not row:
+        return None
+    cur = row.get("deliverables_ui") or {}
+    if not isinstance(cur, dict):
+        cur = {}
+    agents: dict[str, Any] = dict(cur.get("agents") or {}) if isinstance(cur.get("agents"), dict) else {}
+    for raw_k, patch in (agents_patch or {}).items():
+        k = re.sub(r"[^a-z0-9_]", "", str(raw_k).strip().lower()[:48])
+        if not k or not isinstance(patch, dict):
+            continue
+        prev = agents[k] if isinstance(agents.get(k), dict) else {}
+        merged = dict(prev)
+        if "director_note_markdown" in patch and isinstance(patch["director_note_markdown"], str):
+            merged["director_note_markdown"] = patch["director_note_markdown"][:MISSION_THREAD_CONTENT_MAX_CHARS]
+        if "accepted_at" in patch:
+            at = patch["accepted_at"]
+            if at is None or at is False:
+                merged["accepted_at"] = None
+            elif isinstance(at, str) and at.strip():
+                merged["accepted_at"] = at.strip()[:64]
+        agents[k] = merged
+    payload = {"agents": agents}
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET deliverables_ui_json=?, updated_at=? WHERE id=?",
+            (json.dumps(payload, ensure_ascii=False), now, jid),
+        )
+        conn.commit()
+    return get_job(jid)
 
 
 def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | None:

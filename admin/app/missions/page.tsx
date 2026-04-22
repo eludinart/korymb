@@ -16,12 +16,14 @@ import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
 import MissionStatusBadge from "../../components/MissionStatusBadge";
 import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
+import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { bestPreview } from "../../lib/missionBilan";
 import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
+import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 
 import type { Job } from "../../lib/types";
 
@@ -191,6 +193,62 @@ function MissionsContent() {
     void qc.invalidateQueries({ queryKey: QK.tokens });
   }, [cioResumeLiveDone, cioResumeLiveId, qc, selected]);
 
+  const selectedMissionSynth = useMemo(() => {
+    if (!selected || !detail.data) return null;
+    const d = detail.data as Job;
+    const latestChild = latestChildByParent.get(selected);
+    const liveD = (cioResumeLiveId && cioResumeLive.data ? cioResumeLive.data : (latestChild ?? d)) as Job;
+    const hasChild = Boolean(latestChild && !cioResumeLiveId);
+    const fb = d.latest_chat_followup;
+    const fbOk =
+      fb &&
+      String(fb.status || "") === "completed" &&
+      String(fb.result || "").trim().length > 0;
+    const liveSt = cioResumeLive.data ? String(cioResumeLive.data.status || "") : "";
+    const liveHasResult =
+      Boolean(cioResumeLiveId && cioResumeLive.data) &&
+      liveSt === "completed" &&
+      String((cioResumeLive.data as Job | undefined)?.result || "").trim().length > 0;
+    let cardResult = (String(liveD.result || "") || String(d.result || "")) as string;
+    let cardTeam = liveD.team ?? d.team;
+    let cardTokens = Number(liveD.tokens_total ?? 0);
+    let cardCost = Number(liveD.cost_usd ?? 0);
+    let cardEvents = Number(liveD.events_total ?? 0);
+    if (liveHasResult && cioResumeLive.data) {
+      const cr = cioResumeLive.data as Job;
+      cardResult = String(cr.result || "");
+      cardTeam = cr.team ?? cardTeam;
+      cardTokens = Number(cr.tokens_total ?? cardTokens);
+      cardCost = Number(cr.cost_usd ?? cardCost);
+      cardEvents = Number(cr.events_total ?? cardEvents);
+    } else if (fbOk && fb && !cioResumeLiveId) {
+      cardResult = String(fb.result || "");
+      cardTeam = fb.team ?? cardTeam;
+      cardTokens = Number(fb.tokens_total ?? cardTokens);
+      cardCost = Number(fb.cost_usd ?? cardCost);
+      cardEvents = Number(fb.events_total ?? cardEvents);
+    }
+    const del = deliverablesMarkdownFromBossContext(
+      d,
+      latestChild,
+      cioResumeLiveId,
+      (cioResumeLive.data as Job | undefined) ?? undefined,
+    );
+    return {
+      cardResult,
+      cardTeam,
+      cardTokens,
+      cardCost,
+      cardEvents,
+      hasChild,
+      liveStatus: String(liveD.status || ""),
+      deliveryWarnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
+      deliveryBlocked: Boolean(liveD.delivery_blocked),
+      deliverablesMarkdown: del.markdown,
+      deliverablesTeam: del.team,
+    };
+  }, [selected, detail.data, latestChildByParent, cioResumeLiveId, cioResumeLive.data]);
+
   const onCioResumeSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!selected || !cioResumeInput.trim() || cioResumeBusy || cioResumeLiveId) return;
@@ -237,6 +295,7 @@ function MissionsContent() {
       setBusyId(null);
       qc.invalidateQueries({ queryKey: QK.jobs });
       qc.invalidateQueries({ queryKey: QK.tokens });
+      qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
     }
   };
 
@@ -272,56 +331,22 @@ function MissionsContent() {
             maxHeightClass="max-h-[min(38rem,62vh)]"
           />
         ) : null}
-        {selected && detail.data ? (() => {
-          const latestChild = latestChildByParent.get(selected);
-          const liveD = cioResumeLiveId && cioResumeLive.data ? cioResumeLive.data : (latestChild ?? detail.data);
-          const hasChild = Boolean(latestChild && !cioResumeLiveId);
-          const fb = detail.data.latest_chat_followup;
-          const fbOk =
-            fb &&
-            String(fb.status || "") === "completed" &&
-            String(fb.result || "").trim().length > 0;
-          const liveSt = cioResumeLive.data ? String(cioResumeLive.data.status || "") : "";
-          const liveHasResult =
-            Boolean(cioResumeLiveId && cioResumeLive.data) &&
-            liveSt === "completed" &&
-            String(cioResumeLive.data?.result || "").trim().length > 0;
-          let cardResult =
-            (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined;
-          let cardTeam = liveD.team ?? detail.data.team;
-          let cardTokens = Number(liveD.tokens_total ?? 0);
-          let cardCost = Number(liveD.cost_usd ?? 0);
-          let cardEvents = Number(liveD.events_total ?? 0);
-          if (liveHasResult && cioResumeLive.data) {
-            cardResult = String(cioResumeLive.data.result || "");
-            cardTeam = cioResumeLive.data.team ?? cardTeam;
-            cardTokens = Number(cioResumeLive.data.tokens_total ?? cardTokens);
-            cardCost = Number(cioResumeLive.data.cost_usd ?? cardCost);
-            cardEvents = Number(cioResumeLive.data.events_total ?? cardEvents);
-          } else if (fbOk && fb && !cioResumeLiveId) {
-            cardResult = String(fb.result || "");
-            cardTeam = fb.team ?? cardTeam;
-            cardTokens = Number(fb.tokens_total ?? cardTokens);
-            cardCost = Number(fb.cost_usd ?? cardCost);
-            cardEvents = Number(fb.events_total ?? cardEvents);
-          }
-          return (
-            <MissionDecisionCard
-              job={{
-                result: cardResult,
-                status: liveD.status,
-                team: cardTeam,
-                tokens_total: cardTokens,
-                cost_usd: cardCost,
-                events_total: cardEvents,
-                delivery_warnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
-                delivery_blocked: Boolean(liveD.delivery_blocked),
-                created_at: detail.data.created_at as string | undefined,
-              }}
-              updatedByContinuation={hasChild}
-            />
-          );
-        })() : null}
+        {selected && detail.data && selectedMissionSynth ? (
+          <MissionDecisionCard
+            job={{
+              result: selectedMissionSynth.cardResult,
+              status: selectedMissionSynth.liveStatus,
+              team: selectedMissionSynth.cardTeam,
+              tokens_total: selectedMissionSynth.cardTokens,
+              cost_usd: selectedMissionSynth.cardCost,
+              events_total: selectedMissionSynth.cardEvents,
+              delivery_warnings: selectedMissionSynth.deliveryWarnings,
+              delivery_blocked: selectedMissionSynth.deliveryBlocked,
+              created_at: detail.data.created_at as string | undefined,
+            }}
+            updatedByContinuation={selectedMissionSynth.hasChild}
+          />
+        ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
           const canValidate = j.status === "completed" && !closed;
@@ -532,6 +557,24 @@ function MissionsContent() {
                   jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
                 />
               </div>
+
+              {selected && detail.data && selectedMissionSynth ? (
+                <MissionDeliverablesPanel
+                  jobId={selected}
+                  resultMarkdown={selectedMissionSynth.deliverablesMarkdown}
+                  team={selectedMissionSynth.deliverablesTeam}
+                  deliverablesUi={detail.data.deliverables_ui}
+                  missionClosed={Boolean(detail.data.user_validated_at || detail.data.mission_closed_by_user)}
+                  canValidateMission={
+                    String(detail.data.status || "") === "completed" &&
+                    !(detail.data.user_validated_at || detail.data.mission_closed_by_user)
+                  }
+                  validateBusy={busyId === selected}
+                  onValidateMission={() => void onValidate(selected)}
+                  onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
+                  className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}
+                />
+              ) : null}
 
               {/* ── Métriques (job principal si pas de continuation) ────────── */}
               {!cioResumeLiveId ? (

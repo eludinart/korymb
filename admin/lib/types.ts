@@ -45,6 +45,11 @@ export type LatestChatFollowup = {
   events_total?: number;
 };
 
+/** Notes dirigeant / acceptations par clé d’agent (persisté sur le job parent) */
+export type DeliverablesUiState = {
+  agents?: Record<string, { director_note_markdown?: string; accepted_at?: string | null }>;
+};
+
 /** Job complet (GET /jobs/{id}) */
 export type Job = {
   job_id: string;
@@ -61,6 +66,8 @@ export type Job = {
   mission_thread?: unknown[];
   team?: unknown;
   logs?: string[];
+  delivery_warnings?: string[];
+  delivery_blocked?: boolean;
   mission_config?: MissionConfig;
   user_validated_at?: string | null;
   mission_closed_by_user?: boolean;
@@ -70,6 +77,7 @@ export type Job = {
   chat_session_id?: string | null;
   /** Présent sur les jobs mission (parent) : dernier enfant chat terminé */
   latest_chat_followup?: LatestChatFollowup | null;
+  deliverables_ui?: DeliverablesUiState;
 };
 
 /** Ligne Job légère (liste /jobs) */

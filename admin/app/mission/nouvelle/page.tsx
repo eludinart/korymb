@@ -312,6 +312,7 @@ export default function MissionNouvellePage() {
               }}
               onRequestCancel={requestCancel}
               cancelBusy={cancelBusy}
+              onDeliverablesSaved={() => void qc.invalidateQueries({ queryKey: ["job-live", jobId] })}
             />
           ) : null}
         </div>

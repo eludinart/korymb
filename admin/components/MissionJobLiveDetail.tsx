@@ -3,6 +3,7 @@
 import Link from "next/link";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
 import CioResultPanel from "./CioResultPanel";
+import MissionDeliverablesPanel from "./MissionDeliverablesPanel";
 import LiveAgentInteractionStrip from "./LiveAgentInteractionStrip";
 import CollapsibleMissionSection from "./CollapsibleMissionSection";
 import SimpleAccordion from "./SimpleAccordion";
@@ -11,6 +12,8 @@ import MissionMetricsRow from "./MissionMetricsRow";
 import SessionCadrageTimeline from "./SessionCadrageTimeline";
 import CioPlanHitlPanel from "./CioPlanHitlPanel";
 import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
+import { deliverablesMarkdownFromJob } from "../lib/missionDeliverablesMarkdown";
+import type { DeliverablesUiState, LatestChatFollowup } from "../lib/types";
 
 export type MissionJobLivePayload = {
   job_id?: string;
@@ -27,6 +30,10 @@ export type MissionJobLivePayload = {
   team?: unknown;
   logs?: string[];
   hitl?: Record<string, unknown> | null;
+  latest_chat_followup?: LatestChatFollowup | null;
+  deliverables_ui?: DeliverablesUiState;
+  user_validated_at?: string | null;
+  mission_closed_by_user?: boolean;
 };
 
 type LiveQuerySlice = {
@@ -46,6 +53,8 @@ export type MissionJobLiveDetailProps = {
   cancelBusy?: boolean;
   /** Libellé du titre (ex. « Suivi mission » vs « Détail mission »). */
   title?: string;
+  /** Après PUT notes/acceptations livrables (ex. invalider la query React). */
+  onDeliverablesSaved?: () => void;
 };
 
 export default function MissionJobLiveDetail({
@@ -57,6 +66,7 @@ export default function MissionJobLiveDetail({
   onRequestCancel,
   cancelBusy = false,
   title = "Suivi mission",
+  onDeliverablesSaved,
 }: MissionJobLiveDetailProps) {
   const d = live.data;
   const st = String(d?.status || "").toLowerCase();
@@ -128,6 +138,20 @@ export default function MissionJobLiveDetail({
             missionTitle={d.mission}
             jobLine={`#${d.job_id} · ${d.agent} · ${d.status}`}
           />
+          {(() => {
+            const { markdown, team } = deliverablesMarkdownFromJob(d);
+            return (
+              <MissionDeliverablesPanel
+                jobId={jobId}
+                resultMarkdown={markdown}
+                team={team}
+                deliverablesUi={d.deliverables_ui}
+                missionClosed={Boolean(d.user_validated_at || d.mission_closed_by_user)}
+                canValidateMission={false}
+                onSaved={onDeliverablesSaved}
+              />
+            );
+          })()}
           <MissionMetricsRow
             status={d.status}
             tokensTotal={Number(d.tokens_total || 0)}

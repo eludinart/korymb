@@ -278,6 +278,9 @@ export default function HistoriquePage() {
               }}
               onRequestCancel={requestCancel}
               cancelBusy={cancelBusy}
+              onDeliverablesSaved={() =>
+                void qc.invalidateQueries({ queryKey: ["job-detail-historique-live", selected] })
+              }
             />
           )}
         </div>

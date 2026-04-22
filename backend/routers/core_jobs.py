@@ -5,7 +5,7 @@ Extrait de main.py — contrats API préservés à l'identique.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from auth import verify_secret
 from config import settings
@@ -17,6 +17,7 @@ from database import (
     list_jobs as db_list_jobs,
     job_set_user_validated,
     delete_mission_session,
+    merge_job_deliverables_ui,
 )
 from runtime_settings import merge_with_env
 from state import (
@@ -67,6 +68,12 @@ class RemoveJobPayload(BaseModel):
 
 class RemoveMissionSessionPayload(BaseModel):
     session_id: str
+
+
+class DeliverablesUiPut(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    agents: dict[str, dict] | None = None
 
 
 def delete_job_impl(job_id: str) -> dict:
@@ -240,6 +247,10 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         }
         if fb:
             out["latest_chat_followup"] = fb
+        if row_db:
+            out["deliverables_ui"] = row_db.get("deliverables_ui") or {"agents": {}}
+        else:
+            out["deliverables_ui"] = {"agents": {}}
         return out
     row = db_get_job(job_id)
     if not row:
@@ -279,6 +290,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     }
     if fb:
         out["latest_chat_followup"] = fb
+    out["deliverables_ui"] = row.get("deliverables_ui") or {"agents": {}}
     return out
 
 
@@ -300,6 +312,18 @@ def cancel_running_job(job_id: str):
         raise HTTPException(status_code=400, detail="La mission n'est pas en cours d'exécution.")
     row["cancel_requested"] = True
     return {"ok": True, "job_id": jid, "message": "Annulation enregistrée ; l'exécution s'arrête dès la prochaine étape."}
+
+
+@router.put("/jobs/{job_id}/deliverables-ui", dependencies=[Depends(verify_secret)])
+def put_deliverables_ui(job_id: str, body: DeliverablesUiPut):
+    """Notes dirigeant et acceptations par livrable (clé = agent, ex. commercial)."""
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    out = merge_job_deliverables_ui(jid, body.agents or {})
+    if out is None:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    return {"ok": True, "deliverables_ui": out.get("deliverables_ui") or {"agents": {}}}
 
 
 @router.post("/jobs/{job_id}/cio-answer", dependencies=[Depends(verify_secret)])
