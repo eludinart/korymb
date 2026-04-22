@@ -265,6 +265,34 @@ function MissionsContent() {
             className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
           />
         ) : null}
+        {selected && detail.data ? (
+          <SessionCadrageTimeline
+            messages={detail.data.mission_thread}
+            title="Fil de cadrage avec le CIO (contexte)"
+            maxHeightClass="max-h-[min(38rem,62vh)]"
+          />
+        ) : null}
+        {selected && detail.data ? (() => {
+          const latestChild = latestChildByParent.get(selected);
+          const liveD = cioResumeLiveId && cioResumeLive.data ? cioResumeLive.data : (latestChild ?? detail.data);
+          const hasChild = Boolean(latestChild && !cioResumeLiveId);
+          return (
+            <MissionDecisionCard
+              job={{
+                result: (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined,
+                status: liveD.status,
+                team: liveD.team ?? detail.data.team,
+                tokens_total: Number(liveD.tokens_total ?? 0),
+                cost_usd: Number(liveD.cost_usd ?? 0),
+                events_total: Number(liveD.events_total ?? 0),
+                delivery_warnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
+                delivery_blocked: Boolean(liveD.delivery_blocked),
+                created_at: detail.data.created_at as string | undefined,
+              }}
+              updatedByContinuation={hasChild}
+            />
+          );
+        })() : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
           const canValidate = j.status === "completed" && !closed;
@@ -304,29 +332,7 @@ function MissionsContent() {
                   <p className="text-xs text-slate-500 font-mono">
                     #{j.job_id} · {j.agent || "coordinateur"}
                   </p>
-                  {selected === j.job_id && detail.data ? (() => {
-                    // Priorité : live (continuation en cours) > enfant terminé > original
-                    const liveD = cioResumeLiveId && cioResumeLive.data
-                      ? cioResumeLive.data
-                      : (latestChild ?? detail.data);
-                    const hasChild = Boolean(latestChild && !cioResumeLiveId);
-                    return (
-                      <MissionDecisionCard
-                        job={{
-                          result: (String(liveD.result || "") || String(detail.data.result || "")) as string | undefined,
-                          status: liveD.status,
-                          team: liveD.team ?? detail.data.team,
-                          tokens_total: Number(liveD.tokens_total ?? 0),
-                          cost_usd: Number(liveD.cost_usd ?? 0),
-                          events_total: Number(liveD.events_total ?? 0),
-                          delivery_warnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
-                          delivery_blocked: Boolean(liveD.delivery_blocked),
-                          created_at: detail.data.created_at as string | undefined,
-                        }}
-                        updatedByContinuation={hasChild}
-                      />
-                    );
-                  })() : previewText ? (
+                  {selected === j.job_id && detail.data ? null : previewText ? (
                     <SimpleAccordion
                       title="Bilan CIO"
                       defaultOpen={false}
@@ -509,11 +515,6 @@ function MissionsContent() {
                 />
               ) : null}
 
-              <SessionCadrageTimeline
-                messages={detail.data.mission_thread}
-                title="Fil de cadrage avec le CIO (contexte)"
-                maxHeightClass="max-h-[min(24rem,48vh)]"
-              />
               {canResumeCio ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
                   {!cioResumeLiveId ? (

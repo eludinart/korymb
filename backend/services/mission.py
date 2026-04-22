@@ -25,6 +25,7 @@ from database import (
     list_jobs_prompt_digest,
     job_set_user_validated,
     get_enterprise_memory,
+    get_orchestration_prompt,
 )
 from llm_client import llm_turn, llm_chat
 from agent_tool_use import llm_chat_maybe_tools, llm_turn_maybe_tools
@@ -48,9 +49,21 @@ from services.agents import (
     _ascii_fold,
 )
 from services.memory import active_memory_prompt
+from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
+
+
+def _render_orchestration_prompt(prompt_key: str, mapping: dict[str, str]) -> str:
+    raw = (get_orchestration_prompt(prompt_key) or "").strip()
+    if not raw:
+        raw = (DEFAULT_ORCHESTRATION_PROMPTS.get(prompt_key) or "").strip()
+    out = raw
+    for k, v in mapping.items():
+        out = out.replace(f"<<{k}>>", v)
+    return out
+
 
 def _tache_to_str(v) -> str:
     if v is None:
@@ -1102,43 +1115,23 @@ def orchestrate_coordinateur_mission(
         "Laisse vide [] si la mission est suffisamment claire.\n"
         if cio_questions_enabled else ""
     )
+    plan_user = _render_orchestration_prompt(
+        "cio_plan_json_user",
+        {
+            "MISSION_TXT": mission_txt,
+            "AGENTS_EXAMPLE_JSON": agents_example_json,
+            "SOUS_EXAMPLE_JSON": sous_example_json,
+            "KEYS_CSV": keys_csv,
+            "MAX_SUB": str(max_sub),
+            "CQ_SCHEMA_FIELD": cq_schema_field,
+            "CQ_RULE": cq_rule,
+        },
+    )
     log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
     plan_txt, ti, to = llm_turn(
         system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
-        f"""Mission : {mission_txt}
-
-Analyse cette mission et réponds avec ce JSON exact (sans markdown) :
-{{
-  "agents": {agents_example_json},
-  "sous_taches": {sous_example_json},
-  "synthese_attendue": "ce que le CIO doit produire en synthèse finale"{cq_schema_field}
-}}
-
-Règles :
-- La clé du dictionnaire de délégation DOIT s'appeler exactement **sous_taches** (sans accent sur le « e »).
-  Ne renomme pas ce champ en « sous_tâches », « subtasks » ou « tasks » : le parseur ne les lit qu'en secours.
-- Les clés dans "sous_taches" DOIVENT être EXACTEMENT l'une des clés techniques suivantes (minuscules, underscores) : {keys_csv}.
-  Pas de majuscules (pas "Commercial"), pas de libellés français à la place de la clé.
-- Choisis 1 à {max_sub} agents VRAIMENT nécessaires (jusqu'à {max_sub} si le dirigeant demande un test impliquant chaque rôle).
-- Test de communication, « chaque agent », « les différents agents » : une entrée dans "sous_taches" par rôle concerné,
-  avec une consigne qui leur demande une courte réponse de confirmation — ne simule pas leurs réponses, fais-les passer.
-- Si l'utilisateur demande qu'un rôle précis agisse (ex. « le développeur », « la compta », ou un rôle personnalisé par sa clé),
-  tu DOIS inclure la clé correspondante dans sous_taches avec une sous-tâche actionnable.
-- Le champ "agents" est optionnel ; s'il est présent, ce doit être **uniquement** le tableau JSON des clés exactes parmi : {keys_csv}
-  (zéro ou plusieurs entrées). N'invente **aucun** autre identifiant :
-  tout texte qui n'est pas une de ces clés est ignoré par le moteur et **aucun** sous-agent ne part.
-  **Interdit** dans "agents" : « CIO », « CIO direct », « coordinateur », « solo », « seul », toute variante qui n'est pas une clé de la liste — sinon la délégation réelle échoue.
-- Pour une mission sans délégation : "agents": [] **et** "sous_taches": {{}} — le CIO répondra seul après coup.
-- Chaque clé listée dans "agents" DOIT avoir une entrée non vide correspondante dans "sous_taches" (même clé),
-  sinon ce rôle ne partira pas.
-- Si le dirigeant demande explicitement de solliciter un rôle (ex. « au commercial », « que le dev vérifie »), mets OBLIGATOIREMENT
-  la clé correspondante dans "sous_taches" avec la consigne réelle ; ne remplace pas cela par une entrée « CIO seul ».
-- Utilise ton JUGEMENT pour décider qui mobiliser : le dirigeant ne doit pas avoir à nommer les agents. Délègue dès qu'un agent apporterait une valeur réelle (recherche, contenu, code, compta), même sans demande explicite.
-- Commercial : prospection, recherche LinkedIn/web de contacts/prospects, veille concurrentielle. Community Manager : publications, contenu, réseaux sociaux, stratégie éditoriale. Développeur : code, API, bug, déploiement. Comptable : facturation, TVA, devis, trésorerie.
-- Ne mobilise PAS un agent pour "confirmer sa présence" ou "donner un avis général" sans action concrète à produire.
-- Pour une question simple que tu peux traiter seul (information générale, synthèse documentaire, réponse directe) : "agents": [] et "sous_taches": {{}} — réponds en CIO seul, plus rapide et plus économique.
-{cq_rule}- Ne renvoie pas un JSON vide si une délégation est demandée ou pertinente.""",
+        plan_user,
         max_tokens=4096,
         or_profile="standard",
         usage_job_id=job_id,
@@ -1736,32 +1729,12 @@ Règles :
             f"=== {agents_def()[k]['label']} ===\n{v}"
             for k, v in resultats.items()
         ])
-        synthese_user = (
-            f"Mission originale : {root_mission_label}\n\n"
-            f"Contributions des agents (textes reels executes par le moteur) :\n{contributions}\n\n"
-            "OBLIGATION DE FORME STRICTE — respecte cet ordre :\n\n"
-            "1. ## BILAN OPERATIONNEL (TOUJOURS EN PREMIER)\n"
-            "Tableau de bord en 5 a 12 puces avec des CHIFFRES REELS tires des contributions.\n"
-            "Format : - [Role] * [N] [action] — ex: - Commercial * 8 profils LinkedIn identifies\n"
-            "Inclure : prospects identifies (nb + noms/secteurs), messages rediges (nb), posts reseaux sociaux (nb + plateformes),\n"
-            "documents crees (nb + noms), pages web lues (nb), recherches effectuees (nb).\n"
-            "Si rien de concret, le dire. Ce bloc se lit en 20 secondes.\n\n"
-            "2. Reponses des roles — un sous-paragraphe par agent ci-dessus "
-            "(reprends faits et formulations utiles, meme si reponse courte). "
-            "Si contribution absente, dis-le. "
-            "Si reponse factuelle directe demandee, recopie-la depuis la contribution.\n\n"
-            "3. Synthese decisionnelle — structuree et actionnable pour le dirigeant.\n\n"
-            "4. ## QUESTIONS STRATEGIQUES DU CIO (TOUJOURS EN DERNIER — ne pas omettre)\n"
-            "Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite.\n"
-            "Criteres stricts :\n"
-            "  - Question 1 : continuation directe de CETTE mission (approfondir un point precis, ajuster, relancer un axe).\n"
-            "  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art "
-            "(relie cette mission a la strategie, au produit, au marche, aux autres roles non mobilises).\n"
-            "  - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer "
-            "(une opportunite, un arbitrage, un risque identifie pendant cette mission).\n"
-            "Format : questions numerotees, ton direct CIO vers dirigeant (ex. 'Veux-tu qu'on...', 'Souhaites-tu...', 'Doit-on...'), "
-            "contextualisees aux resultats concrets ci-dessus — jamais generiques.\n"
-            "Chaque question doit ouvrir vers une action reelle : mission a lancer, element a valider, cap a donner."
+        synthese_user = _render_orchestration_prompt(
+            "cio_synthesis_with_team_user",
+            {
+                "ROOT_MISSION_LABEL": root_mission_label,
+                "CONTRIBUTIONS": contributions,
+            },
         )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + synth_grounding,
@@ -1772,17 +1745,7 @@ Règles :
             usage_context="cio_synthesis",
         )
     else:
-        solo_questions_suffix = (
-            "" if chat_mode else
-            "\n\nOBLIGATION DE FORME — inclus toujours EN DERNIER, apres ta reponse :\n\n"
-            "## QUESTIONS STRATEGIQUES DU CIO\n"
-            "Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite :\n"
-            "  - Question 1 : continuation ou approfondissement de CETTE demande.\n"
-            "  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art "
-            "(relie cette demande a la strategie, au produit, au marche, a un role non encore mobilise).\n"
-            "  - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer.\n"
-            "Ton direct CIO vers dirigeant, questions numerotees, contextualisees — jamais generiques."
-        )
+        solo_questions_suffix = "" if chat_mode else _render_orchestration_prompt("cio_synthesis_solo_suffix", {})
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + synth_grounding,
             mission_txt + solo_questions_suffix,

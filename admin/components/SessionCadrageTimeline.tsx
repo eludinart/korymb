@@ -137,6 +137,7 @@ export default function SessionCadrageTimeline({
 }: Props) {
   const list = Array.isArray(messages) ? (messages as Msg[]) : [];
   const turns = groupIntoTurns(list);
+  const [readerOpen, setReaderOpen] = useState(false);
 
   // Id du tour déroulé (null = tous repliés sauf le dernier)
   const [openTurnId, setOpenTurnId] = useState<string | null>(null);
@@ -153,13 +154,28 @@ export default function SessionCadrageTimeline({
   const lastTurnIdx = turns.length - 1;
 
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white ${className}`}>
+    <>
+      {readerOpen ? <div className="fixed inset-0 z-40 bg-slate-950/45" onClick={() => setReaderOpen(false)} /> : null}
+      <div
+        className={`rounded-xl border border-slate-200 bg-white ${
+          readerOpen ? "fixed inset-4 z-50 flex flex-col shadow-2xl" : ""
+        } ${className}`}
+      >
       {/* En-tête */}
       <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{title}</p>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
-          {turns.length} tour{turns.length > 1 ? "s" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
+            {turns.length} tour{turns.length > 1 ? "s" : ""}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReaderOpen((v) => !v)}
+            className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            {readerOpen ? "Réduire" : "Agrandir"}
+          </button>
+        </div>
       </div>
 
       {/* Navigation rapide par tour */}
@@ -185,7 +201,7 @@ export default function SessionCadrageTimeline({
       )}
 
       {/* Corps : liste des tours */}
-      <div className={`space-y-2 overflow-y-auto px-3 py-3 ${maxHeightClass}`}>
+      <div className={`space-y-2 overflow-y-auto px-3 py-3 ${readerOpen ? "flex-1 min-h-0" : maxHeightClass}`}>
         {turns.map((turn) => {
           const p = PALETTES[turn.idx % PALETTES.length];
           const isLast = turn.idx === lastTurnIdx;
@@ -230,7 +246,7 @@ export default function SessionCadrageTimeline({
                         <p className={`mb-1 font-mono text-[9px] ${p.userMeta}`}>
                           {formatEventTs(turn.userMsg.ts)} · vous
                         </p>
-                        <p className="whitespace-pre-wrap text-[12px] leading-relaxed">
+                        <p className={`whitespace-pre-wrap leading-relaxed ${readerOpen ? "text-[15px]" : "text-[12px]"}`}>
                           {String(turn.userMsg.content || "")}
                         </p>
                       </div>
@@ -250,7 +266,11 @@ export default function SessionCadrageTimeline({
                           </p>
                           <AgentMessageMarkdown
                             source={String(m.content || "")}
-                            className="text-[12px] leading-relaxed text-slate-800 [&_h1]:text-[12px] [&_h1]:font-bold [&_h2]:text-[11px] [&_h2]:font-semibold [&_h3]:text-[11px] [&_h3]:font-semibold [&_li]:text-[11px] [&_p]:text-[12px] [&_ul]:my-1 [&_ol]:my-1"
+                            className={
+                              readerOpen
+                                ? "text-[15px] leading-relaxed text-slate-800 [&_h1]:text-[16px] [&_h1]:font-bold [&_h2]:text-[15px] [&_h2]:font-semibold [&_h3]:text-[14px] [&_h3]:font-semibold [&_li]:text-[14px] [&_p]:text-[15px] [&_ul]:my-2 [&_ol]:my-2"
+                                : "text-[12px] leading-relaxed text-slate-800 [&_h1]:text-[12px] [&_h1]:font-bold [&_h2]:text-[11px] [&_h2]:font-semibold [&_h3]:text-[11px] [&_h3]:font-semibold [&_li]:text-[11px] [&_p]:text-[12px] [&_ul]:my-1 [&_ol]:my-1"
+                            }
                           />
                         </div>
                       </div>
@@ -268,6 +288,7 @@ export default function SessionCadrageTimeline({
           );
         })}
       </div>
-    </div>
+      </div>
+    </>
   );
 }

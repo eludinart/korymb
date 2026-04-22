@@ -301,6 +301,13 @@ def init_db():
                 created_at      TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS orchestration_prompts (
+                prompt_key    """ + text_pk + """ PRIMARY KEY,
+                body          TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        """)
         _ensure_memory_columns(conn)
         conn.commit()
     init_enterprise_memory_row()
@@ -311,6 +318,83 @@ def init_db():
         init_knowledge_table()
     except Exception:
         pass  # non bloquant au démarrage
+
+    try:
+        seed_orchestration_prompt_defaults()
+    except Exception:
+        pass  # non bloquant au démarrage
+
+
+def seed_orchestration_prompt_defaults() -> None:
+    """Insère les prompts d'orchestration par défaut si absents."""
+    from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
+
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        for key, body in DEFAULT_ORCHESTRATION_PROMPTS.items():
+            row = conn.execute("SELECT prompt_key FROM orchestration_prompts WHERE prompt_key = ?", (key,)).fetchone()
+            if row:
+                continue
+            conn.execute(
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?)",
+                (key, body, now),
+            )
+        conn.commit()
+
+
+def get_orchestration_prompt(prompt_key: str) -> str | None:
+    key = (prompt_key or "").strip()
+    if not key:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT body FROM orchestration_prompts WHERE prompt_key = ?",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return str(dict(row)["body"])
+    except Exception:
+        try:
+            return str(row[0])
+        except Exception:
+            return None
+
+
+def upsert_orchestration_prompt(prompt_key: str, body: str) -> dict:
+    key = (prompt_key or "").strip()
+    if not key:
+        raise ValueError("prompt_key manquant")
+    text = str(body or "")
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE body = VALUES(body), updated_at = VALUES(updated_at)",
+                (key, text, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(prompt_key) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
+                (key, text, now),
+            )
+        conn.commit()
+        row = conn.execute(
+            "SELECT prompt_key, body, updated_at FROM orchestration_prompts WHERE prompt_key = ?",
+            (key,),
+        ).fetchone()
+    return dict(row) if row else {"prompt_key": key, "body": text, "updated_at": now}
+
+
+def list_orchestration_prompts() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts ORDER BY prompt_key ASC",
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def _ensure_llm_usage_table(conn) -> None:
