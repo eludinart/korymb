@@ -38,8 +38,18 @@ def enterprise_memory_get():
 def enterprise_memory_put(body: EnterpriseMemoryPut):
     """Fusionne les champs texte fournis ; crée un snapshot automatique avant écrasement."""
     if body.contexts:
-        snapshot_memory_history(comment="auto — avant PUT /memory")
-        return merge_enterprise_contexts(dict(body.contexts))
+        snapshot_warning: str | None = None
+        try:
+            snapshot_memory_history(comment="auto — avant PUT /memory")
+        except Exception as exc:
+            # Le snapshot est un garde-fou, mais ne doit pas bloquer la sauvegarde principale.
+            snapshot_warning = f"snapshot_auto_failed: {exc}"
+        mem = merge_enterprise_contexts(dict(body.contexts))
+        if snapshot_warning:
+            out = dict(mem)
+            out["warning"] = snapshot_warning
+            return out
+        return mem
     return get_enterprise_memory()
 
 
@@ -60,7 +70,10 @@ def memory_history_get(snapshot_id: int):
 
 @router.post("/memory/snapshot", dependencies=[Depends(verify_secret)])
 def memory_snapshot_manual(body: MemorySnapshotBody):
-    sid = snapshot_memory_history(comment=body.comment or "snapshot manuel")
+    try:
+        sid = snapshot_memory_history(comment=body.comment or "snapshot manuel")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"snapshot_failed: {exc}")
     snap = get_memory_history_snapshot(sid)
     return {"snapshot": snap}
 
@@ -71,6 +84,8 @@ def memory_restore(snapshot_id: int):
         mem = restore_memory_history_snapshot(snapshot_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"restore_failed: {exc}")
     return {"restored": True, "memory": mem}
 
 
