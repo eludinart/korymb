@@ -494,6 +494,7 @@ def list_behavior_settings() -> list[dict]:
                 "category": meta.get("category") or "misc",
                 "type": meta.get("type") or "json",
                 "label": meta.get("label") or key,
+                "description": (meta.get("description") or "").strip(),
             }
         )
     return out

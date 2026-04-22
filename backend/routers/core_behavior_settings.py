@@ -1,3 +1,11 @@
+"""
+API admin pour le registre `behavior_settings`.
+
+Chaque clé correspond à un réglage d’orchestration documenté dans
+`services/behavior_defaults.py` (label + description pour l’UI). Les valeurs
+sont du JSON libre selon le type (int, float, texte, listes, dictionnaires).
+"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,6 +51,7 @@ def behavior_settings_get(setting_key: str):
         "category": meta.get("category"),
         "type": meta.get("type"),
         "label": meta.get("label"),
+        "description": (meta.get("description") or "").strip(),
     }
 
 

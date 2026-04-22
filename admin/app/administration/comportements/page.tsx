@@ -11,6 +11,7 @@ type BehaviorSetting = {
   category: string;
   type: string;
   label: string;
+  description?: string;
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -106,8 +107,9 @@ export default function BehaviorSettingsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Comportements moteur</h1>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-500">
-          Registre central des comportements non métiers: délais, filets, formats de réponse et contraintes
-          d&apos;orchestration. Les modifications sont persistées en base.
+          Registre central des comportements non métiers : délais, filets, formats de réponse et contraintes
+          d&apos;orchestration. Chaque clé a une description ci-dessous : lis-la avant de modifier une valeur.
+          Les changements sont persistés en base et pris en compte au prochain tour d&apos;orchestration.
         </p>
       </div>
 
@@ -143,7 +145,10 @@ export default function BehaviorSettingsPage() {
                 }`}
               >
                 <div className="text-xs font-semibold">{item.label}</div>
-                <div className="font-mono text-[11px] text-slate-500">{item.setting_key}</div>
+                {item.description ? (
+                  <div className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-slate-500">{item.description}</div>
+                ) : null}
+                <div className="mt-0.5 font-mono text-[11px] text-slate-400">{item.setting_key}</div>
               </button>
             ))}
           </div>
@@ -166,6 +171,11 @@ export default function BehaviorSettingsPage() {
                     </span>
                   ) : null}
                 </p>
+                {current.description ? (
+                  <div className="mt-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-sm leading-relaxed text-slate-700">
+                    {current.description}
+                  </div>
+                ) : null}
               </div>
 
               {current.type === "text" ? (
