@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/administration/dashboard", label: "Tableau de bord santé" },
   { href: "/administration/agents", label: "Agents métiers" },
   { href: "/administration/orchestration", label: "Orchestration CIO" },
+  { href: "/administration/comportements", label: "Comportements moteur" },
   { href: "/administration/templates", label: "Templates de missions" },
   { href: "/administration/memory", label: "Mémoire entreprise" },
   { href: "/administration/budget", label: "Budget & Coûts" },

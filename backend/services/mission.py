@@ -26,6 +26,7 @@ from database import (
     job_set_user_validated,
     get_enterprise_memory,
     get_orchestration_prompt,
+    get_behavior_setting,
 )
 from llm_client import llm_turn, llm_chat
 from agent_tool_use import llm_chat_maybe_tools, llm_turn_maybe_tools
@@ -50,9 +51,59 @@ from services.agents import (
 )
 from services.memory import active_memory_prompt
 from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
+from services.behavior_defaults import behavior_default_value
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
+
+
+def _behavior_value(key: str):
+    v = get_behavior_setting(key)
+    return behavior_default_value(key) if v is None else v
+
+
+def _behavior_int(key: str, fallback: int) -> int:
+    v = _behavior_value(key)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _behavior_float(key: str, fallback: float) -> float:
+    v = _behavior_value(key)
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _behavior_text(key: str, fallback: str) -> str:
+    v = _behavior_value(key)
+    if isinstance(v, str) and v.strip():
+        return v
+    return fallback
+
+
+def _behavior_dict_str(key: str, fallback: dict[str, str]) -> dict[str, str]:
+    v = _behavior_value(key)
+    if not isinstance(v, dict):
+        return fallback
+    out: dict[str, str] = {}
+    for k, val in v.items():
+        ks = str(k).strip()
+        vs = str(val).strip()
+        if ks and vs:
+            out[ks] = vs
+    return out or fallback
+
+
+def _behavior_str_list(key: str, fallback: list[str]) -> list[str]:
+    v = _behavior_value(key)
+    if not isinstance(v, list):
+        return fallback
+    out = [str(x).strip() for x in v if str(x).strip()]
+    return out or fallback
 
 
 def _render_orchestration_prompt(prompt_key: str, mapping: dict[str, str]) -> str:
@@ -107,7 +158,8 @@ _DELEGATION_KEY_ALIASES: dict[str, str] = {
 
 def _canon_delegation_agent_key(raw_key: str) -> str | None:
     nk = re.sub(r"\s+", "_", _ascii_fold(raw_key)).replace("-", "_")
-    canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in agents_def() else None)
+    aliases = _behavior_dict_str("orchestration.routing.delegation_key_aliases", _DELEGATION_KEY_ALIASES)
+    canon = aliases.get(nk) or (nk if nk in agents_def() else None)
     if canon is None or canon == "coordinateur":
         return None
     return canon if canon in agents_def() else None
@@ -360,13 +412,14 @@ def _normalize_sous_taches(raw: dict) -> tuple[dict, list[str]]:
     Ramène les clés du plan (souvent mal typées par le LLM) vers les clés agents_def().
     Retourne (sous_taches_canoniques, clés_sources_ignorées).
     """
+    aliases = _behavior_dict_str("orchestration.routing.delegation_key_aliases", _DELEGATION_KEY_ALIASES)
     out: dict[str, str] = {}
     skipped: list[str] = []
     for k, v in (raw or {}).items():
         if not isinstance(k, str):
             continue
         nk = re.sub(r"\s+", "_", _ascii_fold(k)).replace("-", "_")
-        canon = _DELEGATION_KEY_ALIASES.get(nk) or (nk if nk in agents_def() else None)
+        canon = aliases.get(nk) or (nk if nk in agents_def() else None)
         if canon is None or canon == "coordinateur":
             skipped.append(str(k))
             continue
@@ -401,7 +454,8 @@ def _extract_sous_taches_from_plan(plan: dict) -> dict:
     Sans cela, un JSON valide avec « sous_tâches » ou « subtasks » produit zéro délégation réelle.
     """
     merged: dict[str, object] = {}
-    for pk in _SOUS_TACHES_PLAN_KEYS:
+    keys = _behavior_str_list("orchestration.routing.sous_taches_plan_keys", list(_SOUS_TACHES_PLAN_KEYS))
+    for pk in keys:
         cand = plan.get(pk)
         if not isinstance(cand, dict):
             continue
@@ -551,6 +605,12 @@ def _compute_delivery_warnings(
     mission_txt: str,
 ) -> list[str]:
     """Alertes dirigeant : mission web attendue mais aucune trace d'outil correspondant."""
+    web_tool_names = frozenset(
+        _behavior_str_list("orchestration.tools.web_research_tool_names", list(_WEB_RESEARCH_TOOL_NAMES))
+    )
+    dev_web_tool_names = frozenset(
+        _behavior_str_list("orchestration.tools.dev_web_research_tool_names", list(_DEV_WEB_RESEARCH_TOOL_NAMES))
+    )
     warnings: list[str] = []
     for ag in resultats:
         if ag not in agents_def() or ag == "coordinateur":
@@ -564,14 +624,14 @@ def _compute_delivery_warnings(
         per = f"{tache}\n{root_mission_label}\n{mission_txt}"
         label = agents_def()[ag]["label"]
         if ag == "commercial" and _blob_needs_commercial_web_evidence(per):
-            if _count_agent_tool_calls(events, ag, _WEB_RESEARCH_TOOL_NAMES) == 0:
+            if _count_agent_tool_calls(events, ag, web_tool_names) == 0:
                 warnings.append(
                     f"{label} : la mission demandait des pistes / recherche web ou LinkedIn public, "
                     f"mais aucun appel enregistré à web_search, read_webpage ou search_linkedin — "
                     f"le livrable peut être non sourcé."
                 )
         elif ag == "developpeur" and _agent_tool_tags_include_webish(ag) and _blob_needs_developer_web_evidence(per):
-            if _count_agent_tool_calls(events, ag, _DEV_WEB_RESEARCH_TOOL_NAMES) == 0:
+            if _count_agent_tool_calls(events, ag, dev_web_tool_names) == 0:
                 warnings.append(
                     f"{label} : la consigne suggérait une vérification documentaire en ligne, "
                     f"sans trace d'appel web_search ou read_webpage."
@@ -944,16 +1004,19 @@ def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> di
     Retourne {"decision": "approve"} ou {"decision": "amend", "amended_plan": {...}}.
     Lève KorymbJobCancelled si le job est annulé ou rejeté.
     """
-    max_wait = 7200
+    max_wait = _behavior_int("orchestration.cio.hitl_wait_max_seconds", 7200)
+    poll_interval = _behavior_float("orchestration.cio.hitl_poll_interval_seconds", 0.28)
+    if poll_interval <= 0:
+        poll_interval = 0.28
     for i in range(max_wait):
         _raise_if_job_cancelled(job_id)
         row = db_get_job(job_id)
         if not row:
-            time.sleep(0.28)
+            time.sleep(poll_interval)
             continue
         st = str(row.get("status") or "")
         if st == "awaiting_validation":
-            time.sleep(0.28)
+            time.sleep(poll_interval)
             continue
         if st == "cancelled":
             if job_logs is not None:
@@ -964,7 +1027,7 @@ def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> di
             if isinstance(res, dict) and res.get("decision") == "amend" and isinstance(res.get("amended_plan"), dict):
                 return res
             return {"decision": "approve"}
-        time.sleep(0.28)
+        time.sleep(poll_interval)
         if i > 0 and i % 200 == 0 and job_logs is not None:
             job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
     raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
@@ -1013,6 +1076,9 @@ def _apply_cio_plan_amendment(
 
 def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
     """Annexe lisible dans le corps du résultat mission : textes intégraux des rôles."""
+    clip_chars = _behavior_int("orchestration.synthesis.team_livrable_truncate_chars", 14000)
+    if clip_chars < 1000:
+        clip_chars = 1000
     if not resultats:
         return ""
     parts: list[str] = []
@@ -1020,8 +1086,8 @@ def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
         if k not in agents_def() or k == "coordinateur":
             continue
         body = (txt or "").strip()
-        if len(body) > 14_000:
-            body = body[:14_000] + "\n\n*(suite tronquée pour affichage)*"
+        if len(body) > clip_chars:
+            body = body[:clip_chars] + "\n\n*(suite tronquée pour affichage)*"
         parts.append(f"### {agents_def()[k]['label']}\n\n{body}")
     if not parts:
         return ""
@@ -1228,9 +1294,12 @@ def orchestrate_coordinateur_mission(
         )
         and _mission_suggests_commercial(f"{mission_txt}\n{root_mission_label}")
     ):
-        st["commercial"] = (
-            "Recherche web + LinkedIn public pour la demande du dirigeant ; "
-            "liste courte de pistes (structures / contacts publics) et angles d’approche."
+        st["commercial"] = _behavior_text(
+            "orchestration.fallback.prospection_commercial_task",
+            (
+                "Recherche web + LinkedIn public pour la demande du dirigeant ; "
+                "liste courte de pistes (structures / contacts publics) et angles d’approche."
+            ),
         )
         plan["sous_taches"] = st
         log("[korymb] Filet prospection : aucune sous-tâche reconnue — délégation automatique au Commercial.")
@@ -1255,15 +1324,19 @@ def orchestrate_coordinateur_mission(
         for role in _mentioned_sub_agents(blob_chat):
             if role not in agents_def() or role == "coordinateur":
                 continue
-            st[role] = (
-                "Le dirigeant parle au CIO dans le chat ; le CIO te sollicite sur ce tour.\n"
-                "Obligation : réponds en français avec un contenu **actionnable** que le CIO pourra recopier tel quel "
-                "au dirigeant ; pas de message à un collègue imaginaire, pas de mise en scène du type "
-                "« je te confie la mission » ou « récupère l'heure » sans donner l'heure.\n"
-                "Si la question est factuelle (ex. l'heure civile) : réponds factuellement "
-                "(fuseau Europe/Paris par défaut, format 24 h) dans ta réponse.\n\n"
-                + ctx_chat
+            tpl = _behavior_text(
+                "orchestration.fallback.chat_named_role_task_template",
+                (
+                    "Le dirigeant parle au CIO dans le chat ; le CIO te sollicite sur ce tour.\n"
+                    "Obligation : réponds en français avec un contenu **actionnable** que le CIO pourra recopier tel quel "
+                    "au dirigeant ; pas de message à un collègue imaginaire, pas de mise en scène du type "
+                    "« je te confie la mission » ou « récupère l'heure » sans donner l'heure.\n"
+                    "Si la question est factuelle (ex. l'heure civile) : réponds factuellement "
+                    "(fuseau Europe/Paris par défaut, format 24 h) dans ta réponse.\n\n"
+                    "<<CONTEXT>>"
+                ),
             )
+            st[role] = tpl.replace("<<CONTEXT>>", ctx_chat)
             log(
                 f"[korymb] Chat : consigne prioritaire pour {agents_def()[role]['label']} "
                 "(rôle nommé par le dirigeant).",
@@ -1520,13 +1593,19 @@ def orchestrate_coordinateur_mission(
         )
 
         web_evidence_calls = 0
+        web_tool_names = frozenset(
+            _behavior_str_list("orchestration.tools.web_research_tool_names", list(_WEB_RESEARCH_TOOL_NAMES))
+        )
+        dev_web_tool_names = frozenset(
+            _behavior_str_list("orchestration.tools.dev_web_research_tool_names", list(_DEV_WEB_RESEARCH_TOOL_NAMES))
+        )
 
         def on_sub_tool(actor: str, tool_name: str, meta: dict):
             nonlocal web_evidence_calls
             if job_id and actor == agent_key:
-                if agent_key == "commercial" and tool_name in _WEB_RESEARCH_TOOL_NAMES:
+                if agent_key == "commercial" and tool_name in web_tool_names:
                     web_evidence_calls += 1
-                elif agent_key == "developpeur" and tool_name in _DEV_WEB_RESEARCH_TOOL_NAMES:
+                elif agent_key == "developpeur" and tool_name in dev_web_tool_names:
                     web_evidence_calls += 1
             _emit_job_event(job_id, "tool_call", actor, meta)
 
@@ -1548,9 +1627,15 @@ def orchestrate_coordinateur_mission(
         mandate_web = need_commercial_web or need_dev_web
         sub_user_final = sub_user
         if need_commercial_web:
-            sub_user_final += _COMMERCIAL_WEB_MANDATE_SUFFIX
+            sub_user_final += _behavior_text(
+                "orchestration.subagent.commercial_web_mandate_suffix",
+                _COMMERCIAL_WEB_MANDATE_SUFFIX,
+            )
         elif need_dev_web:
-            sub_user_final += _DEVELOPER_WEB_MANDATE_SUFFIX
+            sub_user_final += _behavior_text(
+                "orchestration.subagent.developer_web_mandate_suffix",
+                _DEVELOPER_WEB_MANDATE_SUFFIX,
+            )
         sub_agent_exc: str | None = None
         try:
             res, ti2, to2 = llm_turn_maybe_tools(
@@ -1565,7 +1650,15 @@ def orchestrate_coordinateur_mission(
             )
             if mandate_web and not sub_agent_exc and web_evidence_calls == 0:
                 repair_suffix = (
-                    _REPAIR_WEB_TOOLS_SUFFIX if need_commercial_web else _REPAIR_DEV_WEB_TOOLS_SUFFIX
+                    _behavior_text(
+                        "orchestration.subagent.repair_web_tools_suffix",
+                        _REPAIR_WEB_TOOLS_SUFFIX,
+                    )
+                    if need_commercial_web
+                    else _behavior_text(
+                        "orchestration.subagent.repair_dev_web_tools_suffix",
+                        _REPAIR_DEV_WEB_TOOLS_SUFFIX,
+                    )
                 )
                 res2, tic2, toc2 = llm_turn_maybe_tools(
                     agent_sys,
@@ -2164,7 +2257,10 @@ def _schedule_mission_execution(
                         mx = int(cfg.get("recursive_max_rounds") or 0)
                     except (TypeError, ValueError):
                         mx = 0
-                    mx = max(1, min(KORYMB_MAX_REFINEMENT_ROUNDS, mx))
+                    max_cap = _behavior_int("orchestration.cio.refinement_max_rounds_cap", KORYMB_MAX_REFINEMENT_ROUNDS)
+                    if max_cap < 1:
+                        max_cap = 1
+                    mx = max(1, min(max_cap, mx))
                     for r in range(1, mx + 1):
                         _raise_if_job_cancelled(job_id)
                         result, ti_r, to_r = _cio_refinement_round_mission(

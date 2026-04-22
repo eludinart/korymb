@@ -308,6 +308,13 @@ def init_db():
                 updated_at    TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS behavior_settings (
+                setting_key   """ + text_pk + """ PRIMARY KEY,
+                value_json    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        """)
         _ensure_memory_columns(conn)
         conn.commit()
     init_enterprise_memory_row()
@@ -321,6 +328,10 @@ def init_db():
 
     try:
         seed_orchestration_prompt_defaults()
+    except Exception:
+        pass  # non bloquant au démarrage
+    try:
+        seed_behavior_defaults()
     except Exception:
         pass  # non bloquant au démarrage
 
@@ -395,6 +406,97 @@ def list_orchestration_prompts() -> list[dict]:
             "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts ORDER BY prompt_key ASC",
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def seed_behavior_defaults() -> None:
+    from services.behavior_defaults import BEHAVIOR_DEFAULTS
+
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        for key, meta in BEHAVIOR_DEFAULTS.items():
+            row = conn.execute("SELECT setting_key FROM behavior_settings WHERE setting_key = ?", (key,)).fetchone()
+            if row:
+                continue
+            payload = json.dumps(meta.get("value"), ensure_ascii=False)
+            conn.execute(
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?)",
+                (key, payload, now),
+            )
+        conn.commit()
+
+
+def get_behavior_setting(setting_key: str) -> Any | None:
+    key = (setting_key or "").strip()
+    if not key:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT value_json FROM behavior_settings WHERE setting_key = ?",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    raw = dict(row).get("value_json") if isinstance(row, dict) else row[0]
+    try:
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return raw
+
+
+def upsert_behavior_setting(setting_key: str, value: Any) -> dict:
+    key = (setting_key or "").strip()
+    if not key:
+        raise ValueError("setting_key manquant")
+    now = datetime.utcnow().isoformat()
+    payload = json.dumps(value, ensure_ascii=False)
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = VALUES(updated_at)",
+                (key, payload, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+                (key, payload, now),
+            )
+        conn.commit()
+    return {"setting_key": key, "value": value, "updated_at": now}
+
+
+def list_behavior_settings() -> list[dict]:
+    from services.behavior_defaults import BEHAVIOR_DEFAULTS
+
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT setting_key, value_json, updated_at FROM behavior_settings ORDER BY setting_key ASC",
+        ).fetchall()
+    indexed: dict[str, dict] = {}
+    for r in rows:
+        item = dict(r)
+        try:
+            parsed = json.loads(item.get("value_json") or "null")
+        except Exception:
+            parsed = item.get("value_json")
+        indexed[str(item.get("setting_key") or "")] = {
+            "setting_key": str(item.get("setting_key") or ""),
+            "value": parsed,
+            "updated_at": item.get("updated_at"),
+        }
+    out: list[dict] = []
+    for key, meta in BEHAVIOR_DEFAULTS.items():
+        row = indexed.get(key) or {"setting_key": key, "value": meta.get("value"), "updated_at": None}
+        out.append(
+            {
+                **row,
+                "category": meta.get("category") or "misc",
+                "type": meta.get("type") or "json",
+                "label": meta.get("label") or key,
+            }
+        )
+    return out
 
 
 def _ensure_llm_usage_table(conn) -> None:

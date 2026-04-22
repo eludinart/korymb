@@ -64,6 +64,7 @@ from routers.core_templates import router as core_templates_router
 from routers.core_scheduler import router as core_scheduler_router
 from routers.core_social import router as core_social_router
 from routers.core_orchestration_prompts import router as core_orchestration_prompts_router
+from routers.core_behavior_settings import router as core_behavior_settings_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -121,6 +122,7 @@ app.include_router(core_templates_router)
 app.include_router(core_scheduler_router)
 app.include_router(core_social_router)
 app.include_router(core_orchestration_prompts_router)
+app.include_router(core_behavior_settings_router)
 
 
 @app.middleware("http")
