@@ -39,6 +39,7 @@ class ChatRequest(BaseModel):
     agent: str = "coordinateur"
     history: list[dict] = []
     linked_job_id: str | None = None
+    chat_session_id: str | None = None
 
 
 @router.post("/chat", dependencies=[Depends(verify_secret)])
@@ -58,6 +59,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 (request.message or "")[:500],
                 source="chat",
                 parent_job_id=linked_parent_id or None,
+                chat_session_id=(request.chat_session_id or "").strip()[:64] or None,
             )
             job_logs: list[str] = []
             active_jobs[job_id] = {

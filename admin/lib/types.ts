@@ -55,6 +55,7 @@ export type Job = {
   created_at?: string;
   updated_at?: string;
   parent_job_id?: string | null;
+  chat_session_id?: string | null;
 };
 
 /** Ligne Job légère (liste /jobs) */

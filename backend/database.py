@@ -148,6 +148,8 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN mission_thread_json TEXT NOT NULL DEFAULT '[]'")
     if "parent_job_id" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
+    if "chat_session_id" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN chat_session_id TEXT")
 
 
 def _hydrate_job_row(d: dict) -> dict:
@@ -239,7 +241,8 @@ def init_db():
                 events_json   TEXT NOT NULL DEFAULT '[]',
                 created_at      TEXT NOT NULL,
                 updated_at      TEXT NOT NULL,
-                parent_job_id   TEXT
+                parent_job_id   TEXT,
+                chat_session_id TEXT
             )
         """)
         _ensure_jobs_columns(conn)
@@ -486,16 +489,18 @@ def save_job(
     source: str = "mission",
     mission_config: dict | None = None,
     parent_job_id: str | None = None,
+    chat_session_id: str | None = None,
 ):
     now = datetime.utcnow().isoformat()
     cfg_json = json.dumps(mission_config if isinstance(mission_config, dict) else {}, ensure_ascii=False)
     parent = (parent_job_id or "").strip()[:16] or None
+    session_id = (chat_session_id or "").strip()[:64] or None
     with get_conn() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO jobs (id, agent, mission, status, logs, team_trace, "
-            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'running', '[]', '[]', ?, '{}', '[]', ?, '[]', ?, ?, ?)",
-            (job_id, agent, mission, source, cfg_json, parent, now, now),
+            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, chat_session_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'running', '[]', '[]', ?, '{}', '[]', ?, '[]', ?, ?, ?, ?)",
+            (job_id, agent, mission, source, cfg_json, parent, session_id, now, now),
         )
         conn.commit()
 

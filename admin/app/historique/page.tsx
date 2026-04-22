@@ -10,6 +10,14 @@ import { QK } from "../../lib/queryClient";
 import type { Job } from "../../lib/types";
 
 type HistoryItemType = "chat" | "mission_guidee" | "mission";
+type HistoryEntry = {
+  id: string;
+  type: HistoryItemType;
+  title: string;
+  quickInfo: string;
+  displayJobId: string;
+  jobIds: string[];
+};
 
 function detectHistoryItemType(job: Job): HistoryItemType {
   const source = String((job as Job & { source?: string }).source || "").toLowerCase();
@@ -89,28 +97,16 @@ export default function HistoriquePage() {
     return String(j?.mission || "").trim();
   }, [jobsQuery.data, selected]);
 
-  const deleteJob = async (jobId: string) => {
-    setBusy(true);
-    setError("");
-    setFeedback("");
-    try {
-      const headers = agentHeaders();
-      await requestFallbackJson(
-        [
-          () => requestJson(`/jobs/${encodeURIComponent(jobId)}/remove`, { method: "POST", headers, expectOk: false }),
-          () => requestJson(`/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers, expectOk: false }),
-          () => requestJson("/run/remove-job", { method: "POST", headers, body: JSON.stringify({ job_id: jobId }), expectOk: false }),
-        ],
-        "Suppression mission",
-      );
-      if (selected === jobId) setSelected(null);
-      setFeedback(`Mission #${jobId} supprimée.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-      qc.invalidateQueries({ queryKey: QK.jobs });
-    }
+  const deleteJobById = async (jobId: string) => {
+    const headers = agentHeaders();
+    await requestFallbackJson(
+      [
+        () => requestJson(`/jobs/${encodeURIComponent(jobId)}/remove`, { method: "POST", headers, expectOk: false }),
+        () => requestJson(`/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers, expectOk: false }),
+        () => requestJson("/run/remove-job", { method: "POST", headers, body: JSON.stringify({ job_id: jobId }), expectOk: false }),
+      ],
+      "Suppression mission",
+    );
   };
 
   const requestCancel = async () => {
@@ -134,6 +130,71 @@ export default function HistoriquePage() {
   };
 
   const jobs = (jobsQuery.data || []) as Job[];
+  const entries = useMemo<HistoryEntry[]>(() => {
+    const out: HistoryEntry[] = [];
+    const chatGroups = new Map<string, Job[]>();
+    for (const j of jobs) {
+      const type = detectHistoryItemType(j);
+      if (type !== "chat") {
+        const title = compact(j.mission || "", 85) || "(sans titre)";
+        const quickInfo = type === "mission_guidee"
+          ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
+          : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
+        out.push({
+          id: `job:${j.job_id}`,
+          type,
+          title,
+          quickInfo,
+          displayJobId: j.job_id,
+          jobIds: [j.job_id],
+        });
+        continue;
+      }
+      const chatSessionId = String(j.chat_session_id || "").trim() || j.job_id;
+      const key = `chat:${chatSessionId}`;
+      const list = chatGroups.get(key) || [];
+      list.push(j);
+      chatGroups.set(key, list);
+    }
+    for (const [groupKey, grouped] of chatGroups.entries()) {
+      const latest = grouped[0];
+      const title =
+        compact(firstUserMessageFromThread((latest as Job & { mission_thread?: unknown[] }).mission_thread), 85) ||
+        compact(latest.mission || "", 85) ||
+        "Conversation";
+      out.push({
+        id: groupKey,
+        type: "chat",
+        title,
+        quickInfo: compact(`${grouped.length} échange(s) · Agent ${latest.agent || "coordinateur"} · ${latest.status || "—"}`, 95),
+        displayJobId: latest.job_id,
+        jobIds: grouped.map((g) => g.job_id),
+      });
+    }
+    return out;
+  }, [jobs]);
+
+  const deleteEntry = async (entry: HistoryEntry) => {
+    setBusy(true);
+    setError("");
+    setFeedback("");
+    try {
+      for (const jobId of entry.jobIds) {
+        await deleteJobById(jobId);
+      }
+      if (selected && entry.jobIds.includes(selected)) setSelected(null);
+      setFeedback(
+        entry.type === "chat"
+          ? `Conversation supprimée (${entry.jobIds.length} échange(s)).`
+          : `Mission #${entry.displayJobId} supprimée.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+      qc.invalidateQueries({ queryKey: QK.jobs });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -152,32 +213,20 @@ export default function HistoriquePage() {
           ) : null}
         </div>
         <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-24 lg:max-h-[min(70vh,calc(100vh-8rem))] lg:overflow-y-auto space-y-2">
-          {jobs.map((j) => {
-            const isSelected = selected === j.job_id;
-            const type = detectHistoryItemType(j);
-            const title =
-              type === "chat"
-                ? compact(firstUserMessageFromThread((j as Job & { mission_thread?: unknown[] }).mission_thread), 85) ||
-                  compact(j.mission || "", 85) ||
-                  "Conversation"
-                : compact(j.mission || "", 85) || "(sans titre)";
-            const quickInfo =
-              type === "chat"
-                ? compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75)
-                : type === "mission_guidee"
-                  ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
-                  : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
+          {entries.map((entry) => {
+            const isSelected = entry.jobIds.includes(String(selected || ""));
+            const type = entry.type;
 
             return (
               <div
-                key={j.job_id}
+                key={entry.id}
                 className={`border rounded-xl p-3 cursor-pointer ${
                   isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"
                 }`}
-                onClick={() => setSelected(j.job_id)}
+                onClick={() => setSelected(entry.displayJobId)}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <p className={`text-xs font-mono ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{j.job_id}</p>
+                  <p className={`text-xs font-mono ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{entry.displayJobId}</p>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
                       isSelected
@@ -192,13 +241,13 @@ export default function HistoriquePage() {
                     {historyTypeLabel(type)}
                   </span>
                 </div>
-                <p className={`mt-1 text-sm font-medium ${isSelected ? "text-white" : "text-slate-900"}`}>{title}</p>
-                <p className={`mt-1 text-xs ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{quickInfo}</p>
+                <p className={`mt-1 text-sm font-medium ${isSelected ? "text-white" : "text-slate-900"}`}>{entry.title}</p>
+                <p className={`mt-1 text-xs ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{entry.quickInfo}</p>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    void deleteJob(j.job_id);
+                    void deleteEntry(entry);
                   }}
                   disabled={busy}
                   className={`mt-2 text-xs px-2 py-1 rounded ${isSelected ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
@@ -208,7 +257,7 @@ export default function HistoriquePage() {
               </div>
             );
           })}
-          {jobs.length === 0 ? <p className="text-sm text-slate-400">Aucun historique.</p> : null}
+          {entries.length === 0 ? <p className="text-sm text-slate-400">Aucun historique.</p> : null}
         </aside>
         <div className="min-w-0 max-w-full">
           {!selected ? (

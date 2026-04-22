@@ -144,6 +144,7 @@ def list_jobs(limit: int = 50):
             "delivery_warnings": dw,
             "delivery_blocked": bool(dw),
             "parent_job_id": j.get("parent_job_id") or None,
+            "chat_session_id": j.get("chat_session_id") or None,
         })
     return {"jobs": out}
 
@@ -208,6 +209,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "mission_thread": mt, "mission_thread_count": len(mt),
             "delivery_warnings": dw, "delivery_blocked": bool(dw),
             "parent_job_id": parent_out or None,
+            "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
         }
     row = db_get_job(job_id)
@@ -242,6 +244,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "mission_config": mc, "mission_thread": mt, "mission_thread_count": len(mt),
         "delivery_warnings": dw, "delivery_blocked": bool(dw),
         "parent_job_id": row.get("parent_job_id") or None,
+        "chat_session_id": row.get("chat_session_id") or None,
         "hitl": hitl_block,
     }
 

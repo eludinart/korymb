@@ -210,6 +210,7 @@ function ChatPageInner() {
           message: msg,
           agent: activeAgent,
           history: activeHistory,
+          chat_session_id: activeConversation.id,
           ...(linkedParentJobId && activeAgent === "coordinateur" ? { linked_job_id: linkedParentJobId } : {}),
         }),
       });
