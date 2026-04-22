@@ -185,7 +185,7 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     }
 
 
-def _database_runtime_snapshot() -> dict:
+def _database_runtime_snapshot(*, include_probe: bool = True) -> dict:
     engine = str(DB_ENGINE or "sqlite").strip().lower()
     is_maria = engine in {"mariadb", "mysql"}
     runtime_env = str(os.getenv("ENV") or os.getenv("NODE_ENV") or "development").strip().lower()
@@ -208,13 +208,16 @@ def _database_runtime_snapshot() -> dict:
     else:
         details["path"] = str(DB_PATH)
 
-    try:
-        with get_conn() as conn:
-            conn.execute("SELECT 1")
-        details["connected"] = True
-    except Exception as e:
-        details["connected"] = False
-        details["probe_detail"] = str(e)[:180]
+    if include_probe:
+        try:
+            with get_conn() as conn:
+                conn.execute("SELECT 1")
+            details["connected"] = True
+        except Exception as e:
+            details["connected"] = False
+            details["probe_detail"] = str(e)[:180]
+    else:
+        details["connected"] = None
     return details
 
 
@@ -275,6 +278,7 @@ def _runtime_sync_snapshot() -> dict:
         "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat(),
         "backend_version": BACKEND_VERSION,
         "llm": {"provider": provider, "model": model},
+        "database": _database_runtime_snapshot(include_probe=False),
         "tokens": tokens_payload(),
         "health": {"status": "ok"},
     }
@@ -295,6 +299,7 @@ def health(
         "revision_at": BACKEND_REVISION_AT or None,
         "code_dir": str(_KORYMB_BACKEND_DIR),
         "mission_session_delete_routes": True,
+        "database": _database_runtime_snapshot(include_probe=False),
     }
     if include_tools:
         from tools_health import probe_tools_health
@@ -313,7 +318,7 @@ def admin_system_health(refresh_tools: bool = False):
         "revision_at": BACKEND_REVISION_AT or None,
         "service": "korymb-backend",
         "system": _system_metrics_snapshot(),
-        "database": _database_runtime_snapshot(),
+        "database": _database_runtime_snapshot(include_probe=True),
         **_integration_health_snapshot(refresh_tools=bool(refresh_tools)),
     }
     return JSONResponse(
