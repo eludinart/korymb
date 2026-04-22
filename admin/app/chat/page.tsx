@@ -22,6 +22,7 @@ type Conversation = {
 
 const chatMessageKey = (m: Msg, idx: number) =>
   `${m.role}-${m.agent || "na"}-${m.content.slice(0, 32)}-${idx}`;
+const sameMessage = (a: Msg, b: Msg) => a.role === b.role && a.content === b.content && (a.agent || "") === (b.agent || "");
 
 const makeConversation = (idx: number): Conversation => ({
   id: `conv-${Date.now()}-${idx}`,
@@ -139,13 +140,14 @@ function ChatPageInner() {
     if (seededParentRef.current === linkedParentJobId) return;
     seededParentRef.current = linkedParentJobId;
     const thread = (parentJobDetail.data as { mission_thread?: unknown }).mission_thread;
-    const seeded = missionThreadToChatHistory(thread, 18).map((m) => ({
+    const seeded = missionThreadToChatHistory(thread, 60).map((m) => ({
       role: m.role,
       content: m.content,
       agent: m.role === "assistant" ? "coordinateur" : undefined,
     }));
+    const linkedId = `linked-${linkedParentJobId}`;
     const seededConversation: Conversation = {
-      id: `linked-${linkedParentJobId}`,
+      id: linkedId,
       title: `Mission #${linkedParentJobId}`,
       agent: "coordinateur",
       draft: "",
@@ -153,10 +155,23 @@ function ChatPageInner() {
       liveJobId: null,
     };
     setConversations((prev) => {
-      const withoutLinked = prev.filter((c) => !c.id.startsWith("linked-"));
-      return [seededConversation, ...withoutLinked];
+      const existing = prev.find((c) => c.id === linkedId);
+      const mergedHistory = existing
+        ? [
+            ...existing.history,
+            ...seeded.filter((m) => !existing.history.some((h) => sameMessage(h, m))),
+          ]
+        : seededConversation.history;
+      const mergedConversation: Conversation = {
+        ...(existing || seededConversation),
+        id: linkedId,
+        title: `Mission #${linkedParentJobId}`,
+        history: mergedHistory,
+      };
+      const withoutLinked = prev.filter((c) => c.id !== linkedId);
+      return [mergedConversation, ...withoutLinked];
     });
-    setActiveConversationId(seededConversation.id);
+    setActiveConversationId(linkedId);
   }, [linkedParentJobId, parentJobDetail.data]);
 
   const liveConversations = useMemo(

@@ -1,8 +1,11 @@
+# nixpacks.toml — Utilisé uniquement si Coolify est configuré en mode Nixpacks.
+# Préférer le build pack "Dockerfile" dans Coolify pour utiliser le Dockerfile du projet.
+
 [phases.install]
-cmds = ["npm ci", "npm --prefix admin ci"]
+cmds = ["npm ci --ignore-scripts", "npm --prefix admin ci --ignore-scripts"]
 
 [phases.build]
-cmds = ["npm run build"]
+cmds = ["npm --prefix admin run build"]
 
 [start]
 cmd = "npm --prefix admin run start"

@@ -1,4 +1,40 @@
+# Dépendances
 node_modules
+admin/node_modules
+
+# Artefacts de build
 dist
-.ftpconfig
+.next
+admin/.next
+
+# Environnements et secrets
 .env
+.env.*
+!.env.example
+!.env.coolify.example
+backend/.env
+
+# Éditeurs et OS
+.DS_Store
+.vscode
+.idea
+*.suo *.ntvs* *.njsproj *.sln
+
+# Logs
+*.log
+logs/
+
+# Python
+__pycache__
+**/__pycache__
+*.py[cod]
+backend/data/
+backend/knowledge/eludein_site.txt
+backend/knowledge/manuel_complet.txt
+
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github

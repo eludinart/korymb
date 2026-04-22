@@ -90,7 +90,7 @@ const bubbleComponents: Components = {
   ),
   pre: ({ children, ...props }) => (
     <pre
-      className="my-2 overflow-x-auto rounded-lg border border-slate-200 bg-slate-900 p-3 text-xs text-slate-100"
+      className="my-2 whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800"
       {...markdownDomProps(props as Record<string, unknown>)}
     >
       {children}
@@ -101,7 +101,7 @@ const bubbleComponents: Components = {
     const isBlock = typeof className === "string" && className.includes("language-");
     if (isBlock) {
       return (
-        <code className={`block bg-transparent p-0 font-mono text-xs leading-relaxed text-inherit ${className || ""}`} {...dom}>
+        <code className={`block whitespace-pre-wrap break-words bg-transparent p-0 font-mono text-xs leading-relaxed text-inherit ${className || ""}`} {...dom}>
           {children}
         </code>
       );
