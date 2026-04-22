@@ -51,6 +51,7 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
   const toolsProbe = data?.tools_probe as Record<string, unknown> | undefined;
   const system = data?.system as Record<string, unknown> | undefined;
   const summary = data?.summary as Record<string, unknown> | undefined;
+  const database = data?.database as Record<string, unknown> | undefined;
 
   const cpu = system?.cpu_percent != null ? Number(system.cpu_percent) : null;
   const mem = system?.memory as Record<string, unknown> | undefined;
@@ -166,6 +167,58 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
             Libre {formatBytes(disk?.free_bytes != null ? Number(disk.free_bytes) : undefined)} ·{" "}
             {String(disk?.path || "—")}
           </p>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+          <HealthDot tone={database?.connected === true ? "ok" : database?.connected === false ? "bad" : "neutral"} label="Base de données active" />
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Base de données</p>
+        </div>
+        <div className="mt-3 space-y-1.5 text-sm">
+          <p className="text-slate-700">
+            Moteur actif :{" "}
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800">
+              {String(database?.engine || "—")}
+            </span>
+            {" "}
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                String(database?.runtime_env || "").includes("prod")
+                  ? "bg-violet-100 text-violet-700"
+                  : "bg-emerald-100 text-emerald-700"
+              }`}
+            >
+              {String(database?.runtime_env || "").includes("prod") ? "PROD" : "DEV"}
+            </span>
+          </p>
+          {"database" in (database || {}) ? (
+            <p className="text-xs text-slate-600">
+              Base : <span className="font-mono text-slate-700">{String(database?.database || "—")}</span>
+            </p>
+          ) : null}
+          {"host" in (database || {}) ? (
+            <p className="text-xs text-slate-600">
+              Hôte : <span className="font-mono text-slate-700">{String(database?.host || "—")}:{String(database?.port || "—")}</span>
+            </p>
+          ) : null}
+          {"user" in (database || {}) ? (
+            <p className="text-xs text-slate-600">
+              User : <span className="font-mono text-slate-700">{String(database?.user || "—")}</span>
+            </p>
+          ) : null}
+          {"path" in (database || {}) ? (
+            <p className="truncate text-xs text-slate-600" title={String(database?.path || "")}>
+              Fichier SQLite : <span className="font-mono text-slate-700">{String(database?.path || "—")}</span>
+            </p>
+          ) : null}
+          {database?.connected === true ? (
+            <p className="text-xs font-medium text-emerald-700">Connexion DB OK</p>
+          ) : database?.connected === false ? (
+            <p className="text-xs font-medium text-red-700">
+              Connexion DB KO{database?.probe_detail ? ` — ${String(database.probe_detail)}` : ""}
+            </p>
+          ) : null}
         </div>
       </div>
 

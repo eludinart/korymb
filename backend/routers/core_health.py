@@ -19,7 +19,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from auth import verify_secret
 from config import settings
-from database import sum_jobs_tokens_total, usage_cost_breakdown, usage_events_exist, usage_daily_breakdown
+from database import (
+    DB_ENGINE,
+    DB_PATH,
+    get_conn,
+    sum_jobs_tokens_total,
+    usage_cost_breakdown,
+    usage_events_exist,
+    usage_daily_breakdown,
+)
 from runtime_settings import merge_with_env
 from llm_tiers import resolve_openrouter_tier, tier_config_public
 from state import active_jobs, daily_tokens, today, tokens_inflight
@@ -177,6 +185,39 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     }
 
 
+def _database_runtime_snapshot() -> dict:
+    engine = str(DB_ENGINE or "sqlite").strip().lower()
+    is_maria = engine in {"mariadb", "mysql"}
+    runtime_env = str(os.getenv("ENV") or os.getenv("NODE_ENV") or "development").strip().lower()
+    details: dict[str, object] = {
+        "engine": "mariadb" if is_maria else "sqlite",
+        "runtime_env": runtime_env,
+        "connected": False,
+    }
+    if is_maria:
+        host = str(os.getenv("KORYMB_DB_HOST") or os.getenv("FLEUR_DB_HOST") or "127.0.0.1")
+        port = int(os.getenv("KORYMB_DB_PORT") or os.getenv("FLEUR_DB_PORT") or "3306")
+        user = str(os.getenv("KORYMB_DB_USER") or os.getenv("FLEUR_DB_USER") or "")
+        name = str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb")
+        details.update({
+            "host": host,
+            "port": port,
+            "database": name,
+            "user": user,
+        })
+    else:
+        details["path"] = str(DB_PATH)
+
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1")
+        details["connected"] = True
+    except Exception as e:
+        details["connected"] = False
+        details["probe_detail"] = str(e)[:180]
+    return details
+
+
 def _web_tools_probe_json(*, refresh: bool) -> JSONResponse:
     from tools_health import probe_tools_health
     return JSONResponse(
@@ -272,6 +313,7 @@ def admin_system_health(refresh_tools: bool = False):
         "revision_at": BACKEND_REVISION_AT or None,
         "service": "korymb-backend",
         "system": _system_metrics_snapshot(),
+        "database": _database_runtime_snapshot(),
         **_integration_health_snapshot(refresh_tools=bool(refresh_tools)),
     }
     return JSONResponse(
