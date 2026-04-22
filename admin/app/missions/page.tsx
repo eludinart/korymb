@@ -147,10 +147,12 @@ function MissionsContent() {
       .filter((q) => q.questions.length > 0);
   }, [detail.data?.events]);
 
-  /** Bandeau latéral sticky : poursuite CIO + questions (évite de scroller toute la mission). */
+  /** Actions CIO / questions (carte violette sous le fil dans la colonne gauche). */
   const showDecisionRail = Boolean(
     (cioQuestions.length > 0 && !cioResumeLiveId) || canResumeCio,
   );
+  /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
+  const showConversationSidebar = Boolean(detail.data);
 
   const onAnswerCioQuestion = async (answer: string) => {
     if (!selected || !answer.trim() || cioQuestionBusy) return;
@@ -311,8 +313,8 @@ function MissionsContent() {
         <p className="text-sm text-slate-500 mt-1 max-w-3xl leading-relaxed">
           {selected ? (
             <>
-              Détail d&apos;une mission : synthèse et livrable du CIO, fil de cadrage, livrables et événements. Utilisez{" "}
-              <span className="font-medium text-slate-700">Retour à la liste</span> pour choisir une autre mission.
+              Fil et actions avec le CIO à gauche (grand écran) ; synthèse, livrables et validation à droite.{" "}
+              <span className="font-medium text-slate-700">Retour à la liste</span> pour changer de mission.
             </>
           ) : (
             <>
@@ -415,7 +417,7 @@ function MissionsContent() {
         </section>
       </div>
       ) : (
-      <div className={`mx-auto w-full min-w-0 space-y-4 ${showDecisionRail ? "max-w-6xl" : "max-w-5xl"}`}>
+      <div className={`mx-auto w-full min-w-0 space-y-4 ${showConversationSidebar ? "max-w-6xl" : "max-w-5xl"}`}>
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-4">
           <button
             type="button"
@@ -439,17 +441,24 @@ function MissionsContent() {
 
         <div
           className={
-            showDecisionRail
-              ? "lg:grid lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] lg:items-start lg:gap-8"
+            showConversationSidebar
+              ? "lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8"
               : ""
           }
         >
-          {showDecisionRail ? (
-            <aside className="order-first mb-6 space-y-4 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:max-h-[calc(100vh-1.25rem)] lg:overflow-y-auto lg:self-start lg:pr-0.5">
+          {showConversationSidebar && detail.data ? (
+            <aside className="order-first mb-6 flex flex-col gap-4 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:max-h-[calc(100vh-1.25rem)] lg:overflow-y-auto lg:self-start lg:pr-0.5">
+              <SessionCadrageTimeline
+                messages={detail.data.mission_thread}
+                title="Fil de cadrage avec le CIO"
+                maxHeightClass="max-h-[min(40vh,20rem)] lg:max-h-[min(48vh,26rem)]"
+                className="shadow-sm"
+              />
+              {showDecisionRail ? (
               <div className="rounded-2xl border border-violet-200 bg-gradient-to-b from-violet-50/95 to-white p-4 shadow-md ring-1 ring-violet-100/80">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Poursuivre la mission</p>
                 <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
-                  Visible ici pendant que vous consultez synthèse et livrables plus bas.
+                  Conversation avec le CIO ; synthèse et livrables dans la colonne de droite.
                 </p>
                 {cioQuestions.length > 0 && !cioResumeLiveId ? (
                   <div className="mt-4 border-t border-violet-100 pt-4">
@@ -527,6 +536,7 @@ function MissionsContent() {
                   </div>
                 ) : null}
               </div>
+              ) : null}
             </aside>
           ) : null}
 
@@ -708,20 +718,6 @@ function MissionsContent() {
                   <p className="text-sm text-slate-500">Aucune donnée d&apos;activation pour l&apos;instant.</p>
                 )}
               </CollapsibleMissionSection>
-
-              {detail.data ? (
-                <CollapsibleMissionSection
-                  title="Fil de cadrage avec le CIO"
-                  hint="Historique des échanges enregistrés sur cette mission"
-                  defaultOpen={false}
-                >
-                  <SessionCadrageTimeline
-                    messages={detail.data.mission_thread}
-                    title="Fil de cadrage avec le CIO (contexte)"
-                    maxHeightClass="max-h-[min(38rem,62vh)]"
-                  />
-                </CollapsibleMissionSection>
-              ) : null}
 
               {!cioResumeLiveId ? (
                 <CollapsibleMissionSection
