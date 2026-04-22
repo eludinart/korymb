@@ -80,6 +80,7 @@ export type BossJobLike = {
   job_id: string;
   status?: string;
   user_validated_at?: string | null;
+  mission_closed_by_user?: boolean;
   result?: string | null;
 };
 

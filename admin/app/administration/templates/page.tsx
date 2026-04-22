@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { requestJson, agentHeaders } from "../../../lib/api";
@@ -494,7 +494,7 @@ export default function TemplatesPage() {
         <>
           {templates.data.length === 0 ? (
             <div className="rounded-2xl border-2 border-dashed border-slate-200 py-16 text-center">
-              <p className="text-slate-400">Aucun template pour l'instant.</p>
+              <p className="text-slate-400">Aucun template pour l&apos;instant.</p>
               <button
                 onClick={openCreate}
                 className="mt-4 rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800"

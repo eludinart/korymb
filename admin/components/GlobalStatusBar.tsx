@@ -162,7 +162,7 @@ export default function GlobalStatusBar() {
               <div className="text-right">
                 <p className="text-base font-semibold tabular-nums text-slate-800">
                   {fmtUsd(costToday)}
-                  <span className="ml-1 text-[11px] font-normal text-slate-400">aujourd'hui</span>
+                  <span className="ml-1 text-[11px] font-normal text-slate-400">aujourd&apos;hui</span>
                 </p>
                 {costWeek > 0 && (
                   <p className="text-[11px] text-slate-400 tabular-nums">
