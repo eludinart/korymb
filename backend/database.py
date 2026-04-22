@@ -152,6 +152,25 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN chat_session_id TEXT")
 
 
+def _ensure_memory_columns(conn) -> None:
+    """MariaDB: élargit les colonnes mémoire pour éviter les erreurs 'Data too long'."""
+    if not _is_mariadb():
+        return
+    # Les mémoires peuvent dépasser 64KB ; LONGTEXT évite les 500 lors des PUT /memory.
+    try:
+        conn.execute("ALTER TABLE enterprise_memory MODIFY COLUMN contexts_json LONGTEXT NOT NULL")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE enterprise_memory MODIFY COLUMN recent_missions_json LONGTEXT NOT NULL")
+    except Exception:
+        pass
+    try:
+        conn.execute("ALTER TABLE memory_history MODIFY COLUMN contexts_json LONGTEXT NOT NULL")
+    except Exception:
+        pass
+
+
 def _hydrate_job_row(d: dict) -> dict:
     """Normalise les champs JSON pour l'application."""
     out = dict(d)
@@ -282,6 +301,7 @@ def init_db():
                 created_at      TEXT NOT NULL
             )
         """)
+        _ensure_memory_columns(conn)
         conn.commit()
     init_enterprise_memory_row()
     _init_autonomous_tables()
