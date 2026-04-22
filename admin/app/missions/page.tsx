@@ -147,6 +147,13 @@ function MissionsContent() {
       .filter((q) => q.questions.length > 0);
   }, [detail.data?.events]);
 
+  const pendingCioQuestionCount = useMemo(
+    () =>
+      cioQuestions.filter((q) => !q.answered).reduce((n, q) => n + (q.questions?.length || 0), 0),
+    [cioQuestions],
+  );
+  const hasPendingCioQuestions = pendingCioQuestionCount > 0;
+
   /** Actions CIO / questions (carte violette sous le fil dans la colonne gauche). */
   const showDecisionRail = Boolean(
     (cioQuestions.length > 0 && !cioResumeLiveId) || canResumeCio,
@@ -447,95 +454,113 @@ function MissionsContent() {
           }
         >
           {showConversationSidebar && detail.data ? (
-            <aside className="order-first mb-6 flex flex-col gap-4 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:max-h-[calc(100vh-1.25rem)] lg:overflow-y-auto lg:self-start lg:pr-0.5">
-              <SessionCadrageTimeline
-                messages={detail.data.mission_thread}
-                title="Fil de cadrage avec le CIO"
-                maxHeightClass="max-h-[min(40vh,20rem)] lg:max-h-[min(48vh,26rem)]"
-                className="shadow-sm"
-              />
+            <aside className="order-first mb-6 flex min-h-0 flex-col gap-3 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:h-[calc(100vh-5.75rem)] lg:max-h-[calc(100vh-5.75rem)] lg:self-start lg:pr-0.5">
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <SessionCadrageTimeline
+                  fillColumn
+                  messages={detail.data.mission_thread}
+                  title="Fil de cadrage avec le CIO"
+                  className="shadow-sm"
+                />
+              </div>
               {showDecisionRail ? (
-              <div className="rounded-2xl border border-violet-200 bg-gradient-to-b from-violet-50/95 to-white p-4 shadow-md ring-1 ring-violet-100/80">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Poursuivre la mission</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
-                  Conversation avec le CIO ; synthèse et livrables dans la colonne de droite.
-                </p>
-                {cioQuestions.length > 0 && !cioResumeLiveId ? (
-                  <div className="mt-4 border-t border-violet-100 pt-4">
-                    <CioQuestionsPanel
-                      questions={cioQuestions}
-                      onAnswer={(a) => onAnswerCioQuestion(a)}
-                      busy={cioQuestionBusy}
-                    />
-                  </div>
-                ) : null}
-                {canResumeCio ? (
-                  <div className={cioQuestions.length > 0 && !cioResumeLiveId ? "mt-4 border-t border-violet-100 pt-4" : "mt-3"}>
-                    {!cioResumeLiveId ? (
-                      <>
-                        <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO</h3>
-                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
-                          Même mission : la suite va dans le fil de cadrage ; le livrable se met à jour ici après
-                          exécution.
-                        </p>
-                        <div className="mt-2">
+                <div className="shrink-0 rounded-2xl border border-violet-200 bg-white shadow-[0_-6px_28px_-6px_rgba(99,102,241,0.18)] ring-1 ring-violet-100/90">
+                  {canResumeCio ? (
+                    !cioResumeLiveId ? (
+                      <form onSubmit={onCioResumeSubmit} className="space-y-2 border-b border-violet-100/80 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <label htmlFor="cio-resume-mission" className="text-xs font-semibold text-slate-900">
+                            Consigne pour la suite
+                          </label>
                           <Link
                             href={`/chat?parent=${encodeURIComponent(String(selected))}`}
-                            className="text-xs font-medium text-violet-800 underline hover:text-violet-950"
+                            className="shrink-0 rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-800 hover:bg-violet-100"
                           >
-                            Ouvrir dans Chat (même dossier)
+                            Chat
                           </Link>
                         </div>
-                        <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
-                          <div>
-                            <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
-                            <p className="text-[10px] text-slate-400">
-                              Le CIO peut vous poser des précisions pendant l&apos;exécution
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const next = !cioQuestionsEnabled;
-                              setCioQuestionsEnabled(next);
-                              localStorage.setItem("cio_questions_enabled", String(next));
-                            }}
-                            className={`relative h-5 w-9 rounded-full transition-colors ${cioQuestionsEnabled ? "bg-violet-600" : "bg-slate-200"}`}
-                          >
-                            <span
-                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${cioQuestionsEnabled ? "translate-x-4" : "translate-x-0.5"}`}
-                            />
-                          </button>
-                        </div>
-                        <form onSubmit={onCioResumeSubmit} className="mt-3 space-y-3">
-                          <textarea
-                            value={cioResumeInput}
-                            onChange={(e) => setCioResumeInput(e.target.value)}
-                            disabled={cioResumeBusy}
-                            rows={5}
-                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-                            placeholder="Ex. : affine la synthèse sur le volet X, ajoute une passe commercial pour…"
-                          />
-                          <button
-                            type="submit"
-                            disabled={cioResumeBusy || !cioResumeInput.trim()}
-                            className="w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-40"
-                          >
-                            {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
-                          </button>
-                        </form>
-                      </>
+                        <textarea
+                          id="cio-resume-mission"
+                          value={cioResumeInput}
+                          onChange={(e) => setCioResumeInput(e.target.value)}
+                          disabled={cioResumeBusy}
+                          rows={3}
+                          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm leading-snug text-slate-900 outline-none ring-violet-200 focus:border-violet-400 focus:ring-1 disabled:opacity-50"
+                          placeholder="Ex. : affine la synthèse, ajoute une passe commercial…"
+                        />
+                        <button
+                          type="submit"
+                          disabled={cioResumeBusy || !cioResumeInput.trim()}
+                          className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:opacity-40"
+                        >
+                          {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                        </button>
+                      </form>
                     ) : (
-                      <div className="flex items-center gap-2 pt-1">
+                      <div className="flex items-center gap-2 border-b border-violet-100/80 p-3">
                         <span className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
                         <p className="text-xs text-violet-800">
-                          Tour en cours — le formulaire sera disponible à la fin du tour.
+                          Tour en cours — le formulaire revient à la fin du tour.
                         </p>
                       </div>
-                    )}
-                  </div>
-                ) : null}
-              </div>
+                    )
+                  ) : null}
+                  <SimpleAccordion
+                    key={`cio-dock-more-${selected}`}
+                    title={
+                      hasPendingCioQuestions
+                        ? `Précisions CIO (${pendingCioQuestionCount})`
+                        : "Précisions, questions & options"
+                    }
+                    hint="Déplier pour questions pendant mission, réglages et rappels"
+                    defaultOpen={hasPendingCioQuestions || !canResumeCio}
+                    className="rounded-b-2xl bg-violet-50/30"
+                    triggerClassName="w-full rounded-b-2xl px-3 py-2.5 text-left hover:bg-violet-50/80"
+                    panelClassName="max-h-[min(42vh,20rem)] space-y-3 overflow-y-auto border-t border-violet-100/90 bg-white/90 px-3 py-3"
+                  >
+                    <p className="text-[11px] leading-snug text-slate-600">
+                      Le fil ci-dessus s&apos;enrichit à chaque échange ; la synthèse et les livrables se mettent à jour
+                      dans la colonne de droite après exécution.
+                    </p>
+                    {canResumeCio && !cioResumeLiveId ? (
+                      <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2">
+                        <div className="min-w-0 pr-2">
+                          <p className="text-[11px] font-semibold text-slate-800">Questions CIO pendant la mission</p>
+                          <p className="text-[10px] text-slate-500">Le CIO peut solliciter des précisions.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = !cioQuestionsEnabled;
+                            setCioQuestionsEnabled(next);
+                            localStorage.setItem("cio_questions_enabled", String(next));
+                          }}
+                          className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${cioQuestionsEnabled ? "bg-violet-600" : "bg-slate-300"}`}
+                          aria-label="Activer ou désactiver les questions CIO en cours de mission"
+                        >
+                          <span
+                            className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${cioQuestionsEnabled ? "translate-x-4" : "translate-x-0.5"}`}
+                          />
+                        </button>
+                      </div>
+                    ) : null}
+                    {cioQuestions.length > 0 && !cioResumeLiveId ? (
+                      <CioQuestionsPanel
+                        questions={cioQuestions}
+                        onAnswer={(a) => onAnswerCioQuestion(a)}
+                        busy={cioQuestionBusy}
+                      />
+                    ) : null}
+                    {!(canResumeCio && !cioResumeLiveId) ? (
+                      <Link
+                        href={`/chat?parent=${encodeURIComponent(String(selected))}`}
+                        className="inline-flex text-[11px] font-medium text-violet-800 underline hover:text-violet-950"
+                      >
+                        Ouvrir la conversation dans Chat (même dossier)
+                      </Link>
+                    ) : null}
+                  </SimpleAccordion>
+                </div>
               ) : null}
             </aside>
           ) : null}

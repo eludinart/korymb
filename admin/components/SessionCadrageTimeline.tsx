@@ -11,6 +11,8 @@ type Props = {
   title?: string;
   className?: string;
   maxHeightClass?: string;
+  /** Colonne latérale : hauteur remplie par le parent, seul le fil défile (composeur fixe en dessous). */
+  fillColumn?: boolean;
 };
 
 /** Un "tour" = un message utilisateur + toutes les réponses CIO qui suivent. */
@@ -149,6 +151,7 @@ export default function SessionCadrageTimeline({
   title = "Fil de cadrage avec le CIO",
   className = "",
   maxHeightClass = "max-h-[min(32rem,60vh)]",
+  fillColumn = false,
 }: Props) {
   const list = Array.isArray(messages) ? (messages as Msg[]) : [];
   const turns = groupIntoTurns(list);
@@ -159,7 +162,9 @@ export default function SessionCadrageTimeline({
 
   if (turns.length === 0) {
     return (
-      <div className={`rounded-xl border border-slate-200 bg-slate-50 p-3 ${className}`}>
+      <div
+        className={`rounded-xl border border-slate-200 bg-slate-50 p-3 ${fillColumn ? "flex min-h-0 flex-1 flex-col" : ""} ${className}`}
+      >
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{title}</p>
         <p className="mt-2 text-xs text-slate-500">Aucun échange enregistré pour cette mission.</p>
       </div>
@@ -174,10 +179,10 @@ export default function SessionCadrageTimeline({
       <div
         className={`rounded-xl border border-slate-200 bg-white ${
           readerOpen ? "fixed inset-4 z-50 flex flex-col shadow-2xl" : ""
-        } ${className}`}
+        } ${fillColumn && !readerOpen ? "flex h-full min-h-0 flex-col" : ""} ${className}`}
       >
       {/* En-tête */}
-      <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-3 py-2">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">{title}</p>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500">
@@ -195,7 +200,7 @@ export default function SessionCadrageTimeline({
 
       {/* Navigation rapide par tour */}
       {turns.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2">
+        <div className="flex shrink-0 flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2">
           {turns.map((t) => {
             const p = PALETTES[t.idx % PALETTES.length];
             const chipSelected = focusedTurnId === t.id || (focusedTurnId === null && t.idx === lastTurnIdx);
@@ -220,7 +225,11 @@ export default function SessionCadrageTimeline({
       )}
 
       {/* Corps : liste des tours */}
-      <div className={`space-y-2 overflow-y-auto px-3 py-3 ${readerOpen ? "flex-1 min-h-0" : maxHeightClass}`}>
+      <div
+        className={`space-y-2 overflow-y-auto px-3 py-3 ${
+          readerOpen ? "min-h-0 flex-1" : fillColumn ? "min-h-0 flex-1" : maxHeightClass
+        }`}
+      >
         {turns.map((turn) => {
           const p = PALETTES[turn.idx % PALETTES.length];
           const isOpen = focusedTurnId === null || focusedTurnId === turn.id;
