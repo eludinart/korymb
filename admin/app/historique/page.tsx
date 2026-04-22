@@ -9,6 +9,39 @@ import { QK } from "../../lib/queryClient";
 
 import type { Job } from "../../lib/types";
 
+type HistoryItemType = "chat" | "mission_guidee" | "mission";
+
+function detectHistoryItemType(job: Job): HistoryItemType {
+  const source = String((job as Job & { source?: string }).source || "").toLowerCase();
+  if (source.startsWith("chat")) return "chat";
+  if (source === "mission_session") return "mission_guidee";
+  return "mission";
+}
+
+function historyTypeLabel(kind: HistoryItemType): string {
+  if (kind === "chat") return "Chat";
+  if (kind === "mission_guidee") return "Mission guidée";
+  return "Mission";
+}
+
+function firstUserMessageFromThread(thread: unknown): string {
+  if (!Array.isArray(thread)) return "";
+  for (const item of thread) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as { role?: unknown; content?: unknown };
+    if (String(row.role || "") !== "user") continue;
+    const content = String(row.content || "").trim();
+    if (content) return content;
+  }
+  return "";
+}
+
+function compact(text: string, max = 110): string {
+  const clean = stripMarkdownLight(text || "");
+  if (!clean) return "";
+  return clean.length > max ? `${clean.slice(0, max - 1)}…` : clean;
+}
+
 export default function HistoriquePage() {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
@@ -107,8 +140,8 @@ export default function HistoriquePage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Historique</h1>
         <p className="text-sm text-slate-500 mt-1">
-          Consultation et nettoyage des missions. Le détail reprend la même présentation que le suivi d&apos;une nouvelle
-          mission (fil live, synthèse CIO, cadrage, événements).
+          Journal unifié des missions et conversations. Chaque entrée affiche son type pour identifier rapidement ce qui est
+          un chat, une mission guidée ou une mission classique.
         </p>
       </div>
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)] lg:items-start">
@@ -119,34 +152,62 @@ export default function HistoriquePage() {
           ) : null}
         </div>
         <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-24 lg:max-h-[min(70vh,calc(100vh-8rem))] lg:overflow-y-auto space-y-2">
-          {jobs.map((j) => (
-            <div
-              key={j.job_id}
-              className={`border rounded-xl p-3 cursor-pointer ${
-                selected === j.job_id ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"
-              }`}
-              onClick={() => setSelected(j.job_id)}
-            >
-              <p className={`text-xs font-mono ${selected === j.job_id ? "text-slate-300" : "text-slate-500"}`}>{j.job_id}</p>
-              <p className={`text-sm font-medium truncate ${selected === j.job_id ? "text-white" : "text-slate-900"}`}>
-                {stripMarkdownLight(j.mission || "") || "(sans titre)"}
-              </p>
-              <p className={`text-xs ${selected === j.job_id ? "text-slate-300" : "text-slate-500"}`}>
-                {j.agent} · {j.status}
-              </p>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void deleteJob(j.job_id);
-                }}
-                disabled={busy}
-                className={`mt-2 text-xs px-2 py-1 rounded ${selected === j.job_id ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
+          {jobs.map((j) => {
+            const isSelected = selected === j.job_id;
+            const type = detectHistoryItemType(j);
+            const title =
+              type === "chat"
+                ? compact(firstUserMessageFromThread((j as Job & { mission_thread?: unknown[] }).mission_thread), 85) ||
+                  compact(j.mission || "", 85) ||
+                  "Conversation"
+                : compact(j.mission || "", 85) || "(sans titre)";
+            const quickInfo =
+              type === "chat"
+                ? compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75)
+                : type === "mission_guidee"
+                  ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
+                  : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
+
+            return (
+              <div
+                key={j.job_id}
+                className={`border rounded-xl p-3 cursor-pointer ${
+                  isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"
+                }`}
+                onClick={() => setSelected(j.job_id)}
               >
-                Suppr.
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center justify-between gap-2">
+                  <p className={`text-xs font-mono ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{j.job_id}</p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      isSelected
+                        ? "bg-white/15 text-white"
+                        : type === "chat"
+                          ? "bg-violet-50 text-violet-700"
+                          : type === "mission_guidee"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-slate-100 text-slate-700"
+                    }`}
+                  >
+                    {historyTypeLabel(type)}
+                  </span>
+                </div>
+                <p className={`mt-1 text-sm font-medium ${isSelected ? "text-white" : "text-slate-900"}`}>{title}</p>
+                <p className={`mt-1 text-xs ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{quickInfo}</p>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void deleteJob(j.job_id);
+                  }}
+                  disabled={busy}
+                  className={`mt-2 text-xs px-2 py-1 rounded ${isSelected ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
+                >
+                  Suppr.
+                </button>
+              </div>
+            );
+          })}
           {jobs.length === 0 ? <p className="text-sm text-slate-400">Aucun historique.</p> : null}
         </aside>
         <div className="min-w-0 max-w-full">

@@ -39,6 +39,7 @@ export type Job = {
   mission?: string;
   status?: string;
   agent?: string;
+  source?: string;
   result?: string | null;
   tokens_total?: number;
   cost_usd?: number;

@@ -62,7 +62,11 @@ function MissionsContent() {
   });
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
-  const sortedRows = useMemo(() => sortJobsForBossView(rows), [rows]);
+  const missionRows = useMemo(
+    () => rows.filter((j) => String(j.source || "mission") !== "chat"),
+    [rows],
+  );
+  const sortedRows = useMemo(() => sortJobsForBossView(missionRows), [missionRows]);
 
   // Pour chaque job parent, retrouver le job enfant le plus récent (continuation terminée)
   const latestChildByParent = useMemo(() => {
@@ -81,6 +85,12 @@ function MissionsContent() {
     const j = searchParams.get("job");
     if (j) setSelected(j);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const existsInMissionList = missionRows.some((j) => j.job_id === selected);
+    if (!existsInMissionList) setSelected(null);
+  }, [missionRows, selected]);
 
   const detail = useQuery({
     queryKey: ["job-detail-live", selected],
@@ -349,7 +359,7 @@ function MissionsContent() {
             </div>
           );
         })}
-        {rows.length === 0 ? <p className="text-sm text-slate-400">Aucune mission.</p> : null}
+        {missionRows.length === 0 ? <p className="text-sm text-slate-400">Aucune mission.</p> : null}
         </div>
         <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           {!selected ? (
