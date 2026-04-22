@@ -310,7 +310,7 @@ function MissionsContent() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Missions</h1>
-        <p className="text-sm text-slate-500 mt-1 max-w-3xl leading-relaxed">
+        <p className="text-sm text-slate-500 mt-1 max-w-none leading-relaxed">
           {selected ? (
             <>
               Fil et actions avec le CIO à gauche (grand écran) ; synthèse, livrables et validation à droite.{" "}
@@ -417,7 +417,7 @@ function MissionsContent() {
         </section>
       </div>
       ) : (
-      <div className={`mx-auto w-full min-w-0 space-y-4 ${showConversationSidebar ? "max-w-6xl" : "max-w-5xl"}`}>
+      <div className="w-full min-w-0 space-y-4">
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-4">
           <button
             type="button"
