@@ -314,23 +314,15 @@ function MissionsContent() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Missions</h1>
-        <p className="text-sm text-slate-500 mt-1 max-w-none leading-relaxed">
-          {selected ? (
-            <>
-              Fil et actions avec le CIO à gauche (grand écran) ; synthèse, livrables et validation à droite.{" "}
-              <span className="font-medium text-slate-700">Retour à la liste</span> pour changer de mission.
-            </>
-          ) : (
-            <>
-              Choisissez une mission dans la liste : la vue se concentre ensuite sur cette mission seule. Les missions à
-              valider et en cours remontent en premier.
-            </>
-          )}
-        </p>
-      </div>
+    <div className="space-y-3">
+      {!selected ? (
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">Missions</h1>
+          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+            Cliquez une mission pour le détail. Les missions à valider et en cours remontent en premier.
+          </p>
+        </div>
+      ) : null}
       {!selected ? (
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(320px,1fr)]">
         <div className="min-w-0 space-y-3">
@@ -424,19 +416,25 @@ function MissionsContent() {
         </section>
       </div>
       ) : (
-      <div className="w-full min-w-0 space-y-4">
-        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-4">
+      <div className="w-full min-w-0 space-y-3">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 pb-2">
           <button
             type="button"
             onClick={clearMissionSelection}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
           >
-            ← Retour à la liste
+            ← Liste
           </button>
+          <h1 className="shrink-0 text-lg font-bold tracking-tight text-slate-900">Missions</h1>
           {detail.data?.mission?.trim() ? (
-            <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">{detail.data.mission.trim()}</p>
+            <p
+              className="min-w-0 flex-1 truncate text-xs font-medium leading-snug text-slate-600"
+              title={detail.data.mission.trim()}
+            >
+              {detail.data.mission.trim()}
+            </p>
           ) : (
-            <p className="text-xs font-mono text-slate-500">#{selected}</p>
+            <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
           )}
         </div>
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
