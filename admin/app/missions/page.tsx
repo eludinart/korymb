@@ -16,6 +16,7 @@ import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
 import MissionStatusBadge from "../../components/MissionStatusBadge";
 import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
+import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { bestPreview } from "../../lib/missionBilan";
@@ -376,6 +377,33 @@ function MissionsContent() {
             <p className="text-sm text-red-700">Impossible de charger le détail mission.</p>
           ) : detail.data ? (
             <div className="space-y-5">
+              {(() => {
+                const detailStatus = String(detail.data.status || "");
+                const hitl = (detail.data.hitl || null) as { gate?: { kind?: string } } | null;
+                const awaitingHitl = detailStatus === "awaiting_validation";
+                const isCioPlanHitl = awaitingHitl && String(hitl?.gate?.kind || "") === "cio_plan" && Boolean(hitl);
+                if (!awaitingHitl || cioResumeLiveId) return null;
+                if (isCioPlanHitl) {
+                  return <CioPlanHitlPanel jobId={String(detail.data.job_id || selected || "")} hitl={hitl} />;
+                }
+                return (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+                    <p className="text-sm font-semibold text-amber-900">Validation requise (HITL)</p>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-800">
+                      Cette mission attend une décision humaine avant de poursuivre. Ouvrez la file d&apos;approbation
+                      pour valider ou rejeter l&apos;élément en attente.
+                    </p>
+                    <div className="mt-3">
+                      <Link
+                        href="/administration/approbations"
+                        className="inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                      >
+                        Ouvrir la file d&apos;approbation
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* ── QUESTIONS CIO (non-bloquantes) ───────────────────────────── */}
               {cioQuestions.length > 0 && !cioResumeLiveId && (

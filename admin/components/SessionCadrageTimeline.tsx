@@ -15,9 +15,19 @@ type Props = {
 
 /** Un "tour" = un message utilisateur + toutes les réponses CIO qui suivent. */
 type Turn = {
+  id: string;
   idx: number;        // 0-based
   userMsg: Msg | null;
   cioMsgs: Msg[];
+};
+
+const msgIdentity = (m: Msg | null | undefined, fallback: string): string => {
+  if (!m) return fallback;
+  const ts = String(m.ts || "");
+  const role = String(m.role || "");
+  const content = String(m.content || "").slice(0, 36);
+  const agent = String(m.agent || "");
+  return `${role}:${agent}:${ts}:${content}`;
 };
 
 function groupIntoTurns(list: Msg[]): Turn[] {
@@ -28,12 +38,22 @@ function groupIntoTurns(list: Msg[]): Turn[] {
     const role = String(m.role ?? "?");
     if (role === "user") {
       if (current) turns.push(current);
-      current = { idx: turns.length, userMsg: m, cioMsgs: [] };
+      current = {
+        id: `turn:${msgIdentity(m, `user-${turns.length}`)}`,
+        idx: turns.length,
+        userMsg: m,
+        cioMsgs: [],
+      };
     } else if (current) {
       current.cioMsgs.push(m);
     } else {
       // Réponse CIO avant tout message utilisateur (edge case)
-      current = { idx: 0, userMsg: null, cioMsgs: [m] };
+      current = {
+        id: `turn:edge:${msgIdentity(m, "edge-0")}`,
+        idx: 0,
+        userMsg: null,
+        cioMsgs: [m],
+      };
     }
   }
   if (current) turns.push(current);
@@ -118,8 +138,8 @@ export default function SessionCadrageTimeline({
   const list = Array.isArray(messages) ? (messages as Msg[]) : [];
   const turns = groupIntoTurns(list);
 
-  // Indice du tour déroulé (null = tous repliés sauf le dernier)
-  const [openTurn, setOpenTurn] = useState<number | null>(null);
+  // Id du tour déroulé (null = tous repliés sauf le dernier)
+  const [openTurnId, setOpenTurnId] = useState<string | null>(null);
 
   if (turns.length === 0) {
     return (
@@ -147,12 +167,12 @@ export default function SessionCadrageTimeline({
         <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2">
           {turns.map((t) => {
             const p = PALETTES[t.idx % PALETTES.length];
-            const isOpen = openTurn === t.idx || (openTurn === null && t.idx === lastTurnIdx);
+            const isOpen = openTurnId === t.id || (openTurnId === null && t.idx === lastTurnIdx);
             return (
               <button
-                key={t.idx}
+                key={t.id}
                 type="button"
-                onClick={() => setOpenTurn(isOpen ? null : t.idx)}
+                onClick={() => setOpenTurnId(isOpen ? null : t.id)}
                 className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition-colors ${
                   isOpen ? p.badge : p.count
                 }`}
@@ -169,7 +189,7 @@ export default function SessionCadrageTimeline({
         {turns.map((turn) => {
           const p = PALETTES[turn.idx % PALETTES.length];
           const isLast = turn.idx === lastTurnIdx;
-          const isOpen = openTurn === turn.idx || (openTurn === null && isLast);
+          const isOpen = openTurnId === turn.id || (openTurnId === null && isLast);
           // Pour les tours non-courants, afficher seulement un aperçu replié
           const preview = turn.userMsg?.content
             ? String(turn.userMsg.content).slice(0, 120) + (String(turn.userMsg.content).length > 120 ? "…" : "")
@@ -177,14 +197,14 @@ export default function SessionCadrageTimeline({
 
           return (
             <div
-              key={turn.idx}
+              key={turn.id}
               className={`overflow-hidden rounded-xl border ${p.wrap} transition-all`}
             >
               {/* En-tête du tour — toujours visible, cliquable */}
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                onClick={() => setOpenTurn(isOpen ? null : turn.idx)}
+                onClick={() => setOpenTurnId(isOpen ? null : turn.id)}
               >
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${p.badge}`}>
                   {turnIcon(turn.idx)} {turnLabel(turn.idx)}
