@@ -10,11 +10,12 @@ export function missionThreadToChatHistory(thread: unknown, maxMessages = 20): {
   const out: { role: "user" | "assistant"; content: string }[] = [];
   const slice = list.slice(-maxMessages);
   for (const m of slice) {
-    const r = String(m.role || "").toLowerCase();
+    const r = String(m.role || "").trim().toLowerCase();
     const c = String(m.content || "").trim();
     if (!c) continue;
     if (r === "user") out.push({ role: "user", content: c.slice(0, THREAD_CONTENT_CAP) });
-    else if (r === "assistant") out.push({ role: "assistant", content: c.slice(0, THREAD_CONTENT_CAP) });
+    else if (r === "assistant" || r === "coordinateur" || r === "system")
+      out.push({ role: "assistant", content: c.slice(0, THREAD_CONTENT_CAP) });
   }
   return out;
 }

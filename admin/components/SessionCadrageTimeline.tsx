@@ -35,8 +35,9 @@ function groupIntoTurns(list: Msg[]): Turn[] {
   let current: Turn | null = null;
 
   for (const m of list) {
-    const role = String(m.role ?? "?");
-    if (role === "user") {
+    const role = String(m.role ?? "?").trim();
+    const roleLc = role.toLowerCase();
+    if (roleLc === "user") {
       // Même « tour » tant que le CIO n'a pas répondu : le dirigeant peut enchainer
       // (ex. « la suite » puis « et alors ? ») avant la fin du job chat ; sans cela la
       // réponse assistant se rattache au dernier user et le tour précédent reste « en attente ».
@@ -153,8 +154,8 @@ export default function SessionCadrageTimeline({
   const turns = groupIntoTurns(list);
   const [readerOpen, setReaderOpen] = useState(false);
 
-  // Id du tour déroulé (null = tous repliés sauf le dernier)
-  const [openTurnId, setOpenTurnId] = useState<string | null>(null);
+  /** null = tous les tours développés (on voit tout le fil CIO) ; sinon un seul tour (aperçu replié pour les autres). */
+  const [focusedTurnId, setFocusedTurnId] = useState<string | null>(null);
 
   if (turns.length === 0) {
     return (
@@ -197,14 +198,18 @@ export default function SessionCadrageTimeline({
         <div className="flex flex-wrap gap-1.5 border-b border-slate-100 px-3 py-2">
           {turns.map((t) => {
             const p = PALETTES[t.idx % PALETTES.length];
-            const isOpen = openTurnId === t.id || (openTurnId === null && t.idx === lastTurnIdx);
+            const chipSelected = focusedTurnId === t.id || (focusedTurnId === null && t.idx === lastTurnIdx);
             return (
               <button
                 key={t.id}
                 type="button"
-                onClick={() => setOpenTurnId(isOpen ? null : t.id)}
+                onClick={() => {
+                  if (focusedTurnId === null) setFocusedTurnId(t.id);
+                  else if (focusedTurnId === t.id) setFocusedTurnId(null);
+                  else setFocusedTurnId(t.id);
+                }}
                 className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold transition-colors ${
-                  isOpen ? p.badge : p.count
+                  chipSelected ? p.badge : p.count
                 }`}
               >
                 {turnIcon(t.idx)} {turnLabel(t.idx)}
@@ -218,8 +223,7 @@ export default function SessionCadrageTimeline({
       <div className={`space-y-2 overflow-y-auto px-3 py-3 ${readerOpen ? "flex-1 min-h-0" : maxHeightClass}`}>
         {turns.map((turn) => {
           const p = PALETTES[turn.idx % PALETTES.length];
-          const isLast = turn.idx === lastTurnIdx;
-          const isOpen = openTurnId === turn.id || (openTurnId === null && isLast);
+          const isOpen = focusedTurnId === null || focusedTurnId === turn.id;
           // Pour les tours non-courants, afficher seulement un aperçu replié
           const preview = turn.userMsg?.content
             ? String(turn.userMsg.content).slice(0, 120) + (String(turn.userMsg.content).length > 120 ? "…" : "")
@@ -234,7 +238,11 @@ export default function SessionCadrageTimeline({
               <button
                 type="button"
                 className="flex w-full items-center gap-2 px-3 py-2 text-left"
-                onClick={() => setOpenTurnId(isOpen ? null : turn.id)}
+                onClick={() => {
+                  if (focusedTurnId === null) setFocusedTurnId(turn.id);
+                  else if (focusedTurnId === turn.id) setFocusedTurnId(null);
+                  else setFocusedTurnId(turn.id);
+                }}
               >
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${p.badge}`}>
                   {turnIcon(turn.idx)} {turnLabel(turn.idx)}
@@ -247,7 +255,9 @@ export default function SessionCadrageTimeline({
                     {turn.cioMsgs.length} rép.
                   </span>
                 )}
-                <span className={`text-[10px] ${p.labelText} transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
+                <span className={`text-[10px] ${p.labelText} transition-transform ${isOpen ? "rotate-180" : ""}`}>
+                  ▼
+                </span>
               </button>
 
               {/* Corps du tour — visible seulement si ouvert */}

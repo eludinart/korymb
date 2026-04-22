@@ -142,7 +142,11 @@ def emit_job_event(
             src = f"orchestration_{phase}"[:32]
             ag = (agent or "coordinateur")[:32]
             try:
-                from database import MISSION_THREAD_CONTENT_MAX_CHARS, append_job_mission_thread
+                from database import (
+                    MISSION_THREAD_CONTENT_MAX_CHARS,
+                    append_job_mission_thread,
+                    get_job as _get_job_for_thread_mirror,
+                )
 
                 append_job_mission_thread(
                     job_id,
@@ -151,6 +155,20 @@ def emit_job_event(
                     content=line[:MISSION_THREAD_CONTENT_MAX_CHARS],
                     source=src,
                 )
+                # Chat suivi mission : le job d'orchestration est un enfant ; le fil visible côté QG est le parent.
+                try:
+                    jrow = _get_job_for_thread_mirror(job_id)
+                    parent_id = (str((jrow or {}).get("parent_job_id") or "")).strip()[:16]
+                    if parent_id and parent_id != job_id:
+                        append_job_mission_thread(
+                            parent_id,
+                            role="assistant",
+                            agent=ag,
+                            content=line[:MISSION_THREAD_CONTENT_MAX_CHARS],
+                            source=f"{src[:20]}_parent"[:32],
+                        )
+                except Exception:
+                    logger.exception("append_job_mission_thread (team_dialogue → parent mission)")
             except Exception:
                 logger.exception("append_job_mission_thread (team_dialogue → journal mission)")
 
