@@ -39,23 +39,27 @@ const normalizeConversations = (raw: unknown): Conversation[] => {
       if (!item || typeof item !== "object") return null;
       const row = item as Partial<Conversation>;
       if (!Array.isArray(row.history)) return null;
+      const history: Msg[] = row.history
+        .filter((m) => m && typeof m === "object")
+        .map((m) => {
+          const itemRow = m as Partial<Msg>;
+          return {
+            role: itemRow.role === "assistant" ? "assistant" : "user",
+            content: String(itemRow.content || ""),
+            ...(itemRow.agent ? { agent: String(itemRow.agent) } : {}),
+          };
+        });
       return {
         id: String(row.id || `conv-restored-${Date.now()}-${idx}`),
         title: String(row.title || `Conversation ${idx + 1}`),
         agent: String(row.agent || "coordinateur"),
         draft: String(row.draft || ""),
-        history: row.history
-          .filter((m) => m && typeof m === "object")
-          .map((m) => ({
-            role: m.role === "assistant" ? "assistant" : "user",
-            content: String(m.content || ""),
-            agent: m.agent ? String(m.agent) : undefined,
-          })),
+        history,
         liveJobId: row.liveJobId ? String(row.liveJobId) : null,
-      } satisfies Conversation;
+      };
     })
-    .filter((row): row is Conversation => Boolean(row));
-  return normalized;
+    .filter(Boolean);
+  return normalized as Conversation[];
 };
 
 function ChatPageInner() {
