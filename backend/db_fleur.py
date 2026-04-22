@@ -40,8 +40,7 @@ def _safe_query(sql: str, params=None) -> list[dict]:
 
 # ── Outils agents ────────────────────────────────────────────────────────────
 
-@tool("Lister les tables de la base Fleur d'Amours")
-def db_list_tables(dummy: str = "") -> str:
+def run_db_list_tables(dummy: str = "") -> str:
     """
     Retourne la liste des tables et leur nombre de lignes dans la base de données
     de l'application Fleur d'Amours. Utilise cet outil en premier pour comprendre
@@ -59,8 +58,7 @@ def db_list_tables(dummy: str = "") -> str:
         return f"Connexion DB impossible : {e}\nVérifier que le tunnel SSH est actif ou que le backend tourne sur le VPS."
 
 
-@tool("Décrire une table de la base Fleur d'Amours")
-def db_describe_table(table_name: str) -> str:
+def run_db_describe_table(table_name: str) -> str:
     """
     Retourne la structure (colonnes, types) d'une table spécifique.
     Utilise cet outil avant d'interroger une table pour en comprendre les champs.
@@ -73,8 +71,7 @@ def db_describe_table(table_name: str) -> str:
         return f"Erreur : {e}"
 
 
-@tool("Interroger la base de données Fleur d'Amours")
-def db_query(sql: str) -> str:
+def run_db_query(sql: str) -> str:
     """
     Exécute une requête SELECT sur la base de données de l'app Fleur d'Amours.
     LECTURE SEULE — uniquement SELECT, SHOW, DESCRIBE.
@@ -102,8 +99,7 @@ def db_query(sql: str) -> str:
         return f"Erreur SQL : {e}"
 
 
-@tool("Analyser les données utilisateurs Fleur d'Amours")
-def db_analyze_users(question: str) -> str:
+def run_db_analyze_users(question: str) -> str:
     """
     Analyse les données utilisateurs/clients de l'app Fleur d'Amours.
     Pose une question en langage naturel et l'outil choisit la bonne requête.
@@ -141,7 +137,31 @@ def db_analyze_users(question: str) -> str:
                 except Exception:
                     continue
 
-        return db_list_tables("")
+        return run_db_list_tables("")
 
     except Exception as e:
         return f"Erreur : {e}"
+
+
+@tool("Lister les tables de la base Fleur d'Amours")
+def db_list_tables(dummy: str = "") -> str:
+    """Compat CrewAI: wrapper tool -> impl Python callable."""
+    return run_db_list_tables(dummy)
+
+
+@tool("Décrire une table de la base Fleur d'Amours")
+def db_describe_table(table_name: str) -> str:
+    """Compat CrewAI: wrapper tool -> impl Python callable."""
+    return run_db_describe_table(table_name)
+
+
+@tool("Interroger la base de données Fleur d'Amours")
+def db_query(sql: str) -> str:
+    """Compat CrewAI: wrapper tool -> impl Python callable."""
+    return run_db_query(sql)
+
+
+@tool("Analyser les données utilisateurs Fleur d'Amours")
+def db_analyze_users(question: str) -> str:
+    """Compat CrewAI: wrapper tool -> impl Python callable."""
+    return run_db_analyze_users(question)

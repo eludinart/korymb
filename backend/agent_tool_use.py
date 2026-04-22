@@ -37,7 +37,12 @@ from tools import (
     run_upload_google_drive,
     run_web_search,
 )
-from db_fleur import db_analyze_users, db_describe_table, db_list_tables, db_query
+from db_fleur import (
+    run_db_analyze_users,
+    run_db_describe_table,
+    run_db_list_tables,
+    run_db_query,
+)
 from tools.agent_tools import get_fleet_status, search_core_notes, validate_syntax
 from debug_ndjson import append_session_ndjson
 
@@ -424,13 +429,13 @@ def _execute_tool(name: str, inp: Any) -> str:
         if name == "get_fleet_status":
             return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
         if name == "db_list_tables":
-            return db_list_tables("")
+            return run_db_list_tables("")
         if name == "db_describe_table":
-            return db_describe_table(str(inp.get("table_name", "")))
+            return run_db_describe_table(str(inp.get("table_name", "")))
         if name == "db_query":
-            return db_query(str(inp.get("sql", "")))
+            return run_db_query(str(inp.get("sql", "")))
         if name == "db_analyze_users":
-            return db_analyze_users(str(inp.get("question", "")))
+            return run_db_analyze_users(str(inp.get("question", "")))
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
