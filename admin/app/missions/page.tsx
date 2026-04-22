@@ -325,7 +325,7 @@ function MissionsContent() {
         </p>
       </div>
       {!selected ? (
-      <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.15fr)]">
+      <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(320px,1fr)]">
         <div className="min-w-0 space-y-3">
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
         {feedback ? (
@@ -442,7 +442,7 @@ function MissionsContent() {
         <div
           className={
             showConversationSidebar
-              ? "lg:grid lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] lg:items-start lg:gap-8"
+              ? "lg:grid lg:grid-cols-[minmax(340px,1fr)_minmax(340px,1fr)] lg:items-start lg:gap-6 xl:gap-8"
               : ""
           }
         >
