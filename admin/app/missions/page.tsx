@@ -316,20 +316,18 @@ function MissionsContent() {
                       />
                     );
                   })() : previewText ? (
-                    <details className="group min-h-0 rounded-lg border border-slate-100 bg-white text-left">
-                      <summary className="flex cursor-pointer list-none items-center justify-between px-2.5 py-2 select-none">
-                        <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                          Bilan CIO
-                        </p>
-                        <span className="text-[10px] text-slate-300 transition-transform group-open:rotate-180">▼</span>
-                      </summary>
-                      <div className="border-t border-slate-100 px-2.5 pb-2.5 pt-2">
-                        <AgentMessageMarkdown
-                          source={previewText}
-                          className="text-[11px] [&_h1]:mb-1 [&_h1]:text-[11px] [&_h2]:mb-1 [&_h2]:text-[11px] [&_h3]:text-[11px] [&_li]:text-[10px] [&_li]:my-0.5 [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
-                        />
-                      </div>
-                    </details>
+                    <SimpleAccordion
+                      title="Bilan CIO"
+                      defaultOpen={false}
+                      className="min-h-0 rounded-lg border border-slate-100 bg-white text-left"
+                      triggerClassName="px-2.5 py-2"
+                      panelClassName="border-t border-slate-100 px-2.5 pb-2.5 pt-2"
+                    >
+                      <AgentMessageMarkdown
+                        source={previewText}
+                        className="text-[11px] [&_h1]:mb-1 [&_h1]:text-[11px] [&_h2]:mb-1 [&_h2]:text-[11px] [&_h3]:text-[11px] [&_li]:text-[10px] [&_li]:my-0.5 [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
+                      />
+                    </SimpleAccordion>
                   ) : (
                     <p className="text-xs text-slate-400">Pas encore de synthèse disponible.</p>
                   )}

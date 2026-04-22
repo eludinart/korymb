@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { requestJson, agentHeaders } from "../../../lib/api";
+import SimpleAccordion from "../../../components/SimpleAccordion";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -310,14 +311,17 @@ function LaunchModal({
                   />
                 </div>
               ))}
-              <details className="mt-2">
-                <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">
-                  Aperçu de la mission
-                </summary>
-                <pre className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 whitespace-pre-wrap overflow-auto max-h-40">
+              <SimpleAccordion
+                title="Aperçu de la mission"
+                defaultOpen={false}
+                className="mt-2 rounded-xl border border-slate-200 bg-white"
+                triggerClassName="px-3 py-2 text-xs text-slate-500 hover:bg-slate-50"
+                panelClassName="border-t border-slate-200 px-3 py-2"
+              >
+                <pre className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600 whitespace-pre-wrap overflow-auto max-h-40">
                   {preview}
                 </pre>
-              </details>
+              </SimpleAccordion>
             </>
           ) : (
             <div>
