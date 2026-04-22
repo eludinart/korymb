@@ -4,6 +4,23 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import { normalizeLooseMarkdown } from "../lib/normalizeLooseMarkdown";
 
+function safeMarkdownUrl(rawUrl: string): string {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  if (value.startsWith("/") || value.startsWith("./") || value.startsWith("../") || value.startsWith("#")) {
+    return value;
+  }
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "https:" || parsed.protocol === "mailto:" || parsed.protocol === "tel:") {
+      return value;
+    }
+  } catch {
+    return "";
+  }
+  return "";
+}
+
 /** react-markdown / hast peuvent injecter des props non-DOM : ne pas les repasser aux balises HTML. */
 function markdownDomProps(props: Record<string, unknown>) {
   const { node, inline, ...rest } = props;
@@ -126,7 +143,7 @@ export default function AgentMessageMarkdown({ source, className = "" }: Props) 
   if (!text.trim()) return null;
   return (
     <div className={`agent-message-md max-w-none break-words [overflow-wrap:anywhere] ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkBreaks]} components={bubbleComponents}>
+      <ReactMarkdown remarkPlugins={[remarkBreaks]} components={bubbleComponents} urlTransform={safeMarkdownUrl}>
         {text}
       </ReactMarkdown>
     </div>
