@@ -147,6 +147,11 @@ function MissionsContent() {
       .filter((q) => q.questions.length > 0);
   }, [detail.data?.events]);
 
+  /** Bandeau latéral sticky : poursuite CIO + questions (évite de scroller toute la mission). */
+  const showDecisionRail = Boolean(
+    (cioQuestions.length > 0 && !cioResumeLiveId) || canResumeCio,
+  );
+
   const onAnswerCioQuestion = async (answer: string) => {
     if (!selected || !answer.trim() || cioQuestionBusy) return;
     setCioQuestionBusy(true);
@@ -410,7 +415,7 @@ function MissionsContent() {
         </section>
       </div>
       ) : (
-      <div className="mx-auto w-full max-w-5xl min-w-0 space-y-4">
+      <div className={`mx-auto w-full min-w-0 space-y-4 ${showDecisionRail ? "max-w-6xl" : "max-w-5xl"}`}>
         <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-4">
           <button
             type="button"
@@ -431,37 +436,118 @@ function MissionsContent() {
             {feedback}
           </p>
         ) : null}
-        {activeBoardData ? (
-          <AgentActivationBoard
-            events={activeBoardData.events}
-            jobStatus={String(activeBoardData.status || "")}
-            className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
-          />
-        ) : null}
-        {detail.data ? (
-          <SessionCadrageTimeline
-            messages={detail.data.mission_thread}
-            title="Fil de cadrage avec le CIO (contexte)"
-            maxHeightClass="max-h-[min(38rem,62vh)]"
-          />
-        ) : null}
-        {detail.data && selectedMissionSynth ? (
-          <MissionDecisionCard
-            job={{
-              result: selectedMissionSynth.cardResult,
-              status: selectedMissionSynth.liveStatus,
-              team: selectedMissionSynth.cardTeam,
-              tokens_total: selectedMissionSynth.cardTokens,
-              cost_usd: selectedMissionSynth.cardCost,
-              events_total: selectedMissionSynth.cardEvents,
-              delivery_warnings: selectedMissionSynth.deliveryWarnings,
-              delivery_blocked: selectedMissionSynth.deliveryBlocked,
-              created_at: detail.data.created_at as string | undefined,
-            }}
-            updatedByContinuation={selectedMissionSynth.hasChild}
-          />
-        ) : null}
-        <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+
+        <div
+          className={
+            showDecisionRail
+              ? "lg:grid lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] lg:items-start lg:gap-8"
+              : ""
+          }
+        >
+          {showDecisionRail ? (
+            <aside className="order-first mb-6 space-y-4 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:max-h-[calc(100vh-1.25rem)] lg:overflow-y-auto lg:self-start lg:pr-0.5">
+              <div className="rounded-2xl border border-violet-200 bg-gradient-to-b from-violet-50/95 to-white p-4 shadow-md ring-1 ring-violet-100/80">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Poursuivre la mission</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                  Visible ici pendant que vous consultez synthèse et livrables plus bas.
+                </p>
+                {cioQuestions.length > 0 && !cioResumeLiveId ? (
+                  <div className="mt-4 border-t border-violet-100 pt-4">
+                    <CioQuestionsPanel
+                      questions={cioQuestions}
+                      onAnswer={(a) => onAnswerCioQuestion(a)}
+                      busy={cioQuestionBusy}
+                    />
+                  </div>
+                ) : null}
+                {canResumeCio ? (
+                  <div className={cioQuestions.length > 0 && !cioResumeLiveId ? "mt-4 border-t border-violet-100 pt-4" : "mt-3"}>
+                    {!cioResumeLiveId ? (
+                      <>
+                        <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO</h3>
+                        <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                          Même mission : la suite va dans le fil de cadrage ; le livrable se met à jour ici après
+                          exécution.
+                        </p>
+                        <div className="mt-2">
+                          <Link
+                            href={`/chat?parent=${encodeURIComponent(String(selected))}`}
+                            className="text-xs font-medium text-violet-800 underline hover:text-violet-950"
+                          >
+                            Ouvrir dans Chat (même dossier)
+                          </Link>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
+                          <div>
+                            <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
+                            <p className="text-[10px] text-slate-400">
+                              Le CIO peut vous poser des précisions pendant l&apos;exécution
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = !cioQuestionsEnabled;
+                              setCioQuestionsEnabled(next);
+                              localStorage.setItem("cio_questions_enabled", String(next));
+                            }}
+                            className={`relative h-5 w-9 rounded-full transition-colors ${cioQuestionsEnabled ? "bg-violet-600" : "bg-slate-200"}`}
+                          >
+                            <span
+                              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${cioQuestionsEnabled ? "translate-x-4" : "translate-x-0.5"}`}
+                            />
+                          </button>
+                        </div>
+                        <form onSubmit={onCioResumeSubmit} className="mt-3 space-y-3">
+                          <textarea
+                            value={cioResumeInput}
+                            onChange={(e) => setCioResumeInput(e.target.value)}
+                            disabled={cioResumeBusy}
+                            rows={5}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
+                            placeholder="Ex. : affine la synthèse sur le volet X, ajoute une passe commercial pour…"
+                          />
+                          <button
+                            type="submit"
+                            disabled={cioResumeBusy || !cioResumeInput.trim()}
+                            className="w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-40"
+                          >
+                            {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                          </button>
+                        </form>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
+                        <p className="text-xs text-violet-800">
+                          Tour en cours — le formulaire sera disponible à la fin du tour.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </aside>
+          ) : null}
+
+          <div className="min-w-0 space-y-4">
+            {detail.data && selectedMissionSynth ? (
+              <MissionDecisionCard
+                job={{
+                  result: selectedMissionSynth.cardResult,
+                  status: selectedMissionSynth.liveStatus,
+                  team: selectedMissionSynth.cardTeam,
+                  tokens_total: selectedMissionSynth.cardTokens,
+                  cost_usd: selectedMissionSynth.cardCost,
+                  events_total: selectedMissionSynth.cardEvents,
+                  delivery_warnings: selectedMissionSynth.deliveryWarnings,
+                  delivery_blocked: selectedMissionSynth.deliveryBlocked,
+                  created_at: detail.data.created_at as string | undefined,
+                }}
+                updatedByContinuation={selectedMissionSynth.hasChild}
+              />
+            ) : null}
+            <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           {detail.isLoading ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.isError ? (
@@ -496,8 +582,8 @@ function MissionsContent() {
                 );
               })()}
 
-              {/* ── QUESTIONS CIO (non-bloquantes) ───────────────────────────── */}
-              {cioQuestions.length > 0 && !cioResumeLiveId && (
+              {/* ── QUESTIONS CIO (non-bloquantes) — dans le flux principal si pas de rail latéral ───────── */}
+              {!showDecisionRail && cioQuestions.length > 0 && !cioResumeLiveId && (
                 <CioQuestionsPanel
                   questions={cioQuestions}
                   onAnswer={(a) => onAnswerCioQuestion(a)}
@@ -607,18 +693,53 @@ function MissionsContent() {
                 />
               ) : null}
 
-              {/* ── Métriques (job principal si pas de continuation) ────────── */}
-              {!cioResumeLiveId ? (
-                <MissionMetricsRow
-                  status={String(detail.data.status || "")}
-                  tokensTotal={Number(detail.data.tokens_total || 0)}
-                  costUsd={Number(detail.data.cost_usd || 0)}
-                  eventsTotal={Number(detail.data.events_total || 0)}
-                  logTotal={Number(detail.data.log_total || 0)}
-                />
+              <CollapsibleMissionSection
+                title="Carte d&apos;activation des agents"
+                hint="État des rôles et signaux temps réel — ouvrir si besoin"
+                defaultOpen={false}
+              >
+                {activeBoardData ? (
+                  <AgentActivationBoard
+                    events={activeBoardData.events}
+                    jobStatus={String(activeBoardData.status || "")}
+                    className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
+                  />
+                ) : (
+                  <p className="text-sm text-slate-500">Aucune donnée d&apos;activation pour l&apos;instant.</p>
+                )}
+              </CollapsibleMissionSection>
+
+              {detail.data ? (
+                <CollapsibleMissionSection
+                  title="Fil de cadrage avec le CIO"
+                  hint="Historique des échanges enregistrés sur cette mission"
+                  defaultOpen={false}
+                >
+                  <SessionCadrageTimeline
+                    messages={detail.data.mission_thread}
+                    title="Fil de cadrage avec le CIO (contexte)"
+                    maxHeightClass="max-h-[min(38rem,62vh)]"
+                  />
+                </CollapsibleMissionSection>
               ) : null}
 
-              {canResumeCio ? (
+              {!cioResumeLiveId ? (
+                <CollapsibleMissionSection
+                  title="Métriques et coûts (mission principale)"
+                  hint="Tokens, coût USD, volumétrie — utile pour le pilotage, pas pour chaque décision métier"
+                  defaultOpen={false}
+                >
+                  <MissionMetricsRow
+                    status={String(detail.data.status || "")}
+                    tokensTotal={Number(detail.data.tokens_total || 0)}
+                    costUsd={Number(detail.data.cost_usd || 0)}
+                    eventsTotal={Number(detail.data.events_total || 0)}
+                    logTotal={Number(detail.data.log_total || 0)}
+                  />
+                </CollapsibleMissionSection>
+              ) : null}
+
+              {!showDecisionRail && canResumeCio ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
                   {!cioResumeLiveId ? (
                     <>
@@ -635,7 +756,6 @@ function MissionsContent() {
                           Ouvrir dans Chat (même dossier)
                         </Link>
                       </div>
-                      {/* Toggle questions CIO */}
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <div>
                           <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
@@ -698,7 +818,7 @@ function MissionsContent() {
                 className="rounded-2xl border border-slate-200 bg-slate-50/80 shadow-sm"
                 triggerClassName="cursor-pointer rounded-2xl px-4 py-3 hover:bg-slate-100/80"
                 title="Détail d&apos;exécution"
-                hint="Équipe, journaux et volumétrie (les métriques sont déjà visibles au-dessus)"
+                hint="Équipe, journaux bruts et rappel volumétrique — ouvrir pour le diagnostic technique"
                 defaultOpen={false}
                 panelClassName="space-y-4 border-t border-slate-200 px-4 py-4"
               >
@@ -755,6 +875,8 @@ function MissionsContent() {
             </div>
           ) : null}
         </section>
+          </div>
+        </div>
       </div>
       )}
     </div>
