@@ -37,6 +37,20 @@ function groupIntoTurns(list: Msg[]): Turn[] {
   for (const m of list) {
     const role = String(m.role ?? "?");
     if (role === "user") {
+      // Même « tour » tant que le CIO n'a pas répondu : le dirigeant peut enchainer
+      // (ex. « la suite » puis « et alors ? ») avant la fin du job chat ; sans cela la
+      // réponse assistant se rattache au dernier user et le tour précédent reste « en attente ».
+      if (current && current.cioMsgs.length === 0 && current.userMsg) {
+        const a = String(current.userMsg.content || "").trim();
+        const b = String(m.content || "").trim();
+        current.userMsg = {
+          ...current.userMsg,
+          content: a && b ? `${a}\n\n—\n\n${b}` : a || b,
+          ts: m.ts || current.userMsg.ts,
+        };
+        current.id = `turn:${msgIdentity(current.userMsg, `user-${current.idx}`)}`;
+        continue;
+      }
       if (current) turns.push(current);
       current = {
         id: `turn:${msgIdentity(m, `user-${turns.length}`)}`,

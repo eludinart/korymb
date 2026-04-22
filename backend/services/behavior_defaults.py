@@ -221,7 +221,7 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
             "Ce nombre limite la longueur par rôle avant troncature (affiche « suite tronquée »). "
             "Augmenter grossit le résultat mission ; diminuer allège mais peut couper des détails."
         ),
-        "value": 14000,
+        "value": 52000,
     },
 }
 

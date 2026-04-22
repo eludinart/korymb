@@ -59,6 +59,8 @@ Tableau de bord en 5 a 12 puces avec des CHIFFRES REELS tires des contributions.
 Format : - [Role] * [N] [action] — ex: - Commercial * 8 profils LinkedIn identifies
 Inclure : prospects identifies (nb + noms/secteurs), messages rediges (nb), posts reseaux sociaux (nb + plateformes),
 documents crees (nb + noms), pages web lues (nb), recherches effectuees (nb).
+Ne recopie PAS les courriels ou posts en entier dans ce bilan : le dirigeant dispose des textes intégraux dans
+l'annexe « Livrables bruts de l'équipe » (blocs `#### LIVRABLE — …` par pièce) ; ici, compte les pièces (nb) et nomme les cibles, pas le corps des messages.
 Si rien de concret, le dire. Ce bloc se lit en 20 secondes.
 
 2. Reponses des roles — un sous-paragraphe par agent ci-dessus

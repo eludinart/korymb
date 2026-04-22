@@ -78,7 +78,10 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Tu disposes d'outils (recherche web, pages publiques, recherche LinkedIn publique, brouillon d'email). "
             "Dès qu'on te demande des pistes clients, des leads, un marché ou des contacts : utilise ces outils "
             "pour aller chercher des informations réelles (requêtes ciblées, puis lecture de pages utiles), "
-            "puis synthétise — ne te contente pas d'inventer des noms ou URLs sans recherche.\n\n"
+            "puis synthétise — ne te contente pas d'inventer des noms ou URLs sans recherche.\n"
+            "Si tu rédiges plusieurs courriels de prospection : chacun doit être un bloc complet "
+            "`#### LIVRABLE — <cible ou sujet>` suivi du texte (objet + corps), jamais seulement un résumé du type "
+            "« j'ai préparé N mails » sans les coller.\n\n"
         ),
     },
     "community_manager": {

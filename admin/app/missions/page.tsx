@@ -2,7 +2,7 @@
 
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
 import AgentActivationBoard from "../../components/AgentActivationBoard";
@@ -44,6 +44,7 @@ async function validateJob(jobId: string) {
 
 function MissionsContent() {
   const qc = useQueryClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -88,12 +89,6 @@ function MissionsContent() {
     const j = searchParams.get("job");
     if (j) setSelected(j);
   }, [searchParams]);
-
-  useEffect(() => {
-    if (!selected) return;
-    const existsInMissionList = missionRows.some((j) => j.job_id === selected);
-    if (!existsInMissionList) setSelected(null);
-  }, [missionRows, selected]);
 
   const detail = useQuery({
     queryKey: ["job-detail-live", selected],
@@ -282,6 +277,11 @@ function MissionsContent() {
     }
   };
 
+  const clearMissionSelection = () => {
+    setSelected(null);
+    router.replace("/missions");
+  };
+
   const onValidate = async (jobId: string) => {
     setBusyId(jobId);
     setError("");
@@ -304,11 +304,20 @@ function MissionsContent() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Missions</h1>
         <p className="text-sm text-slate-500 mt-1 max-w-3xl leading-relaxed">
-          Vue pilotage : à droite, la <span className="font-medium text-slate-700">synthèse & livrable</span> du CIO
-          d&apos;abord, puis le détail par rôle (repliable), le fil de cadrage et les événements. Les missions à valider et
-          en cours remontent en premier dans la liste.
+          {selected ? (
+            <>
+              Détail d&apos;une mission : synthèse et livrable du CIO, fil de cadrage, livrables et événements. Utilisez{" "}
+              <span className="font-medium text-slate-700">Retour à la liste</span> pour choisir une autre mission.
+            </>
+          ) : (
+            <>
+              Choisissez une mission dans la liste : la vue se concentre ensuite sur cette mission seule. Les missions à
+              valider et en cours remontent en premier.
+            </>
+          )}
         </p>
       </div>
+      {!selected ? (
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(280px,1fr)_minmax(0,1.15fr)]">
         <div className="min-w-0 space-y-3">
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
@@ -316,36 +325,6 @@ function MissionsContent() {
           <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
             {feedback}
           </p>
-        ) : null}
-        {selected && activeBoardData ? (
-          <AgentActivationBoard
-            events={activeBoardData.events}
-            jobStatus={String(activeBoardData.status || "")}
-            className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
-          />
-        ) : null}
-        {selected && detail.data ? (
-          <SessionCadrageTimeline
-            messages={detail.data.mission_thread}
-            title="Fil de cadrage avec le CIO (contexte)"
-            maxHeightClass="max-h-[min(38rem,62vh)]"
-          />
-        ) : null}
-        {selected && detail.data && selectedMissionSynth ? (
-          <MissionDecisionCard
-            job={{
-              result: selectedMissionSynth.cardResult,
-              status: selectedMissionSynth.liveStatus,
-              team: selectedMissionSynth.cardTeam,
-              tokens_total: selectedMissionSynth.cardTokens,
-              cost_usd: selectedMissionSynth.cardCost,
-              events_total: selectedMissionSynth.cardEvents,
-              delivery_warnings: selectedMissionSynth.deliveryWarnings,
-              delivery_blocked: selectedMissionSynth.deliveryBlocked,
-              created_at: detail.data.created_at as string | undefined,
-            }}
-            updatedByContinuation={selectedMissionSynth.hasChild}
-          />
         ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
@@ -358,9 +337,7 @@ function MissionsContent() {
                   return (
             <div
               key={j.job_id}
-              className={`min-w-0 bg-white border rounded-2xl p-4 cursor-pointer transition-shadow ${
-                selected === j.job_id ? "border-violet-500 shadow-md ring-1 ring-violet-100" : "border-slate-200 hover:border-slate-300"
-              }`}
+              className="min-w-0 bg-white border border-slate-200 rounded-2xl p-4 cursor-pointer transition-shadow hover:border-slate-300"
               onClick={() => setSelected(j.job_id)}
             >
               <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
@@ -386,7 +363,7 @@ function MissionsContent() {
                   <p className="text-xs text-slate-500 font-mono">
                     #{j.job_id} · {j.agent || "coordinateur"}
                   </p>
-                  {selected === j.job_id && detail.data ? null : previewText ? (
+                  {previewText ? (
                     <SimpleAccordion
                       title="Bilan CIO"
                       defaultOpen={false}
@@ -423,15 +400,69 @@ function MissionsContent() {
         {missionRows.length === 0 ? <p className="text-sm text-slate-400">Aucune mission.</p> : null}
         </div>
         <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          {!selected ? (
             <div className="space-y-4">
               <AgentMindMap />
               <p className="text-xs text-slate-400 leading-relaxed">
-                Sélectionne une mission à gauche pour voir la{" "}
-                <span className="font-medium text-slate-600">synthèse & livrable</span> du CIO, le détail par rôle et les événements.
+                Cliquez sur une mission à gauche : la page affichera uniquement son détail, avec un bouton pour revenir à
+                cette liste.
               </p>
             </div>
-          ) : detail.isLoading ? (
+        </section>
+      </div>
+      ) : (
+      <div className="mx-auto w-full max-w-5xl min-w-0 space-y-4">
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-4">
+          <button
+            type="button"
+            onClick={clearMissionSelection}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            ← Retour à la liste
+          </button>
+          {detail.data?.mission?.trim() ? (
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-slate-700">{detail.data.mission.trim()}</p>
+          ) : (
+            <p className="text-xs font-mono text-slate-500">#{selected}</p>
+          )}
+        </div>
+        {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
+        {feedback ? (
+          <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+            {feedback}
+          </p>
+        ) : null}
+        {activeBoardData ? (
+          <AgentActivationBoard
+            events={activeBoardData.events}
+            jobStatus={String(activeBoardData.status || "")}
+            className={cioResumeLiveId ? "ring-2 ring-offset-0 ring-violet-300" : ""}
+          />
+        ) : null}
+        {detail.data ? (
+          <SessionCadrageTimeline
+            messages={detail.data.mission_thread}
+            title="Fil de cadrage avec le CIO (contexte)"
+            maxHeightClass="max-h-[min(38rem,62vh)]"
+          />
+        ) : null}
+        {detail.data && selectedMissionSynth ? (
+          <MissionDecisionCard
+            job={{
+              result: selectedMissionSynth.cardResult,
+              status: selectedMissionSynth.liveStatus,
+              team: selectedMissionSynth.cardTeam,
+              tokens_total: selectedMissionSynth.cardTokens,
+              cost_usd: selectedMissionSynth.cardCost,
+              events_total: selectedMissionSynth.cardEvents,
+              delivery_warnings: selectedMissionSynth.deliveryWarnings,
+              delivery_blocked: selectedMissionSynth.deliveryBlocked,
+              created_at: detail.data.created_at as string | undefined,
+            }}
+            updatedByContinuation={selectedMissionSynth.hasChild}
+          />
+        ) : null}
+        <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          {detail.isLoading ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.isError ? (
             <p className="text-sm text-red-700">Impossible de charger le détail mission.</p>
@@ -725,6 +756,7 @@ function MissionsContent() {
           ) : null}
         </section>
       </div>
+      )}
     </div>
   );
 }

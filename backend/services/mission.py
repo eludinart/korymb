@@ -531,6 +531,19 @@ _REPAIR_DEV_WEB_TOOLS_SUFFIX = (
     "Utilise **`web_search`** (ou `read_webpage` sur une doc officielle), puis conclus."
 )
 
+_SUBAGENT_DELIVERABLE_BLOCKS_SUFFIX = (
+    "\n\n---\n### Format livrables distincts (obligatoire si tu produis plusieurs pièces)\n"
+    "Si tu livres **plusieurs** courriels, messages réseaux, posts ou documents **séparés**, chaque pièce doit être "
+    "un bloc Markdown **distinct** : une ligne qui commence **exactement** par\n"
+    "`#### LIVRABLE — <titre court pour le dirigeant (ex. org ou personne visée)>`\n"
+    "puis une ligne vide, puis le **texte intégral** de cette pièce (objet + corps si c’est un mail).\n"
+    "**Une ligne `#### LIVRABLE — …` = une pièce** que le dirigeant pourra ouvrir, copier ou exporter à part.\n"
+    "Ne commence **jamais** une ligne par seulement `### ` (trois dièses) : ce format est réservé au moteur. "
+    "Tu structures tes pièces avec `####` comme ci-dessus.\n"
+    "Si tu n’as qu’**une** pièce, enveloppe-la quand même avec `#### LIVRABLE — …` pour qu’elle remonte clairement "
+    "comme document unique."
+)
+
 
 def _blob_needs_commercial_web_evidence(per: str) -> bool:
     """True si la consigne ressemble à de la prospection / veille nécessitant le web (hors simple mail)."""
@@ -1093,7 +1106,8 @@ def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
         return ""
     return (
         "\n\n---\n\n## Livrables bruts de l’équipe\n\n"
-        "*Textes intégraux produits par chaque rôle pendant cette mission (hors reformatage du CIO).*\n\n"
+        "*Textes intégraux produits par chaque rôle pendant cette mission (hors reformatage du CIO). "
+        "Plusieurs courriers ou pièces par rôle : repérer les blocs `#### LIVRABLE — …` dans l’interface Missions.*\n\n"
         + "\n\n".join(parts)
     )
 
@@ -1623,6 +1637,10 @@ def orchestrate_coordinateur_mission(
             "message final (fuseau **Europe/Paris** par défaut si non précisé) ; ne laisse pas le CIO sans phrase "
             "exploitable.\n\n"
             f"Sous-mission : {tache}\n\nContexte de la mission globale : {root_mission_label}"
+            + _behavior_text(
+                "orchestration.subagent.deliverable_blocks_suffix",
+                _SUBAGENT_DELIVERABLE_BLOCKS_SUFFIX,
+            )
         )
         per_blob = f"{tache}\n{root_mission_label}\n{mission_txt}"
         need_commercial_web = agent_key == "commercial" and _blob_needs_commercial_web_evidence(per_blob)
