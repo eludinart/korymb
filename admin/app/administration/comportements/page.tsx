@@ -26,6 +26,7 @@ export default function BehaviorSettingsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("orchestration");
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [draft, setDraft] = useState<string>("");
+  const [mobilePane, setMobilePane] = useState<"browse" | "edit">("browse");
 
   const listQuery = useQuery({
     queryKey: ["behavior-settings"],
@@ -105,7 +106,7 @@ export default function BehaviorSettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Comportements moteur</h1>
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">Comportements moteur</h1>
         <p className="mt-1 max-w-3xl text-sm leading-relaxed text-slate-500">
           Registre central des comportements non métiers : délais, filets, formats de réponse et contraintes
           d&apos;orchestration. Chaque clé a une description ci-dessous : lis-la avant de modifier une valeur.
@@ -113,8 +114,30 @@ export default function BehaviorSettingsPage() {
         </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[220px_280px_1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mobile-tab-bar lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePane("browse")}
+          className={`mobile-tab ${mobilePane === "browse" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+        >
+          Catégories & clés
+        </button>
+        <button
+          type="button"
+          onClick={() => current && setMobilePane("edit")}
+          disabled={!current}
+          className={`mobile-tab ${mobilePane === "edit" ? "mobile-tab-active" : "mobile-tab-inactive"} disabled:opacity-40`}
+        >
+          Édition
+        </button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,280px)_1fr]">
+        <div
+          className={`rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ${
+            mobilePane === "browse" ? "block" : "hidden lg:block"
+          }`}
+        >
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Catégories</p>
           <div className="space-y-1">
             {categories.map((cat) => (
@@ -122,7 +145,7 @@ export default function BehaviorSettingsPage() {
                 key={cat}
                 type="button"
                 onClick={() => setSelectedCategory(cat)}
-                className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium ${
+                className={`min-h-[44px] w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium ${
                   selectedCategory === cat ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100"
                 }`}
               >
@@ -132,15 +155,24 @@ export default function BehaviorSettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div
+          className={`rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ${
+            mobilePane === "browse" ? "block" : "hidden lg:block"
+          }`}
+        >
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Clés</p>
           <div className="space-y-1">
             {currentCategoryItems.map((item) => (
               <button
                 key={item.setting_key}
                 type="button"
-                onClick={() => setSelectedKey(item.setting_key)}
-                className={`w-full rounded-lg px-3 py-2 text-left ${
+                onClick={() => {
+                  setSelectedKey(item.setting_key);
+                  if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+                    setMobilePane("edit");
+                  }
+                }}
+                className={`min-h-[44px] w-full rounded-lg px-3 py-2.5 text-left ${
                   selectedKey === item.setting_key ? "bg-violet-50 text-violet-900" : "hover:bg-slate-50"
                 }`}
               >
@@ -154,7 +186,11 @@ export default function BehaviorSettingsPage() {
           </div>
         </div>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div
+          className={`rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${
+            mobilePane === "edit" ? "block" : "hidden lg:block"
+          }`}
+        >
           {!current ? (
             <p className="text-sm text-slate-500">Aucun réglage à afficher.</p>
           ) : (
@@ -196,12 +232,12 @@ export default function BehaviorSettingsPage() {
                 />
               )}
 
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <button
                   type="button"
                   disabled={save.isPending}
                   onClick={() => save.mutate()}
-                  className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
+                  className="min-h-[44px] rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
                 >
                   {save.isPending ? "Sauvegarde..." : "Sauvegarder"}
                 </button>
@@ -209,7 +245,7 @@ export default function BehaviorSettingsPage() {
                   type="button"
                   disabled={reset.isPending}
                   onClick={() => reset.mutate()}
-                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+                  className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
                 >
                   {reset.isPending ? "Reset..." : "Réinitialiser"}
                 </button>

@@ -49,6 +49,27 @@ function blockClasses(color: AgentColor, state: AgentState, isRunning: boolean):
   return `${base} ${c.active} shadow-sm ${ring}`;
 }
 
+/** Pastilles une ligne (bandeau mission, etc.) — mêmes états que la grille complète. */
+function stripPillClasses(color: AgentColor, state: AgentState, isRunning: boolean): string {
+  const c = COLOR_MAP[color];
+  const base =
+    "inline-flex min-w-0 max-w-full shrink-0 items-center gap-0.5 rounded-lg border px-1.5 py-0.5 text-[8px] font-bold uppercase leading-none tracking-wide transition-all duration-200";
+  if (state === "off") return `${base} ${c.idle} opacity-45`;
+  if (state === "queued") return `${base} ${c.queued}`;
+  if (state === "done") return `${base} ${c.done}`;
+  if (state === "error") return `${base} border-red-300 bg-red-50 text-red-800`;
+  const ring = isRunning ? `ring-1 ring-offset-0 ${c.ring} animate-pulse` : "";
+  return `${base} ${c.active} shadow-sm ${ring}`;
+}
+
+const STRIP_LABEL: Record<AgentKey, string> = {
+  coordinateur: "CIO",
+  commercial: "Comm.",
+  community_manager: "CM",
+  developpeur: "Dev.",
+  comptable: "Compta.",
+};
+
 // ── State label ────────────────────────────────────────────────────────────────
 
 function stateLabel(s: AgentState): string {
@@ -223,6 +244,42 @@ type Props = {
   className?: string;
 };
 
+/** Résumé une ligne des rôles agents (même logique que la carte d’activation). */
+export function AgentActivationStrip({ events, jobStatus = "", className = "" }: Props) {
+  const evList = useMemo(() => normalizeMissionEvents(events), [events]);
+  const isRunning = jobStatus === "running";
+  const agentStates = useMemo(() => deriveAgentStates(evList, jobStatus), [evList, jobStatus]);
+
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-1 ${className}`}
+      role="status"
+      aria-label="État synthétique de l’équipe agentique"
+    >
+      {AGENT_DEFS.map((ag) => {
+        const status = agentStates[ag.key] ?? { state: "off" as AgentState, detail: "" };
+        const cls = stripPillClasses(ag.color, status.state, isRunning);
+        const short = STRIP_LABEL[ag.key];
+        return (
+          <span
+            key={ag.key}
+            className={cls}
+            title={`${ag.label} — ${stateLabel(status.state)}${status.detail ? ` · ${status.detail}` : ""}`}
+          >
+            <span className="text-[10px] leading-none opacity-90" aria-hidden>
+              {ag.icon}
+            </span>
+            <span className="truncate">{short}</span>
+            <span className="text-[9px] leading-none tabular-nums opacity-90" aria-hidden>
+              {stateIndicator(status.state)}
+            </span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 export default function AgentActivationBoard({ events, jobStatus = "", className = "" }: Props) {
@@ -259,7 +316,7 @@ export default function AgentActivationBoard({ events, jobStatus = "", className
       </div>
 
       {/* Agent grid */}
-      <div className="grid grid-cols-5 gap-1.5 p-2.5">
+      <div className="grid grid-cols-2 gap-2 p-2.5 sm:grid-cols-3 lg:grid-cols-5 lg:gap-1.5">
         {AGENT_DEFS.map((ag) => {
           const status = agentStates[ag.key] ?? { state: "off" as AgentState, detail: "" };
           const cls = blockClasses(ag.color, status.state, isRunning);

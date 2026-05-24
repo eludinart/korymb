@@ -1,4 +1,4 @@
-# Tarot App - Development Platform
+# Korymb — Development Platform
 
 This repository contains:
 

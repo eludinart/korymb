@@ -162,7 +162,7 @@ if (-not (Test-Path -LiteralPath $backendRestart) -or -not (Test-Path -LiteralPa
 
 if ($NoNewWindows) {
     Stop-JobByNameIfExists -Name "korymb-backend"
-    Stop-JobByNameIfExists -Name "tarot-frontend"
+    Stop-JobByNameIfExists -Name "korymb-frontend"
     Write-Host "Démarrage backend (job)…" -ForegroundColor Cyan
     $jobBe = Start-Job -Name "korymb-backend" -ScriptBlock {
         param($scriptPath, $wd)
@@ -171,7 +171,7 @@ if ($NoNewWindows) {
     } -ArgumentList $backendRestart, $backendDir
 
     Write-Host "Démarrage frontend (job)…" -ForegroundColor Cyan
-    $jobFe = Start-Job -Name "tarot-frontend" -ScriptBlock {
+    $jobFe = Start-Job -Name "korymb-frontend" -ScriptBlock {
         param($scriptPath, $wd)
         Set-Location $wd
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath

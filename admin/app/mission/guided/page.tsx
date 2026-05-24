@@ -44,6 +44,7 @@ export default function MissionGuidedPage() {
   const [refinementRounds, setRefinementRounds] = useState(DEFAULT_REFINEMENT_ROUNDS);
   /** Formulaire « Nouvelle session » : visible seulement après action explicite (bouton en-tête). */
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"sessions" | "cadrage">("sessions");
 
   const agents = useQuery({
     queryKey: QK.agents,
@@ -275,6 +276,9 @@ export default function MissionGuidedPage() {
     setShowNewSessionForm(true);
     setSessionId(null);
     setTrackingJobId("");
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      setMobilePane("cadrage");
+    }
   };
 
   const closeNewSessionForm = () => {
@@ -285,7 +289,7 @@ export default function MissionGuidedPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Mission guidée</h1>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Mission guidée</h1>
           <p className="text-sm text-slate-500 mt-1">Cadrage avec le coordinateur, puis lancement de la mission.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
@@ -293,7 +297,7 @@ export default function MissionGuidedPage() {
             <button
               type="button"
               onClick={closeNewSessionForm}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+              className="min-h-[44px] rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
             >
               Fermer le formulaire de création
             </button>
@@ -301,7 +305,7 @@ export default function MissionGuidedPage() {
             <button
               type="button"
               onClick={openNewSessionForm}
-              className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-violet-800"
+              className="min-h-[44px] rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-violet-800"
             >
               Créer une nouvelle mission guidée
             </button>
@@ -309,10 +313,32 @@ export default function MissionGuidedPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-        <aside className="bg-white border border-slate-200 rounded-2xl p-4">
+      <div className="mobile-tab-bar lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePane("sessions")}
+          className={`mobile-tab ${mobilePane === "sessions" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+        >
+          Sessions
+        </button>
+        <button
+          type="button"
+          onClick={() => (sessionId || showNewSessionForm) && setMobilePane("cadrage")}
+          disabled={!sessionId && !showNewSessionForm}
+          className={`mobile-tab ${mobilePane === "cadrage" ? "mobile-tab-active" : "mobile-tab-inactive"} disabled:opacity-40`}
+        >
+          Cadrage & suivi
+        </button>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,300px)_1fr]">
+        <aside
+          className={`rounded-2xl border border-slate-200 bg-white p-4 ${
+            mobilePane === "sessions" ? "block" : "hidden lg:block"
+          }`}
+        >
           <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">Sessions</p>
-          <ul className="space-y-2 max-h-[420px] overflow-y-auto">
+          <ul className="max-h-[min(50dvh,420px)] space-y-2 overflow-y-auto lg:max-h-[420px]">
             {(sessions.data || []).map((s: { id: string; title?: string; agent?: string; status?: string }) => (
               <li key={s.id}>
                 <div
@@ -326,8 +352,11 @@ export default function MissionGuidedPage() {
                       setShowNewSessionForm(false);
                       setSessionId(s.id);
                       setTrackingJobId("");
+                      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+                        setMobilePane("cadrage");
+                      }
                     }}
-                    className="min-w-0 flex-1 px-2 py-2 text-left"
+                    className="min-h-[44px] min-w-0 flex-1 px-2 py-2 text-left"
                   >
                     <p className="font-mono text-slate-500">#{s.id}</p>
                     <p className="font-medium text-slate-800">{s.title || s.agent}</p>
@@ -341,7 +370,7 @@ export default function MissionGuidedPage() {
                       e.preventDefault();
                       void deleteSession(s.id);
                     }}
-                    className={`shrink-0 self-stretch border-l px-2 text-[11px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`min-w-[44px] shrink-0 self-stretch border-l px-2 text-[11px] font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 ${
                       sessionId === s.id ? "border-violet-200" : "border-slate-200"
                     }`}
                   >
@@ -353,7 +382,7 @@ export default function MissionGuidedPage() {
           </ul>
         </aside>
 
-        <div className="space-y-4">
+        <div className={`space-y-4 ${mobilePane === "cadrage" ? "block" : "hidden lg:block"}`}>
           {err ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{err}</p> : null}
           {ok ? <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">{ok}</p> : null}
           {!sessionId && !showNewSessionForm ? (

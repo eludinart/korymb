@@ -17,7 +17,7 @@ $rootDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $rootDir
 
 if (-not (Test-Path -LiteralPath (Join-Path $rootDir "package.json"))) {
-    Write-Error "package.json introuvable. Ce script doit rester à la racine du dépôt (tarot.app)."
+    Write-Error "package.json introuvable. Ce script doit rester à la racine du dépôt (korymb)."
     exit 1
 }
 

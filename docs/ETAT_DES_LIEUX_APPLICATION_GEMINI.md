@@ -1,4 +1,4 @@
-# Etat des lieux complet - tarot.app (brief IA pour Gemini)
+# Etat des lieux complet - korymb (brief IA pour Gemini)
 
 ## 1) Objectif du document
 
@@ -244,7 +244,7 @@ Copier-coller ce prompt en joignant ce document:
 
 ```text
 Tu es un architecte logiciel senior specialise en IA applicative, FastAPI et Next.js.
-Analyse cet etat des lieux de l'application tarot.app.
+Analyse cet etat des lieux de l'application korymb.
 
 Attendu:
 1) Un diagnostic critique (forces, faiblesses, risques) classe par severite.

@@ -1,10 +1,13 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import HealthDot from "./HealthDot";
 import type { HealthTone } from "../lib/healthTone";
 import { agentHeaders, requestJson } from "../lib/api";
 import { QK } from "../lib/queryClient";
+
+const COLLAPSED_LS = "korymb_global_status_bar_collapsed";
 
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
@@ -46,7 +49,41 @@ type TokenData = {
   expensive_research_tier?: boolean;
 };
 
+function readCollapsedPreference(): boolean | null {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_LS);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 export default function GlobalStatusBar() {
+  const [collapsed, setCollapsed] = useState(true);
+
+  useEffect(() => {
+    const stored = readCollapsedPreference();
+    if (stored !== null) {
+      setCollapsed(stored);
+      return;
+    }
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setCollapsed(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLLAPSED_LS, collapsed ? "true" : "false");
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
+
   const llm = useQuery({
     queryKey: QK.llm,
     queryFn: async () => (await requestJson("/llm", { retries: 1 })).data,
@@ -91,8 +128,64 @@ export default function GlobalStatusBar() {
   const tokensTone: HealthTone = isBudgetExceeded ? "bad" : isAlert ? "warn" : tokens.isError ? "bad" : tokens.isSuccess ? "ok" : "neutral";
   const jobsTone: HealthTone = jobs.isError ? "bad" : jobs.isSuccess ? (running > 0 ? "warn" : "ok") : "neutral";
 
+  const modelShort =
+    llm.isSuccess && llm.data?.model
+      ? String(llm.data.model).split("/").pop() || String(llm.data.model)
+      : llm.isLoading
+        ? "…"
+        : "—";
+
+  if (collapsed) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+          aria-expanded={false}
+        >
+          <span className="shrink-0 text-slate-400" aria-hidden>
+            ▶
+          </span>
+          <span className="min-w-0 truncate">
+            <span className="font-semibold text-slate-800">Tableau de bord</span>
+            <span className="text-slate-500"> · </span>
+            <span className="font-mono text-[11px] text-slate-600">{modelShort}</span>
+            {tokensTotal !== null && td ? (
+              <>
+                <span className="text-slate-500"> · </span>
+                <span className="tabular-nums text-slate-600">{fmt(tokensTotal)} tok/j</span>
+                <span className="text-slate-500"> · </span>
+                <span className="tabular-nums text-slate-600">{fmtUsd(costToday)}</span>
+              </>
+            ) : null}
+            {jobs.isSuccess ? (
+              <>
+                <span className="text-slate-500"> · </span>
+                <span className="tabular-nums text-slate-600">
+                  {running > 0 ? `${running} en cours / ` : ""}
+                  {totalJobs} mission{totalJobs > 1 ? "s" : ""}
+                </span>
+              </>
+            ) : null}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid gap-3 sm:grid-cols-[1fr_2fr_1fr]">
+    <div className="space-y-2">
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => setCollapsed(true)}
+          className="min-h-[44px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+        >
+          Réduire le bandeau
+        </button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-[1fr_2fr_1fr]">
 
       {/* ── Modèle actif ── */}
       <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -249,6 +342,7 @@ export default function GlobalStatusBar() {
         ) : null}
       </div>
 
+      </div>
     </div>
   );
 }

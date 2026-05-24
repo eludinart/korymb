@@ -20,8 +20,8 @@ param(
 $ErrorActionPreference = "Stop"
 $rootDir = $PSScriptRoot
 $backendRestart = Join-Path $rootDir "backend\restart.ps1"
-$backendJobName = "tarot-backend-cursor"
-$frontendJobName = "tarot-frontend-cursor"
+$backendJobName = "korymb-backend-cursor"
+$frontendJobName = "korymb-frontend-cursor"
 
 function Stop-ExistingJobByName {
   param([string] $Name)
@@ -77,7 +77,7 @@ if (-not $SkipVerify) {
     } catch { }
   }
   if (-not $ready) {
-    throw "Backend non pret sur /health apres attente. Voir logs [tarot-backend-cursor]."
+    throw "Backend non pret sur /health apres attente. Voir logs [korymb-backend-cursor]."
   }
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import MissionJobLiveDetail from "../../../components/MissionJobLiveDetail";
 import { agentHeaders, requestJson } from "../../../lib/api";
@@ -25,6 +25,7 @@ export default function MissionNouvellePage() {
   const [skipPlanHitl, setSkipPlanHitl] = useState(false);
   /** Consigne affichée au-dessus du fil d’exécution (la textarea est vidée après lancement). */
   const [lastMissionPrompt, setLastMissionPrompt] = useState("");
+  const [mobilePane, setMobilePane] = useState<"liste" | "suivi">("suivi");
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
@@ -68,7 +69,16 @@ export default function MissionNouvellePage() {
     setJobId(String(j.job_id));
     setLastMissionPrompt(String(j.mission || "").trim());
     setMsg("");
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      setMobilePane("suivi");
+    }
   };
+
+  useEffect(() => {
+    if (jobId && typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      setMobilePane("suivi");
+    }
+  }, [jobId]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -143,14 +153,35 @@ export default function MissionNouvellePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Nouvelle mission</h1>
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Nouvelle mission</h1>
         <p className="text-sm text-slate-500 mt-1">
           Lancer une execution metier depuis le front Next unifie. Les missions en cours sont listées à gauche : vous
           pouvez en suivre plusieurs en parallèle en les sélectionnant à la volée.
         </p>
       </div>
+      <div className="mobile-tab-bar lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePane("liste")}
+          className={`mobile-tab ${mobilePane === "liste" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+        >
+          En cours
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobilePane("suivi")}
+          className={`mobile-tab ${mobilePane === "suivi" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+        >
+          Lancer / suivi
+        </button>
+      </div>
+
       <div className="grid w-full min-w-0 max-w-full gap-6 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)] lg:items-start">
-        <aside className="min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-24 lg:max-h-[min(70vh,calc(100vh-8rem))] lg:overflow-y-auto">
+        <aside
+          className={`min-w-0 space-y-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-24 lg:max-h-[min(70dvh,calc(100dvh-8rem))] lg:overflow-y-auto ${
+            mobilePane === "liste" ? "block" : "hidden lg:block"
+          }`}
+        >
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Missions en cours</p>
           <p className="text-[11px] leading-relaxed text-slate-500">
             Statuts <span className="font-medium text-slate-700">en attente</span> ou{" "}
@@ -167,7 +198,7 @@ export default function MissionNouvellePage() {
                   <button
                     type="button"
                     onClick={() => pickRunningJob(j)}
-                    className={`w-full rounded-xl border p-3 text-left transition-colors ${
+                    className={`min-h-[44px] w-full rounded-xl border p-3 text-left transition-colors ${
                       active ? "border-slate-900 bg-slate-900 text-white shadow-sm" : "border-slate-200 bg-slate-50 hover:border-slate-300"
                     }`}
                   >
@@ -187,7 +218,7 @@ export default function MissionNouvellePage() {
             <p className="text-xs text-slate-400">Aucune mission active pour le moment.</p>
           ) : null}
         </aside>
-        <div className="min-w-0 max-w-full space-y-6">
+        <div className={`min-w-0 max-w-full space-y-6 ${mobilePane === "suivi" ? "block" : "hidden lg:block"}`}>
           <form
             onSubmit={onSubmit}
             className="mx-auto max-w-2xl space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"

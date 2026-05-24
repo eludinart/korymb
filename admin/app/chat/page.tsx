@@ -33,8 +33,8 @@ const makeConversation = (idx: number): Conversation => ({
   liveJobId: null,
 });
 const FIRST_CONVERSATION = makeConversation(1);
-const CHAT_STORAGE_KEY = "tarot-admin-chat-conversations-v1";
-const CHAT_ACTIVE_KEY = "tarot-admin-chat-active-conversation-v1";
+const CHAT_STORAGE_KEY = "korymb-admin-chat-conversations-v1";
+const CHAT_ACTIVE_KEY = "korymb-admin-chat-active-conversation-v1";
 
 const normalizeConversations = (raw: unknown): Conversation[] => {
   if (!Array.isArray(raw)) return [];
@@ -76,6 +76,7 @@ function ChatPageInner() {
   const [activeConversationId, setActiveConversationId] = useState<string>(FIRST_CONVERSATION.id);
   const [busyConversationId, setBusyConversationId] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"list" | "chat">("chat");
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) || conversations[0],
@@ -324,11 +325,18 @@ function ChatPageInner() {
     }
   };
 
+  const pickConversation = (id: string) => {
+    setActiveConversationId(id);
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      setMobilePane("chat");
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Chat</h1>
-        <p className="text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chat</h1>
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
           Avec le <span className="font-medium text-slate-700">coordinateur</span>, une mission peut partir en arrière-plan : la
           synthèse finale revient ici, et le détail multi-agents vit sur{" "}
           <Link href="/missions" className="font-medium text-violet-800 hover:underline">
@@ -346,49 +354,74 @@ function ChatPageInner() {
           </p>
         ) : null}
       </div>
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden grid grid-cols-1 lg:grid-cols-[280px_1fr]">
-        <aside className="border-b lg:border-b-0 lg:border-r border-slate-100 p-3 space-y-2 bg-slate-50/60">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white grid grid-cols-1 lg:grid-cols-[minmax(0,280px)_1fr]">
+        <div className="mobile-tab-bar mx-3 mt-3 lg:hidden">
           <button
             type="button"
-            onClick={createConversation}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+            onClick={() => setMobilePane("list")}
+            className={`mobile-tab ${mobilePane === "list" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+          >
+            Conversations
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobilePane("chat")}
+            className={`mobile-tab ${mobilePane === "chat" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+          >
+            Discussion
+          </button>
+        </div>
+        <aside
+          className={`border-b border-slate-100 bg-slate-50/60 p-3 space-y-2 lg:border-b-0 lg:border-r ${
+            mobilePane === "list" ? "block" : "hidden lg:block"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              createConversation();
+              setMobilePane("chat");
+            }}
+            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50 active:bg-slate-100"
           >
             Nouvelle conversation
           </button>
-          <div className="space-y-1 max-h-[56vh] overflow-y-auto pr-1">
+          <div className="h-app-panel space-y-1 overflow-y-auto pr-1 lg:max-h-[56vh]">
             {conversations.map((c) => (
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setActiveConversationId(c.id)}
-                className={`w-full text-left rounded-lg px-3 py-2 border text-sm ${
+                onClick={() => pickConversation(c.id)}
+                className={`min-h-[44px] w-full rounded-lg border px-3 py-2.5 text-left text-sm ${
                   c.id === activeConversationId
-                    ? "bg-white border-violet-200 text-violet-900"
-                    : "bg-white/80 border-slate-200 text-slate-700 hover:bg-white"
+                    ? "border-violet-200 bg-white text-violet-900"
+                    : "border-slate-200 bg-white/80 text-slate-700 hover:bg-white"
                 }`}
               >
-                <p className="font-medium truncate">{c.title}</p>
-                <p className="text-xs text-slate-500 mt-0.5">{c.history.length} message(s)</p>
+                <p className="truncate font-medium">{c.title}</p>
+                <p className="mt-0.5 text-xs text-slate-500">{c.history.length} message(s)</p>
               </button>
             ))}
           </div>
         </aside>
-        <div>
-          <div className="p-4 border-b border-slate-100 flex items-center gap-2">
-            <span className="text-xs text-slate-500">Agent:</span>
-            <select
-              value={activeAgent}
-              onChange={(e) =>
-                setConversations((prev) => prev.map((c) => (c.id === activeConversationId ? { ...c, agent: e.target.value } : c)))
-              }
-              className="border border-slate-200 bg-white rounded-lg px-2 py-1 text-sm"
-            >
-              {(agents.data || []).map((a: { key: string; label: string }) => (
-                <option key={a.key} value={a.key}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
+        <div className={mobilePane === "chat" ? "flex min-h-0 min-w-0 flex-col" : "hidden min-h-0 min-w-0 flex-col lg:flex"}>
+          <div className="flex flex-col gap-3 border-b border-slate-100 p-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:p-4">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <span className="shrink-0 text-xs text-slate-500">Agent</span>
+              <select
+                value={activeAgent}
+                onChange={(e) =>
+                  setConversations((prev) => prev.map((c) => (c.id === activeConversationId ? { ...c, agent: e.target.value } : c)))
+                }
+                className="min-h-[44px] min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm sm:flex-none"
+              >
+                {(agents.data || []).map((a: { key: string; label: string }) => (
+                  <option key={a.key} value={a.key}>
+                    {a.label}
+                  </option>
+                ))}
+              </select>
+            </div>
             <input
               value={activeConversation?.title || ""}
               onChange={(e) =>
@@ -396,19 +429,23 @@ function ChatPageInner() {
                   prev.map((c) => (c.id === activeConversationId ? { ...c, title: e.target.value || "Sans titre" } : c)),
                 )
               }
-              className="ml-2 flex-1 border border-slate-200 bg-slate-50 rounded-lg px-3 py-1.5 text-sm"
+              className="min-h-[44px] w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm sm:flex-1"
               placeholder="Nom de la conversation"
             />
-            <button
-              type="button"
-              onClick={deleteActiveConversation}
-              className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Supprimer
-            </button>
-            {activeLiveJobId ? <span className="text-xs text-amber-700 font-medium ml-auto">Live #{activeLiveJobId}</span> : null}
+            <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:ml-auto">
+              <button
+                type="button"
+                onClick={deleteActiveConversation}
+                className="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 active:bg-slate-200"
+              >
+                Supprimer
+              </button>
+              {activeLiveJobId ? (
+                <span className="text-xs font-medium text-amber-700">Live #{activeLiveJobId}</span>
+              ) : null}
+            </div>
           </div>
-          <div className="p-4 space-y-3 max-h-[58vh] overflow-y-auto">
+          <div className="h-app-panel flex-1 space-y-3 overflow-y-auto p-3 sm:p-4 lg:max-h-[58vh]">
             {!activeHistory.length ? <p className="text-sm text-slate-500">Commencez la conversation avec votre premier message.</p> : null}
             {activeHistory.map((m, i) => (
               <div key={chatMessageKey(m, i)} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -445,8 +482,8 @@ function ChatPageInner() {
               </div>
             ) : null}
           </div>
-          <form onSubmit={onSend} className="border-t border-slate-100 p-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-2 flex items-end gap-2 shadow-sm">
+          <form onSubmit={onSend} className="shrink-0 border-t border-slate-100 p-3 pb-safe sm:p-4">
+            <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2 shadow-sm">
             <textarea
               value={activeDraft}
               onChange={(e) =>
@@ -454,13 +491,14 @@ function ChatPageInner() {
               }
               onKeyDown={onDraftKeyDown}
               disabled={isBusyActiveConversation || Boolean(activeLiveJobId)}
-              rows={2}
-              className="flex-1 resize-none bg-transparent outline-none px-2 py-2 text-sm leading-relaxed"
-              placeholder="Posez votre question au CIO… (Entrée pour envoyer, Shift+Entrée pour saut de ligne)"
+              rows={3}
+              className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-base leading-relaxed outline-none sm:text-sm"
+              placeholder="Message au CIO…"
+              enterKeyHint="send"
             />
             <button
               disabled={isBusyActiveConversation || Boolean(activeLiveJobId) || !activeDraft.trim()}
-              className="bg-violet-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-40 hover:bg-violet-800 transition-colors"
+              className="min-h-[44px] shrink-0 rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-violet-800 disabled:opacity-40"
             >
               {isBusyActiveConversation ? "Envoi..." : "Envoyer"}
             </button>

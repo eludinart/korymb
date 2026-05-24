@@ -101,11 +101,20 @@ export function extractShortSummary(result: string | null | undefined): {
 export function extractCioStrategicQuestions(result: string | null | undefined): string | null {
   if (!result?.trim()) return null;
 
-  const match = result.match(
-    /##\s*QUESTIONS?\s+STRAT[EÉ]GIQUES?\s+DU\s+CIO[^\n]*\n([\s\S]*?)(?=\n##\s|\n#\s|$)/i,
-  );
+  // Fin de section : prochain titre ## uniquement (évite de couper sur un « # » dans le corps, ex. titres MD)
+  const re =
+    /##\s*QUESTIONS?\s+STRAT[EÉ]GIQUES?\s+DU\s+CIO[^\n]*\n([\s\S]*?)(?=\n##\s|$)/i;
+  const match = result.match(re);
   if (match) {
     const body = match[1].trim();
+    if (body.length > 10) return body;
+  }
+  // Variante sans « DU CIO » (modèles qui raccourcissent le titre)
+  const alt = result.match(
+    /##\s*QUESTIONS?\s+STRAT[EÉ]GIQUES[^\n]*\n([\s\S]*?)(?=\n##\s|$)/i,
+  );
+  if (alt) {
+    const body = alt[1].trim();
     if (body.length > 10) return body;
   }
   return null;

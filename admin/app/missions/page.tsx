@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
-import AgentActivationBoard from "../../components/AgentActivationBoard";
+import AgentActivationBoard, { AgentActivationStrip } from "../../components/AgentActivationBoard";
 import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
 import CioQuestionsPanel from "../../components/CioQuestionsPanel";
@@ -20,7 +20,7 @@ import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel"
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
-import { bestPreview } from "../../lib/missionBilan";
+import { bestPreview, extractCioStrategicQuestions } from "../../lib/missionBilan";
 import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
@@ -54,6 +54,7 @@ function MissionsContent() {
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
   const [cioQuestionBusy, setCioQuestionBusy] = useState(false);
+  const [mobileDetailPane, setMobileDetailPane] = useState<"fil" | "resultats">("fil");
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -89,6 +90,10 @@ function MissionsContent() {
     const j = searchParams.get("job");
     if (j) setSelected(j);
   }, [searchParams]);
+
+  useEffect(() => {
+    setMobileDetailPane("fil");
+  }, [selected]);
 
   const detail = useQuery({
     queryKey: ["job-detail-live", selected],
@@ -394,7 +399,7 @@ function MissionsContent() {
                       void onValidate(j.job_id);
                     }}
                     disabled={busyId === j.job_id}
-                    className="w-full shrink-0 bg-violet-900 text-white text-xs px-3 py-1.5 rounded-lg disabled:opacity-40 sm:w-auto"
+                    className="min-h-[44px] w-full shrink-0 rounded-lg bg-violet-900 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
                   >
                     {busyId === j.job_id ? "Validation…" : "Valider"}
                   </button>
@@ -417,25 +422,34 @@ function MissionsContent() {
       </div>
       ) : (
       <div className="w-full min-w-0 space-y-3">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-slate-200 pb-2">
-          <button
-            type="button"
-            onClick={clearMissionSelection}
-            className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50"
-          >
-            ← Liste
-          </button>
-          <h1 className="shrink-0 text-lg font-bold tracking-tight text-slate-900">Missions</h1>
-          {detail.data?.mission?.trim() ? (
-            <p
-              className="min-w-0 flex-1 truncate text-xs font-medium leading-snug text-slate-600"
-              title={detail.data.mission.trim()}
+        <div className="space-y-2 border-b border-slate-200 pb-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <button
+              type="button"
+              onClick={clearMissionSelection}
+              className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm hover:bg-slate-50 active:bg-slate-100"
             >
-              {detail.data.mission.trim()}
-            </p>
-          ) : (
-            <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
-          )}
+              ← Liste
+            </button>
+            <h1 className="shrink-0 text-lg font-bold tracking-tight text-slate-900">Missions</h1>
+            {detail.data?.mission?.trim() ? (
+              <p
+                className="min-w-0 flex-1 truncate text-xs font-medium leading-snug text-slate-600"
+                title={detail.data.mission.trim()}
+              >
+                {detail.data.mission.trim()}
+              </p>
+            ) : (
+              <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
+            )}
+          </div>
+          {activeBoardData ? (
+            <AgentActivationStrip
+              events={activeBoardData.events}
+              jobStatus={String(activeBoardData.status || "")}
+              className="w-full min-w-0"
+            />
+          ) : null}
         </div>
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
         {feedback ? (
@@ -444,21 +458,47 @@ function MissionsContent() {
           </p>
         ) : null}
 
+        {showConversationSidebar ? (
+          <div className="mobile-tab-bar lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileDetailPane("fil")}
+              className={`mobile-tab ${mobileDetailPane === "fil" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+            >
+              Fil CIO
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileDetailPane("resultats")}
+              className={`mobile-tab ${mobileDetailPane === "resultats" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+            >
+              Synthèse & livrables
+            </button>
+          </div>
+        ) : null}
+
         <div
           className={
             showConversationSidebar
-              ? "lg:grid lg:grid-cols-[minmax(340px,1fr)_minmax(340px,1fr)] lg:items-start lg:gap-6 xl:gap-8"
+              ? "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0"
               : ""
           }
         >
           {showConversationSidebar && detail.data ? (
-            <aside className="order-first mb-6 flex min-h-0 flex-col gap-3 lg:sticky lg:top-4 lg:order-none lg:mb-0 lg:h-[calc(100vh-5.75rem)] lg:max-h-[calc(100vh-5.75rem)] lg:self-start lg:pr-0.5">
+            <aside
+              className={`order-first mb-6 min-h-0 flex-col gap-2 lg:order-none lg:mb-0 lg:flex lg:h-full lg:max-h-full lg:overflow-hidden lg:pr-0.5 ${
+                mobileDetailPane === "fil" ? "flex" : "hidden lg:flex"
+              }`}
+            >
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <SessionCadrageTimeline
                   fillColumn
                   messages={detail.data.mission_thread}
                   title="Fil de cadrage avec le CIO"
                   className="shadow-sm"
+                  cioStrategicFollowup={extractCioStrategicQuestions(
+                    String(selectedMissionSynth?.cardResult ?? detail.data.result ?? ""),
+                  )}
                 />
               </div>
               {showDecisionRail ? (
@@ -482,7 +522,7 @@ function MissionsContent() {
                           value={cioResumeInput}
                           onChange={(e) => setCioResumeInput(e.target.value)}
                           disabled={cioResumeBusy}
-                          rows={3}
+                          rows={2}
                           className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm leading-snug text-slate-900 outline-none ring-violet-200 focus:border-violet-400 focus:ring-1 disabled:opacity-50"
                           placeholder="Ex. : affine la synthèse, ajoute une passe commercial…"
                         />
@@ -511,7 +551,7 @@ function MissionsContent() {
                         : "Précisions, questions & options"
                     }
                     hint="Déplier pour questions pendant mission, réglages et rappels"
-                    defaultOpen={hasPendingCioQuestions || !canResumeCio}
+                    defaultOpen={hasPendingCioQuestions}
                     className="rounded-b-2xl bg-violet-50/30"
                     triggerClassName="w-full rounded-b-2xl px-3 py-2.5 text-left hover:bg-violet-50/80"
                     panelClassName="max-h-[min(42vh,20rem)] space-y-3 overflow-y-auto border-t border-violet-100/90 bg-white/90 px-3 py-3"
@@ -563,7 +603,11 @@ function MissionsContent() {
             </aside>
           ) : null}
 
-          <div className="min-w-0 space-y-4">
+          <div
+            className={`min-w-0 space-y-4 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:pr-1 ${
+              showConversationSidebar && mobileDetailPane === "fil" ? "hidden lg:block" : "block"
+            }`}
+          >
             {detail.data && selectedMissionSynth ? (
               <MissionDecisionCard
                 job={{
@@ -580,7 +624,7 @@ function MissionsContent() {
                 updatedByContinuation={selectedMissionSynth.hasChild}
               />
             ) : null}
-            <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="min-h-0 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           {detail.isLoading ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.isError ? (

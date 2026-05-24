@@ -1,6 +1,6 @@
 /**
  * Verifie que GET /health correspond au backend du depot (version + code_dir).
- * Usage : npm run verify:api   (depuis la racine tarot.app)
+ * Usage : npm run verify:api   (depuis la racine korymb)
  * Contourner : KORYMB_SKIP_VERIFY=1 npm run dev   (frontend sans backend)
  */
 import fs from "node:fs";

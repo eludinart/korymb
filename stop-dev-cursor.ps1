@@ -6,7 +6,7 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$names = @("tarot-backend-cursor", "tarot-frontend-cursor")
+$names = @("korymb-backend-cursor", "korymb-frontend-cursor")
 
 function Stop-ProcessesOnPort {
   param([int] $Port, [string] $Label = "")

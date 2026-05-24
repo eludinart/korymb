@@ -44,7 +44,7 @@ export default function CioResultPanel({ result, missionTitle, jobLine, classNam
     );
   }
 
-  const maxH = expanded ? "max-h-[min(88vh,1200px)]" : "max-h-[min(72vh,900px)]";
+  const maxH = expanded ? "max-h-[min(88vh,1200px)]" : "max-h-[min(18rem,32vh)]";
 
   return (
     <section

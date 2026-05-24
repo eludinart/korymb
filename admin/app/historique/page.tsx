@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import MissionJobLiveDetail from "../../components/MissionJobLiveDetail";
 import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
@@ -57,6 +57,7 @@ export default function HistoriquePage() {
   const [cancelBusy, setCancelBusy] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+  const [mobilePane, setMobilePane] = useState<"liste" | "detail">("liste");
   const jobsQuery = useQuery({
     queryKey: QK.jobs,
     queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
@@ -90,6 +91,10 @@ export default function HistoriquePage() {
     }
     return m;
   }, [agents.data]);
+
+  useEffect(() => {
+    if (!selected) setMobilePane("liste");
+  }, [selected]);
 
   const selectedMissionLabel = useMemo(() => {
     if (!selected) return "";
@@ -199,20 +204,42 @@ export default function HistoriquePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Historique</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Historique</h1>
+        <p className="mt-1 text-sm text-slate-500">
           Journal unifié des missions et conversations. Chaque entrée affiche son type pour identifier rapidement ce qui est
           un chat, une mission guidée ou une mission classique.
         </p>
       </div>
+      <div className="mobile-tab-bar lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobilePane("liste")}
+          className={`mobile-tab ${mobilePane === "liste" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
+        >
+          Liste
+        </button>
+        <button
+          type="button"
+          onClick={() => selected && setMobilePane("detail")}
+          disabled={!selected}
+          className={`mobile-tab ${mobilePane === "detail" ? "mobile-tab-active" : "mobile-tab-inactive"} disabled:opacity-40`}
+        >
+          Détail
+        </button>
+      </div>
+
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(16rem,20rem)_minmax(0,1fr)] lg:items-start">
-        <div className="lg:col-span-2 space-y-2">
+        <div className="space-y-2 lg:col-span-2">
           {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
           {feedback ? (
             <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">{feedback}</p>
           ) : null}
         </div>
-        <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-24 lg:max-h-[min(70vh,calc(100vh-8rem))] lg:overflow-y-auto space-y-2">
+        <aside
+          className={`min-w-0 space-y-2 rounded-2xl border border-slate-200 bg-white p-3 lg:sticky lg:top-24 lg:max-h-[min(70dvh,calc(100dvh-8rem))] lg:overflow-y-auto ${
+            mobilePane === "liste" ? "block" : "hidden lg:block"
+          }`}
+        >
           {entries.map((entry) => {
             const isSelected = entry.jobIds.includes(String(selected || ""));
             const type = entry.type;
@@ -223,7 +250,12 @@ export default function HistoriquePage() {
                 className={`border rounded-xl p-3 cursor-pointer ${
                   isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"
                 }`}
-                onClick={() => setSelected(entry.displayJobId)}
+                onClick={() => {
+                  setSelected(entry.displayJobId);
+                  if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+                    setMobilePane("detail");
+                  }
+                }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <p className={`text-xs font-mono ${isSelected ? "text-slate-300" : "text-slate-500"}`}>{entry.displayJobId}</p>
@@ -250,7 +282,7 @@ export default function HistoriquePage() {
                     void deleteEntry(entry);
                   }}
                   disabled={busy}
-                  className={`mt-2 text-xs px-2 py-1 rounded ${isSelected ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
+                  className={`mt-2 min-h-[44px] rounded-lg px-3 py-2 text-xs font-medium ${isSelected ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
                 >
                   Suppr.
                 </button>
@@ -259,7 +291,7 @@ export default function HistoriquePage() {
           })}
           {entries.length === 0 ? <p className="text-sm text-slate-400">Aucun historique.</p> : null}
         </aside>
-        <div className="min-w-0 max-w-full">
+        <div className={`min-w-0 max-w-full ${mobilePane === "detail" ? "block" : "hidden lg:block"}`}>
           {!selected ? (
             <section className="rounded-2xl border border-slate-200 bg-white p-5 min-h-[220px]">
               <p className="text-sm text-slate-400">Sélectionnez une mission dans la liste.</p>

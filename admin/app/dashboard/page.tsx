@@ -178,7 +178,7 @@ export default function DashboardPage() {
           </div>
           <Link
             href="/administration/approbations"
-            className="shrink-0 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+            className="min-h-[44px] shrink-0 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-medium text-white hover:bg-slate-800 active:bg-slate-950"
           >
             Ouvrir la file →
           </Link>
@@ -289,7 +289,7 @@ export default function DashboardPage() {
                       type="button"
                       aria-expanded={panelOpen}
                       onClick={() => setAgentPanelKey((k) => (k === a.key ? null : a.key))}
-                      className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+                      className={`min-h-[44px] rounded-lg border px-3 py-2.5 text-xs font-medium ${
                         panelOpen
                           ? "border-violet-300 bg-violet-50 text-violet-950"
                           : "border-slate-200 bg-slate-50 text-slate-800 hover:bg-slate-100"
@@ -471,7 +471,7 @@ export default function DashboardPage() {
                   {/* action */}
                   <Link
                     href={`/missions?job=${encodeURIComponent(j.job_id)}`}
-                    className="shrink-0 self-center rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-medium text-violet-900 hover:bg-violet-100 whitespace-nowrap"
+                    className="min-h-[44px] shrink-0 self-center whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-medium text-violet-900 hover:bg-violet-100 active:bg-violet-200"
                   >
                     Voir →
                   </Link>

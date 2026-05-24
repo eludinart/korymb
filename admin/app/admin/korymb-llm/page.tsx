@@ -399,7 +399,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
       ) : null}
 
       {data ? (
-        <form onSubmit={onSubmit} className="space-y-6">
+        <form onSubmit={onSubmit} className="space-y-6 pb-32 sm:pb-28">
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white px-5 py-5 sm:px-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -754,13 +754,13 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
             ) : null}
           </section>
 
-          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-4 sm:px-6">
-            <div className="pointer-events-auto flex w-full max-w-4xl flex-col gap-2 rounded-2xl border border-slate-200/80 bg-white/95 p-4 shadow-lg shadow-slate-900/10 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between">
+          <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-safe sm:px-6">
+            <div className="pointer-events-auto flex w-full max-w-4xl flex-col gap-2 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-lg shadow-slate-900/10 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:p-4">
               <p className="text-xs text-slate-500 sm:max-w-md">Enregistre le fournisseur, les modèles et les options avancées visibles ci-dessus.</p>
               <button
                 type="submit"
                 disabled={saving}
-                className="shrink-0 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-[44px] shrink-0 rounded-xl bg-slate-900 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>

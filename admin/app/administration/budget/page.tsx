@@ -399,7 +399,7 @@ export default function BudgetPage() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-50 rounded-xl px-5 py-3 text-sm font-medium text-white shadow-lg ${
+          className={`fixed bottom-[max(1rem,var(--safe-bottom))] right-4 z-50 min-h-[44px] max-w-[calc(100vw-2rem)] rounded-xl px-5 py-3 text-sm font-medium text-white shadow-lg ${
             toast.ok ? "bg-emerald-600" : "bg-red-600"
           }`}
         >

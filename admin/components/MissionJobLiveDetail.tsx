@@ -78,7 +78,7 @@ export default function MissionJobLiveDetail({
     (missionPrompt && missionPrompt.trim()) || (typeof d?.mission === "string" ? d.mission.trim() : "");
 
   return (
-    <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
           <p className="text-sm font-semibold text-slate-900">
@@ -94,14 +94,14 @@ export default function MissionJobLiveDetail({
               type="button"
               onClick={() => void onRequestCancel()}
               disabled={cancelBusy}
-              className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40"
+              className="min-h-[44px] rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40"
             >
               {cancelBusy ? "Arrêt…" : "Stopper la mission"}
             </button>
           ) : null}
           <Link
             href={`/missions?job=${encodeURIComponent(jobId)}`}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-violet-900 hover:bg-violet-50"
+            className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-medium text-violet-900 hover:bg-violet-50"
           >
             Panneau mission
           </Link>
