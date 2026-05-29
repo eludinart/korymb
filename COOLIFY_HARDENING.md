@@ -7,9 +7,8 @@ Use these environment variables in Coolify (frontend service):
 - `PORT=3000`
 - `NODE_ENV=production`
 - `NEXT_PUBLIC_KORYMB_API_URL=https://api-korymb.example.com`
-- `NEXT_PUBLIC_KORYMB_AGENT_SECRET=<shared-secret>`
 - `KORYMB_API_URL=https://api-korymb.example.com`
-- `KORYMB_AGENT_SECRET=<shared-secret>`
+- `KORYMB_AGENT_SECRET=<shared-secret>` (serveur uniquement — **ne pas** utiliser `NEXT_PUBLIC_KORYMB_AGENT_SECRET` en production)
 
 Reference template: `.env.coolify.example`.
 

@@ -15,6 +15,26 @@ from typing import Any
 
 
 BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
+    "orchestration.engine": {
+        "category": "orchestration",
+        "type": "string",
+        "label": "Moteur orchestration mission",
+        "description": (
+            "legacy = pipeline historique ; langgraph = graphe LangGraph avec checkpoints ; "
+            "shadow = exécute legacy mais journalise la préparation LangGraph."
+        ),
+        "value": "legacy",
+    },
+    "orchestration.tools.sandbox_execute": {
+        "category": "orchestration",
+        "type": "boolean",
+        "label": "Sandbox outils execute (email, posts sociaux)",
+        "description": (
+            "Si activé, les outils à effet externe (email, Instagram, Facebook…) ne s'exécutent pas "
+            "sans gate HITL / approbation dirigeant."
+        ),
+        "value": False,
+    },
     "orchestration.routing.delegation_key_aliases": {
         "category": "orchestration",
         "type": "json",
@@ -212,6 +232,16 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
             "<<CONTEXT>>"
         ),
     },
+    "orchestration.dialogue.assign_tache_max_chars": {
+        "category": "orchestration",
+        "type": "int",
+        "label": "Fil de cadrage — longueur max. consigne CIO → rôle (caractères)",
+        "description": (
+            "Limite la consigne injectée dans les messages du fil « Bonjour {rôle}, voilà ce que je te propose… ». "
+            "Trop bas : le dirigeant voit des consignes coupées ; trop haut : fil plus volumineux en base."
+        ),
+        "value": 12000,
+    },
     "orchestration.synthesis.team_livrable_truncate_chars": {
         "category": "synthesis",
         "type": "int",
@@ -222,6 +252,16 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
             "Augmenter grossit le résultat mission ; diminuer allège mais peut couper des détails."
         ),
         "value": 52000,
+    },
+    "quality.min_score_to_complete": {
+        "category": "quality",
+        "type": "number",
+        "label": "Score qualité minimum pour clôturer",
+        "description": (
+            "0 = désactivé. Si > 0, une mission dont le score heuristique est inférieur "
+            "passe en statut quality_blocked jusqu'à override dirigeant."
+        ),
+        "value": 0,
     },
 }
 

@@ -8,9 +8,9 @@ type LlmMeta = { provider: string | null; model: string | null };
 type DbMeta = { engine: string | null; runtimeEnv: string | null };
 
 function statusUi(status: "ok" | "warning" | "error") {
-  if (status === "ok") return { dot: "bg-emerald-500", text: "Actif", textClass: "text-emerald-700" };
-  if (status === "error") return { dot: "bg-red-500", text: "Hors ligne", textClass: "text-red-700" };
-  return { dot: "bg-amber-500", text: "Synchronisation", textClass: "text-amber-700" };
+  if (status === "ok") return { dot: "bg-emerald-500", text: "Actif", textClass: "text-emerald-800 font-bold" };
+  if (status === "error") return { dot: "bg-red-500", text: "Hors ligne", textClass: "text-red-800 font-bold" };
+  return { dot: "bg-amber-500", text: "Sync…", textClass: "text-amber-800 font-bold" };
 }
 
 export default function RuntimeHeader() {
@@ -108,10 +108,10 @@ export default function RuntimeHeader() {
   const dbEngine = db.engine ? db.engine.toUpperCase() : "DB ?";
   return (
     <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-600"
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700"
       title={modelHint}
     >
-      <span className="text-slate-400">Flux métier</span>
+      <span className="font-bold text-slate-500">Flux</span>
       <span className={`inline-flex items-center gap-1 ${ui.textClass}`}>
         <span className={`h-1.5 w-1.5 rounded-full ${ui.dot}`} />
         {ui.text}

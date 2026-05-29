@@ -5,6 +5,7 @@ import Providers from "../components/Providers";
 import AppNav from "../components/AppNav";
 import GlobalStatusBar from "../components/GlobalStatusBar";
 import RuntimeHeader from "../components/RuntimeHeader";
+import NotificationBell from "../components/director/NotificationBell";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,20 +35,19 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="fr">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-50 text-slate-900`}
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased text-slate-900`}>
         <Providers>
-          <header className="sticky top-0 z-20 w-full min-w-0 border-b border-slate-200 bg-white shadow-sm pt-safe">
-            <div className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+          <header className="app-header-bar">
+            <div className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-5 lg:px-6 xl:px-8">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-lg font-bold tracking-tight sm:text-xl">Korymb Next</p>
+                <p className="app-brand">Korymb</p>
                 <RuntimeHeader />
               </div>
+              <NotificationBell />
               <AppNav />
             </div>
-            <div className="w-full min-w-0 border-t border-slate-100 bg-slate-50/90">
-              <div className="w-full min-w-0 px-3 py-2 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+            <div className="app-status-strip">
+              <div className="w-full min-w-0 px-3 py-2.5 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
                 <GlobalStatusBar />
               </div>
             </div>

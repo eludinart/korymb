@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const LINKS = [
   { href: "/administration/dashboard", label: "Tableau de bord santé" },
   { href: "/administration/agents", label: "Agents métiers" },
+  { href: "/administration/playbooks", label: "Playbooks" },
   { href: "/administration/orchestration", label: "Orchestration CIO" },
   { href: "/administration/comportements", label: "Comportements moteur" },
   { href: "/administration/templates", label: "Templates de missions" },
@@ -19,9 +20,9 @@ export default function AdministrationLayout({ children }: { children: React.Rea
   const pathname = usePathname();
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
-      <aside className="shrink-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4 lg:w-60">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Administration</p>
-        <nav className="-mx-1 mt-3 flex gap-2 overflow-x-auto pb-1 lg:mx-0 lg:flex-col lg:overflow-visible lg:pb-0">
+      <aside className="shrink-0 rounded-2xl border-2 border-violet-200 bg-white p-3 shadow-md sm:p-4 lg:sticky lg:top-28 lg:w-64">
+        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Administration</p>
+        <nav className="-mx-1 mt-3 flex gap-2 overflow-x-auto pb-2 lg:mx-0 lg:flex-col lg:overflow-visible lg:pb-0">
           {LINKS.map((l) => {
             const active =
               pathname === l.href ||
@@ -31,9 +32,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
               <Link
                 key={l.href}
                 href={l.href}
-                className={`shrink-0 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors lg:w-full ${
-                  active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100 active:bg-slate-200"
-                }`}
+                className={active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"}
               >
                 {l.label}
               </Link>

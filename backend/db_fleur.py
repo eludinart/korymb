@@ -3,7 +3,8 @@ db_fleur.py — Connecteur lecture seule à la base MariaDB de l'app Fleur d'Amo
 
 En production (VPS Coolify) : connexion directe via hostname interne.
 En développement local    : requiert un tunnel SSH sur le port 3307.
-  → ssh -f -N -L 3307:juehpsnqkm60d2o6dhs38c5t:3306 root@92.113.28.43
+  → ssh -N -L 3307:127.0.0.1:3306 root@187.124.42.135
+  (MariaDB Coolify publiee sur 127.0.0.1:3306 du VPS — voir scripts/mariadb-vps-tunnel.ps1)
 """
 import os
 import json

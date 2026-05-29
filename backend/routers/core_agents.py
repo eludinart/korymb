@@ -88,10 +88,25 @@ def admin_upsert_custom_agent(agent_key: str, body: AdminAgentUpsertBody):
             system_prompt=body.system,
             tools=body.tools,
         )
+        from database import append_agent_definition_history
+
+        append_agent_definition_history(canon, {
+            "label": body.label,
+            "role": body.role,
+            "system": body.system,
+            "tools": body.tools,
+        })
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     refresh_agents_definitions_cache()
     return {"ok": True, "key": canon}
+
+
+@router.get("/admin/agents/custom/{agent_key}/history", dependencies=[Depends(verify_secret)])
+def admin_agent_history(agent_key: str, limit: int = 20):
+    from database import list_agent_definition_history
+
+    return {"history": list_agent_definition_history((agent_key or "").strip(), limit=limit)}
 
 
 @router.delete("/admin/agents/custom/{agent_key}", dependencies=[Depends(verify_secret)])

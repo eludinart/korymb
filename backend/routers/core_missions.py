@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import verify_secret
@@ -18,6 +18,8 @@ from database import (
     append_session_message,
     mission_session_commit,
     delete_mission_session,
+    get_idempotent_job_id,
+    save_idempotent_job,
 )
 from services.agents import agents_def
 from services.mission import (
@@ -76,10 +78,41 @@ class MissionSessionValidateBody(BaseModel):
     mission_config: MissionRunConfig | None = None
 
 
+class EstimateCostBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mission: str = ""
+    agents: list[str] = Field(default_factory=list)
+    mode: str = "cio"
+    refinement_rounds: int = Field(default=0, ge=0, le=20)
+    tools: list[str] = Field(default_factory=list)
+
+
+@router.post("/missions/estimate-cost", dependencies=[Depends(verify_secret)])
+def missions_estimate_cost(body: EstimateCostBody):
+    from services.cost_estimate import estimate_mission_cost
+
+    return estimate_mission_cost(
+        mission=body.mission,
+        agents=body.agents,
+        mode=body.mode,
+        refinement_rounds=body.refinement_rounds,
+        tools=body.tools,
+    )
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.post("/run", response_model=MissionResponse, dependencies=[Depends(verify_secret)])
-async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks):
+async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks, http_request: Request):
+    idem_key = (http_request.headers.get("Idempotency-Key") or "").strip()
+    if idem_key:
+        existing = get_idempotent_job_id(idem_key)
+        if existing:
+            row = db_get_job(existing)
+            agent_key = (row or {}).get("agent") or "coordinateur"
+            if agent_key not in agents_def():
+                agent_key = "coordinateur"
+            return MissionResponse(status="accepted", job_id=existing, agent=agent_key)
     rsid = (request.remove_mission_session_id or "").strip()
     if rsid:
         if not delete_mission_session(rsid):
@@ -113,6 +146,8 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
         "mission",
         mission_config=mcfg,
     )
+    if idem_key:
+        save_idempotent_job(idem_key, job_id)
     return MissionResponse(status="accepted", job_id=job_id, agent=agent_key)
 
 

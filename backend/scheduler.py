@@ -81,6 +81,25 @@ class _CaptureBT:
 
 async def _execute_mission_async(task: dict) -> None:
     """Prépare et lance une mission via le moteur existant _schedule_mission_execution."""
+    if task.get("requires_approval"):
+        from database import create_autonomous_output
+        from services.director_platform import emit_director_notification
+
+        create_autonomous_output(
+            task_id=task["id"],
+            output_type="mission_proposal",
+            title=task.get("name") or "Mission autonome à approuver",
+            content=str(task.get("mission_template") or ""),
+        )
+        emit_director_notification(
+            kind="scheduler_output",
+            title=f"Approbation requise — {task.get('name') or task['id']}",
+            body="Tâche planifiée en attente d'approbation dirigeant.",
+            action_url="/administration/approbations",
+        )
+        logger.info("Tâche %r requires_approval — output pending créé", task["id"])
+        return None
+
     from services.mission import _schedule_mission_execution, _mission_config_from_payload
 
     job_id = str(uuid.uuid4())[:8]

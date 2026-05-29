@@ -27,6 +27,7 @@ export type MissionJobLivePayload = {
   log_total?: number;
   events?: unknown[];
   mission_thread?: unknown[];
+  plan?: Record<string, unknown> | unknown;
   team?: unknown;
   logs?: string[];
   hitl?: Record<string, unknown> | null;
@@ -161,6 +162,8 @@ export default function MissionJobLiveDetail({
           />
           <SessionCadrageTimeline
             messages={d.mission_thread}
+            missionPlan={d.plan}
+            missionBrief={d.mission}
             title="Fil de cadrage avec le CIO (contexte)"
             maxHeightClass="max-h-[min(24rem,48vh)]"
           />

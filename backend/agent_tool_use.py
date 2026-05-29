@@ -373,6 +373,24 @@ def _filter_openai_tools(allowed: set[str]) -> list[dict[str, Any]]:
 
 
 def _execute_tool(name: str, inp: Any) -> str:
+    _EXECUTE_GATED = frozenset({
+        "send_email", "post_instagram", "post_facebook", "post_linkedin", "publish_scheduler_output",
+    })
+    if name in _EXECUTE_GATED:
+        try:
+            from database import get_behavior_setting
+            from services.behavior_defaults import behavior_default_value
+
+            sandbox = get_behavior_setting("orchestration.tools.sandbox_execute")
+            if sandbox is None:
+                sandbox = behavior_default_value("orchestration.tools.sandbox_execute")
+            if bool(sandbox):
+                return (
+                    f"[sandbox] Exécution bloquée pour `{name}` — niveau execute interdit "
+                    "(approbation dirigeant ou désactivation sandbox requise)."
+                )
+        except Exception:
+            pass
     if not isinstance(inp, dict):
         try:
             inp = json.loads(inp) if isinstance(inp, str) else {}

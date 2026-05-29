@@ -6,6 +6,7 @@ import MissionJobLiveDetail from "../../../components/MissionJobLiveDetail";
 import { agentHeaders, requestJson } from "../../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../../lib/missionRefinement";
 import { QK } from "../../../lib/queryClient";
+import { PageHeader, PageShell } from "../../../components/ui/PageChrome";
 
 import type { JobRow } from "../../../lib/types";
 
@@ -26,6 +27,7 @@ export default function MissionNouvellePage() {
   /** Consigne affichée au-dessus du fil d’exécution (la textarea est vidée après lancement). */
   const [lastMissionPrompt, setLastMissionPrompt] = useState("");
   const [mobilePane, setMobilePane] = useState<"liste" | "suivi">("suivi");
+  const [costEst, setCostEst] = useState<{ estimated_cost_usd?: number; tier?: string; warnings?: string[] } | null>(null);
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
@@ -79,6 +81,29 @@ export default function MissionNouvellePage() {
       setMobilePane("suivi");
     }
   }, [jobId]);
+
+  useEffect(() => {
+    const text = mission.trim();
+    if (text.length < 12) {
+      setCostEst(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      void requestJson("/missions/estimate-cost", {
+        method: "POST",
+        headers: agentHeaders(),
+        body: JSON.stringify({
+          mission: text,
+          agents: [agent],
+          mode: "cio",
+          refinement_rounds: refinementEnabled ? refinementRounds : 0,
+        }),
+      })
+        .then(({ data }) => setCostEst(data))
+        .catch(() => setCostEst(null));
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [mission, agent, refinementEnabled, refinementRounds]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -151,14 +176,13 @@ export default function MissionNouvellePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Nouvelle mission</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Lancer une execution metier depuis le front Next unifie. Les missions en cours sont listées à gauche : vous
-          pouvez en suivre plusieurs en parallèle en les sélectionnant à la volée.
-        </p>
-      </div>
+    <PageShell size="wide" className="space-y-6">
+      <PageHeader
+        accent="emerald"
+        badge="Lancement"
+        title="Nouvelle mission"
+        description="Décrivez la mission, lancez l'exécution et suivez plusieurs missions en parallèle depuis cette page."
+      />
       <div className="mobile-tab-bar lg:hidden">
         <button
           type="button"
@@ -221,23 +245,23 @@ export default function MissionNouvellePage() {
         <div className={`min-w-0 max-w-full space-y-6 ${mobilePane === "suivi" ? "block" : "hidden lg:block"}`}>
           <form
             onSubmit={onSubmit}
-            className="mx-auto max-w-2xl space-y-5 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+            className="mx-auto max-w-2xl space-y-5 rounded-2xl border-2 border-violet-200 bg-white p-6 shadow-md"
           >
             <div>
-              <p className="text-sm font-semibold text-slate-900">Lancer une mission</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Agent pilote puis consigne ; le suivi conversationnel s&apos;affiche sous le formulaire après lancement.
+              <p className="text-lg font-extrabold text-slate-950">Lancer une mission</p>
+              <p className="mt-1 text-sm font-semibold text-slate-600">
+                Choisissez l&apos;agent pilote, décrivez la consigne, puis suivez l&apos;exécution ci-dessous.
               </p>
             </div>
             <div>
-              <label htmlFor="nouvelle-agent" className="mb-1 block text-xs font-medium text-slate-500">
+              <label htmlFor="nouvelle-agent" className="field-label">
                 Agent
               </label>
               <select
                 id="nouvelle-agent"
                 value={agent}
                 onChange={(e) => setAgent(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="field-input"
               >
                 {(agents.data || []).map((a: { key: string; label: string }, i: number) => (
                   <option key={`${a.key}-${i}`} value={a.key}>
@@ -247,7 +271,7 @@ export default function MissionNouvellePage() {
               </select>
             </div>
             <div>
-              <label htmlFor="nouvelle-mission" className="mb-1 block text-xs font-medium text-slate-500">
+              <label htmlFor="nouvelle-mission" className="field-label">
                 Mission
               </label>
               <textarea
@@ -255,10 +279,21 @@ export default function MissionNouvellePage() {
                 rows={6}
                 value={mission}
                 onChange={(e) => setMission(e.target.value)}
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm leading-relaxed"
+                className="field-input leading-relaxed"
                 placeholder="Décris la mission à exécuter…"
               />
             </div>
+            {costEst ? (
+              <div className="rounded-xl border-2 border-violet-300 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-950">
+                Estimation ~ <span className="text-lg">${Number(costEst.estimated_cost_usd || 0).toFixed(3)}</span>
+                {costEst.tier ? ` · tier ${costEst.tier}` : ""}
+                {(costEst.warnings || []).map((w) => (
+                  <p key={w} className="mt-2 rounded-lg bg-amber-100 px-2 py-1 text-sm font-extrabold text-amber-950">
+                    {w}
+                  </p>
+                ))}
+              </div>
+            ) : null}
             <fieldset className="rounded-xl border border-amber-100 bg-amber-50/40 px-3 py-3">
               <legend className="px-1 text-xs font-semibold text-amber-950">Boucle d&apos;exécution (optionnel)</legend>
               <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-amber-900/80">Boucle d&apos;affinage CIO</p>
@@ -317,11 +352,7 @@ export default function MissionNouvellePage() {
                 désactiver la validation HITL du plan).
               </span>
             </label>
-            <button
-              type="submit"
-              disabled={busy}
-              className="w-full rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-medium text-white disabled:opacity-40 sm:w-auto"
-            >
+            <button type="submit" disabled={busy} className="btn-primary w-full sm:w-auto">
               {busy ? "Lancement…" : "Lancer la mission"}
             </button>
             {msg ? (
@@ -348,6 +379,6 @@ export default function MissionNouvellePage() {
           ) : null}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import SystemHealthDashboard from "../../../components/SystemHealthDashboard";
 import WebToolsProbeCard from "../../../components/WebToolsProbeCard";
 import HealthDot from "../../../components/HealthDot";
+import { PageHeader, SectionCard, StatCard } from "../../../components/ui/PageChrome";
 import { requestJson } from "../../../lib/api";
 import { QK } from "../../../lib/queryClient";
 
@@ -27,6 +28,11 @@ export default function AdministrationDashboardPage() {
     queryFn: async () => (await requestJson("/admin/system-health", { retries: 1 })).data,
     refetchInterval: () => visibleInterval(20000),
   });
+  const analytics = useQuery({
+    queryKey: ["admin-mission-analytics"],
+    queryFn: async () => (await requestJson("/admin/mission-analytics?days=7", { retries: 1 })).data,
+    refetchInterval: () => visibleInterval(30000),
+  });
 
   const retestWebTools = async () => {
     try {
@@ -42,13 +48,12 @@ export default function AdministrationDashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Tableau de bord santé</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Vue consolidée des sondes, intégrations et métriques machine. Pastilles : vert = OK, orange = vigilance, rouge =
-          critique.
-        </p>
-      </div>
+      <PageHeader
+        accent="emerald"
+        badge="Administration"
+        title="Tableau de bord santé"
+        description="Vue consolidée des sondes, intégrations et métriques machine."
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -72,6 +77,18 @@ export default function AdministrationDashboardPage() {
           onRetest={() => void retestWebTools()}
         />
       </div>
+
+      <SectionCard title="Analytics missions (7 jours)">
+        {analytics.isLoading ? <p className="loading-line">Chargement…</p> : null}
+        {analytics.isSuccess ? (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard label="Missions" value={analytics.data?.missions_total ?? 0} tone="info" />
+            <StatCard label="Échecs" value={analytics.data?.missions_failed ?? 0} tone="urgent" />
+            <StatCard label="HITL pending" value={analytics.data?.missions_hitl_pending ?? 0} tone="warn" />
+            <StatCard label="Coût traces $" value={analytics.data?.trace_cost_usd ?? 0} tone="default" />
+          </div>
+        ) : null}
+      </SectionCard>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Santé système & intégrations</h2>

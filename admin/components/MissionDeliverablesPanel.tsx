@@ -33,8 +33,11 @@ type Props = {
   canValidateMission: boolean;
   validateBusy?: boolean;
   onValidateMission?: () => void | Promise<void>;
+  validateLabel?: string;
   onSaved?: () => void;
   className?: string;
+  /** Dans {@link ExpandableMissionReader} : pas d’en-tête de section séparé. */
+  embedded?: boolean;
 };
 
 function downloadMarkdown(filename: string, body: string) {
@@ -56,8 +59,10 @@ export default function MissionDeliverablesPanel({
   canValidateMission,
   validateBusy = false,
   onValidateMission,
+  validateLabel = "Valider la mission (clôture dirigeant)",
   onSaved,
   className = "",
+  embedded = false,
 }: Props) {
   const rows = useMemo(() => normalizeTeamRows(team), [team]);
   const items = useMemo(() => deliverablesForMissionPanel(resultMarkdown, rows), [resultMarkdown, rows]);
@@ -140,20 +145,26 @@ export default function MissionDeliverablesPanel({
 
   if (!items.length) return null;
 
+  const shellClass = embedded
+    ? `space-y-4 ${className}`
+    : `rounded-2xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/80 to-white shadow-sm ${className}`;
+
   return (
-    <section
-      className={`rounded-2xl border border-emerald-200/90 bg-gradient-to-b from-emerald-50/80 to-white shadow-sm ${className}`}
-      aria-label="Livrables de mission"
-    >
-      <header className="border-b border-emerald-100 px-4 py-3">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Livrables</p>
-        <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
-          Consultez chaque livrable, ajoutez vos notes ou corrections, marquez votre acceptation, exportez en Markdown ou
-          ouvrez un brouillon d&apos;email. La validation globale de la mission reste le bouton « Valider » dans la liste.
-        </p>
-        {feedback ? <p className="mt-2 text-[11px] text-emerald-800">{feedback}</p> : null}
-      </header>
-      <div className="space-y-4 px-4 py-4">
+    <section className={shellClass} aria-label="Livrables de mission">
+      {!embedded ? (
+        <header className="border-b border-emerald-100 px-4 py-3">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Livrables</p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-900/80">
+            Consultez chaque livrable, ajoutez vos notes ou corrections, marquez votre acceptation, exportez en Markdown
+            ou ouvrez un brouillon d&apos;email. La validation globale de la mission reste le bouton « Valider » dans la
+            liste.
+          </p>
+          {feedback ? <p className="mt-2 text-[11px] text-emerald-800">{feedback}</p> : null}
+        </header>
+      ) : feedback ? (
+        <p className="text-[11px] text-emerald-800">{feedback}</p>
+      ) : null}
+      <div className={embedded ? "space-y-4" : "space-y-4 px-4 py-4"}>
         {items.map((it, idx) => {
           const agentKey = resolveKey(it);
           const ui = agentsUi[agentKey] || {};
@@ -190,7 +201,11 @@ export default function MissionDeliverablesPanel({
                   </button>
                 </div>
               </div>
-              <div className="mt-3 max-h-[min(28rem,52vh)] min-h-0 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+              <div
+                className={`mt-3 min-h-0 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 ${
+                  embedded ? "" : "max-h-[min(28rem,52vh)] overflow-y-auto"
+                }`}
+              >
                 <AgentMessageMarkdown
                   source={it.body}
                   className="text-[12px] leading-relaxed text-slate-800 [&_li]:text-[12px] [&_ol]:my-1 [&_p]:text-[12px] [&_ul]:my-1"
@@ -247,7 +262,7 @@ export default function MissionDeliverablesPanel({
             onClick={() => void onValidateMission()}
             className="rounded-xl bg-violet-900 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-950 disabled:opacity-40"
           >
-            {validateBusy ? "Validation…" : "Valider la mission (clôture dirigeant)"}
+            {validateBusy ? "Clôture…" : validateLabel}
           </button>
           <p className="mt-2 text-[10px] text-slate-500">
             Ce bouton enregistre la validation globale de la mission (distincte de l&apos;acceptation par livrable ci-dessus).

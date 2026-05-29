@@ -31,6 +31,12 @@ EVENT_TYPES = frozenset({
     "error",
     "team_dialogue",
     "delivery_review",
+    "phase_transition",
+    "cio_question",
+    "cio_plan_hitl",
+    "cio_plan_hitl_resolved",
+    "mission_cancelled",
+    "cio_question_answer",
 })
 
 EmitFn = Callable[[str, str | None, dict[str, Any]], None]

@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test --config playwright.config.mjs",
+    "test:e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.99.2",

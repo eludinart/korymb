@@ -17,6 +17,16 @@ A change is done when:
 - UX states are handled (loading, success, error, empty),
 - no sensitive value is introduced in committed files.
 
+## OpenAPI Types (frontend)
+
+With the backend running locally:
+
+```bash
+npm run generate:api-schema
+```
+
+This writes `admin/lib/api-schema.d.ts` from FastAPI `/openapi.json`.
+
 ## Pull Request Checklist
 
 - [ ] Scope is focused and reversible.

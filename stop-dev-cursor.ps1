@@ -6,7 +6,7 @@
 param()
 
 $ErrorActionPreference = "Stop"
-$names = @("korymb-backend-cursor", "korymb-frontend-cursor")
+$names = @("korymb-mariadb-tunnel", "korymb-backend-cursor", "korymb-frontend-cursor")
 
 function Stop-ProcessesOnPort {
   param([int] $Port, [string] $Label = "")

@@ -38,3 +38,10 @@ jobs:
 
       - name: Backend compile check
         run: npm run check:backend
+
+      - name: Backend pytest
+        run: npm run check:backend:tests
+        env:
+          AGENT_API_SECRET: ci-test-secret
+          KORYMB_DB_ENGINE: sqlite
+          ENV: test

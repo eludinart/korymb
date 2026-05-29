@@ -41,3 +41,20 @@ Every feature touching LLM execution must verify:
 - selected provider is preserved through the full call path,
 - selected model is shown in UI and reflected by backend public info endpoints,
 - runtime setting changes are persisted and reloaded consistently.
+
+## Orchestration (LangGraph)
+
+- Missions can run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
+- Checkpoints: `backend/graph/` + SQLite checkpointer (`backend/data/langgraph_checkpoints.db`).
+- HITL canonique: `GET /jobs/{id}/hitl`, `POST /jobs/{id}/hitl/resolve`.
+- Clôture dirigeant post-mission: `POST /jobs/{id}/validate-mission` (distinct du HITL).
+- Inbox dirigeant: `GET /admin/inbox` — agrège HITL, clôtures, questions CIO, scheduler, qualité, apprentissage.
+- Briefing: `GET /admin/briefing` — décisions du jour, missions actives, budget, analytics 24h.
+- Notifications in-app: table `director_notifications`, SSE `director_notification`, `GET/PATCH /admin/notifications`.
+- HITL unifié: `services/hitl_unified.resolve_hitl` — `/jobs/{id}/hitl/resolve` et `/missions/jobs/{id}/validate`.
+- Playbooks: `GET/POST /playbooks`, `POST /playbooks/{id}/launch` — bibliothèque Fleur/Sivana.
+- Estimation coût pré-vol: `POST /missions/estimate-cost`.
+- Audit/replay: `GET /jobs/{id}/audit-bundle`, `GET /jobs/{id}/traces`, `POST /jobs/{id}/clone`.
+- Garde-fou qualité: `quality_verdicts`, behavior `quality.min_score_to_complete`, `POST /jobs/{id}/quality-override`.
+- Notifications externes (phase 5): `notification.email_to`, `notification.webhook_url` via `services/notifications.py`.
+- Routes `/run/*` deprecated (header `Deprecation: true`) — préférer `/jobs/*`.

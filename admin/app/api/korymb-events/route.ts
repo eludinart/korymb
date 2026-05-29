@@ -1,16 +1,15 @@
 import { NextResponse } from "next/server";
+import { resolveProxySecret } from "../../../lib/proxySecret";
 
 const base = (process.env.KORYMB_API_URL || process.env.NEXT_PUBLIC_KORYMB_API_URL || "http://127.0.0.1:8020").replace(/\/$/, "");
-const secret =
-  process.env.KORYMB_AGENT_SECRET ||
-  process.env.AGENT_API_SECRET ||
-  process.env.NEXT_PUBLIC_KORYMB_AGENT_SECRET ||
-  process.env.VITE_AGENT_SECRET ||
-  "";
 
 export async function GET() {
+  const secret = resolveProxySecret();
   if (!secret) {
-    return NextResponse.json({ error: "KORYMB_AGENT_SECRET manquant cote serveur Next" }, { status: 500 });
+    return NextResponse.json(
+      { error: "KORYMB_AGENT_SECRET manquant côté serveur Next (production : secret serveur uniquement)" },
+      { status: 500 },
+    );
   }
   const upstream = await fetch(`${base}/events/stream`, {
     cache: "no-store",

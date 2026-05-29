@@ -1,0 +1,1 @@
+"""Nœuds graphe mission."""

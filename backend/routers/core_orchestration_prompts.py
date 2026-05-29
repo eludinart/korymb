@@ -48,6 +48,9 @@ def orchestration_prompts_put(prompt_key: str, body: OrchestrationPromptPut):
         raise HTTPException(status_code=400, detail="prompt_key inconnu.")
     try:
         row = upsert_orchestration_prompt(k, body.body)
+        from database import append_orchestration_prompt_history
+
+        append_orchestration_prompt_history(k, body.body)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return row

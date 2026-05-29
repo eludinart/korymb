@@ -77,6 +77,7 @@ class ScheduledTaskUpdate(BaseModel):
 
 class ApproveOutputPayload(BaseModel):
     publish_immediately: bool = False
+    launch_mode: str | None = Field(default=None, pattern="^(supervised|autonomous)$")
 
 
 class RejectOutputPayload(BaseModel):
@@ -217,8 +218,23 @@ async def scheduler_approve_output(output_id: str, body: ApproveOutputPayload):
 
     # Cas spécial : mission_proposal → lancer la mission directement
     if output["output_type"] == "mission_proposal":
-        await _approve_mission_proposal(output)
+        job_id = await _approve_mission_proposal(output, launch_mode=body.launch_mode)
         updated = update_autonomous_output_status(output_id, "approved", approved_at=now_iso, published_at=now_iso)
+        if job_id:
+            from database import link_autonomous_output_job
+            link_autonomous_output_job(output_id, job_id)
+        try:
+            from services.director_platform import emit_director_notification
+            emit_director_notification(
+                kind="scheduler_output",
+                title=f"Proposition approuvée — {output.get('title') or output_id}",
+                body="Mission lancée depuis l'approbation.",
+                job_id=job_id,
+                output_id=output_id,
+                action_url=f"/missions?job={job_id}" if job_id else "/administration/approbations",
+            )
+        except Exception:
+            pass
         return updated
 
     # Cas général : marquer approuvé, publier si demandé
@@ -265,26 +281,47 @@ def _sync_to_scheduler(task: dict | None) -> None:
         unregister_task(sched, task["id"])
 
 
-async def _approve_mission_proposal(output: dict) -> None:
-    """Convertit un output mission_proposal en job réel."""
+async def _approve_mission_proposal(output: dict, *, launch_mode: str | None = None) -> str:
+    """Convertit un output mission_proposal en job réel. Retourne job_id."""
     import asyncio
+    import json
     import uuid
     from services.mission import _schedule_mission_execution, _mission_config_from_payload
 
     job_id = str(uuid.uuid4())[:8]
-    mission_text = output.get("content") or output.get("title") or "Mission proposée par l'agent"
+    raw = output.get("content") or output.get("title") or "Mission proposée par l'agent"
+    mission_text = str(raw)
+    mode = launch_mode or "supervised"
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            mission_text = str(data.get("description") or data.get("content") or output.get("title") or raw)
+            mode = str(launch_mode or data.get("launch_mode") or "supervised")
+    except (json.JSONDecodeError, TypeError):
+        pass
 
     from scheduler import _CaptureBT
     bt = _CaptureBT()
+    supervised = mode != "autonomous"
     cfg = _mission_config_from_payload({
-        "require_user_validation": True,
+        "require_user_validation": supervised,
         "mode": "cio",
-        "cio_plan_hitl_enabled": False,
+        "cio_plan_hitl_enabled": supervised,
+        "cio_questions_enabled": supervised,
     })
-    _schedule_mission_execution(bt, job_id, "coordinateur", mission_text, None, "mission_proposal", mission_config=cfg)
+    _schedule_mission_execution(
+        bt,
+        job_id,
+        "coordinateur",
+        mission_text,
+        None,
+        "mission_proposal",
+        mission_config=cfg,
+    )
 
     loop = asyncio.get_event_loop()
     for func, args, kwargs in bt._tasks:
         loop.run_in_executor(None, lambda f=func, a=args, k=kwargs: f(*a, **k))
 
-    logger.info("Mission proposal %r → job %s lancé", output["id"], job_id)
+    logger.info("Mission proposal %r → job %s lancé (mode=%s)", output["id"], job_id, mode)
+    return job_id

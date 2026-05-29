@@ -93,6 +93,26 @@ def prepare_hitl_gate(
 
     notification = queue_hitl_validation(gate_payload)
 
+    if gate_persisted:
+        try:
+            from database import insert_hitl_plan_snapshot
+            plan_public = gate_payload.get("plan_public") if isinstance(gate_payload.get("plan_public"), dict) else {}
+            if plan_public:
+                insert_hitl_plan_snapshot(job_id, plan_public, source="hitl_gate")
+        except Exception:
+            logger.exception("HITL snapshot failed for job %s", job_id)
+        try:
+            from services.director_platform import emit_director_notification
+            emit_director_notification(
+                kind="hitl",
+                title=f"Validation requise — {gate_payload.get('mission', '')[:80]}",
+                body="Un plan CIO attend votre décision.",
+                job_id=job_id,
+                action_url=f"/inbox?job={job_id}",
+            )
+        except Exception:
+            logger.exception("Director notification failed for HITL job %s", job_id)
+
     return {
         "job_id": job_id,
         "status": "awaiting_validation" if gate_persisted else "hitl_gate_skipped",

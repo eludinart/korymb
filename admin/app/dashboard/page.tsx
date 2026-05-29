@@ -8,6 +8,7 @@ import { agentHeaders, requestJson } from "../../lib/api";
 import { plainTextSnippet, sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, type TeamRow } from "../../lib/jobTeam";
 import { QK } from "../../lib/queryClient";
+import { PageHeader, PageLink, PageShell } from "../../components/ui/PageChrome";
 
 import type { AgentCard, JobRow } from "../../lib/types";
 
@@ -136,25 +137,29 @@ export default function DashboardPage() {
   }, [agentPanelKey, agents.data, jobs.data]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard metier</h1>
-        <p className="text-sm text-slate-500 mt-1">Vue d&apos;ensemble opérationnelle unifiée (phase 1 Next).</p>
-      </div>
+    <PageShell size="wide" className="space-y-6">
+      <PageHeader
+        accent="sky"
+        badge="Vue métier"
+        title="Dashboard métier"
+        description="Vue d'ensemble opérationnelle — agents, missions en cours et approbations."
+        actions={
+          <>
+            <PageLink href="/mission/nouvelle">Nouvelle mission</PageLink>
+            <PageLink href="/inbox" variant="secondary">
+              Inbox
+            </PageLink>
+          </>
+        }
+      />
       <div className="flex flex-wrap gap-3">
-        <Link href="/mission/nouvelle" className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium">
-          Nouvelle mission
+        <Link href="/mission/guided" className="btn-primary">
+          Mission guidée
         </Link>
-        <Link href="/mission/guided" className="bg-violet-900 text-white px-4 py-2 rounded-lg text-sm font-medium">
-          Mission guidee
-        </Link>
-        <Link href="/configuration" className="border border-slate-300 bg-white px-4 py-2 rounded-lg text-sm font-medium">
+        <Link href="/configuration" className="btn-secondary">
           Configuration
         </Link>
-        <Link
-          href="/administration/approbations"
-          className="border border-amber-200 bg-amber-50 px-4 py-2 rounded-lg text-sm font-medium text-amber-950 hover:bg-amber-100"
-        >
+        <Link href="/administration/approbations" className="btn-amber">
           Approbations
         </Link>
       </div>
@@ -187,7 +192,17 @@ export default function DashboardPage() {
           <p className="mt-4 text-sm text-slate-400">Chargement des approbations…</p>
         ) : null}
         {pendingApprovals.isError ? (
-          <p className="mt-4 text-sm text-red-700">Impossible de charger la file d&apos;approbation.</p>
+          <div className="mt-4 space-y-1 text-sm text-red-700">
+            <p>Impossible de charger la file d&apos;approbation.</p>
+            <p className="text-xs text-slate-600">
+              {pendingApprovals.error instanceof Error &&
+              /injoignable|8020|fetch failed|503|500|timeout/i.test(pendingApprovals.error.message)
+                ? "Le backend (port 8020) ne répond pas : relancez .\\start-dev-cursor.ps1 -MariaDbTunnel puis rechargez."
+                : pendingApprovals.error instanceof Error
+                  ? pendingApprovals.error.message
+                  : null}
+            </p>
+          </div>
         ) : null}
         {pendingApprovals.isSuccess && (pendingApprovals.data || []).length === 0 ? (
           <p className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-500">
@@ -481,6 +496,6 @@ export default function DashboardPage() {
           </ul>
         ) : null}
       </section>
-    </div>
+    </PageShell>
   );
 }

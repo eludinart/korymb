@@ -985,8 +985,9 @@ def _human_dialogue_cio_assign(agent_key: str, tache: str, chain_prev: str) -> s
     lab = agents_def()[agent_key]["label"]
     me = agents_def()["coordinateur"]["label"]
     t = str(tache).strip().replace("\n", " ")
-    if len(t) > 1400:
-        t = t[:1400] + "…"
+    t_max = max(2000, min(50_000, _behavior_int("orchestration.dialogue.assign_tache_max_chars", 12_000)))
+    if len(t) > t_max:
+        t = t[: t_max - 1] + "…"
     if chain_prev == "coordinateur":
         return (
             f"Bonjour {lab}, c’est {me}. Pour ce que demande le dirigeant, j’ai besoin de ton regard. "
@@ -1011,7 +1012,7 @@ def _human_dialogue_cio_wrapup(agent_keys: list[str]) -> str:
     )
 
 
-def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> dict:
+def _wait_for_cio_plan_hitl_resolution_legacy_poll(job_id: str, job_logs: list | None) -> dict:
     """
     Bloque jusqu'à résolution HITL (approve / reject / amend) pour le plan CIO.
     Retourne {"decision": "approve"} ou {"decision": "amend", "amended_plan": {...}}.
@@ -1044,6 +1045,12 @@ def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> di
         if i > 0 and i % 200 == 0 and job_logs is not None:
             job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
     raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+
+
+def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> dict:
+    from graph.hitl import wait_hitl_or_poll
+
+    return wait_hitl_or_poll(job_id, job_logs)
 
 
 def _apply_cio_plan_amendment(
@@ -2245,85 +2252,139 @@ def _schedule_mission_execution(
         )
         t_in_total = t_out_total = 0
         result = ""
+        graph_completed = False
         try:
-            mission_mode = str(cfg.get("mode") or "cio")
-            if mission_mode == "triad":
-                from services.triad_orchestrator import orchestrate_triad
-                from services.knowledge import build_entity_context_block
-                _emit_job_event(
-                    job_id, "delegation", "architect",
-                    {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
-                )
-                entity_ctx = build_entity_context_block(mission_plain)
-                result, t_in_total, t_out_total = orchestrate_triad(
-                    mission_txt,
-                    mission_plain,
-                    job_logs,
+            from graph.engine import get_orchestration_engine
+            from graph.runner import run_mission_graph
+            from database import snapshot_behavior_settings
+
+            engine_mode = get_orchestration_engine()
+            if engine_mode in ("langgraph", "shadow"):
+                behavior_snap = snapshot_behavior_settings()
+                graph_out = run_mission_graph(
                     job_id=job_id,
-                    tool_tags=agent_cfg.get("tools") or None,
-                    on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
-                    fleur_context=FLEUR_CONTEXT,
-                    memory_context=entity_ctx,
+                    agent_key=agent_key,
+                    mission_plain=mission_plain,
+                    context=context,
+                    source_tag=source_tag,
+                    mission_config=cfg,
+                    behavior_snapshot=behavior_snap,
                 )
-                _raise_if_job_cancelled(job_id)
-            elif agent_key == "coordinateur":
-                result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
-                    mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
-                    cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
-                    cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", True)),
-                )
-                _raise_if_job_cancelled(job_id)
-                if cfg.get("recursive_refinement_enabled"):
-                    try:
-                        mx = int(cfg.get("recursive_max_rounds") or 0)
-                    except (TypeError, ValueError):
-                        mx = 0
-                    max_cap = _behavior_int("orchestration.cio.refinement_max_rounds_cap", KORYMB_MAX_REFINEMENT_ROUNDS)
-                    if max_cap < 1:
-                        max_cap = 1
-                    mx = max(1, min(max_cap, mx))
-                    for r in range(1, mx + 1):
-                        _raise_if_job_cancelled(job_id)
-                        result, ti_r, to_r = _cio_refinement_round_mission(
-                            job_id, mission_txt, mission_plain, result, r, job_logs,
-                        )
-                        t_in_total += ti_r
-                        t_out_total += to_r
-                        _sync_active_job_tokens(job_id, t_in_total, t_out_total)
-            else:
-                active_jobs[job_id]["team"] = [{
-                    "key": agent_key,
-                    "label": agent_cfg["label"],
-                    "status": "running",
-                    "phase": "work",
-                    "detail": (mission_plain or "")[:220],
-                }]
-                job_logs.append(f"[korymb] {agent_cfg['label']} travaille...")
-                _raise_if_job_cancelled(job_id)
+                if engine_mode == "langgraph" and graph_out is not None:
+                    result = str(graph_out.get("result") or "")
+                    t_in_total = int(graph_out.get("tokens_in") or 0)
+                    t_out_total = int(graph_out.get("tokens_out") or 0)
+                    _raise_if_job_cancelled(job_id)
+                    if cfg.get("recursive_refinement_enabled") and agent_key == "coordinateur":
+                        try:
+                            mx = int(cfg.get("recursive_max_rounds") or 0)
+                        except (TypeError, ValueError):
+                            mx = 0
+                        max_cap = _behavior_int("orchestration.cio.refinement_max_rounds_cap", KORYMB_MAX_REFINEMENT_ROUNDS)
+                        if max_cap < 1:
+                            max_cap = 1
+                        mx = max(1, min(max_cap, mx))
+                        for r in range(1, mx + 1):
+                            _raise_if_job_cancelled(job_id)
+                            result, ti_r, to_r = _cio_refinement_round_mission(
+                                job_id, mission_txt, mission_plain, result, r, job_logs,
+                            )
+                            t_in_total += ti_r
+                            t_out_total += to_r
+                            _sync_active_job_tokens(job_id, t_in_total, t_out_total)
+                    graph_completed = True
 
-                def on_tool(actor: str, tool_name: str, meta: dict):
-                    _emit_job_event(job_id, "tool_call", actor, meta)
+            if not graph_completed:
+                mission_mode = str(cfg.get("mode") or "cio")
+                if mission_mode == "triad":
+                    from services.triad_orchestrator import orchestrate_triad
+                    from services.knowledge import build_entity_context_block
+                    _emit_job_event(
+                        job_id, "delegation", "architect",
+                        {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
+                    )
+                    entity_ctx = build_entity_context_block(mission_plain)
+                    result, t_in_total, t_out_total = orchestrate_triad(
+                        mission_txt,
+                        mission_plain,
+                        job_logs,
+                        job_id=job_id,
+                        tool_tags=agent_cfg.get("tools") or None,
+                        on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
+                        fleur_context=FLEUR_CONTEXT,
+                        memory_context=entity_ctx,
+                    )
+                    _raise_if_job_cancelled(job_id)
+                elif agent_key == "coordinateur":
+                    result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
+                        mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
+                        cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
+                        cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", True)),
+                    )
+                    _raise_if_job_cancelled(job_id)
+                    if cfg.get("recursive_refinement_enabled"):
+                        try:
+                            mx = int(cfg.get("recursive_max_rounds") or 0)
+                        except (TypeError, ValueError):
+                            mx = 0
+                        max_cap = _behavior_int("orchestration.cio.refinement_max_rounds_cap", KORYMB_MAX_REFINEMENT_ROUNDS)
+                        if max_cap < 1:
+                            max_cap = 1
+                        mx = max(1, min(max_cap, mx))
+                        for r in range(1, mx + 1):
+                            _raise_if_job_cancelled(job_id)
+                            result, ti_r, to_r = _cio_refinement_round_mission(
+                                job_id, mission_txt, mission_plain, result, r, job_logs,
+                            )
+                            t_in_total += ti_r
+                            t_out_total += to_r
+                            _sync_active_job_tokens(job_id, t_in_total, t_out_total)
+                else:
+                    active_jobs[job_id]["team"] = [{
+                        "key": agent_key,
+                        "label": agent_cfg["label"],
+                        "status": "running",
+                        "phase": "work",
+                        "detail": (mission_plain or "")[:220],
+                    }]
+                    job_logs.append(f"[korymb] {agent_cfg['label']} travaille...")
+                    _raise_if_job_cancelled(job_id)
 
-                result, t_in_total, t_out_total = llm_turn_maybe_tools(
-                    system_prompt,
-                    mission_txt,
-                    agent_cfg.get("tools"),
-                    job_logs,
-                    on_tool=on_tool,
-                    tool_actor=agent_key,
-                    usage_job_id=job_id,
-                    usage_context=f"single_agent:{agent_key}",
-                )
-                if job_id in active_jobs and active_jobs[job_id].get("team"):
-                    active_jobs[job_id]["team"][0]["status"] = "done"
+                    def on_tool(actor: str, tool_name: str, meta: dict):
+                        _emit_job_event(job_id, "tool_call", actor, meta)
+
+                    result, t_in_total, t_out_total = llm_turn_maybe_tools(
+                        system_prompt,
+                        mission_txt,
+                        agent_cfg.get("tools"),
+                        job_logs,
+                        on_tool=on_tool,
+                        tool_actor=agent_key,
+                        usage_job_id=job_id,
+                        usage_context=f"single_agent:{agent_key}",
+                    )
+                    if job_id in active_jobs and active_jobs[job_id].get("team"):
+                        active_jobs[job_id]["team"][0]["status"] = "done"
 
             _add_daily(t_in_total, t_out_total)
+            final_status = "completed"
+            try:
+                from services.quality_gate import assess_and_record, notify_quality_alert, should_block_completion
+
+                verdict = assess_and_record(job_id, result=str(result or ""), phase="completion")
+                if should_block_completion(job_id, float(verdict.get("score") or 0)):
+                    final_status = "quality_blocked"
+                    notify_quality_alert(job_id, float(verdict.get("score") or 0))
+            except Exception:
+                logger.exception("Quality gate failed for %s", job_id)
             if job_id in active_jobs:
                 active_jobs[job_id].update({
-                    "status": "completed", "result": result,
+                    "status": final_status, "result": result,
                     "tokens_in": t_in_total, "tokens_out": t_out_total,
                 })
             job_logs.append(f"[korymb] Terminé — {t_in_total}↑ {t_out_total}↓ tokens.")
+            if final_status == "quality_blocked":
+                job_logs.append("[korymb] Mission bloquée — score qualité sous le seuil configuré.")
             if not cfg.get("require_user_validation", True):
                 job_logs.append(
                     "[korymb] Mission auto-clôturée (validation dirigeant désactivée dans la config).",
@@ -2334,7 +2395,7 @@ def _schedule_mission_execution(
             src = active_jobs.get(job_id, {}).get("source") or source_tag
             update_job(
                 job_id,
-                "completed",
+                final_status,
                 result,
                 job_logs,
                 t_in_total,

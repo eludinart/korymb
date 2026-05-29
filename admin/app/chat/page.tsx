@@ -9,6 +9,7 @@ import MissionEventTimeline from "../../components/MissionEventTimeline";
 import { missionThreadToChatHistory } from "../../lib/missionFollowupChat";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
+import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 
 type Msg = { role: "user" | "assistant"; content: string; agent?: string };
 type Conversation = {
@@ -333,27 +334,21 @@ function ChatPageInner() {
   };
 
   return (
-    <div className="space-y-4 sm:space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chat</h1>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-500">
-          Avec le <span className="font-medium text-slate-700">coordinateur</span>, une mission peut partir en arrière-plan : la
-          synthèse finale revient ici, et le détail multi-agents vit sur{" "}
-          <Link href="/missions" className="font-medium text-violet-800 hover:underline">
-            Missions
+    <PageShell size="wide" className="space-y-4 sm:space-y-6">
+      <PageHeader
+        accent="violet"
+        title="Chat"
+        description="Discutez avec le coordinateur. Les missions lancées en arrière-plan reviennent ici ; le détail multi-agents est sur Missions."
+      />
+      {linkedParentJobId ? (
+        <p className="rounded-xl border-2 border-violet-200 bg-violet-50 px-4 py-3 text-sm font-bold text-violet-950">
+          Reprise liée à la mission{" "}
+          <Link href={`/missions?job=${encodeURIComponent(linkedParentJobId)}`} className="font-mono underline">
+            #{linkedParentJobId}
           </Link>{" "}
-          (réponse CIO en tête de panneau).
+          — le CIO reçoit le contexte de cette mission.
         </p>
-        {linkedParentJobId ? (
-          <p className="mt-2 text-xs font-medium text-violet-900">
-            Reprise liée à la mission{" "}
-            <Link href={`/missions?job=${encodeURIComponent(linkedParentJobId)}`} className="font-mono underline">
-              #{linkedParentJobId}
-            </Link>{" "}
-            — le CIO reçoit le contexte et l’historique de cette mission.
-          </p>
-        ) : null}
-      </div>
+      ) : null}
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white grid grid-cols-1 lg:grid-cols-[minmax(0,280px)_1fr]">
         <div className="mobile-tab-bar mx-3 mt-3 lg:hidden">
           <button
@@ -506,7 +501,7 @@ function ChatPageInner() {
           </form>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 

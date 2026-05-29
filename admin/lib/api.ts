@@ -67,7 +67,7 @@ export function apiUrl(path: string) {
 
 export async function requestJson(path: string, options: RequestOptions = {}) {
   const {
-    timeoutMs = 12000,
+    timeoutMs = 45_000,
     retries = 0,
     expectOk = true,
     headers,

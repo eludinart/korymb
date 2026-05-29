@@ -4,28 +4,25 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-const NAV = [
+const NAV_PRIORITY = [
+  { href: "/briefing", label: "Briefing", priority: true },
+  { href: "/inbox", label: "Inbox", priority: true },
   { href: "/dashboard", label: "Métier" },
   { href: "/missions", label: "Missions" },
   { href: "/chat", label: "Chat" },
   { href: "/historique", label: "Historique" },
-  { href: "/configuration", label: "Configuration" },
-  { href: "/administration", label: "Administration" },
   { href: "/mission/nouvelle", label: "Nouvelle mission" },
   { href: "/mission/guided", label: "Mission guidée" },
+  { href: "/configuration", label: "Configuration" },
+  { href: "/administration", label: "Administration" },
 ];
 
 const ADMIN_SUB = [
   { href: "/administration/dashboard", label: "Santé & outils" },
   { href: "/administration/agents", label: "Agents & mémoire" },
+  { href: "/administration/playbooks", label: "Playbooks" },
+  { href: "/administration/approbations", label: "Approbations" },
 ];
-
-function navLinkClass(active: boolean, compact = false) {
-  const size = compact ? "px-4 py-3 text-base" : "px-3 py-2 text-sm";
-  return `block w-full rounded-xl ${size} font-medium transition-colors ${
-    active ? "bg-slate-900 text-white" : "text-slate-700 hover:bg-slate-100 active:bg-slate-200"
-  }`;
-}
 
 function isNavActive(pathname: string, href: string, adminActive: boolean) {
   return (
@@ -33,6 +30,18 @@ function isNavActive(pathname: string, href: string, adminActive: boolean) {
     (href !== "/administration" && pathname.startsWith(`${href}/`)) ||
     (href === "/administration" && adminActive)
   );
+}
+
+function drawerLinkClass(active: boolean, priority?: boolean) {
+  const base = active ? "nav-drawer-link nav-drawer-link-active" : "nav-drawer-link nav-drawer-link-idle";
+  return priority && !active ? `${base} nav-drawer-link-priority` : base;
+}
+
+function desktopLinkClass(active: boolean, priority?: boolean) {
+  if (active) return "rounded-full bg-violet-700 px-3 py-2.5 text-sm font-bold text-white shadow-sm";
+  if (priority)
+    return "rounded-full border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-950 hover:bg-amber-100";
+  return "rounded-full px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-violet-50";
 }
 
 export default function AppNav() {
@@ -57,28 +66,28 @@ export default function AppNav() {
 
   const navLinks = (
     <>
-      {NAV.map((item) => {
+      {NAV_PRIORITY.map((item) => {
         const active = isNavActive(pathname, item.href, adminActive);
         return (
           <Link
             key={item.href}
             href={item.href === "/administration" ? "/administration/dashboard" : item.href}
             onClick={closeMenu}
-            className={navLinkClass(active, menuOpen)}
+            className={drawerLinkClass(active, item.priority)}
           >
             {item.label}
           </Link>
         );
       })}
       {adminActive ? (
-        <div className="mt-2 space-y-1 border-t border-slate-100 pt-3" aria-label="Sous-menu administration">
-          <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Administration</p>
+        <div className="mt-3 space-y-1 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
+          <p className="px-2 text-xs font-extrabold uppercase tracking-wider text-violet-700">Administration</p>
           {ADMIN_SUB.map((item) => {
             const active =
               pathname.startsWith(item.href) ||
               (item.href === "/administration/dashboard" && pathname === "/administration");
             return (
-              <Link key={item.href} href={item.href} onClick={closeMenu} className={navLinkClass(active, menuOpen)}>
+              <Link key={item.href} href={item.href} onClick={closeMenu} className={drawerLinkClass(active)}>
                 {item.label}
               </Link>
             );
@@ -90,18 +99,15 @@ export default function AppNav() {
 
   return (
     <>
-      {/* Desktop */}
-      <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 lg:flex">
+      <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 xl:flex">
         <nav className="flex flex-wrap justify-end gap-2">
-          {NAV.map((item) => {
+          {NAV_PRIORITY.map((item) => {
             const active = isNavActive(pathname, item.href, adminActive);
             return (
               <Link
                 key={item.href}
                 href={item.href === "/administration" ? "/administration/dashboard" : item.href}
-                className={`rounded-full px-3 py-2 text-sm font-medium transition-colors ${
-                  active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-                }`}
+                className={desktopLinkClass(active, item.priority)}
               >
                 {item.label}
               </Link>
@@ -109,7 +115,7 @@ export default function AppNav() {
           })}
         </nav>
         {adminActive ? (
-          <nav className="flex flex-wrap justify-end gap-1.5 border-t border-slate-100 pt-2 text-xs" aria-label="Sous-menu administration">
+          <nav className="flex flex-wrap justify-end gap-1.5 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
             {ADMIN_SUB.map((item) => {
               const active =
                 pathname.startsWith(item.href) ||
@@ -118,8 +124,8 @@ export default function AppNav() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`rounded-full px-2.5 py-1.5 font-medium ${
-                    active ? "bg-violet-100 text-violet-900" : "text-slate-600 hover:bg-slate-100"
+                  className={`rounded-full px-2.5 py-1.5 font-bold ${
+                    active ? "bg-violet-100 text-violet-900 ring-1 ring-violet-200" : "text-slate-700 hover:bg-slate-100"
                   }`}
                 >
                   {item.label}
@@ -130,12 +136,11 @@ export default function AppNav() {
         ) : null}
       </div>
 
-      {/* Mobile trigger */}
-      <div className="flex shrink-0 items-center gap-2 lg:hidden">
+      <div className="flex shrink-0 items-center gap-2 xl:hidden">
         <button
           type="button"
           onClick={() => setMenuOpen(true)}
-          className="touch-target inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+          className="touch-target inline-flex items-center justify-center rounded-xl border-2 border-violet-300 bg-violet-700 px-4 text-sm font-extrabold text-white shadow-md hover:bg-violet-800"
           aria-expanded={menuOpen}
           aria-controls="app-mobile-nav"
         >
@@ -143,30 +148,22 @@ export default function AppNav() {
         </button>
       </div>
 
-      {/* Mobile drawer */}
       {menuOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+        <div className="fixed inset-0 z-50 xl:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-900/40 backdrop-blur-[1px]"
+            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
             aria-label="Fermer le menu"
             onClick={closeMenu}
           />
-          <div
-            id="app-mobile-nav"
-            className="absolute inset-y-0 right-0 flex w-[min(100vw-2.5rem,20rem)] flex-col bg-white shadow-2xl pt-safe"
-          >
-            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-              <p className="text-sm font-bold text-slate-900">Navigation</p>
-              <button
-                type="button"
-                onClick={closeMenu}
-                className="touch-target rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
+          <div id="app-mobile-nav" className="nav-drawer">
+            <div className="flex items-center justify-between gap-2 border-b-2 border-violet-100 px-4 py-4">
+              <p className="text-base font-extrabold text-slate-950">Navigation</p>
+              <button type="button" onClick={closeMenu} className="btn-secondary px-3 py-2 text-sm">
                 Fermer
               </button>
             </div>
-            <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4 pb-safe">{navLinks}</nav>
+            <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 py-4 pb-safe">{navLinks}</nav>
           </div>
         </div>
       ) : null}

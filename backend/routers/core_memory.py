@@ -90,11 +90,28 @@ def memory_restore(snapshot_id: int):
 
 
 @router.get("/memory/preview", dependencies=[Depends(verify_secret)])
-def memory_preview(agent_key: str = Query(default="coordinateur")):
-    """Retourne le prompt système complet tel que les agents le voient avant une mission."""
-    try:
-        from services.memory import active_memory_prompt
-        prompt_text = active_memory_prompt(agent_key=agent_key)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erreur assemblage prompt : {exc}")
-    return {"agent_key": agent_key, "prompt": prompt_text}
+def memory_preview(
+    agent_key: str = Query(default="coordinateur"),
+    agents: str | None = Query(default=None, description="Liste CSV d'agents (ex. coordinateur,commercial)"),
+):
+    """Preview mémoire injectée — un agent ou plusieurs (tiers sémantique + épisodique)."""
+    from services.agents import FLEUR_CONTEXT, agents_def
+    from services.memory import active_memory_prompt
+
+    keys = []
+    if agents and str(agents).strip():
+        keys = [k.strip() for k in str(agents).split(",") if k.strip()]
+    elif agent_key:
+        keys = [agent_key.strip()]
+
+    previews: dict[str, str] = {}
+    for k in keys:
+        if k not in agents_def():
+            continue
+        try:
+            mem = active_memory_prompt(agent_key=k)
+            base = agents_def()[k].get("system") or ""
+            previews[k] = base + FLEUR_CONTEXT + mem
+        except Exception as exc:
+            previews[k] = f"(erreur preview: {exc})"
+    return {"agents": previews, "tiers": {"semantic": True, "episodic": True, "session": False}}

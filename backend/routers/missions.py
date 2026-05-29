@@ -9,7 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import verify_secret
-from services.orchestrator import build_peer_review_plan, prepare_hitl_gate, resume_hitl_gate
+from services.orchestrator import build_peer_review_plan, prepare_hitl_gate
+from services.hitl_unified import resolve_hitl
 
 router = APIRouter(prefix="/missions", tags=["missions-phase1"])
 
@@ -87,7 +88,7 @@ def job_hitl_validate(job_id: str, body: HitlValidateRequest):
     - decision=reject (ou approved=false) : annule le job
     - decision=amend + amended_plan : reprend avec plan fusionné dirigeant
     """
-    result = resume_hitl_gate(
+    result = resolve_hitl(
         job_id=job_id,
         approved=body.approved,
         comment=body.comment,

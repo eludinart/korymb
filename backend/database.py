@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from datetime import datetime
 from typing import Any
-from dotenv import load_dotenv
+from env_loader import load_backend_env
 
 try:
     import pymysql
@@ -27,8 +27,8 @@ DB_PATH = Path(__file__).parent / "data" / "korymb.db"
 
 # Limite par entrée du fil mission (TEXT / LONGTEXT) — éviter les coupures milieu de phrase pour les longues synthèses CIO.
 MISSION_THREAD_CONTENT_MAX_CHARS = 250_000
-# Source de vérité config backend
-load_dotenv(Path(__file__).with_name(".env"), override=True)
+# Source de vérité config backend (.env + .env.local)
+load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
 
 
@@ -158,6 +158,130 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN chat_session_id TEXT")
     if "deliverables_ui_json" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN deliverables_ui_json TEXT NOT NULL DEFAULT '{}'")
+    if "orchestration_phase" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN orchestration_phase TEXT NOT NULL DEFAULT ''")
+    if "checkpoint_thread_id" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN checkpoint_thread_id TEXT NOT NULL DEFAULT ''")
+
+
+def _ensure_platform_tables(conn) -> None:
+    text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    trace_pk = "BIGINT PRIMARY KEY AUTO_INCREMENT" if _is_mariadb() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    hist_pk = trace_pk
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS mission_idempotency (
+            idempotency_key {text_pk} PRIMARY KEY,
+            job_id {text_pk} NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS mission_checkpoints (
+            id {trace_pk},
+            job_id {text_pk} NOT NULL,
+            phase TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS mission_traces (
+            id {trace_pk},
+            job_id {text_pk} NOT NULL,
+            span_id TEXT NOT NULL DEFAULT '',
+            graph_node TEXT NOT NULL DEFAULT '',
+            agent TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            tokens_in INTEGER DEFAULT 0,
+            tokens_out INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0,
+            latency_ms INTEGER DEFAULT 0,
+            behavior_snapshot_hash TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS agent_definitions_history (
+            id {hist_pk},
+            agent_key {text_pk} NOT NULL,
+            body_json TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS orchestration_prompts_history (
+            id {hist_pk},
+            prompt_key {text_pk} NOT NULL,
+            body TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS agent_tool_permissions (
+            agent_key {text_pk} NOT NULL,
+            tool_tag {text_pk} NOT NULL,
+            permission_level TEXT NOT NULL DEFAULT 'read',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (agent_key, tool_tag)
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS director_notifications (
+            id {text_pk} PRIMARY KEY,
+            kind TEXT NOT NULL DEFAULT 'info',
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            job_id TEXT,
+            output_id TEXT,
+            action_url TEXT,
+            read_at TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS hitl_plan_snapshots (
+            id {trace_pk},
+            job_id {text_pk} NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            plan_json TEXT NOT NULL DEFAULT '{{}}',
+            source TEXT NOT NULL DEFAULT 'hitl_gate',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS learning_suggestions (
+            id {text_pk} PRIMARY KEY,
+            job_id {text_pk} NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS quality_verdicts (
+            id {trace_pk},
+            job_id {text_pk} NOT NULL,
+            phase TEXT NOT NULL DEFAULT '',
+            score REAL NOT NULL DEFAULT 0,
+            rejected INTEGER NOT NULL DEFAULT 0,
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS playbooks (
+            id {text_pk} PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            category TEXT NOT NULL DEFAULT 'generic',
+            steps_json TEXT NOT NULL DEFAULT '{{}}',
+            template_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -335,6 +459,7 @@ def init_db():
             )
         """)
         _ensure_memory_columns(conn)
+        _ensure_platform_tables(conn)
         conn.commit()
     init_enterprise_memory_row()
     _init_autonomous_tables()
@@ -353,6 +478,67 @@ def init_db():
         seed_behavior_defaults()
     except Exception:
         pass  # non bloquant au démarrage
+    try:
+        seed_playbooks()
+    except Exception:
+        pass
+
+
+def seed_playbooks() -> None:
+    """Playbooks Fleur/Sivana par défaut."""
+    defaults = [
+        {
+            "id": "fleur-veille-concurrence",
+            "name": "Veille concurrence Fleur",
+            "description": "Analyser les concurrents directs et proposer 3 actions commerciales.",
+            "category": "fleur",
+            "steps": {
+                "mission": "Veille concurrentielle Élude In Art : identifier 5 concurrents, comparer offres/prix, proposer 3 actions commerciales concrètes.",
+                "agents": ["commercial"],
+                "mission_config": {"mode": "cio", "require_user_validation": True},
+            },
+        },
+        {
+            "id": "fleur-relance-devis",
+            "name": "Relance devis en attente",
+            "description": "Synthèse des devis en attente et emails de relance personnalisés.",
+            "category": "fleur",
+            "steps": {
+                "mission": "Lister les devis en attente >7 jours, rédiger des relances personnalisées prêtes à envoyer.",
+                "agents": ["commercial"],
+            },
+        },
+        {
+            "id": "sivana-audit-contenu",
+            "name": "Audit contenu Sivana",
+            "description": "Audit SEO et calendrier éditorial 2 semaines.",
+            "category": "sivana",
+            "steps": {
+                "mission": "Auditer le contenu web Sivana, gaps SEO prioritaires, proposer calendrier éditorial 14 jours.",
+                "agents": ["marketing"],
+            },
+        },
+        {
+            "id": "sivana-social-plan",
+            "name": "Plan social Sivana",
+            "description": "Plan posts Instagram/Facebook semaine prochaine.",
+            "category": "sivana",
+            "steps": {
+                "mission": "Proposer 5 posts Instagram + 3 Facebook pour Sivana avec accroches et visuels suggérés.",
+                "agents": ["marketing"],
+            },
+        },
+    ]
+    for pb in defaults:
+        if get_playbook(pb["id"]):
+            continue
+        upsert_playbook(
+            pb["id"],
+            name=pb["name"],
+            description=pb["description"],
+            category=pb["category"],
+            steps=pb["steps"],
+        )
 
 
 def seed_orchestration_prompt_defaults() -> None:
@@ -785,6 +971,142 @@ def update_job(
         conn.commit()
 
 
+def update_job_orchestration_phase(job_id: str, phase: str) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET orchestration_phase=?, updated_at=? WHERE id=?",
+            (str(phase or "")[:64], now, job_id),
+        )
+        conn.commit()
+
+
+def update_job_checkpoint_thread(job_id: str, thread_id: str) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET checkpoint_thread_id=?, updated_at=? WHERE id=?",
+            (str(thread_id or "")[:64], now, job_id),
+        )
+        conn.commit()
+
+
+def snapshot_behavior_settings() -> dict[str, Any]:
+    """Capture des behavior_settings actifs (reproductibilité traces)."""
+    try:
+        rows = list_behavior_settings()
+        return {str(r.get("key") or ""): r.get("value") for r in rows if r.get("key")}
+    except Exception:
+        return {}
+
+
+def get_idempotent_job_id(idempotency_key: str) -> str | None:
+    key = (idempotency_key or "").strip()[:128]
+    if not key:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT job_id FROM mission_idempotency WHERE idempotency_key=?",
+            (key,),
+        ).fetchone()
+    if not row:
+        return None
+    return str(row["job_id"] if isinstance(row, dict) else row[0])
+
+
+def save_idempotent_job(idempotency_key: str, job_id: str) -> None:
+    key = (idempotency_key or "").strip()[:128]
+    if not key or not job_id:
+        return
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO mission_idempotency (idempotency_key, job_id, created_at) VALUES (?, ?, ?)",
+            (key, job_id, now),
+        )
+        conn.commit()
+
+
+def append_agent_definition_history(agent_key: str, body: dict[str, Any]) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO agent_definitions_history (agent_key, body_json, created_at) VALUES (?, ?, ?)",
+            (agent_key[:64], json.dumps(body, ensure_ascii=False), now),
+        )
+        conn.commit()
+
+
+def list_agent_definition_history(agent_key: str, limit: int = 20) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent_key, body_json, created_at FROM agent_definitions_history "
+            "WHERE agent_key=? ORDER BY id DESC LIMIT ?",
+            (agent_key[:64], max(1, min(limit, 100))),
+        ).fetchall()
+    out = []
+    for row in rows:
+        d = dict(row)
+        try:
+            d["body"] = json.loads(d.pop("body_json") or "{}")
+        except json.JSONDecodeError:
+            d["body"] = {}
+        out.append(d)
+    return out
+
+
+def append_orchestration_prompt_history(prompt_key: str, body: str) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO orchestration_prompts_history (prompt_key, body, created_at) VALUES (?, ?, ?)",
+            (prompt_key[:64], body, now),
+        )
+        conn.commit()
+
+
+def get_agent_tool_permission(agent_key: str, tool_tag: str) -> str:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT permission_level FROM agent_tool_permissions WHERE agent_key=? AND tool_tag=?",
+            (agent_key[:64], tool_tag[:64]),
+        ).fetchone()
+    if not row:
+        return "execute"
+    return str(row["permission_level"] if isinstance(row, dict) else row[0] or "execute")
+
+
+def insert_mission_trace(
+    *,
+    job_id: str,
+    span_id: str = "",
+    graph_node: str = "",
+    agent: str = "",
+    provider: str = "",
+    model: str = "",
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    cost_usd: float = 0,
+    latency_ms: int = 0,
+    behavior_snapshot_hash: str = "",
+) -> None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO mission_traces (
+                job_id, span_id, graph_node, agent, provider, model,
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                job_id, span_id, graph_node, agent, provider, model,
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, now,
+            ),
+        )
+        conn.commit()
+
+
 def get_job(job_id: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
@@ -940,6 +1262,43 @@ def job_set_user_validated(job_id: str) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+
+
+def _user_validated_set(row: dict | Any) -> bool:
+    uv = row.get("user_validated_at") if isinstance(row, dict) else row["user_validated_at"]
+    return bool(uv and str(uv).strip())
+
+
+def job_close_mission_by_user(job_id: str) -> bool:
+    """
+    Clôture explicite par le dirigeant (mission considérée terminée).
+    Autorise une mission encore « running » ou en erreur : fige le statut en completed + horodatage.
+    """
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        return False
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_jobs_columns(conn)
+        row = conn.execute(
+            "SELECT id, status, user_validated_at FROM jobs WHERE id = ?",
+            (jid,),
+        ).fetchone()
+        if not row:
+            return False
+        if _user_validated_set(dict(row)):
+            return True
+        st = str(row["status"] or "")
+        if st == "cancelled":
+            return False
+        new_status = "completed"
+        cur = conn.execute(
+            "UPDATE jobs SET user_validated_at = ?, status = ?, updated_at = ? "
+            "WHERE id = ? AND (user_validated_at IS NULL OR TRIM(user_validated_at) = '')",
+            (now, new_status, now, jid),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
 def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
@@ -1807,6 +2166,17 @@ def update_autonomous_output_status(
     return get_autonomous_output(output_id)
 
 
+def link_autonomous_output_job(output_id: str, job_id: str) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE autonomous_outputs SET job_id=?, updated_at=? WHERE id=?",
+            (job_id[:16], now, output_id),
+        )
+        conn.commit()
+    return get_autonomous_output(output_id)
+
+
 def count_autonomous_runs_today(task_id: str) -> int:
     """Nombre de jobs autonomes lancés aujourd'hui pour cette tâche."""
     from datetime import date
@@ -1820,15 +2190,388 @@ def count_autonomous_runs_today(task_id: str) -> int:
     return int(row[0] or 0) if row else 0
 
 
-def sum_autonomous_tokens_today(task_id: str) -> int:
-    """Total tokens (in+out) des jobs autonomes de cette tâche aujourd'hui."""
-    from datetime import date
-    today = date.today().isoformat()
-    source_tag = f"autonomous:{task_id}"
+# ── Director platform (inbox, notifications, snapshots, learning, quality, playbooks) ──
+
+
+def delete_job_cascade(job_id: str) -> bool:
+    """Supprime un job et les enregistrements liés (traces, notifications, etc.)."""
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        return False
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM jobs WHERE id=?", (jid,)).fetchone()
+        if not row:
+            return False
+        for table, col in (
+            ("mission_traces", "job_id"),
+            ("mission_checkpoints", "job_id"),
+            ("hitl_plan_snapshots", "job_id"),
+            ("quality_verdicts", "job_id"),
+            ("learning_suggestions", "job_id"),
+            ("director_notifications", "job_id"),
+            ("llm_usage_events", "job_id"),
+            ("mission_idempotency", "job_id"),
+        ):
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE {col}=?", (jid,))
+            except Exception:
+                pass
+        try:
+            conn.execute("UPDATE autonomous_outputs SET job_id='' WHERE job_id=?", (jid,))
+        except Exception:
+            pass
+        conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
+        conn.commit()
+    return True
+
+
+def mark_cio_questions_answered(job_id: str) -> bool:
+    """Marque les événements cio_question non répondus comme answered=true."""
+    row = get_job(job_id)
+    if not row:
+        return False
+    events = list(row.get("events") or [])
+    changed = False
+    patched: list = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            patched.append(ev)
+            continue
+        if ev.get("type") == "cio_question":
+            data = ev.get("data") if isinstance(ev.get("data"), dict) else {}
+            if not data.get("answered"):
+                data = dict(data)
+                data["answered"] = True
+                ev = dict(ev)
+                ev["data"] = data
+                changed = True
+        patched.append(ev)
+    if not changed:
+        return False
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id),
+        )
+        conn.commit()
+    return True
+
+
+def list_jobs_summary(limit: int = 80) -> list[dict]:
+    """Liste légère pour inbox/briefing (sans hydratation JSON lourde)."""
+    lim = max(1, min(int(limit), 200))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, tokens_in, tokens_out, "
+            "user_validated_at, hitl_gate_json, events_json, plan_json "
+            "FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            events = json.loads(d.pop("events_json", None) or "[]")
+        except json.JSONDecodeError:
+            events = []
+        try:
+            plan = json.loads(d.pop("plan_json", None) or "{}")
+        except json.JSONDecodeError:
+            plan = {}
+        try:
+            gate = json.loads(d.pop("hitl_gate_json", None) or "{}")
+        except json.JSONDecodeError:
+            gate = {}
+        d["events"] = events if isinstance(events, list) else []
+        d["plan"] = plan if isinstance(plan, dict) else {}
+        d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        out.append(d)
+    return out
+
+
+def insert_director_notification(
+    *,
+    kind: str,
+    title: str,
+    body: str = "",
+    job_id: str | None = None,
+    output_id: str | None = None,
+    action_url: str | None = None,
+    notif_id: str | None = None,
+) -> dict:
+    import uuid as _uuid
+
+    nid = (notif_id or _uuid.uuid4().hex[:16]).strip()[:32]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO director_notifications (id, kind, title, body, job_id, output_id, action_url, read_at, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+            (nid, kind[:32], title[:500], body[:4000], job_id, output_id, action_url, now),
+        )
+        conn.commit()
+    return get_director_notification(nid) or {"id": nid}
+
+
+def get_director_notification(notif_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM director_notifications WHERE id=?", (notif_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def list_director_notifications(*, unread_only: bool = False, limit: int = 50) -> list[dict]:
+    lim = max(1, min(int(limit), 200))
+    clause = "WHERE read_at IS NULL" if unread_only else ""
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM director_notifications {clause} ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    return [dict(r) for r in rows or []]
+
+
+def mark_director_notification_read(notif_id: str) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute("UPDATE director_notifications SET read_at=? WHERE id=?", (now, notif_id))
+        conn.commit()
+    return get_director_notification(notif_id)
+
+
+def mark_all_director_notifications_read() -> int:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE director_notifications SET read_at=? WHERE read_at IS NULL",
+            (now,),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def insert_hitl_plan_snapshot(job_id: str, plan: dict, *, source: str = "hitl_gate") -> dict:
+    now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) FROM jobs "
-            "WHERE source=? AND substr(created_at,1,10)=?",
-            (source_tag, today),
+            "SELECT COALESCE(MAX(version), 0) AS v FROM hitl_plan_snapshots WHERE job_id=?",
+            (job_id,),
         ).fetchone()
-    return int(row[0] or 0) if row else 0
+        version = int(dict(row).get("v") or 0) + 1 if row else 1
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at) VALUES (?, ?, ?, ?, ?)",
+                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now),
+            )
+            snap_id = conn.execute("SELECT LAST_INSERT_ID() AS id").fetchone()
+            sid = int(dict(snap_id).get("id") or 0)
+        else:
+            cur = conn.execute(
+                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at) VALUES (?, ?, ?, ?, ?)",
+                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now),
+            )
+            sid = int(getattr(cur, "lastrowid", 0) or 0)
+        conn.commit()
+    return {"id": sid, "job_id": job_id, "version": version, "source": source, "created_at": now}
+
+
+def list_hitl_plan_snapshots(job_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, job_id, version, plan_json, source, created_at FROM hitl_plan_snapshots "
+            "WHERE job_id=? ORDER BY version ASC",
+            (job_id,),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            d["plan"] = json.loads(d.pop("plan_json", None) or "{}")
+        except json.JSONDecodeError:
+            d["plan"] = {}
+        out.append(d)
+    return out
+
+
+def insert_quality_verdict(
+    job_id: str,
+    *,
+    phase: str,
+    score: float,
+    rejected: bool,
+    payload: dict | None = None,
+) -> dict:
+    now = datetime.utcnow().isoformat()
+    blob = json.dumps(payload or {}, ensure_ascii=False)
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now),
+            )
+            row = conn.execute("SELECT LAST_INSERT_ID() AS id").fetchone()
+            vid = int(dict(row).get("id") or 0)
+        else:
+            cur = conn.execute(
+                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now),
+            )
+            vid = int(getattr(cur, "lastrowid", 0) or 0)
+        conn.commit()
+    return {"id": vid, "job_id": job_id, "phase": phase, "score": score, "rejected": rejected, "created_at": now}
+
+
+def list_quality_verdicts(job_id: str) -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, job_id, phase, score, rejected, payload_json, created_at FROM quality_verdicts "
+            "WHERE job_id=? ORDER BY created_at ASC",
+            (job_id,),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        d["rejected"] = bool(d.get("rejected"))
+        try:
+            d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+        except json.JSONDecodeError:
+            d["payload"] = {}
+        out.append(d)
+    return out
+
+
+def insert_learning_suggestion(job_id: str, payload: dict, *, suggestion_id: str | None = None) -> dict:
+    import uuid as _uuid
+
+    sid = (suggestion_id or _uuid.uuid4().hex[:16]).strip()[:32]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO learning_suggestions (id, job_id, status, payload_json, created_at, resolved_at) "
+            "VALUES (?, ?, 'pending', ?, ?, NULL)",
+            (sid, job_id, json.dumps(payload, ensure_ascii=False), now),
+        )
+        conn.commit()
+    return get_learning_suggestion(sid) or {"id": sid, "job_id": job_id, "status": "pending"}
+
+
+def get_learning_suggestion(suggestion_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM learning_suggestions WHERE id=?", (suggestion_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+    except json.JSONDecodeError:
+        d["payload"] = {}
+    return d
+
+
+def list_learning_suggestions(*, status: str | None = "pending", limit: int = 40) -> list[dict]:
+    lim = max(1, min(int(limit), 200))
+    if status:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM learning_suggestions WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                (status, lim),
+            ).fetchall()
+    else:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM learning_suggestions ORDER BY created_at DESC LIMIT ?",
+                (lim,),
+            ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+        except json.JSONDecodeError:
+            d["payload"] = {}
+        out.append(d)
+    return out
+
+
+def resolve_learning_suggestion(suggestion_id: str, status: str) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE learning_suggestions SET status=?, resolved_at=? WHERE id=?",
+            (status[:32], now, suggestion_id),
+        )
+        conn.commit()
+    return get_learning_suggestion(suggestion_id)
+
+
+def list_playbooks(*, category: str | None = None) -> list[dict]:
+    with get_conn() as conn:
+        if category:
+            rows = conn.execute(
+                "SELECT * FROM playbooks WHERE category=? ORDER BY updated_at DESC",
+                (category,),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM playbooks ORDER BY updated_at DESC").fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            d["steps"] = json.loads(d.pop("steps_json", None) or "{}")
+        except json.JSONDecodeError:
+            d["steps"] = {}
+        out.append(d)
+    return out
+
+
+def get_playbook(playbook_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM playbooks WHERE id=?", (playbook_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["steps"] = json.loads(d.pop("steps_json", None) or "{}")
+    except json.JSONDecodeError:
+        d["steps"] = {}
+    return d
+
+
+def upsert_playbook(
+    playbook_id: str,
+    *,
+    name: str,
+    description: str = "",
+    category: str = "generic",
+    steps: dict | None = None,
+    template_id: str | None = None,
+) -> dict:
+    now = datetime.utcnow().isoformat()
+    steps_blob = json.dumps(steps or {}, ensure_ascii=False)
+    with get_conn() as conn:
+        existing = conn.execute("SELECT id FROM playbooks WHERE id=?", (playbook_id,)).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE playbooks SET name=?, description=?, category=?, steps_json=?, template_id=?, updated_at=? WHERE id=?",
+                (name[:200], description[:2000], category[:32], steps_blob, template_id, now, playbook_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO playbooks (id, name, description, category, steps_json, template_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (playbook_id, name[:200], description[:2000], category[:32], steps_blob, template_id, now, now),
+            )
+        conn.commit()
+    return get_playbook(playbook_id) or {"id": playbook_id}
+
+
+def list_mission_traces(job_id: str, *, limit: int = 200) -> list[dict]:
+    lim = max(1, min(int(limit), 500))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM mission_traces WHERE job_id=? ORDER BY created_at ASC LIMIT ?",
+            (job_id, lim),
+        ).fetchall()
+    return [dict(r) for r in rows or []]

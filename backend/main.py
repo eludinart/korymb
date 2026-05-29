@@ -10,15 +10,15 @@ import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from dotenv import load_dotenv
-
 os.environ.setdefault("PYTHONUTF8", "1")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
+from env_loader import load_backend_env
+
+load_backend_env()
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,6 +65,8 @@ from routers.core_scheduler import router as core_scheduler_router
 from routers.core_social import router as core_social_router
 from routers.core_orchestration_prompts import router as core_orchestration_prompts_router
 from routers.core_behavior_settings import router as core_behavior_settings_router
+from routers.core_admin import router as core_admin_router
+from routers.core_playbooks import router as core_playbooks_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -123,6 +125,8 @@ app.include_router(core_scheduler_router)
 app.include_router(core_social_router)
 app.include_router(core_orchestration_prompts_router)
 app.include_router(core_behavior_settings_router)
+app.include_router(core_admin_router)
+app.include_router(core_playbooks_router)
 
 
 @app.middleware("http")

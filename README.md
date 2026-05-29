@@ -20,15 +20,31 @@ python -m pip install -r backend/requirements.txt
 ### 2) Configure environment
 
 ```bash
-copy .env.example .env.local
+copy admin\.env.local.example admin\.env.local
 copy backend\.env.example backend\.env
 ```
 
 Then fill required secrets and keep them aligned:
 
 - `backend/.env` -> `AGENT_API_SECRET=...`
-- `.env.local` -> `KORYMB_AGENT_SECRET=...`
-- `.env.local` -> `NEXT_PUBLIC_KORYMB_AGENT_SECRET=...` (same value)
+- **`admin/.env.local`** -> `KORYMB_AGENT_SECRET=...` (obligatoire pour Next : missions, configuration LLM)
+- `admin/.env.local` -> `NEXT_PUBLIC_KORYMB_AGENT_SECRET=...` (meme valeur)
+
+#### Dev branché sur MariaDB du VPS
+
+Le port 3306 n'est en général pas ouvert sur Internet. Utiliser un tunnel SSH :
+
+```powershell
+# Terminal 1 — tunnel (laisser ouvert ; adapter KORYMB_VPS_SSH si besoin)
+$env:KORYMB_VPS_SSH = "root@187.124.42.135"
+.\scripts\mariadb-vps-tunnel.ps1
+
+# backend/.env : identifiants MariaDB (KORYMB_DB_USER, KORYMB_DB_PASSWORD, KORYMB_DB_NAME)
+copy backend\.env.local.example backend\.env.local
+# .env.local force KORYMB_DB_ENGINE=mariadb, host 127.0.0.1, port 3307
+```
+
+Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health` : `database.engine` = `mariadb`, `database.connected` = `true`.
 
 ### 3) Run app
 

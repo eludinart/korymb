@@ -8,9 +8,17 @@ from pathlib import Path
 _BACKEND_DIR = Path(__file__).resolve().parent
 
 
+def _backend_env_files() -> tuple[str, ...]:
+    files: list[Path] = [_BACKEND_DIR / ".env"]
+    local = _BACKEND_DIR / ".env.local"
+    if local.is_file():
+        files.append(local)
+    return tuple(str(p) for p in files)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=_BACKEND_DIR / ".env",
+        env_file=_backend_env_files(),
         env_file_encoding="utf-8",
         extra="ignore",
     )

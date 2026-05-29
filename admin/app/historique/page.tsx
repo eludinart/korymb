@@ -3,9 +3,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import MissionJobLiveDetail from "../../components/MissionJobLiveDetail";
-import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
+import JobAuditPanel from "../../components/JobAuditPanel";
+import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import { stripMarkdownLight } from "../../lib/normalizeLooseMarkdown";
 import { QK } from "../../lib/queryClient";
+import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 
 import type { Job } from "../../lib/types";
 
@@ -103,15 +105,16 @@ export default function HistoriquePage() {
   }, [jobsQuery.data, selected]);
 
   const deleteJobById = async (jobId: string) => {
-    const headers = agentHeaders();
-    await requestFallbackJson(
-      [
-        () => requestJson(`/jobs/${encodeURIComponent(jobId)}/remove`, { method: "POST", headers, expectOk: false }),
-        () => requestJson(`/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers, expectOk: false }),
-        () => requestJson("/run/remove-job", { method: "POST", headers, body: JSON.stringify({ job_id: jobId }), expectOk: false }),
-      ],
-      "Suppression mission",
-    );
+    const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}`, {
+      method: "DELETE",
+      headers: agentHeaders(),
+      retries: 1,
+      timeoutMs: 60_000,
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || `Suppression impossible (HTTP ${res.status})`);
+    }
   };
 
   const requestCancel = async () => {
@@ -145,11 +148,14 @@ export default function HistoriquePage() {
         const quickInfo = type === "mission_guidee"
           ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
           : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
+        const source = String((j as Job & { source?: string }).source || "");
+        const testHint =
+          source === "test" || /^pytest\d*$/i.test(j.job_id) || j.job_id.startsWith("cioans") ? " · test auto" : "";
         out.push({
           id: `job:${j.job_id}`,
           type,
           title,
-          quickInfo,
+          quickInfo: quickInfo + testHint,
           displayJobId: j.job_id,
           jobIds: [j.job_id],
         });
@@ -180,6 +186,11 @@ export default function HistoriquePage() {
   }, [jobs]);
 
   const deleteEntry = async (entry: HistoryEntry) => {
+    const label =
+      entry.type === "chat"
+        ? `la conversation (${entry.jobIds.length} échange(s))`
+        : `la mission #${entry.displayJobId}`;
+    if (typeof window !== "undefined" && !window.confirm(`Supprimer ${label} ?`)) return;
     setBusy(true);
     setError("");
     setFeedback("");
@@ -202,14 +213,12 @@ export default function HistoriquePage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Historique</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Journal unifié des missions et conversations. Chaque entrée affiche son type pour identifier rapidement ce qui est
-          un chat, une mission guidée ou une mission classique.
-        </p>
-      </div>
+    <PageShell size="wide" className="space-y-6">
+      <PageHeader
+        accent="sky"
+        title="Historique"
+        description="Journal unifié des missions et conversations — chat, mission guidée ou mission classique."
+      />
       <div className="mobile-tab-bar lg:hidden">
         <button
           type="button"
@@ -282,9 +291,9 @@ export default function HistoriquePage() {
                     void deleteEntry(entry);
                   }}
                   disabled={busy}
-                  className={`mt-2 min-h-[44px] rounded-lg px-3 py-2 text-xs font-medium ${isSelected ? "bg-red-900 text-red-200" : "bg-red-50 text-red-700"}`}
+                  className={`btn-danger mt-2 w-full sm:w-auto ${isSelected ? "!border-red-400 !bg-red-950 !text-red-100" : ""}`}
                 >
-                  Suppr.
+                  {busy ? "Suppression…" : "Supprimer"}
                 </button>
               </div>
             );
@@ -297,26 +306,29 @@ export default function HistoriquePage() {
               <p className="text-sm text-slate-400">Sélectionnez une mission dans la liste.</p>
             </section>
           ) : (
-            <MissionJobLiveDetail
-              jobId={selected}
-              missionPrompt={selectedMissionLabel}
-              agentFallback="coordinateur"
-              agentLabelMap={agentLabelMap}
-              title="Détail mission"
-              live={{
-                data: detailQuery.data,
-                isLoading: detailQuery.isLoading,
-                isError: detailQuery.isError,
-              }}
-              onRequestCancel={requestCancel}
-              cancelBusy={cancelBusy}
-              onDeliverablesSaved={() =>
-                void qc.invalidateQueries({ queryKey: ["job-detail-historique-live", selected] })
-              }
-            />
+            <>
+              <MissionJobLiveDetail
+                jobId={selected}
+                missionPrompt={selectedMissionLabel}
+                agentFallback="coordinateur"
+                agentLabelMap={agentLabelMap}
+                title="Détail mission"
+                live={{
+                  data: detailQuery.data,
+                  isLoading: detailQuery.isLoading,
+                  isError: detailQuery.isError,
+                }}
+                onRequestCancel={requestCancel}
+                cancelBusy={cancelBusy}
+                onDeliverablesSaved={() =>
+                  void qc.invalidateQueries({ queryKey: ["job-detail-historique-live", selected] })
+                }
+              />
+              <JobAuditPanel jobId={selected} />
+            </>
           )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

@@ -218,7 +218,11 @@ def _generate_mission_proposals(nb_proposals: int, task: dict) -> list[dict]:
             [
               {{
                 "title": "Titre court de la mission",
-                "content": "Description détaillée de la mission, objectifs, livrables attendus (2-4 phrases)"
+                "content": "Description détaillée (2-4 phrases)",
+                "why_now": "Pourquoi maintenant (1 phrase)",
+                "agents": ["commercial"],
+                "risk_flags": ["hitl_required"],
+                "launch_mode": "supervised"
               }}
             ]
 
@@ -235,7 +239,31 @@ def _generate_mission_proposals(nb_proposals: int, task: dict) -> list[dict]:
         if start == -1 or end == 0:
             return []
         proposals = json.loads(result[start:end])
-        return proposals[:nb_proposals] if isinstance(proposals, list) else []
+        if not isinstance(proposals, list):
+            return []
+        from services.cost_estimate import estimate_mission_cost
+
+        enriched: list[dict] = []
+        for p in proposals[:nb_proposals]:
+            if not isinstance(p, dict):
+                continue
+            mission_text = str(p.get("content") or p.get("title") or "")
+            agents = p.get("agents") if isinstance(p.get("agents"), list) else ["coordinateur"]
+            est = estimate_mission_cost(mission=mission_text, agents=agents, mode="cio")
+            blob = {
+                "description": mission_text,
+                "why_now": str(p.get("why_now") or p.get("rationale") or ""),
+                "agents": agents,
+                "estimated_tokens": est.get("estimated_tokens"),
+                "estimated_cost_usd": est.get("estimated_cost_usd"),
+                "risk_flags": p.get("risk_flags") if isinstance(p.get("risk_flags"), list) else [],
+                "launch_mode": str(p.get("launch_mode") or "supervised"),
+            }
+            enriched.append({
+                "title": p.get("title") or "Proposition de mission",
+                "content": json.dumps(blob, ensure_ascii=False),
+            })
+        return enriched
     except Exception as exc:
         logger.error("Génération proposals échouée : %s", exc)
         return []

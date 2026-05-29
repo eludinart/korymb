@@ -12,7 +12,9 @@
     "lint:admin": "npm --prefix admin run lint",
     "build:admin": "npm --prefix admin run build",
     "check:backend": "python -m compileall -q backend",
-    "check": "npm run build && npm run check:backend"
+    "check:backend:tests": "cd backend && python -m pytest tests/ evals/ -q",
+    "generate:api-schema": "node tools/generate-api-schema.mjs",
+    "check": "npm run build && npm run check:backend && npm run check:backend:tests"
   },
   "dependencies": {},
   "devDependencies": {}

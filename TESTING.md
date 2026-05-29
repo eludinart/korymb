@@ -17,7 +17,14 @@ npm run check
 This runs:
 
 - unified Next build (compile safety + route validation),
-- backend python compile check.
+- backend python compile check,
+- backend pytest (contract tests + evals métier).
+
+Individual commands:
+
+- `npm run check:backend:tests` — pytest in `backend/tests/` and `backend/evals/`
+- `npm run generate:api-schema` — OpenAPI types (backend must be running)
+- `npm --prefix admin run test:e2e` — Playwright smoke (servers running)
 
 ## Manual Test Matrix (Minimum)
 
@@ -39,11 +46,11 @@ For UI changes:
 
 CI must pass on pull requests:
 
-- unified frontend lint,
-- backend dependency install + compile check.
+- unified frontend build,
+- backend dependency install + compile check,
+- backend pytest.
 
 ## Future Improvements
 
-- Add backend unit tests around runtime settings merge logic.
-- Add API contract tests for `/admin/settings` and `/llm`.
-- Add E2E smoke tests for config save + mission launch flow.
+- Expand Playwright E2E in CI (nightly)
+- Golden-path eval with LangGraph HITL mock

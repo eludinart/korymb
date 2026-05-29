@@ -2,6 +2,9 @@
 .ftpconfig
 .ftpconfig.*
 .env
+.env.production
+.env.coolify
+.env.*.production
 
 # Node modules
 node_modules/

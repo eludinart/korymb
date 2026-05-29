@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import time
+import json
 from typing import Any
 
 import anthropic
@@ -33,6 +34,7 @@ def log_llm_call_financial(
     price_output_per_million: float,
     job_id: Any = _UNSET,
     context_label: Any = _UNSET,
+    latency_ms: int = 0,
 ) -> None:
     """Persiste une ligne d’usage pour agrégats de coût (ne doit pas faire échouer l’appel LLM)."""
     try:
@@ -56,6 +58,30 @@ def log_llm_call_financial(
             tokens_out=int(tokens_out),
             cost_usd=float(cost),
         )
+        if jid:
+            from database import insert_mission_trace
+
+            bhash = ""
+            try:
+                import hashlib
+                from database import list_behavior_settings
+
+                snap = json.dumps(list_behavior_settings(), sort_keys=True, default=str)
+                bhash = hashlib.sha256(snap.encode()).hexdigest()[:16]
+            except Exception:
+                pass
+            insert_mission_trace(
+                job_id=str(jid)[:16],
+                graph_node=str(ctx or "")[:64],
+                agent=str(ctx or "").split(":")[0][:64] if ctx else "",
+                provider=provider[:24],
+                model=model[:200],
+                tokens_in=int(tokens_in),
+                tokens_out=int(tokens_out),
+                cost_usd=float(cost),
+                latency_ms=int(latency_ms or 0),
+                behavior_snapshot_hash=bhash,
+            )
     except Exception:
         logger.exception("log_llm_call_financial")
 
@@ -251,6 +277,7 @@ def llm_turn(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
+    t0 = time.monotonic()
     cfg = merge_with_env()
     prov = str(cfg.get("llm_provider") or "anthropic")
     if prov == "openrouter":
@@ -294,6 +321,7 @@ def llm_turn(
         price_output_per_million=pout,
         job_id=usage_job_id,
         context_label=usage_context,
+        latency_ms=int((time.monotonic() - t0) * 1000),
     )
     return resp.content[0].text, tin, tout
 

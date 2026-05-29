@@ -12,9 +12,13 @@
 
 .PARAMETER SkipVerify
   Ignore l'attente active /health avant démarrage frontend.
+
+.PARAMETER MariaDbTunnel
+  Demarre scripts/mariadb-vps-tunnel.ps1 en job arriere-plan (dev -> MariaDB VPS).
 #>
 param(
-  [switch] $SkipVerify
+  [switch] $SkipVerify,
+  [switch] $MariaDbTunnel
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,6 +26,8 @@ $rootDir = $PSScriptRoot
 $backendRestart = Join-Path $rootDir "backend\restart.ps1"
 $backendJobName = "korymb-backend-cursor"
 $frontendJobName = "korymb-frontend-cursor"
+$tunnelJobName = "korymb-mariadb-tunnel"
+$mariadbTunnelScript = Join-Path $rootDir "scripts\mariadb-vps-tunnel.ps1"
 
 function Stop-ExistingJobByName {
   param([string] $Name)
@@ -58,6 +64,19 @@ Set-Location $rootDir
 # Nettoyage jobs précédents
 Stop-ExistingJobByName -Name $backendJobName
 Stop-ExistingJobByName -Name $frontendJobName
+Stop-ExistingJobByName -Name $tunnelJobName
+
+if ($MariaDbTunnel) {
+  if (-not (Test-Path -LiteralPath $mariadbTunnelScript)) {
+    throw "Script tunnel introuvable: $mariadbTunnelScript"
+  }
+  Write-Host "Demarrage tunnel MariaDB VPS (job interne)..." -ForegroundColor Cyan
+  Start-Job -Name $tunnelJobName -ScriptBlock {
+    param([string] $ScriptPath)
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $ScriptPath
+  } -ArgumentList $mariadbTunnelScript | Out-Null
+  Start-Sleep -Seconds 2
+}
 
 Write-Host "Demarrage backend (job interne Cursor)..." -ForegroundColor Cyan
 $backendJob = Start-Job -Name $backendJobName -ScriptBlock {
@@ -124,7 +143,7 @@ finally {
   # sinon Stop-Job peut bloquer indéfiniment en attendant des sous-processus qui ne répondent pas.
   Stop-ProcessesOnPort -Port 8020 -Label "backend/uvicorn"
   Stop-ProcessesOnPort -Port 3000 -Label "frontend/next"
-  foreach ($n in @($backendJobName, $frontendJobName)) {
+  foreach ($n in @($tunnelJobName, $backendJobName, $frontendJobName)) {
     $j = Get-Job -Name $n -ErrorAction SilentlyContinue
     if ($null -ne $j) {
       try { Stop-Job -Job $j -Force -ErrorAction SilentlyContinue } catch { }

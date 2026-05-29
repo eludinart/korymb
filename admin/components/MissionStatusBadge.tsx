@@ -11,7 +11,7 @@ export default function MissionStatusBadge({ status, className = "" }: Props) {
   const m = missionStatusMeta(status);
   return (
     <span
-      className={`inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${m.className} ${className}`}
+      className={`inline-flex items-center rounded-lg px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide ${m.className} ${className}`}
     >
       {m.label}
     </span>

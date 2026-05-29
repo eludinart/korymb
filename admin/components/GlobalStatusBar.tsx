@@ -87,17 +87,17 @@ export default function GlobalStatusBar() {
   const llm = useQuery({
     queryKey: QK.llm,
     queryFn: async () => (await requestJson("/llm", { retries: 1 })).data,
-    refetchInterval: () => visibleInterval(5000),
+    refetchInterval: () => visibleInterval(8000),
   });
   const tokens = useQuery({
     queryKey: QK.tokens,
-    queryFn: async () => (await requestJson("/tokens", { retries: 1 })).data as TokenData,
-    refetchInterval: () => visibleInterval(8000),
+    queryFn: async () => (await requestJson("/tokens", { retries: 2 })).data as TokenData,
+    refetchInterval: () => visibleInterval(15000),
   });
   const jobs = useQuery({
     queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
-    refetchInterval: () => visibleInterval(3000),
+    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 2 })).data.jobs || [],
+    refetchInterval: () => visibleInterval(8000),
   });
 
   const jobList = (jobs.data || []) as Array<{ status?: string; cost_usd?: number }>;
@@ -141,16 +141,16 @@ export default function GlobalStatusBar() {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="flex min-h-[44px] min-w-0 flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left text-xs text-slate-700 shadow-sm hover:bg-slate-50 active:bg-slate-100"
+          className="flex min-h-[48px] min-w-0 flex-1 items-center gap-2 rounded-2xl border-2 border-violet-200 bg-white px-4 py-3 text-left text-sm shadow-md hover:bg-violet-50 active:bg-violet-100"
           aria-expanded={false}
         >
-          <span className="shrink-0 text-slate-400" aria-hidden>
+          <span className="shrink-0 text-base font-bold text-violet-700" aria-hidden>
             ▶
           </span>
           <span className="min-w-0 truncate">
-            <span className="font-semibold text-slate-800">Tableau de bord</span>
-            <span className="text-slate-500"> · </span>
-            <span className="font-mono text-[11px] text-slate-600">{modelShort}</span>
+            <span className="font-extrabold text-slate-950">Tableau de bord</span>
+            <span className="font-bold text-slate-500"> · </span>
+            <span className="font-mono text-xs font-bold text-violet-800">{modelShort}</span>
             {tokensTotal !== null && td ? (
               <>
                 <span className="text-slate-500"> · </span>
@@ -187,11 +187,10 @@ export default function GlobalStatusBar() {
       </div>
       <div className="grid gap-3 sm:grid-cols-[1fr_2fr_1fr]">
 
-      {/* ── Modèle actif ── */}
-      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="stat-card">
         <div className="flex items-center gap-2">
           <HealthDot tone={llmTone} label="État endpoint LLM" />
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Modèle actif</p>
+          <p className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Modèle actif</p>
         </div>
         {llm.isLoading ? <p className="mt-2 text-sm text-slate-400">Chargement…</p> : null}
         {llm.isError ? <p className="mt-2 text-sm text-red-700">LLM indisponible</p> : null}
@@ -213,11 +212,11 @@ export default function GlobalStatusBar() {
       </div>
 
       {/* ── Usage tokens & coûts ── */}
-      <div className={`rounded-2xl border bg-white px-4 py-3 shadow-sm ${isBudgetExceeded ? "border-red-300" : isAlert ? "border-amber-300" : "border-slate-200"}`}>
+      <div className={`stat-card ${isBudgetExceeded ? "stat-card--urgent" : isAlert ? "stat-card--warn" : ""}`}>
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <HealthDot tone={tokensTone} label="Métriques tokens" />
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Usage IA</p>
+            <p className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Usage IA</p>
           </div>
           {isBudgetExceeded && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-700">
@@ -305,13 +304,13 @@ export default function GlobalStatusBar() {
       </div>
 
       {/* ── Missions ── */}
-      <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="stat-card stat-card--info">
         <div className="flex items-center gap-2">
           <HealthDot
             tone={jobsTone}
             label={jobs.isSuccess && running > 0 ? "Missions en cours" : "État liste missions"}
           />
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Missions</p>
+          <p className="text-xs font-extrabold uppercase tracking-wide text-slate-600">Missions</p>
         </div>
         {jobs.isLoading ? <p className="mt-2 text-sm text-slate-400">Chargement…</p> : null}
         {jobs.isError ? <p className="mt-2 text-sm text-red-700">Liste indisponible</p> : null}

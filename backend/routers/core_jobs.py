@@ -4,7 +4,10 @@ Extrait de main.py — contrats API préservés à l'identique.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from auth import verify_secret
@@ -16,6 +19,7 @@ from database import (
     get_latest_chat_followup_snapshot,
     list_jobs as db_list_jobs,
     job_set_user_validated,
+    job_close_mission_by_user,
     delete_mission_session,
     merge_job_deliverables_ui,
 )
@@ -29,6 +33,7 @@ from state import (
 )
 
 router = APIRouter(tags=["jobs"])
+logger = logging.getLogger(__name__)
 
 
 def _followup_payload_for_parent(job_id: str, row: dict, pin: float, pout: float) -> dict | None:
@@ -77,11 +82,15 @@ class DeliverablesUiPut(BaseModel):
 
 
 def delete_job_impl(job_id: str) -> dict:
-    delete_job_from_state(job_id)
-    with get_conn() as conn:
-        conn.execute("DELETE FROM jobs WHERE id=?", (job_id,))
-        conn.commit()
-    return {"deleted": job_id}
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    from database import delete_job_cascade
+
+    delete_job_from_state(jid)
+    if not delete_job_cascade(jid):
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    return {"deleted": jid}
 
 
 def clear_jobs_impl() -> dict:
@@ -111,7 +120,60 @@ def validate_mission_by_user_impl(job_id: str) -> dict:
             return {"job_id": job_id, "user_validated_at": row2["user_validated_at"]}
         raise HTTPException(status_code=500, detail="Enregistrement de la validation impossible.")
     row3 = db_get_job(job_id)
+    try:
+        from services.learning import trigger_learning_on_validate
+        trigger_learning_on_validate(job_id)
+    except Exception:
+        logger.exception("Learning trigger failed for %s", job_id)
     return {"job_id": job_id, "user_validated_at": row3.get("user_validated_at") if row3 else None}
+
+
+def close_mission_by_user_impl(job_id: str) -> dict:
+    """Clôture dirigeant : y compris mission bloquée en « running » (utiliser plutôt que validate-mission)."""
+    jid = (job_id or "").strip()[:16]
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = db_get_job(jid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    if row.get("user_validated_at"):
+        return {"job_id": jid, "already": True, "user_validated_at": row["user_validated_at"]}
+    st = str(row.get("status") or "")
+    if st == "cancelled":
+        raise HTTPException(status_code=400, detail="Mission annulée — clôture impossible.")
+    mem = active_jobs.get(jid)
+    if mem and str(mem.get("status") or "") in ("running", "awaiting_validation"):
+        mem["cancel_requested"] = True
+        mem["status"] = "completed"
+    try:
+        closed = job_close_mission_by_user(jid)
+    except Exception as exc:
+        logger.exception("job_close_mission_by_user(%s)", jid)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur lors de l'enregistrement de la clôture : {exc}",
+        ) from exc
+    if not closed:
+        row2 = db_get_job(jid)
+        if row2 and row2.get("user_validated_at"):
+            uv = row2["user_validated_at"]
+            if jid in active_jobs:
+                active_jobs[jid]["user_validated_at"] = uv
+                active_jobs[jid]["mission_closed_by_user"] = True
+                active_jobs[jid]["status"] = str(row2.get("status") or "completed")
+            return {"job_id": jid, "user_validated_at": uv, "closed": True}
+        st2 = str((row2 or {}).get("status") or st or "inconnu")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Clôture impossible (statut actuel : {st2}). Réessayez ou redémarrez le backend.",
+        )
+    row3 = db_get_job(jid)
+    uv = row3.get("user_validated_at") if row3 else None
+    if jid in active_jobs and row3:
+        active_jobs[jid]["user_validated_at"] = uv
+        active_jobs[jid]["mission_closed_by_user"] = True
+        active_jobs[jid]["status"] = str(row3.get("status") or "completed")
+    return {"job_id": jid, "user_validated_at": uv, "closed": True}
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -197,6 +259,21 @@ def validate_mission_by_user_body(payload: ValidateMissionPayload):
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
     return validate_mission_by_user_impl(jid)
+
+
+@router.post("/jobs/close-mission", dependencies=[Depends(verify_secret)])
+def close_mission_by_user_body(payload: ValidateMissionPayload):
+    jid = str(payload.job_id or "").strip()
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    return close_mission_by_user_impl(jid)
+
+
+@router.get("/jobs/summary", dependencies=[Depends(verify_secret)])
+def list_jobs_summary_route(limit: int = 80):
+    from database import list_jobs_summary as db_list_jobs_summary
+    rows = db_list_jobs_summary(limit=limit)
+    return {"jobs": rows}
 
 
 @router.get("/jobs/{job_id}", dependencies=[Depends(verify_secret)])
@@ -299,6 +376,11 @@ def validate_mission_by_user(job_id: str):
     return validate_mission_by_user_impl(job_id)
 
 
+@router.post("/jobs/{job_id}/close-mission", dependencies=[Depends(verify_secret)])
+def close_mission_by_user_route(job_id: str):
+    return close_mission_by_user_impl(job_id)
+
+
 @router.post("/jobs/{job_id}/cancel", dependencies=[Depends(verify_secret)])
 def cancel_running_job(job_id: str):
     jid = (job_id or "").strip()
@@ -358,10 +440,14 @@ def cio_answer(job_id: str, payload: dict):
     except Exception:
         raise HTTPException(status_code=500, detail="Impossible d'enregistrer la réponse sur le fil mission.") from None
 
+    from database import mark_cio_questions_answered
+    mark_cio_questions_answered(jid)
+
     refreshed = db_get_job(jid)
     job = active_jobs.get(jid)
     if job is not None and refreshed:
         job["mission_thread"] = list(refreshed.get("mission_thread") or [])
+        job["events"] = list(refreshed.get("events") or [])
         events = job.setdefault("events", [])
         events.append({
             "type": "cio_question_answer",
@@ -371,6 +457,62 @@ def cio_answer(job_id: str, payload: dict):
         })
 
     return {"ok": True, "job_id": jid, "stored": True}
+
+
+class HitlResolveBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    approved: bool | None = None
+    comment: str = ""
+    decision: str | None = None
+    amended_plan: dict | None = None
+    feedback: str = ""
+
+
+@router.get("/jobs/{job_id}/hitl", dependencies=[Depends(verify_secret)])
+def job_hitl_state(job_id: str):
+    from database import get_hitl_gate, get_job
+
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    gate = get_hitl_gate(job_id)
+    return {
+        "job_id": job_id,
+        "status": job.get("status"),
+        "orchestration_phase": job.get("orchestration_phase"),
+        "hitl": gate,
+    }
+
+
+@router.post("/jobs/{job_id}/hitl/resolve", dependencies=[Depends(verify_secret)])
+def job_hitl_resolve(job_id: str, body: HitlResolveBody):
+    from services.hitl_unified import resolve_hitl
+
+    result = resolve_hitl(
+        job_id,
+        approved=body.approved,
+        comment=body.comment,
+        decision=body.decision,
+        amended_plan=body.amended_plan,
+        feedback=body.feedback,
+    )
+    if not result.get("success"):
+        err = str(result.get("error") or "").strip()
+        code = 400 if "amend" in err.lower() or "requiert" in err.lower() else 404
+        raise HTTPException(status_code=code, detail=err or "Job introuvable ou état invalide pour la validation HITL.")
+    return result
+
+
+@router.post("/jobs/{job_id}/resume", dependencies=[Depends(verify_secret)])
+def job_resume_graph(job_id: str):
+    from graph.runner import get_graph_state, resume_mission_graph
+
+    state = get_graph_state(job_id)
+    if not state or not state.get("next"):
+        raise HTTPException(status_code=404, detail="Aucun checkpoint LangGraph à reprendre pour ce job.")
+    out = resume_mission_graph(job_id, {"decision": "approve"})
+    return {"ok": True, "job_id": job_id, "graph_state": out}
 
 
 @router.post("/jobs/{job_id}/remove", dependencies=[Depends(verify_secret)])
@@ -383,11 +525,92 @@ def delete_job(job_id: str):
     return delete_job_impl(job_id)
 
 
+@router.get("/jobs/{job_id}/traces", dependencies=[Depends(verify_secret)])
+def job_traces(job_id: str, limit: int = 200):
+    from database import list_mission_traces
+    return {"job_id": job_id, "traces": list_mission_traces(job_id, limit=limit)}
+
+
+@router.get("/jobs/{job_id}/audit-bundle", dependencies=[Depends(verify_secret)])
+def job_audit_bundle(job_id: str):
+    from database import get_job, get_hitl_gate, list_hitl_plan_snapshots, list_mission_traces, list_quality_verdicts
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    return {
+        "job": job,
+        "traces": list_mission_traces(job_id),
+        "quality_verdicts": list_quality_verdicts(job_id),
+        "hitl_snapshots": list_hitl_plan_snapshots(job_id),
+        "hitl": get_hitl_gate(job_id),
+    }
+
+
+@router.get("/jobs/{job_id}/hitl/plan-diff", dependencies=[Depends(verify_secret)])
+def job_hitl_plan_diff(job_id: str, from_version: int = 1, to_version: int | None = None):
+    from database import list_hitl_plan_snapshots
+    from services.director_platform import plan_diff
+
+    snaps = list_hitl_plan_snapshots(job_id)
+    if not snaps:
+        raise HTTPException(status_code=404, detail="Aucun snapshot plan pour cette mission.")
+    by_v = {int(s.get("version") or 0): s.get("plan") or {} for s in snaps}
+    fv = by_v.get(from_version)
+    if fv is None:
+        raise HTTPException(status_code=404, detail=f"Version {from_version} introuvable.")
+    tv = by_v.get(to_version) if to_version else by_v.get(max(by_v.keys()))
+    if tv is None:
+        raise HTTPException(status_code=404, detail="Version cible introuvable.")
+    return {"job_id": job_id, "from_version": from_version, "to_version": to_version or max(by_v.keys()), "diff": plan_diff(fv, tv)}
+
+
+@router.post("/jobs/{job_id}/clone", dependencies=[Depends(verify_secret)])
+def job_clone(job_id: str, background_tasks: BackgroundTasks):
+    from database import get_job
+    from services.mission import MissionRunConfig, _mission_config_from_payload, _schedule_mission_execution
+    import uuid
+
+    row = get_job(job_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    new_id = uuid.uuid4().hex[:12]
+    mc = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
+    cfg = _mission_config_from_payload({**MissionRunConfig().model_dump(), **mc})
+    _schedule_mission_execution(
+        background_tasks,
+        new_id,
+        str(row.get("agent") or "coordinateur"),
+        str(row.get("mission") or ""),
+        None,
+        "clone",
+        mission_config=cfg,
+    )
+    return {"ok": True, "source_job_id": job_id, "job_id": new_id}
+
+
+@router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(verify_secret)])
+def job_quality_override(job_id: str, payload: dict):
+    from database import get_job, insert_quality_verdict
+    if not get_job(job_id):
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    reason = str(payload.get("reason") or "").strip()
+    insert_quality_verdict(job_id, phase="override", score=10.0, rejected=False, payload={"reason": reason, "override": True})
+    return {"ok": True, "job_id": job_id}
+
+
 # ── Compat /run/* (proxys restrictifs) ───────────────────────────────────────
+
+def _deprecated_json(content: dict, *, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        content=content,
+        status_code=status_code,
+        headers={"Deprecation": "true", "Link": '</jobs>; rel="successor-version"'},
+    )
+
 
 @router.post("/run/remove-job", dependencies=[Depends(verify_secret)])
 def run_remove_job(payload: RemoveJobPayload):
-    return delete_job_impl(payload.job_id)
+    return _deprecated_json(delete_job_impl(payload.job_id))
 
 
 @router.post("/run/remove-mission-session", dependencies=[Depends(verify_secret)])
@@ -397,7 +620,7 @@ def run_remove_mission_session(payload: RemoveMissionSessionPayload):
         raise HTTPException(status_code=400, detail="session_id manquant.")
     if not delete_mission_session(sid):
         raise HTTPException(status_code=404, detail="Session introuvable.")
-    return {"deleted": True, "session_id": sid}
+    return _deprecated_json({"deleted": True, "session_id": sid})
 
 
 @router.post("/run/validate-mission", dependencies=[Depends(verify_secret)])
@@ -405,9 +628,17 @@ def run_validate_mission(payload: ValidateMissionPayload):
     jid = str(payload.job_id or "").strip()
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
-    return validate_mission_by_user_impl(jid)
+    return _deprecated_json(validate_mission_by_user_impl(jid))
+
+
+@router.post("/run/close-mission", dependencies=[Depends(verify_secret)])
+def run_close_mission(payload: ValidateMissionPayload):
+    jid = str(payload.job_id or "").strip()
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    return _deprecated_json(close_mission_by_user_impl(jid))
 
 
 @router.post("/run/clear-jobs", dependencies=[Depends(verify_secret)])
 def run_clear_jobs():
-    return clear_jobs_impl()
+    return _deprecated_json(clear_jobs_impl())

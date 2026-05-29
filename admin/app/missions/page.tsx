@@ -3,7 +3,7 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
 import AgentActivationBoard, { AgentActivationStrip } from "../../components/AgentActivationBoard";
 import AgentMindMap from "../../components/AgentMindMap";
@@ -17,29 +17,48 @@ import MissionMetricsRow from "../../components/MissionMetricsRow";
 import MissionStatusBadge from "../../components/MissionStatusBadge";
 import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
 import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel";
+import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
+import MissionHitlResolver from "../../components/missions/MissionHitlResolver";
+import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { bestPreview, extractCioStrategicQuestions } from "../../lib/missionBilan";
-import { agentHeaders, requestFallbackJson, requestJson } from "../../lib/api";
+import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
+import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 
 import type { Job } from "../../lib/types";
 
+async function fetchJobDetail(jobId: string) {
+  const { data } = await requestJson(
+    `/jobs/${encodeURIComponent(jobId)}?log_offset=0&events_offset=0`,
+    { headers: agentHeaders(), retries: 2, timeoutMs: 60_000 },
+  );
+  return data;
+}
+
 async function validateJob(jobId: string) {
   const headers = agentHeaders();
-  return requestFallbackJson([
-    () => requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, { method: "POST", headers, expectOk: false }),
-    () => requestJson("/run/validate-mission", { method: "POST", headers, body: JSON.stringify({ job_id: jobId }), expectOk: false }),
-    () => requestJson("/jobs/validate-mission", { method: "POST", headers, body: JSON.stringify({ job_id: jobId }), expectOk: false }),
-    () => requestJson("/run", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ mission: "", agent: "coordinateur", user_validate_job_id: jobId }),
-      expectOk: false,
-    }),
-  ], "Validation mission");
+  return requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, {
+    method: "POST",
+    headers,
+    expectOk: false,
+    timeoutMs: 60_000,
+    retries: 1,
+  });
+}
+
+async function closeMissionJob(jobId: string) {
+  const headers = agentHeaders();
+  return requestJson(`/jobs/${encodeURIComponent(jobId)}/close-mission`, {
+    method: "POST",
+    headers,
+    expectOk: false,
+    timeoutMs: 60_000,
+    retries: 1,
+  });
 }
 
 function MissionsContent() {
@@ -62,8 +81,12 @@ function MissionsContent() {
   });
   const jobs = useQuery({
     queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
-    refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 3000 : false),
+    queryFn: async () => {
+      const { data } = await requestJson("/jobs", { headers: agentHeaders(), retries: 1 });
+      const list = (data as { jobs?: unknown })?.jobs;
+      return Array.isArray(list) ? (list as Job[]) : [];
+    },
+    refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 8000 : false),
   });
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
@@ -98,38 +121,56 @@ function MissionsContent() {
   const detail = useQuery({
     queryKey: ["job-detail-live", selected],
     enabled: Boolean(selected),
-    queryFn: async () =>
-      (
-        await requestJson(`/jobs/${encodeURIComponent(String(selected))}?log_offset=0&events_offset=0`, {
-          headers: agentHeaders(),
-          retries: 1,
-        })
-      ).data,
-    refetchInterval: () => {
+    queryFn: () => fetchJobDetail(String(selected)),
+    placeholderData: keepPreviousData,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
+    refetchInterval: (query) => {
       if (!selected || typeof document === "undefined" || document.visibilityState !== "visible") return false;
-      return cioResumeLiveId ? 1000 : 1500;
+      if (cioResumeLiveId) return 1000;
+      const st = String((query.state.data as { status?: string } | undefined)?.status || "");
+      if (st === "running" || st === "awaiting_validation") return 2000;
+      return 12_000;
     },
   });
+
+  const detailRefreshError = detail.isError
+    ? detail.error instanceof Error
+      ? detail.error.message
+      : String(detail.error ?? "")
+    : "";
+  const backendLikelyDown =
+    /injoignable|8020|fetch failed|ECONNREFUSED|503/i.test(detailRefreshError) ||
+    detailRefreshError === "HTTP 500";
 
   const cioResumeLive = useQuery({
     queryKey: ["mission-cio-resume-live", cioResumeLiveId],
     enabled: Boolean(cioResumeLiveId),
-    queryFn: async () =>
-      (
-        await requestJson(`/jobs/${encodeURIComponent(String(cioResumeLiveId))}?log_offset=0&events_offset=0`, {
-          headers: agentHeaders(),
-          retries: 1,
-        })
-      ).data,
+    queryFn: () => fetchJobDetail(String(cioResumeLiveId)),
+    placeholderData: keepPreviousData,
+    retry: 2,
     refetchInterval: () =>
       cioResumeLiveId && typeof document !== "undefined" && document.visibilityState === "visible" ? 1500 : false,
   });
 
+  const selectedJobStatus = String(detail.data?.status || "");
+  const missionClosedByUser = Boolean(
+    detail.data?.user_validated_at || detail.data?.mission_closed_by_user,
+  );
+  /** Poursuite chat liée : autorisée en terminé, erreur, ou « en cours » (relance si blocage). */
   const canResumeCio = Boolean(
     selected &&
       detail.data &&
-      String(detail.data.status || "") !== "running" &&
-      (String(detail.data.status || "") === "completed" || String(detail.data.status || "").startsWith("error")),
+      !missionClosedByUser &&
+      selectedJobStatus !== "awaiting_validation" &&
+      selectedJobStatus !== "cancelled" &&
+      (selectedJobStatus === "completed" ||
+        selectedJobStatus.startsWith("error") ||
+        selectedJobStatus === "running"),
+  );
+  const missionRunningStuck = canResumeCio && selectedJobStatus === "running" && !cioResumeLiveId;
+  const canCloseMission = Boolean(
+    selected && detail.data && !missionClosedByUser && !cioResumeLiveId && selectedJobStatus !== "cancelled",
   );
 
   useEffect(() => {
@@ -161,7 +202,7 @@ function MissionsContent() {
 
   /** Actions CIO / questions (carte violette sous le fil dans la colonne gauche). */
   const showDecisionRail = Boolean(
-    (cioQuestions.length > 0 && !cioResumeLiveId) || canResumeCio,
+    selected && detail.data && !cioResumeLiveId && (canResumeCio || cioQuestions.length > 0),
   );
   /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
   const showConversationSidebar = Boolean(detail.data);
@@ -263,6 +304,18 @@ function MissionsContent() {
     };
   }, [selected, detail.data, latestChildByParent, cioResumeLiveId, cioResumeLive.data]);
 
+  const cioSynthReaderBadge = useMemo(() => {
+    if (!selectedMissionSynth) return null;
+    const n = deliverablesForMissionPanel(
+      selectedMissionSynth.deliverablesMarkdown,
+      normalizeTeamRows(selectedMissionSynth.deliverablesTeam),
+    ).length;
+    const parts: string[] = [];
+    if (String(selectedMissionSynth.cardResult || "").trim().length > 40) parts.push("Synthèse CIO");
+    if (n > 0) parts.push(`${n} livrable${n > 1 ? "s" : ""}`);
+    return parts.length ? parts.join(" · ") : null;
+  }, [selectedMissionSynth]);
+
   const onCioResumeSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!selected || !cioResumeInput.trim() || cioResumeBusy || cioResumeLiveId) return;
@@ -318,15 +371,36 @@ function MissionsContent() {
     }
   };
 
+  const onCloseMission = async (jobId: string) => {
+    const ok = window.confirm(
+      "Clôturer cette mission ?\n\nVous la considérez terminée : elle ne sera plus modifiable (poursuite CIO désactivée). Les livrables restent consultables.",
+    );
+    if (!ok) return;
+    setBusyId(jobId);
+    setError("");
+    setFeedback("");
+    try {
+      await closeMissionJob(jobId);
+      setFeedback(`Mission #${jobId} clôturée.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyId(null);
+      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.tokens });
+      qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
+    }
+  };
+
   return (
-    <div className="space-y-3">
+    <PageShell size="wide" className="space-y-3">
       {!selected ? (
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">Missions</h1>
-          <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-            Cliquez une mission pour le détail. Les missions à valider et en cours remontent en premier.
-          </p>
-        </div>
+        <PageHeader
+          accent="emerald"
+          badge="Suivi opérationnel"
+          title="Missions"
+          description="Les missions à valider et en cours remontent en premier. Touchez une carte pour le détail complet."
+        />
       ) : null}
       {!selected ? (
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(320px,1fr)]">
@@ -337,9 +411,18 @@ function MissionsContent() {
             {feedback}
           </p>
         ) : null}
+        {jobs.isLoading ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
+        {jobs.isError ? (
+          <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            Impossible de charger la liste des missions
+            {jobs.error instanceof Error ? ` : ${jobs.error.message}` : ""}.
+          </p>
+        ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;
-          const canValidate = j.status === "completed" && !closed;
+          const st = String(j.status || "");
+          const canValidate = st === "completed" && !closed;
+          const canCloseFromList = !closed && st !== "cancelled" && !canValidate;
           // Si une continuation a été faite sur ce job, utiliser son résultat pour la preview
           const latestChild = latestChildByParent.get(j.job_id);
           const bestResultSource = latestChild ?? j;
@@ -403,12 +486,26 @@ function MissionsContent() {
                   >
                     {busyId === j.job_id ? "Validation…" : "Valider"}
                   </button>
+                ) : canCloseFromList ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onCloseMission(j.job_id);
+                    }}
+                    disabled={busyId === j.job_id}
+                    className="min-h-[44px] w-full shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 disabled:opacity-40 sm:w-auto"
+                  >
+                    {busyId === j.job_id ? "Clôture…" : "Clôturer"}
+                  </button>
                 ) : null}
               </div>
             </div>
           );
         })}
-        {missionRows.length === 0 ? <p className="text-sm text-slate-400">Aucune mission.</p> : null}
+        {jobs.isSuccess && missionRows.length === 0 ? (
+          <p className="text-sm text-slate-400">Aucune mission.</p>
+        ) : null}
         </div>
         <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="space-y-4">
@@ -486,29 +583,43 @@ function MissionsContent() {
         >
           {showConversationSidebar && detail.data ? (
             <aside
-              className={`order-first mb-6 min-h-0 flex-col gap-2 lg:order-none lg:mb-0 lg:flex lg:h-full lg:max-h-full lg:overflow-hidden lg:pr-0.5 ${
+              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:pr-0.5 ${
                 mobileDetailPane === "fil" ? "flex" : "hidden lg:flex"
               }`}
             >
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="relative min-h-[14rem] min-w-0 flex-1 overflow-hidden">
                 <SessionCadrageTimeline
                   fillColumn
                   messages={detail.data.mission_thread}
+                  missionPlan={detail.data.plan}
+                  missionBrief={detail.data.mission}
                   title="Fil de cadrage avec le CIO"
-                  className="shadow-sm"
+                  className="h-full shadow-sm"
                   cioStrategicFollowup={extractCioStrategicQuestions(
                     String(selectedMissionSynth?.cardResult ?? detail.data.result ?? ""),
                   )}
                 />
               </div>
               {showDecisionRail ? (
-                <div className="shrink-0 rounded-2xl border border-violet-200 bg-white shadow-[0_-6px_28px_-6px_rgba(99,102,241,0.18)] ring-1 ring-violet-100/90">
+                <div className="max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-[0_-6px_28px_-6px_rgba(99,102,241,0.18)] ring-1 ring-violet-100/90">
+                  <p className="sticky top-0 z-10 border-b border-violet-100 bg-violet-50/95 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
+                    Votre message au CIO
+                  </p>
                   {canResumeCio ? (
                     !cioResumeLiveId ? (
-                      <form onSubmit={onCioResumeSubmit} className="space-y-2 border-b border-violet-100/80 p-3">
+                      <form onSubmit={onCioResumeSubmit} className="space-y-2 p-3">
+                        {missionRunningStuck ? (
+                          <p
+                            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-snug text-amber-950"
+                            role="status"
+                          >
+                            Mission « en cours » — faites défiler le fil ci-dessus, puis envoyez une consigne pour
+                            relancer le CIO.
+                          </p>
+                        ) : null}
                         <div className="flex items-center justify-between gap-2">
                           <label htmlFor="cio-resume-mission" className="text-xs font-semibold text-slate-900">
-                            Consigne pour la suite
+                            Discuter avec le CIO — consigne pour la suite
                           </label>
                           <Link
                             href={`/chat?parent=${encodeURIComponent(String(selected))}`}
@@ -522,9 +633,9 @@ function MissionsContent() {
                           value={cioResumeInput}
                           onChange={(e) => setCioResumeInput(e.target.value)}
                           disabled={cioResumeBusy}
-                          rows={2}
-                          className="w-full resize-none rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm leading-snug text-slate-900 outline-none ring-violet-200 focus:border-violet-400 focus:ring-1 disabled:opacity-50"
-                          placeholder="Ex. : affine la synthèse, ajoute une passe commercial…"
+                          rows={3}
+                          className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-snug text-slate-900 outline-none ring-violet-200 focus:border-violet-400 focus:ring-1 disabled:opacity-50"
+                          placeholder="Ex. : Ducoup en euros, j'ai besoin d'un exemple chiffré pour…"
                         />
                         <button
                           type="submit"
@@ -533,7 +644,30 @@ function MissionsContent() {
                         >
                           {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
                         </button>
+                        {canCloseMission ? (
+                          <div className="border-t border-violet-100 pt-3">
+                            <button
+                              type="button"
+                              disabled={busyId === selected}
+                              onClick={() => void onCloseMission(String(selected))}
+                              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                            >
+                              {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
+                            </button>
+                            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+                              Même si le statut est « en cours » ou sans réponse CIO en attente — enregistre votre
+                              clôture dirigeant.
+                            </p>
+                          </div>
+                        ) : null}
                       </form>
+                    ) : missionClosedByUser ? (
+                      <div className="border-b border-emerald-100/80 bg-emerald-50/80 px-3 py-3">
+                        <p className="text-xs font-semibold text-emerald-900">Mission clôturée</p>
+                        <p className="mt-1 text-[11px] text-emerald-800">
+                          Vous avez enregistré la fin de cette mission. Consultez la synthèse et les livrables à droite.
+                        </p>
+                      </div>
                     ) : (
                       <div className="flex items-center gap-2 border-b border-violet-100/80 p-3">
                         <span className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
@@ -542,6 +676,17 @@ function MissionsContent() {
                         </p>
                       </div>
                     )
+                  ) : canCloseMission ? (
+                    <div className="border-b border-violet-100/80 p-3">
+                      <button
+                        type="button"
+                        disabled={busyId === selected}
+                        onClick={() => void onCloseMission(String(selected))}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+                      >
+                        {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
+                      </button>
+                    </div>
                   ) : null}
                   <SimpleAccordion
                     key={`cio-dock-more-${selected}`}
@@ -608,6 +753,46 @@ function MissionsContent() {
               showConversationSidebar && mobileDetailPane === "fil" ? "hidden lg:block" : "block"
             }`}
           >
+            {showConversationSidebar && mobileDetailPane === "resultats" && showDecisionRail && canResumeCio && !cioResumeLiveId ? (
+              <div className="rounded-2xl border border-violet-300 bg-violet-50/90 p-3 shadow-sm lg:hidden">
+                <p className="text-xs font-semibold text-violet-950">Discuter avec le CIO</p>
+                <p className="mt-1 text-[11px] text-violet-900/90">
+                  Le champ de saisie est sur l&apos;onglet <span className="font-semibold">Fil CIO</span>, ou utilisez le
+                  formulaire ci‑dessous.
+                </p>
+                {missionRunningStuck ? (
+                  <p className="mt-2 text-[11px] text-amber-900">Mission « en cours » — relancez via une consigne.</p>
+                ) : null}
+                <form onSubmit={onCioResumeSubmit} className="mt-3 space-y-2">
+                  <textarea
+                    value={cioResumeInput}
+                    onChange={(e) => setCioResumeInput(e.target.value)}
+                    disabled={cioResumeBusy}
+                    rows={3}
+                    className="w-full resize-y rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
+                    placeholder="Votre message au CIO…"
+                    aria-label="Consigne pour le CIO"
+                  />
+                  <button
+                    type="submit"
+                    disabled={cioResumeBusy || !cioResumeInput.trim()}
+                    className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
+                  >
+                    {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                  </button>
+                  {canCloseMission ? (
+                    <button
+                      type="button"
+                      disabled={busyId === selected}
+                      onClick={() => void onCloseMission(String(selected))}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
+                    >
+                      {busyId === selected ? "Clôture…" : "Clôturer la mission"}
+                    </button>
+                  ) : null}
+                </form>
+              </div>
+            ) : null}
             {detail.data && selectedMissionSynth ? (
               <MissionDecisionCard
                 job={{
@@ -625,12 +810,31 @@ function MissionsContent() {
               />
             ) : null}
             <section className="min-h-0 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          {detail.isLoading ? (
+          {detail.isLoading && !detail.data ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
-          ) : detail.isError ? (
-            <p className="text-sm text-red-700">Impossible de charger le détail mission.</p>
           ) : detail.data ? (
             <div className="space-y-5">
+              {detail.isError ? (
+                <div
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+                  role="status"
+                >
+                  <p className="font-semibold">Rafraîchissement interrompu</p>
+                  <p className="mt-1 text-xs leading-relaxed">
+                    {detailRefreshError.includes("timeout") || detailRefreshError.includes("AbortError")
+                      ? "La mission est volumineuse et le serveur a mis trop de temps à répondre."
+                      : detailRefreshError ||
+                        "Le serveur n'a pas répondu. Les données ci-dessous peuvent être légèrement obsolètes."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void detail.refetch()}
+                    className="mt-2 text-xs font-semibold text-amber-900 underline hover:text-amber-950"
+                  >
+                    Réessayer le chargement
+                  </button>
+                </div>
+              ) : null}
               {(() => {
                 const detailStatus = String(detail.data.status || "");
                 const hitl = (detail.data.hitl || null) as { gate?: { kind?: string } } | null;
@@ -641,21 +845,10 @@ function MissionsContent() {
                   return <CioPlanHitlPanel jobId={String(detail.data.job_id || selected || "")} hitl={hitl} />;
                 }
                 return (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-                    <p className="text-sm font-semibold text-amber-900">Validation requise (HITL)</p>
-                    <p className="mt-1 text-xs leading-relaxed text-amber-800">
-                      Cette mission attend une décision humaine avant de poursuivre. Ouvrez la file d&apos;approbation
-                      pour valider ou rejeter l&apos;élément en attente.
-                    </p>
-                    <div className="mt-3">
-                      <Link
-                        href="/administration/approbations"
-                        className="inline-flex items-center rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                      >
-                        Ouvrir la file d&apos;approbation
-                      </Link>
-                    </div>
-                  </div>
+                  <MissionHitlResolver
+                    jobId={String(detail.data.job_id || selected || "")}
+                    hitl={hitl}
+                  />
                 );
               })()}
 
@@ -743,32 +936,38 @@ function MissionsContent() {
                 </div>
               ) : null}
 
-              {/* ── Livrable CIO (atténué pendant la continuation) ──────────── */}
+              {/* ── Synthèse CIO + livrables (agrandissable plein écran) ─────── */}
               <div className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}>
-                <CioResultPanel
-                  result={detail.data.result}
-                  missionTitle={detail.data.mission}
-                  jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
-                />
+                <ExpandableMissionReader
+                  title="Réponse du CIO · synthèse & livrables"
+                  hint={detail.data.mission?.trim() || null}
+                  badge={cioSynthReaderBadge}
+                >
+                  <CioResultPanel
+                    embedded
+                    result={detail.data.result}
+                    missionTitle={detail.data.mission}
+                    jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
+                  />
+                  {selected && selectedMissionSynth ? (
+                    <MissionDeliverablesPanel
+                      embedded
+                      jobId={selected}
+                      resultMarkdown={selectedMissionSynth.deliverablesMarkdown}
+                      team={selectedMissionSynth.deliverablesTeam}
+                      deliverablesUi={detail.data.deliverables_ui}
+                      missionClosed={Boolean(
+                        detail.data.user_validated_at || detail.data.mission_closed_by_user,
+                      )}
+                      canValidateMission={canCloseMission}
+                      validateBusy={busyId === selected}
+                      onValidateMission={() => void onCloseMission(selected)}
+                      validateLabel="Clôturer la mission (terminée pour moi)"
+                      onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
+                    />
+                  ) : null}
+                </ExpandableMissionReader>
               </div>
-
-              {selected && detail.data && selectedMissionSynth ? (
-                <MissionDeliverablesPanel
-                  jobId={selected}
-                  resultMarkdown={selectedMissionSynth.deliverablesMarkdown}
-                  team={selectedMissionSynth.deliverablesTeam}
-                  deliverablesUi={detail.data.deliverables_ui}
-                  missionClosed={Boolean(detail.data.user_validated_at || detail.data.mission_closed_by_user)}
-                  canValidateMission={
-                    String(detail.data.status || "") === "completed" &&
-                    !(detail.data.user_validated_at || detail.data.mission_closed_by_user)
-                  }
-                  validateBusy={busyId === selected}
-                  onValidateMission={() => void onValidate(selected)}
-                  onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
-                  className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}
-                />
-              ) : null}
 
               <CollapsibleMissionSection
                 title="Carte d&apos;activation des agents"
@@ -936,13 +1135,36 @@ function MissionsContent() {
                   </div>
               </SimpleAccordion>
             </div>
-          ) : null}
+          ) : detail.isError ? (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-red-700">Impossible de charger le détail mission.</p>
+              {detailRefreshError ? (
+                <p className="text-xs leading-relaxed text-red-600">{detailRefreshError}</p>
+              ) : null}
+              {backendLikelyDown ? (
+                <p className="text-xs leading-relaxed text-slate-600">
+                  Le backend Korymb (port <span className="font-mono">8020</span>) ne répond pas. Dans un terminal à la
+                  racine du projet :{" "}
+                  <span className="font-mono text-[11px]">.\start-dev-cursor.ps1 -MariaDbTunnel</span>
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void detail.refetch()}
+                className="text-xs font-semibold text-violet-800 underline hover:text-violet-950"
+              >
+                Réessayer
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Sélectionnez une mission dans la liste.</p>
+          )}
         </section>
           </div>
         </div>
       </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 

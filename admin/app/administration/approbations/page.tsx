@@ -75,6 +75,24 @@ const PLATFORM_ICONS: Record<string, string> = {
   website: "🌐",
 };
 
+function parseProposalContent(content: string) {
+  try {
+    const data = JSON.parse(content);
+    if (data && typeof data === "object") {
+      return {
+        description: String(data.description || data.content || content),
+        why_now: String(data.why_now || ""),
+        estimated_cost_usd: Number(data.estimated_cost_usd || 0),
+        launch_mode: String(data.launch_mode || "supervised"),
+        risk_flags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
+      };
+    }
+  } catch {
+    /* plain text */
+  }
+  return { description: content, why_now: "", estimated_cost_usd: 0, launch_mode: "supervised", risk_flags: [] };
+}
+
 // ── Output card ────────────────────────────────────────────────────────────────
 
 function OutputCard({
@@ -85,7 +103,7 @@ function OutputCard({
   busy,
 }: {
   output: AutonomousOutput;
-  onApprove: (id: string) => void;
+  onApprove: (id: string, launchMode?: "supervised" | "autonomous") => void;
   onApproveAndPublish: (id: string) => void;
   onReject: (id: string, reason: string) => void;
   busy: boolean;
@@ -97,6 +115,8 @@ function OutputCard({
   const isPending = output.status === "pending";
   const hasExternalTarget = ["facebook", "instagram"].includes(output.target_platform);
   const isMissionProposal = output.output_type === "mission_proposal";
+  const proposal = isMissionProposal ? parseProposalContent(output.content) : null;
+  const displayContent = proposal?.description ?? output.content;
 
   return (
     <div className={`rounded-2xl border p-5 transition-all ${
@@ -126,13 +146,17 @@ function OutputCard({
 
       {/* Title */}
       <p className="mt-2 text-sm font-semibold text-slate-900">{output.title || "(sans titre)"}</p>
+      {proposal?.why_now ? <p className="mt-1 text-xs text-violet-700">{proposal.why_now}</p> : null}
+      {proposal && proposal.estimated_cost_usd > 0 ? (
+        <p className="mt-1 text-xs text-slate-500">Coût estimé ~ ${proposal.estimated_cost_usd.toFixed(3)}</p>
+      ) : null}
 
       {/* Content preview / expanded */}
       <div className="mt-3">
         <p className={`whitespace-pre-wrap text-sm text-slate-700 ${expanded ? "" : "line-clamp-4"}`}>
-          {output.content}
+          {displayContent}
         </p>
-        {output.content.length > 300 && (
+        {displayContent.length > 300 && (
           <button
             onClick={() => setExpanded((v) => !v)}
             className="mt-1 text-xs text-violet-600 hover:underline"
@@ -158,13 +182,22 @@ function OutputCard({
       {isPending && !rejectMode && (
         <div className="mt-4 flex flex-wrap gap-2">
           {isMissionProposal ? (
-            <button
-              onClick={() => onApprove(output.id)}
-              disabled={busy}
-              className="rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
-            >
-              Lancer cette mission
-            </button>
+            <>
+              <button
+                onClick={() => onApprove(output.id, "supervised")}
+                disabled={busy}
+                className="rounded-lg bg-amber-600 px-4 py-1.5 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+              >
+                Lancer supervisé
+              </button>
+              <button
+                onClick={() => onApprove(output.id, "autonomous")}
+                disabled={busy}
+                className="rounded-lg bg-violet-700 px-4 py-1.5 text-xs font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+              >
+                Lancer autonome
+              </button>
+            </>
           ) : (
             <>
               <button
@@ -246,11 +279,19 @@ export default function ApprobationsPage() {
   });
 
   const approveMut = useMutation({
-    mutationFn: async ({ id, publish }: { id: string; publish: boolean }) => {
+    mutationFn: async ({
+      id,
+      publish,
+      launchMode,
+    }: {
+      id: string;
+      publish: boolean;
+      launchMode?: "supervised" | "autonomous";
+    }) => {
       return requestJson(`/scheduler/outputs/${id}/approve`, {
         method: "POST",
         headers: agentHeaders(),
-        body: JSON.stringify({ publish_immediately: publish }),
+        body: JSON.stringify({ publish_immediately: publish, launch_mode: launchMode }),
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduler-outputs"] }),
@@ -269,9 +310,9 @@ export default function ApprobationsPage() {
     onSettled: () => setBusyId(null),
   });
 
-  const handleApprove = (id: string) => {
+  const handleApprove = (id: string, launchMode?: "supervised" | "autonomous") => {
     setBusyId(id);
-    approveMut.mutate({ id, publish: false });
+    approveMut.mutate({ id, publish: false, launchMode });
   };
 
   const handleApproveAndPublish = (id: string) => {
