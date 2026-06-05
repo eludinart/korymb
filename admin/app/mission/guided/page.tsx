@@ -257,7 +257,7 @@ export default function MissionGuidedPage() {
       });
       qc.invalidateQueries({ queryKey: QK.missionSessions });
       qc.invalidateQueries({ queryKey: ["mission-session-detail", sessionId] });
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
       qc.invalidateQueries({ queryKey: QK.tokens });
       const jobId = String(data?.job_id || "");
       if (jobId) setTrackingJobId(jobId);

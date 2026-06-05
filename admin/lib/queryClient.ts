@@ -17,6 +17,7 @@ export const QK = {
   health: ["health"],
   agents: ["agents"],
   jobs: ["jobs"],
+  jobsCards: ["jobs-cards"],
   jobsLight: ["jobs-light"],
   missionSessions: ["mission-sessions"],
   adminSettings: ["admin-settings"],

@@ -21,4 +21,4 @@ export function resolveProxySecret(): string {
 }
 
 /** Routes proxyées sans X-Agent-Secret (bandeau runtime uniquement). */
-export const PROXY_UNPROTECTED = new Set(["health", "llm"]);
+export const PROXY_UNPROTECTED = new Set(["health", "health/live", "health/database", "llm"]);

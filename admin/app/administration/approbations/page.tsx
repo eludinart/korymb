@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requestJson, agentHeaders } from "../../../lib/api";
@@ -75,22 +76,48 @@ const PLATFORM_ICONS: Record<string, string> = {
   website: "🌐",
 };
 
+const AGENT_LABELS: Record<string, string> = {
+  coordinateur: "CIO",
+  commercial: "Commercial",
+  community_manager: "Community Manager",
+  developpeur: "Développeur",
+  comptable: "Comptable",
+};
+
 function parseProposalContent(content: string) {
   try {
     const data = JSON.parse(content);
     if (data && typeof data === "object") {
+      const agents = Array.isArray(data.agents) ? data.agents.map(String) : [];
+      const proposedBy = String(data.proposed_by_agent || agents[0] || "");
       return {
         description: String(data.description || data.content || content),
         why_now: String(data.why_now || ""),
         estimated_cost_usd: Number(data.estimated_cost_usd || 0),
         launch_mode: String(data.launch_mode || "supervised"),
         risk_flags: Array.isArray(data.risk_flags) ? data.risk_flags : [],
+        agents,
+        proposed_by_agent: proposedBy,
+        source_kind: String(data.source_kind || ""),
+        source_job_id: String(data.source_job_id || ""),
+        source_label: String(data.source_label || ""),
       };
     }
   } catch {
     /* plain text */
   }
-  return { description: content, why_now: "", estimated_cost_usd: 0, launch_mode: "supervised", risk_flags: [] };
+  return {
+    description: content,
+    why_now: "",
+    estimated_cost_usd: 0,
+    launch_mode: "supervised",
+    risk_flags: [] as string[],
+    agents: [] as string[],
+    proposed_by_agent: "",
+    source_kind: "",
+    source_job_id: "",
+    source_label: "",
+  };
 }
 
 // ── Output card ────────────────────────────────────────────────────────────────
@@ -146,7 +173,33 @@ function OutputCard({
 
       {/* Title */}
       <p className="mt-2 text-sm font-semibold text-slate-900">{output.title || "(sans titre)"}</p>
-      {proposal?.why_now ? <p className="mt-1 text-xs text-violet-700">{proposal.why_now}</p> : null}
+      {proposal?.proposed_by_agent ? (
+        <span className="mt-2 inline-block rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-900">
+          Proposé par {AGENT_LABELS[proposal.proposed_by_agent] || proposal.proposed_by_agent}
+        </span>
+      ) : null}
+      {proposal?.why_now ? (
+        <p className="mt-2 rounded-lg border border-violet-100 bg-violet-50/80 px-3 py-2 text-xs text-violet-900">
+          <span className="font-semibold">Pourquoi maintenant — </span>
+          {proposal.why_now}
+        </p>
+      ) : null}
+      {proposal?.source_label ? (
+        <p className="mt-2 text-xs text-slate-600">
+          Suite à : {proposal.source_label}
+          {proposal.source_job_id ? (
+            <>
+              {" "}
+              <Link
+                href={`/missions?job=${encodeURIComponent(proposal.source_job_id)}`}
+                className="font-semibold text-violet-800 underline hover:text-violet-950"
+              >
+                (mission #{proposal.source_job_id})
+              </Link>
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {proposal && proposal.estimated_cost_usd > 0 ? (
         <p className="mt-1 text-xs text-slate-500">Coût estimé ~ ${proposal.estimated_cost_usd.toFixed(3)}</p>
       ) : null}
@@ -265,6 +318,7 @@ export default function ApprobationsPage() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>("pending");
   const [filterType, setFilterType] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState("");
 
   const outputs = useQuery({
     queryKey: ["scheduler-outputs", filterStatus, filterType],
@@ -310,6 +364,31 @@ export default function ApprobationsPage() {
     onSettled: () => setBusyId(null),
   });
 
+  const generateMut = useMutation({
+    mutationFn: async () => {
+      setGenerateError("");
+      const { data } = await requestJson("/scheduler/proposals/generate", {
+        method: "POST",
+        headers: agentHeaders(),
+        body: JSON.stringify({ nb_proposals: 3 }),
+      });
+      return data as { created?: number };
+    },
+    onSuccess: (data) => {
+      setFilterStatus("pending");
+      setFilterType("mission_proposal");
+      qc.invalidateQueries({ queryKey: ["scheduler-outputs"] });
+      if (!data?.created) {
+        setGenerateError("Aucune proposition générée — réessayez dans quelques instants.");
+      }
+    },
+    onError: (err: unknown) => {
+      setGenerateError(
+        err instanceof Error ? err.message : "Impossible de générer les propositions.",
+      );
+    },
+  });
+
   const handleApprove = (id: string, launchMode?: "supervised" | "autonomous") => {
     setBusyId(id);
     approveMut.mutate({ id, publish: false, launchMode });
@@ -337,19 +416,41 @@ export default function ApprobationsPage() {
             Outputs générés par les agents autonomes en attente de validation avant publication.
           </p>
         </div>
-        {pendingCount > 0 && (
-          <div className="flex gap-2">
-            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-              {pendingCount} en attente
-            </span>
-            {proposalCount > 0 && (
-              <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold text-amber-900">
-                {proposalCount} proposition{proposalCount > 1 ? "s" : ""} de mission
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingCount > 0 && (
+            <>
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+                {pendingCount} en attente
               </span>
-            )}
-          </div>
-        )}
+              {proposalCount > 0 && (
+                <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-semibold text-amber-900">
+                  {proposalCount} proposition{proposalCount > 1 ? "s" : ""} de mission
+                </span>
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => generateMut.mutate()}
+            disabled={generateMut.isPending}
+            className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+          >
+            {generateMut.isPending ? "Génération en cours…" : "Générer des propositions"}
+          </button>
+        </div>
       </div>
+
+      {generateError ? (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {generateError}
+        </div>
+      ) : null}
+      {generateMut.isSuccess && (generateMut.data?.created ?? 0) > 0 ? (
+        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          {generateMut.data?.created} proposition{(generateMut.data?.created ?? 0) > 1 ? "s" : ""} générée
+          {(generateMut.data?.created ?? 0) > 1 ? "s" : ""} — validez ou rejetez ci-dessous.
+        </div>
+      ) : null}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
@@ -399,8 +500,17 @@ export default function ApprobationsPage() {
               : "Aucun output dans cette catégorie"}
           </p>
           <p className="mt-1 text-xs text-slate-400">
-            Les outputs générés par les tâches autonomes apparaîtront ici.
+            Cliquez sur « Générer des propositions » pour que le CIO propose des missions à valider,
+            ou configurez une tâche autonome dans Administration → Autonomie.
           </p>
+          <button
+            type="button"
+            onClick={() => generateMut.mutate()}
+            disabled={generateMut.isPending}
+            className="mt-4 rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-50"
+          >
+            {generateMut.isPending ? "Génération en cours…" : "Générer des propositions"}
+          </button>
         </div>
       ) : (
         <div className="space-y-3">

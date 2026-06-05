@@ -61,9 +61,15 @@ export default function HistoriquePage() {
   const [error, setError] = useState("");
   const [mobilePane, setMobilePane] = useState<"liste" | "detail">("liste");
   const jobsQuery = useQuery({
-    queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
-    refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 5000 : false),
+    queryKey: QK.jobsCards,
+    queryFn: async () =>
+      (await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 })).data.jobs || [],
+    staleTime: 20_000,
+    refetchInterval: (query) => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
+      if (query.state.fetchStatus === "fetching") return false;
+      return 15_000;
+    },
   });
   const agents = useQuery({
     queryKey: QK.agents,
@@ -129,7 +135,7 @@ export default function HistoriquePage() {
       });
       setFeedback(`Arrêt demandé pour la mission #${selected}.`);
       await qc.invalidateQueries({ queryKey: ["job-detail-historique-live", selected] });
-      await qc.invalidateQueries({ queryKey: QK.jobs });
+      await qc.invalidateQueries({ queryKey: QK.jobsCards });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -208,7 +214,7 @@ export default function HistoriquePage() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
     }
   };
 

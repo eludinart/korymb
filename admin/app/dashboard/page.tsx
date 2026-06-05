@@ -88,9 +88,15 @@ function outputTypeLabel(t: string): string {
 export default function DashboardPage() {
   const [agentPanelKey, setAgentPanelKey] = useState<string | null>(null);
   const jobs = useQuery({
-    queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders() })).data.jobs || [],
-    refetchInterval: () => visibleInterval(3000),
+    queryKey: QK.jobsCards,
+    queryFn: async () =>
+      (await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 })).data.jobs || [],
+    staleTime: 20_000,
+    refetchInterval: (query) => {
+      const base = visibleInterval(20_000);
+      if (!base) return false;
+      return query.state.fetchStatus === "fetching" ? false : base;
+    },
   });
   const agents = useQuery({
     queryKey: QK.agents,

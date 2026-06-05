@@ -21,12 +21,33 @@
 #>
 param(
   [string] $SshTarget = $(if ($env:KORYMB_VPS_SSH) { $env:KORYMB_VPS_SSH } else { "root@187.124.42.135" }),
-  [string] $RemoteDbHost = $(if ($env:KORYMB_VPS_DB_HOST) { $env:KORYMB_VPS_DB_HOST } else { "127.0.0.1" }),
+  [string] $RemoteDbHost = "",
   [int] $RemotePort = $(if ($env:KORYMB_VPS_DB_PORT) { [int]$env:KORYMB_VPS_DB_PORT } else { 3306 }),
   [int] $LocalPort = $(if ($env:KORYMB_DB_PORT) { [int]$env:KORYMB_DB_PORT } else { 3307 })
 )
 
 $ErrorActionPreference = "Stop"
+
+function Read-DotEnvValue {
+  param([string] $FilePath, [string] $Key)
+  if (-not (Test-Path -LiteralPath $FilePath)) { return $null }
+  foreach ($line in Get-Content -LiteralPath $FilePath) {
+    if ($line -match "^\s*$([regex]::Escape($Key))\s*=\s*(.+?)\s*$") {
+      return $Matches[1].Trim().Trim('"').Trim("'")
+    }
+  }
+  return $null
+}
+
+if (-not $RemoteDbHost) {
+  # Depuis le VPS en SSH, MariaDB est en général sur 127.0.0.1 — pas le hostname Docker Coolify (FLEUR_DB_HOST).
+  if ($env:KORYMB_VPS_DB_HOST) {
+    $RemoteDbHost = $env:KORYMB_VPS_DB_HOST
+  }
+  else {
+    $RemoteDbHost = "127.0.0.1"
+  }
+}
 
 if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
   throw "OpenSSH client introuvable. Installez le client SSH Windows ou utilisez Git Bash."

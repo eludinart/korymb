@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -2484,7 +2485,12 @@ def _schedule_mission_execution(
             )
             logger.error("Job [%s] échoué : %s", job_id, e)
 
-    background_tasks.add_task(execute)
+    # Thread dédié : évite de saturer le pool Starlette utilisé par les routes API sync.
+    threading.Thread(
+        target=execute,
+        name=f"korymb-mission-{job_id[:24]}",
+        daemon=True,
+    ).start()
 
 def _mission_followup_context_from_parent(parent_job_id: str) -> str:
     """Texte injecté dans le tour CIO « chat » pour reprendre une mission déjà exécutée (validée ou non)."""

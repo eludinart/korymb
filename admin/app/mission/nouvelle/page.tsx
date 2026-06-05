@@ -33,9 +33,15 @@ export default function MissionNouvellePage() {
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
   });
   const jobsList = useQuery({
-    queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 1 })).data.jobs || [],
-    refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 3200 : false),
+    queryKey: QK.jobsCards,
+    queryFn: async () =>
+      (await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 })).data.jobs || [],
+    staleTime: 15_000,
+    refetchInterval: (query) => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
+      if (query.state.fetchStatus === "fetching") return false;
+      return 10_000;
+    },
   });
   const jobLive = useQuery({
     queryKey: ["job-live", jobId],
@@ -146,7 +152,7 @@ export default function MissionNouvellePage() {
       setMsg(`Mission acceptee: #${data.job_id}`);
       setJobId(String(data.job_id || ""));
       setMission("");
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
       qc.invalidateQueries({ queryKey: QK.tokens });
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err));
@@ -167,7 +173,7 @@ export default function MissionNouvellePage() {
       });
       setMsg("Arrêt demandé : la mission s'interrompt dès la prochaine étape (quelques secondes).");
       await qc.invalidateQueries({ queryKey: ["job-live", jobId] });
-      await qc.invalidateQueries({ queryKey: QK.jobs });
+      await qc.invalidateQueries({ queryKey: QK.jobsCards });
     } catch (err) {
       setMsg(err instanceof Error ? err.message : String(err));
     } finally {

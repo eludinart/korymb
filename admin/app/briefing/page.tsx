@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import InboxActionCard from "../../components/director/InboxActionCard";
+import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import {
   AlertBox,
   EmptyState,
@@ -14,6 +15,10 @@ import {
   StatCard,
 } from "../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../lib/api";
+
+function isMariaDbTunnelError(message: string) {
+  return /mariadb_tunnel_required/i.test(message);
+}
 
 export default function BriefingPage() {
   const briefing = useQuery({
@@ -49,12 +54,23 @@ export default function BriefingPage() {
       {briefing.isLoading ? <LoadingLine /> : null}
       {briefing.isError ? (
         <AlertBox tone="error" title="Briefing indisponible">
-          Vérifiez que le backend tourne, puis réessayez.
+          {isMariaDbTunnelError(briefing.error?.message || "") ? (
+            <>
+              Le tunnel MariaDB est coupé (port 3307). Relancez{" "}
+              <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> ou le script{" "}
+              <span className="font-mono">.\scripts\mariadb-vps-tunnel.ps1</span>, puis rechargez cette page.
+            </>
+          ) : (
+            <>Vérifiez que le backend tourne, puis réessayez.</>
+          )}
         </AlertBox>
       ) : null}
 
+      <div className="space-y-6">
+        <RepriseBriefingSection />
+
       {b ? (
-        <div className="space-y-6">
+        <>
           <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Actions inbox" value={inboxTotal} tone={inboxTotal > 0 ? "urgent" : "default"} />
             <StatCard
@@ -114,8 +130,9 @@ export default function BriefingPage() {
               )}
             </ul>
           </section>
-        </div>
+        </>
       ) : null}
+      </div>
     </PageShell>
   );
 }

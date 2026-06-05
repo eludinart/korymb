@@ -10,7 +10,7 @@ export const MEMORY_CONTEXT_KEYS = [
 export type MemoryContextKey = (typeof MEMORY_CONTEXT_KEYS)[number];
 
 export const MEMORY_CONTEXT_TITLES: Record<MemoryContextKey, string> = {
-  global: "Contexte global (entreprise)",
+  global: "Contexte global (entreprise + priorités de la semaine)",
   commercial: "Commercial",
   community_manager: "Gestionnaire de communauté",
   developpeur: "Développeur",

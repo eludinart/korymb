@@ -28,8 +28,8 @@ export default function RuntimeHeader() {
     const pollFallback = async () => {
       try {
         const [{ data: llmData }, { data: healthData }] = await Promise.all([
-          requestJson("/llm", { retries: 1 }),
-          requestJson("/health", { retries: 1 }),
+          requestJson("/llm", { retries: 0, timeoutMs: 8_000 }),
+          requestJson("/health", { retries: 0, timeoutMs: 8_000 }),
         ]);
         setLlm({
           provider: llmData?.provider != null ? String(llmData.provider) : null,
@@ -78,9 +78,9 @@ export default function RuntimeHeader() {
           }
           if (jobInvalidateTimer) window.clearTimeout(jobInvalidateTimer);
           jobInvalidateTimer = window.setTimeout(() => {
-            void queryClient.invalidateQueries({ queryKey: QK.jobs });
+            void queryClient.invalidateQueries({ queryKey: QK.jobsCards });
             void queryClient.invalidateQueries({ queryKey: QK.jobsLight });
-          }, 2500);
+          }, 4000);
           const jid = d?.job_id != null ? String(d.job_id) : "";
           if (jid) {
             void queryClient.invalidateQueries({ queryKey: ["job-detail-live", jid] });
@@ -100,7 +100,7 @@ export default function RuntimeHeader() {
     };
 
     open();
-    const id = window.setInterval(pollFallback, 20000);
+    const id = window.setInterval(pollFallback, 45_000);
     void pollFallback();
     return () => {
       closed = true;

@@ -230,7 +230,13 @@ def _web_tools_probe_json(*, refresh: bool) -> JSONResponse:
     )
 
 
-def tokens_payload() -> dict:
+_TOKENS_PAYLOAD_CACHE: tuple[float, dict] | None = None
+_TOKENS_PAYLOAD_TTL_S = 25.0
+
+
+def _tokens_payload_uncached() -> dict:
+    from database import probe_database_connection
+
     d = today()
     t = daily_tokens.get(d, {"in": 0, "out": 0})
     cfg = merge_with_env()
@@ -238,7 +244,23 @@ def tokens_payload() -> dict:
         t["in"] * float(cfg.get("llm_price_input_per_million_usd") or 0)
         + t["out"] * float(cfg.get("llm_price_output_per_million_usd") or 0)
     ) / 1_000_000
-    usage = usage_cost_breakdown()
+    db_probe = probe_database_connection()
+    try:
+        usage = usage_cost_breakdown()
+        usage_events = usage_events_exist()
+    except Exception:
+        usage = {
+            "cost_today_usd": 0.0,
+            "cost_week_usd": 0.0,
+            "cost_month_usd": 0.0,
+            "cost_total_usd": 0.0,
+            "usage_tokens_today": 0,
+            "usage_tokens_week": 0,
+            "usage_tokens_month": 0,
+            "usage_tokens_last_hour": 0,
+            "usage_tokens_last_minute": 0,
+        }
+        usage_events = False
     tier_pub = tier_config_public(cfg)
     return {
         "today": d, "tokens_in": t["in"], "tokens_out": t["out"],
@@ -250,14 +272,29 @@ def tokens_payload() -> dict:
         "lifetime_tokens_total": _lifetime_tokens_total(),
         "tokens_inflight": tokens_inflight(),
         **usage,
-        "usage_events_active": usage_events_exist(),
+        "usage_events_active": usage_events,
+        "database_connected": bool(db_probe.get("connected")),
+        "database_detail": db_probe.get("detail"),
         "expensive_research_tier": bool(tier_pub.get("expensive_research_tier")),
         "tier_routing": tier_pub,
     }
 
 
+def tokens_payload() -> dict:
+    global _TOKENS_PAYLOAD_CACHE
+    now = time.time()
+    if _TOKENS_PAYLOAD_CACHE and (now - _TOKENS_PAYLOAD_CACHE[0]) < _TOKENS_PAYLOAD_TTL_S:
+        return _TOKENS_PAYLOAD_CACHE[1]
+    body = _tokens_payload_uncached()
+    _TOKENS_PAYLOAD_CACHE = (now, body)
+    return body
+
+
 def _lifetime_tokens_total() -> int:
-    base = sum_jobs_tokens_total()
+    try:
+        base = sum_jobs_tokens_total()
+    except Exception:
+        base = 0
     extra = 0
     for jid, job in active_jobs.items():
         live = int(job.get("tokens_in", 0)) + int(job.get("tokens_out", 0))
@@ -285,6 +322,28 @@ def _runtime_sync_snapshot() -> dict:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@router.get("/health/live")
+def health_live():
+    """Liveness minimale pour watchdog dev — aucune I/O DB."""
+    return JSONResponse(
+        content={"status": "ok", "live": True, "version": BACKEND_VERSION},
+        headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": BACKEND_VERSION},
+    )
+
+
+@router.get("/health/database")
+def health_database():
+    """Probe MariaDB/SQLite — bandeau UI (tunnel SSH requis en dev MariaDB)."""
+    snap = _database_runtime_snapshot(include_probe=True)
+    status_code = 200 if snap.get("connected") is True else 503
+    body = {"status": "ok" if status_code == 200 else "degraded", "database": snap}
+    return JSONResponse(
+        content=body,
+        status_code=status_code,
+        headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": BACKEND_VERSION},
+    )
+
 
 @router.get("/health")
 def health(
@@ -396,7 +455,7 @@ async def events_stream(request: Request):
                         f"id: {event_id}\nevent: job_event\ndata: "
                         f"{json.dumps(job_ev, ensure_ascii=False)}\n\n"
                     )
-                snapshot = _runtime_sync_snapshot()
+                snapshot = await asyncio.to_thread(_runtime_sync_snapshot)
                 payload = json.dumps(snapshot, ensure_ascii=False)
                 if payload != last_payload:
                     event_id += 1

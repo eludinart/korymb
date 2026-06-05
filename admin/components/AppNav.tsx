@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { useRepriseCoverage } from "../lib/repriseCoverage";
 
 const NAV_PRIORITY = [
   { href: "/briefing", label: "Briefing", priority: true },
   { href: "/inbox", label: "Inbox", priority: true },
+  { href: "/administration/reprise", label: "Audit reprise", priority: true },
   { href: "/dashboard", label: "Métier" },
   { href: "/missions", label: "Missions" },
   { href: "/chat", label: "Chat" },
@@ -44,10 +46,31 @@ function desktopLinkClass(active: boolean, priority?: boolean) {
   return "rounded-full px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-violet-50";
 }
 
+function RepriseNavBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span className="ml-1.5 inline-flex min-h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold leading-none text-white">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
+function NavLabel({ item, gapCount }: { item: (typeof NAV_PRIORITY)[number]; gapCount: number }) {
+  if (item.href !== "/administration/reprise") return item.label;
+  return (
+    <>
+      {item.label}
+      <RepriseNavBadge count={gapCount} />
+    </>
+  );
+}
+
 export default function AppNav() {
   const pathname = usePathname() || "";
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
   const [menuOpen, setMenuOpen] = useState(false);
+  const reprise = useRepriseCoverage();
+  const repriseGapCount = reprise.data?.gaps?.length ?? 0;
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
 
@@ -73,9 +96,9 @@ export default function AppNav() {
             key={item.href}
             href={item.href === "/administration" ? "/administration/dashboard" : item.href}
             onClick={closeMenu}
-            className={drawerLinkClass(active, item.priority)}
+            className={`${drawerLinkClass(active, item.priority)} inline-flex items-center`}
           >
-            {item.label}
+            <NavLabel item={item} gapCount={repriseGapCount} />
           </Link>
         );
       })}
@@ -107,9 +130,9 @@ export default function AppNav() {
               <Link
                 key={item.href}
                 href={item.href === "/administration" ? "/administration/dashboard" : item.href}
-                className={desktopLinkClass(active, item.priority)}
+                className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}
               >
-                {item.label}
+                <NavLabel item={item} gapCount={repriseGapCount} />
               </Link>
             );
           })}

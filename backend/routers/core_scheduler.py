@@ -84,6 +84,10 @@ class RejectOutputPayload(BaseModel):
     reason: str = ""
 
 
+class GenerateProposalsPayload(BaseModel):
+    nb_proposals: int = Field(default=3, ge=1, le=8)
+
+
 # ── Task routes ────────────────────────────────────────────────────────────────
 
 @router.get("/scheduler/tasks", dependencies=[Depends(verify_secret)])
@@ -177,6 +181,20 @@ async def scheduler_run_now(task_id: str):
     import asyncio
     asyncio.create_task(run_task_by_id(task_id))
     return {"triggered": task_id}
+
+
+@router.post("/scheduler/proposals/generate", dependencies=[Depends(verify_secret)])
+async def scheduler_generate_proposals(body: GenerateProposalsPayload):
+    """Génère des propositions de mission à la demande (file d'approbation)."""
+    from services.veille import generate_mission_proposals_now
+
+    result = await generate_mission_proposals_now(nb_proposals=body.nb_proposals)
+    if not result.get("created"):
+        raise HTTPException(
+            status_code=502,
+            detail=str(result.get("message") or "Aucune proposition générée — réessayez dans quelques instants."),
+        )
+    return result
 
 
 # ── Output / approval routes ───────────────────────────────────────────────────

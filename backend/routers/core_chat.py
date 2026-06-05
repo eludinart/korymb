@@ -4,6 +4,7 @@ routers/core_chat.py — Route /chat.
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from datetime import datetime
 
@@ -206,7 +207,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 finally:
                     active_jobs.pop(job_id, None)
 
-            background_tasks.add_task(execute_chat_cio)
+            threading.Thread(
+                target=execute_chat_cio,
+                name=f"korymb-chat-{job_id[:24]}",
+                daemon=True,
+            ).start()
             return {"status": "accepted", "job_id": job_id, "agent": "coordinateur"}
 
         system_prompt = (

@@ -83,13 +83,18 @@ function MissionsContent() {
     return localStorage.getItem("cio_questions_enabled") !== "false";
   });
   const jobs = useQuery({
-    queryKey: QK.jobs,
+    queryKey: QK.jobsCards,
     queryFn: async () => {
-      const { data } = await requestJson("/jobs", { headers: agentHeaders(), retries: 1 });
+      const { data } = await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 0, timeoutMs: 15_000 });
       const list = (data as { jobs?: unknown })?.jobs;
       return Array.isArray(list) ? (list as Job[]) : [];
     },
-    refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 8000 : false),
+    staleTime: 20_000,
+    refetchInterval: (query) => {
+      if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
+      if (query.state.fetchStatus === "fetching") return false;
+      return 20_000;
+    },
   });
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
@@ -130,10 +135,11 @@ function MissionsContent() {
     retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
     refetchInterval: (query) => {
       if (!selected || typeof document === "undefined" || document.visibilityState !== "visible") return false;
-      if (cioResumeLiveId) return 1000;
+      if (query.state.fetchStatus === "fetching") return false;
+      if (cioResumeLiveId) return 2000;
       const st = String((query.state.data as { status?: string } | undefined)?.status || "");
-      if (st === "running" || st === "awaiting_validation") return 2000;
-      return 12_000;
+      if (st === "running" || st === "awaiting_validation") return 3000;
+      return 15_000;
     },
   });
 
@@ -152,8 +158,11 @@ function MissionsContent() {
     queryFn: () => fetchJobDetail(String(cioResumeLiveId)),
     placeholderData: keepPreviousData,
     retry: 2,
-    refetchInterval: () =>
-      cioResumeLiveId && typeof document !== "undefined" && document.visibilityState === "visible" ? 1500 : false,
+    refetchInterval: (query) => {
+      if (!cioResumeLiveId || typeof document === "undefined" || document.visibilityState !== "visible") return false;
+      if (query.state.fetchStatus === "fetching") return false;
+      return 2500;
+    },
   });
 
   const selectedJobStatus = String(detail.data?.status || "");
@@ -254,7 +263,7 @@ function MissionsContent() {
     if (!cioResumeLiveDone || !cioResumeLiveId) return;
     setCioResumeLiveId(null);
     void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
-    void qc.invalidateQueries({ queryKey: QK.jobs });
+    void qc.invalidateQueries({ queryKey: QK.jobsCards });
     void qc.invalidateQueries({ queryKey: QK.tokens });
   }, [cioResumeLiveDone, cioResumeLiveId, qc, selected]);
 
@@ -375,7 +384,7 @@ function MissionsContent() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyId(null);
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
       qc.invalidateQueries({ queryKey: QK.tokens });
       qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
     }
@@ -396,7 +405,7 @@ function MissionsContent() {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusyId(null);
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
       qc.invalidateQueries({ queryKey: QK.tokens });
       qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
     }
@@ -421,12 +430,25 @@ function MissionsContent() {
             {feedback}
           </p>
         ) : null}
-        {jobs.isLoading ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
+        {jobs.isPending && !jobs.isError ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
         {jobs.isError ? (
-          <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
-            Impossible de charger la liste des missions
-            {jobs.error instanceof Error ? ` : ${jobs.error.message}` : ""}.
-          </p>
+          <div className="space-y-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>
+              Impossible de charger la liste des missions
+              {jobs.error instanceof Error ? ` : ${jobs.error.message}` : ""}.
+            </p>
+            <p className="text-xs text-red-600/90">
+              Le backend (port 8020) est peut-être bloqué sur MariaDB. Relancez{" "}
+              <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> puis rechargez.
+            </p>
+            <button
+              type="button"
+              onClick={() => void jobs.refetch()}
+              className="text-xs font-semibold text-red-800 underline hover:text-red-950"
+            >
+              Réessayer
+            </button>
+          </div>
         ) : null}
         {sortedRows.map((j) => {
           const closed = j.user_validated_at || j.mission_closed_by_user;

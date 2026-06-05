@@ -333,6 +333,9 @@ export default function SessionCadrageTimeline({
     };
   }, [readerOpen]);
 
+  const [portalMounted, setPortalMounted] = useState(false);
+  useEffect(() => setPortalMounted(true), []);
+
   if (turns.length === 0) {
     return (
       <div
@@ -499,9 +502,6 @@ export default function SessionCadrageTimeline({
 
   const expandedShellClass =
     "fixed inset-x-2 inset-y-4 z-[210] flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-safe shadow-2xl sm:inset-4";
-
-  const [portalMounted, setPortalMounted] = useState(false);
-  useEffect(() => setPortalMounted(true), []);
 
   const expandedOverlay =
     readerOpen && portalMounted && typeof document !== "undefined"

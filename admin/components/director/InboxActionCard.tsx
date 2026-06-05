@@ -35,6 +35,10 @@ export type InboxActionItem = {
     estimated_cost_usd?: number;
     launch_mode?: string;
     risk_flags?: string[];
+    proposed_by_agent?: string;
+    source_kind?: string;
+    source_job_id?: string;
+    source_label?: string;
   };
   learnings?: string[];
 };
@@ -149,8 +153,29 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
           {item.gate_preview?.synthese_attendue ? (
             <p className="mt-2 text-sm font-semibold text-slate-700 line-clamp-3">{item.gate_preview.synthese_attendue}</p>
           ) : null}
+          {item.proposal_meta?.proposed_by_agent ? (
+            <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-violet-700">
+              Agent : {item.proposal_meta.proposed_by_agent}
+            </p>
+          ) : null}
           {item.proposal_meta?.why_now ? (
             <p className="mt-2 text-sm font-bold text-violet-800">{item.proposal_meta.why_now}</p>
+          ) : null}
+          {item.proposal_meta?.source_label ? (
+            <p className="mt-1 text-xs text-slate-600">
+              Suite à : {item.proposal_meta.source_label}
+              {item.proposal_meta.source_job_id ? (
+                <>
+                  {" "}
+                  <Link
+                    href={`/missions?job=${encodeURIComponent(item.proposal_meta.source_job_id)}`}
+                    className="font-semibold text-violet-800 underline"
+                  >
+                    #{item.proposal_meta.source_job_id}
+                  </Link>
+                </>
+              ) : null}
+            </p>
           ) : null}
           {item.proposal_meta?.estimated_cost_usd != null ? (
             <p className="mt-1 text-sm font-bold text-amber-800">

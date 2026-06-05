@@ -25,13 +25,125 @@ class LearningResolveBody(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
 
 
+class RepriseAuditBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    nb_proposals: int = Field(5, ge=1, le=10)
+    generate_proposals: bool = True
+
+
+class RepriseItemActionBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain_id: str = Field(..., min_length=1, max_length=80)
+    item_text: str = Field(..., min_length=1, max_length=500)
+    action: str = Field(..., pattern="^(validated|noted|deferred)$")
+    note: str = Field("", max_length=4000)
+
+
+class RepriseChecklistItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain_id: str = Field(..., min_length=1, max_length=80)
+    item_text: str = Field(..., min_length=1, max_length=500)
+    note: str = Field("", max_length=4000)
+
+
+class RepriseItemsMissionsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[RepriseChecklistItem] = Field(..., min_length=1, max_length=10)
+
+
+class RepriseItemsLaunchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    items: list[RepriseChecklistItem] = Field(..., min_length=1, max_length=5)
+    launch_mode: str = Field("supervised", pattern="^(supervised|autonomous)$")
+
+
+@router.get("/admin/reprise/coverage", dependencies=[Depends(verify_secret)])
+def admin_reprise_coverage():
+    """Scan checklist reprise vs mémoire/missions — sans appel LLM."""
+    from services.reprise_audit import scan_reprise_coverage
+
+    _require_database_or_503()
+    return scan_reprise_coverage()
+
+
+@router.get("/admin/reprise/actions", dependencies=[Depends(verify_secret)])
+def admin_reprise_actions():
+    from database import list_reprise_checklist_actions
+
+    return {"actions": list_reprise_checklist_actions()}
+
+
+@router.post("/admin/reprise/actions", dependencies=[Depends(verify_secret)])
+def admin_reprise_record_action(body: RepriseItemActionBody):
+    """Valide, note ou reporte un point checklist — enrichit la mémoire entreprise."""
+    from services.reprise_audit import record_reprise_item_action
+
+    try:
+        return record_reprise_item_action(
+            domain_id=body.domain_id,
+            item_text=body.item_text,
+            action=body.action,
+            note=body.note,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/admin/reprise/items/missions", dependencies=[Depends(verify_secret)])
+def admin_reprise_items_missions(body: RepriseItemsMissionsBody):
+    """Transforme des points checklist sélectionnés en propositions de mission."""
+    from services.reprise_audit import create_missions_from_checklist_items
+
+    try:
+        payload = [i.model_dump() for i in body.items]
+        return create_missions_from_checklist_items(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/admin/reprise/items/launch", dependencies=[Depends(verify_secret)])
+async def admin_reprise_items_launch(body: RepriseItemsLaunchBody):
+    """Lance les agents immédiatement et alimente contexte global + volets métiers."""
+    from services.reprise_audit import launch_agents_from_checklist_items
+
+    try:
+        payload = [i.model_dump() for i in body.items]
+        return await launch_agents_from_checklist_items(payload, launch_mode=body.launch_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/admin/reprise/audit", dependencies=[Depends(verify_secret)])
+async def admin_reprise_audit(body: RepriseAuditBody):
+    """Scan reprise + génération de missions concrètes pour les lacunes."""
+    from services.reprise_audit import run_reprise_audit
+
+    result = await run_reprise_audit(
+        nb_proposals=body.nb_proposals,
+        generate_proposals=body.generate_proposals,
+    )
+    return result
+
+
 @router.get("/admin/inbox", dependencies=[Depends(verify_secret)])
 def admin_inbox(limit: int = Query(40, ge=1, le=200)):
     return build_enriched_inbox(limit=limit)
 
 
+def _require_database_or_503() -> None:
+    from database import probe_database_connection
+
+    probe = probe_database_connection()
+    if not probe.get("connected"):
+        raise HTTPException(
+            status_code=503,
+            detail=f"mariadb_tunnel_required: {probe.get('detail') or 'tunnel MariaDB requis (port 3307)'}",
+        )
+
+
 @router.get("/admin/briefing", dependencies=[Depends(verify_secret)])
 def admin_briefing(period: str = Query("today")):
+    _require_database_or_503()
     return build_briefing(period=period)
 
 

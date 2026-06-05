@@ -46,9 +46,9 @@ def _maria_cfg() -> dict[str, Any]:
         "password": str(os.getenv("KORYMB_DB_PASSWORD") or os.getenv("FLEUR_DB_PASSWORD") or ""),
         "database": str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb"),
         "charset": "utf8mb4",
-        "connect_timeout": 5,
-        "read_timeout": 10,
-        "write_timeout": 10,
+        "connect_timeout": 3,
+        "read_timeout": 8,
+        "write_timeout": 8,
         "autocommit": False,
     }
 
@@ -114,6 +114,16 @@ class _MariaConnAdapter:
                 self._conn.rollback()
         finally:
             self._conn.close()
+
+
+def probe_database_connection() -> dict[str, Any]:
+    """Test SELECT 1 — utilisé par /health/database et diagnostics UI."""
+    try:
+        with get_conn() as conn:
+            conn.execute("SELECT 1")
+        return {"connected": True, "detail": None}
+    except Exception as exc:
+        return {"connected": False, "detail": str(exc)[:240]}
 
 
 def get_conn():
@@ -335,6 +345,19 @@ def _ensure_platform_tables(conn) -> None:
             updated_at TEXT NOT NULL
         )
     """)
+    item_text_pk = "VARCHAR(500)" if _is_mariadb() else "TEXT"
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS reprise_checklist_actions (
+            domain_id {text_pk} NOT NULL,
+            item_text {item_text_pk} NOT NULL,
+            action {text_pk} NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            output_id {text_pk} NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (domain_id, item_text)
+        )
+    """)
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -535,6 +558,30 @@ def init_db():
         seed_playbooks()
     except Exception:
         pass
+    try:
+        seed_scheduled_task_defaults()
+    except Exception:
+        pass
+
+
+def seed_scheduled_task_defaults() -> None:
+    """Tâche de propositions CIO par défaut si aucune n'existe encore."""
+    tasks = list_scheduled_tasks()
+    if any(str(t.get("task_type") or "") == "mission_proposals" for t in tasks):
+        return
+    create_scheduled_task(
+        name="Propositions CIO automatiques",
+        description="Analyse les missions récentes et propose de nouvelles missions à valider.",
+        task_type="mission_proposals",
+        agent="coordinateur",
+        params={"nb_proposals": 3},
+        schedule_type="interval",
+        schedule_config={"days": 7},
+        enabled=True,
+        requires_approval=False,
+        budget_tokens_per_run=50000,
+        budget_runs_per_day=2,
+    )
 
 
 def seed_playbooks() -> None:
@@ -1289,6 +1336,54 @@ def list_jobs_prompt_digest(*, limit: int = 12, exclude_job_id: str | None = Non
             "result": txt,
             "created_at": str(d.get("created_at") or ""),
             "source": str(d.get("source") or ""),
+        })
+        if len(out) >= lim:
+            break
+    return out
+
+
+def list_jobs_thread_digest(*, limit: int = 5, thread_tail: int = 6) -> list[dict]:
+    """Extrait léger des derniers fils mission (sans hydratation job complète)."""
+    lim = max(1, min(10, int(limit)))
+    tail_n = max(2, min(12, int(thread_tail)))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, "
+            "SUBSTR(COALESCE(mission_thread_json, '[]'), 1, 12000) AS thread_slice "
+            "FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (lim * 4,),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        jid = str(d.get("id") or "")
+        mission = str(d.get("mission") or "").strip()
+        try:
+            thread = json.loads(str(d.get("thread_slice") or "[]"))
+        except json.JSONDecodeError:
+            thread = []
+        if not isinstance(thread, list):
+            thread = []
+        tail: list[dict] = []
+        for msg in thread[-tail_n:]:
+            if not isinstance(msg, dict):
+                continue
+            content = str(msg.get("content") or "").strip()
+            if not content:
+                continue
+            tail.append({
+                "role": str(msg.get("role") or ""),
+                "agent": str(msg.get("agent") or ""),
+                "content": content[:450],
+            })
+        if not tail and not mission:
+            continue
+        out.append({
+            "job_id": jid,
+            "agent": str(d.get("agent") or ""),
+            "mission": mission[:350],
+            "status": str(d.get("status") or ""),
+            "thread_tail": tail,
         })
         if len(out) >= lim:
             break
@@ -2341,6 +2436,24 @@ def list_jobs_list_light(limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows or []]
 
 
+def list_jobs_cards_light(limit: int = 80) -> list[dict]:
+    """Cartes missions / historique : champs utiles + extrait result, sans hydratation JSON lourde."""
+    lim = max(1, min(int(limit), 120))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
+            "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
+            "FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        d["job_id"] = str(d.pop("id", "") or "")
+        out.append(d)
+    return out
+
+
 def list_jobs_summary(limit: int = 80) -> list[dict]:
     """Liste légère pour inbox/briefing (événements CIO + HITL uniquement)."""
     lim = max(1, min(int(limit), 200))
@@ -2579,6 +2692,72 @@ def resolve_learning_suggestion(suggestion_id: str, status: str) -> dict | None:
         )
         conn.commit()
     return get_learning_suggestion(suggestion_id)
+
+
+REPRISE_ACTIONS_ALLOWED = frozenset({"validated", "noted", "deferred", "mission_pending", "agent_launched"})
+
+
+def list_reprise_checklist_actions() -> list[dict]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT domain_id, item_text, action, note, output_id, created_at, updated_at "
+            "FROM reprise_checklist_actions ORDER BY updated_at DESC",
+        ).fetchall()
+    return [dict(r) for r in rows or []]
+
+
+def get_reprise_checklist_action(domain_id: str, item_text: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT domain_id, item_text, action, note, output_id, created_at, updated_at "
+            "FROM reprise_checklist_actions WHERE domain_id=? AND item_text=?",
+            (domain_id.strip(), item_text.strip()),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_reprise_checklist_action(
+    *,
+    domain_id: str,
+    item_text: str,
+    action: str,
+    note: str = "",
+    output_id: str = "",
+) -> dict:
+    dom = (domain_id or "").strip()
+    item = (item_text or "").strip()
+    act = (action or "").strip()
+    if not dom or not item:
+        raise ValueError("domain_id et item_text requis")
+    if act not in REPRISE_ACTIONS_ALLOWED:
+        raise ValueError(f"action invalide : {act}")
+    now = datetime.utcnow().isoformat()
+    existing = get_reprise_checklist_action(dom, item)
+    created = existing["created_at"] if existing else now
+    note_trim = (note or "")[:4000]
+    out_trim = (output_id or "")[:64]
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO reprise_checklist_actions "
+                "(domain_id, item_text, action, note, output_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE action=VALUES(action), note=VALUES(note), "
+                "output_id=VALUES(output_id), updated_at=VALUES(updated_at)",
+                (dom, item, act, note_trim, out_trim, created, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO reprise_checklist_actions "
+                "(domain_id, item_text, action, note, output_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(domain_id, item_text) DO UPDATE SET "
+                "action=excluded.action, note=excluded.note, output_id=excluded.output_id, "
+                "updated_at=excluded.updated_at",
+                (dom, item, act, note_trim, out_trim, created, now),
+            )
+        conn.commit()
+    return get_reprise_checklist_action(dom, item) or {}
 
 
 def list_playbooks(*, category: str | None = None) -> list[dict]:

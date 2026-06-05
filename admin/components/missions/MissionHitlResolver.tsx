@@ -36,7 +36,7 @@ export default function MissionHitlResolver({ jobId, hitl, onResolved }: Props) 
       if (!res.ok) {
         throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
       }
-      await qc.invalidateQueries({ queryKey: QK.jobs });
+      await qc.invalidateQueries({ queryKey: QK.jobsCards });
       await qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
       onResolved?.();
     } catch (e) {

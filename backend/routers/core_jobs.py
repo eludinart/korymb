@@ -125,6 +125,12 @@ def validate_mission_by_user_impl(job_id: str) -> dict:
         trigger_learning_on_validate(job_id)
     except Exception:
         logger.exception("Learning trigger failed for %s", job_id)
+    try:
+        import asyncio
+        from services.veille import maybe_trigger_proposal_after_closure
+        asyncio.create_task(maybe_trigger_proposal_after_closure())
+    except Exception:
+        logger.exception("Auto-proposal after validate failed for %s", job_id)
     return {"job_id": job_id, "user_validated_at": row3.get("user_validated_at") if row3 else None}
 
 
@@ -173,6 +179,12 @@ def close_mission_by_user_impl(job_id: str) -> dict:
         active_jobs[jid]["user_validated_at"] = uv
         active_jobs[jid]["mission_closed_by_user"] = True
         active_jobs[jid]["status"] = str(row3.get("status") or "completed")
+    try:
+        import asyncio
+        from services.veille import maybe_trigger_proposal_after_closure
+        asyncio.create_task(maybe_trigger_proposal_after_closure())
+    except Exception:
+        logger.exception("Auto-proposal after close failed for %s", jid)
     return {"job_id": jid, "user_validated_at": uv, "closed": True}
 
 
@@ -276,11 +288,25 @@ def list_jobs_summary_route(limit: int = 80):
     return {"jobs": rows}
 
 
+@router.get("/jobs/cards", dependencies=[Depends(verify_secret)])
+def list_jobs_cards_route(limit: int = 80):
+    """Liste légère pour cartes missions / historique (résultat tronqué, pas de thread/events/plan)."""
+    from database import list_jobs_cards_light
+
+    return {"jobs": list_jobs_cards_light(limit=limit)}
+
+
 @router.get("/jobs/light", dependencies=[Depends(verify_secret)])
 def list_jobs_light_route(limit: int = 50):
     """Liste minimale pour compteurs UI (évite mission_thread / events / plan)."""
-    from database import list_jobs_list_light
+    from database import list_jobs_list_light, probe_database_connection
 
+    db_probe = probe_database_connection()
+    if not db_probe.get("connected"):
+        raise HTTPException(
+            status_code=503,
+            detail=f"mariadb_tunnel_required: {db_probe.get('detail') or 'base indisponible'}",
+        )
     rows = list_jobs_list_light(limit=limit)
     cfg = merge_with_env()
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)

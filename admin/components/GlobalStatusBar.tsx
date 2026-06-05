@@ -84,25 +84,66 @@ export default function GlobalStatusBar() {
     }
   }, [collapsed]);
 
+  const live = useQuery({
+    queryKey: ["health-live"],
+    queryFn: async () => (await requestJson("/health/live", { retries: 1, timeoutMs: 6_000 })).data,
+    refetchInterval: () => visibleInterval(20_000),
+    staleTime: 15_000,
+    retry: 1,
+  });
+  const database = useQuery({
+    queryKey: ["health-database"],
+    queryFn: async () => {
+      const { data } = await requestJson("/health/database", {
+        retries: 1,
+        timeoutMs: 8_000,
+        expectOk: false,
+      });
+      return data as { database?: { connected?: boolean; engine?: string; host?: string; port?: number } };
+    },
+    refetchInterval: () => visibleInterval(25_000),
+    staleTime: 20_000,
+    retry: 1,
+    enabled: live.isSuccess || live.isError,
+  });
   const llm = useQuery({
     queryKey: QK.llm,
-    queryFn: async () => (await requestJson("/llm", { retries: 1, timeoutMs: 20_000 })).data,
-    refetchInterval: () => visibleInterval(30_000),
-    staleTime: 30_000,
+    queryFn: async () => (await requestJson("/llm", { retries: 1, timeoutMs: 15_000 })).data,
+    refetchInterval: () => visibleInterval(45_000),
+    staleTime: 45_000,
+    retry: 1,
+    enabled: live.isSuccess || live.isError,
   });
   const tokens = useQuery({
     queryKey: QK.tokens,
-    queryFn: async () => (await requestJson("/tokens", { retries: 1, timeoutMs: 25_000 })).data as TokenData,
-    refetchInterval: () => visibleInterval(45_000),
-    staleTime: 45_000,
+    queryFn: async () => (await requestJson("/tokens", { retries: 1, timeoutMs: 20_000 })).data as TokenData,
+    refetchInterval: () => visibleInterval(60_000),
+    staleTime: 60_000,
+    retry: 1,
+    enabled: live.isSuccess || live.isError,
   });
   const jobs = useQuery({
     queryKey: QK.jobsLight,
     queryFn: async () =>
       (await requestJson("/jobs/light", { headers: agentHeaders(), retries: 1, timeoutMs: 20_000 })).data.jobs || [],
-    refetchInterval: () => visibleInterval(30_000),
-    staleTime: 30_000,
+    refetchInterval: () => visibleInterval(45_000),
+    staleTime: 45_000,
+    retry: 1,
+    enabled: live.isSuccess || live.isError,
   });
+
+  const backendDown = live.isError && !live.isLoading;
+  const dbDown = database.isSuccess && database.data?.database?.connected === false;
+  const metricsDegraded = !dbDown && (llm.isError || tokens.isError || jobs.isError);
+
+  const dbBanner = dbDown ? (
+    <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
+      Tunnel MariaDB coupé (port {database.data?.database?.port ?? 3307}) — briefing, missions et audit reprise sont
+      bloqués. Relancez{" "}
+      <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> ou{" "}
+      <span className="font-mono">.\scripts\mariadb-vps-tunnel.ps1</span> puis rechargez.
+    </p>
+  ) : null;
 
   const jobList = (jobs.data || []) as Array<{ status?: string; cost_usd?: number }>;
   const running = jobList.filter((j) => j.status === "running").length;
@@ -141,6 +182,19 @@ export default function GlobalStatusBar() {
 
   if (collapsed) {
     return (
+      <div className="space-y-2">
+      {dbBanner}
+      {backendDown ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Backend injoignable (port 8020). Relancez{" "}
+          <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> puis rechargez.
+        </p>
+      ) : metricsDegraded ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Backend joignable mais métriques en retard — rechargez dans quelques secondes. Si cela persiste,
+          relancez le script de dev.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <button
           type="button"
@@ -175,11 +229,24 @@ export default function GlobalStatusBar() {
           </span>
         </button>
       </div>
+      </div>
     );
   }
 
   return (
     <div className="space-y-2">
+      {dbBanner}
+      {backendDown ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Backend injoignable — les métriques ci-dessous restent vides. Relancez{" "}
+          <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> puis rechargez.
+        </p>
+      ) : metricsDegraded ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Métriques en cours de chargement ou backend saturé — patientez ou rechargez. Le moteur répond encore si
+          l&apos;audit et les missions fonctionnent.
+        </p>
+      ) : null}
       <div className="flex justify-end">
         <button
           type="button"

@@ -39,7 +39,7 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["job-live", jobId] });
     void qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
-    void qc.invalidateQueries({ queryKey: QK.jobs });
+    void qc.invalidateQueries({ queryKey: QK.jobsCards });
   };
 
   const mut = useMutation({

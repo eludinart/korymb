@@ -189,14 +189,24 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
           <label className="block text-sm font-semibold text-slate-700 mb-1">
             {MEMORY_CONTEXT_TITLES[key]}
           </label>
+          {key === "global" ? (
+            <p className="mb-2 text-xs text-slate-500">
+              Indiquez ici vos priorités des 7 prochains jours et les décisions que vous anticipez — le CIO s&apos;en
+              sert pour proposer de nouvelles missions dans la file d&apos;approbation.
+            </p>
+          ) : null}
           <textarea
             value={contexts[key] ?? ""}
             onChange={(e) =>
               setDraft((prev) => ({ ...(prev ?? contexts), [key]: e.target.value }))
             }
-            rows={4}
+            rows={key === "global" ? 6 : 4}
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
-            placeholder={`Contexte pour ${MEMORY_CONTEXT_TITLES[key]}…`}
+            placeholder={
+              key === "global"
+                ? "Ex. Cette semaine : relance éditeurs tarot, bilan Q2, préparer posts Instagram…"
+                : `Contexte pour ${MEMORY_CONTEXT_TITLES[key]}…`
+            }
           />
         </div>
       ))}

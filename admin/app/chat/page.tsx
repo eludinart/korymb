@@ -229,7 +229,7 @@ function ChatPageInner() {
           ),
         );
       }
-      qc.invalidateQueries({ queryKey: QK.jobs });
+      qc.invalidateQueries({ queryKey: QK.jobsCards });
       qc.invalidateQueries({ queryKey: QK.tokens });
     } catch (err) {
       setConversations((prev) =>

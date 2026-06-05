@@ -20,6 +20,13 @@ from env_loader import load_backend_env
 
 load_backend_env()
 
+try:
+    from anyio import to_thread as _anyio_to_thread
+    _thread_limiter = _anyio_to_thread.current_default_thread_limiter()
+    _thread_limiter.total_tokens = max(int(_thread_limiter.total_tokens), 80)
+except Exception:
+    pass
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -103,7 +110,7 @@ app.add_middleware(
         "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
     ],
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["X-Korymb-Version"],
 )

@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/administration/comportements", label: "Comportements moteur" },
   { href: "/administration/templates", label: "Templates de missions" },
   { href: "/administration/memory", label: "Mémoire entreprise" },
+  { href: "/administration/reprise", label: "Audit reprise" },
   { href: "/administration/budget", label: "Budget & Coûts" },
   { href: "/administration/autonomie", label: "Tâches autonomes" },
   { href: "/administration/approbations", label: "Approbations" },

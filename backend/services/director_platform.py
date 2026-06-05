@@ -57,6 +57,10 @@ def _parse_proposal_meta(content: str) -> dict:
             return {
                 "why_now": str(data.get("why_now") or data.get("rationale") or "")[:500],
                 "agents": data.get("agents") or [],
+                "proposed_by_agent": str(data.get("proposed_by_agent") or ""),
+                "source_kind": str(data.get("source_kind") or ""),
+                "source_job_id": str(data.get("source_job_id") or ""),
+                "source_label": str(data.get("source_label") or "")[:300],
                 "estimated_tokens": int(data.get("estimated_tokens") or 0),
                 "estimated_cost_usd": float(data.get("estimated_cost_usd") or 0),
                 "risk_flags": data.get("risk_flags") or [],
