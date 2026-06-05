@@ -18,8 +18,11 @@ import { agentHeaders, requestJson } from "../../lib/api";
 export default function BriefingPage() {
   const briefing = useQuery({
     queryKey: ["admin-briefing"],
-    queryFn: async () => (await requestJson("/admin/briefing?period=today", { headers: agentHeaders(), retries: 2 })).data,
-    refetchInterval: 60000,
+    queryFn: async () =>
+      (await requestJson("/admin/briefing?period=today", { headers: agentHeaders(), retries: 1, timeoutMs: 60_000 })).data,
+    refetchInterval: 120_000,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const b = briefing.data;

@@ -21,6 +21,7 @@ export default function RuntimeHeader() {
   useEffect(() => {
     let es: EventSource | null = null;
     let retry: number | undefined;
+    let jobInvalidateTimer: number | undefined;
     let closed = false;
     let retryMs = 1500;
 
@@ -70,8 +71,16 @@ export default function RuntimeHeader() {
       });
       es.addEventListener("job_event", (ev) => {
         try {
-          const d = JSON.parse(ev.data || "{}") as { job_id?: string };
-          void queryClient.invalidateQueries({ queryKey: QK.jobs });
+          const d = JSON.parse(ev.data || "{}") as { type?: string; job_id?: string };
+          if (d?.type === "director_notification") {
+            window.dispatchEvent(new CustomEvent("korymb:director_notification", { detail: d }));
+            return;
+          }
+          if (jobInvalidateTimer) window.clearTimeout(jobInvalidateTimer);
+          jobInvalidateTimer = window.setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: QK.jobs });
+            void queryClient.invalidateQueries({ queryKey: QK.jobsLight });
+          }, 2500);
           const jid = d?.job_id != null ? String(d.job_id) : "";
           if (jid) {
             void queryClient.invalidateQueries({ queryKey: ["job-detail-live", jid] });
@@ -98,6 +107,7 @@ export default function RuntimeHeader() {
       if (retry) window.clearTimeout(retry);
       if (es) es.close();
       window.clearInterval(id);
+      if (jobInvalidateTimer) window.clearTimeout(jobInvalidateTimer);
     };
   }, []);
 

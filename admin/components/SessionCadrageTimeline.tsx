@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
 import { extractCioStrategicQuestions } from "../lib/missionBilan";
@@ -22,6 +22,8 @@ type Props = {
   missionPlan?: unknown;
   /** Consigne mission complète (texte initial) — affichée en tête du fil si plus riche que le 1er message user. */
   missionBrief?: string | null;
+  /** Zone fixe sous le fil (ex. « Discuter avec le CIO »). */
+  footer?: ReactNode;
 };
 
 /** Un "tour" = un message utilisateur + toutes les réponses CIO qui suivent. */
@@ -268,6 +270,7 @@ export default function SessionCadrageTimeline({
   cioStrategicFollowup = null,
   missionPlan = null,
   missionBrief = null,
+  footer = null,
 }: Props) {
   const list = useMemo(() => (Array.isArray(messages) ? (messages as Msg[]) : []), [messages]);
   const turns = useMemo(() => groupIntoTurns(list), [list]);
@@ -486,6 +489,7 @@ export default function SessionCadrageTimeline({
           </div>
         ) : null}
       </div>
+      {footer ? <div className="shrink-0 border-t border-slate-100">{footer}</div> : null}
     </div>
   );
 
@@ -496,41 +500,39 @@ export default function SessionCadrageTimeline({
   const expandedShellClass =
     "fixed inset-x-2 inset-y-4 z-[210] flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-safe shadow-2xl sm:inset-4";
 
-  const backdrop =
-    readerOpen && typeof document !== "undefined"
+  const [portalMounted, setPortalMounted] = useState(false);
+  useEffect(() => setPortalMounted(true), []);
+
+  const expandedOverlay =
+    readerOpen && portalMounted && typeof document !== "undefined"
       ? createPortal(
-          <div
-            className="fixed inset-0 z-[200] bg-slate-950/50"
-            aria-hidden
-            onClick={() => setReaderOpen(false)}
-          />,
+          <>
+            <div
+              className="fixed inset-0 z-[200] bg-slate-950/50"
+              aria-hidden
+              onClick={() => setReaderOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${title} — vue agrandie`}
+              className={expandedShellClass}
+            >
+              {renderPanelInner()}
+            </div>
+          </>,
           document.body,
         )
       : null;
 
   return (
     <>
-      {backdrop}
-      {readerOpen ? (
-        typeof document !== "undefined"
-          ? createPortal(
-              <div
-                key="cadrage-timeline-expanded"
-                role="dialog"
-                aria-modal="true"
-                aria-label={`${title} — vue agrandie`}
-                className={expandedShellClass}
-              >
-                {renderPanelInner()}
-              </div>,
-              document.body,
-            )
-          : null
+      {!readerOpen ? (
+        <div className={shellClass}>{renderPanelInner()}</div>
       ) : (
-        <div key="cadrage-timeline-inline" className={shellClass}>
-          {renderPanelInner()}
-        </div>
+        <div className={`${shellClass} min-h-[14rem] shrink-0`} aria-hidden />
       )}
+      {expandedOverlay}
     </>
   );
 }

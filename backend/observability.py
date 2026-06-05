@@ -60,6 +60,19 @@ def trim_payload(obj: Any, max_chars: int = 4000) -> Any:
     return {"_truncated": True, "preview": s[: max_chars - 80] + "…"}
 
 
+def event_payload(ev: dict[str, Any] | None) -> dict[str, Any]:
+    """Lit le corps d'un événement (`payload` canonique, repli `data` legacy)."""
+    if not ev or not isinstance(ev, dict):
+        return {}
+    pl = ev.get("payload")
+    if isinstance(pl, dict):
+        return pl
+    data = ev.get("data")
+    if isinstance(data, dict):
+        return data
+    return {}
+
+
 def make_event(
     typ: str,
     agent: str | None = None,

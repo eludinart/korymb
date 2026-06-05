@@ -85,41 +85,39 @@ export default function ExpandableMissionReader({
   const expandedShellClass =
     "fixed inset-x-2 inset-y-4 z-[210] flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-safe shadow-2xl sm:inset-4";
 
-  const backdrop =
-    readerOpen && typeof document !== "undefined"
+  const [portalMounted, setPortalMounted] = useState(false);
+  useEffect(() => setPortalMounted(true), []);
+
+  const expandedOverlay =
+    readerOpen && portalMounted && typeof document !== "undefined"
       ? createPortal(
-          <div
-            className="fixed inset-0 z-[200] bg-slate-950/50"
-            aria-hidden
-            onClick={() => setReaderOpen(false)}
-          />,
+          <>
+            <div
+              className="fixed inset-0 z-[200] bg-slate-950/50"
+              aria-hidden
+              onClick={() => setReaderOpen(false)}
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`${title} — vue agrandie`}
+              className={expandedShellClass}
+            >
+              {renderPanelInner()}
+            </div>
+          </>,
           document.body,
         )
       : null;
 
   return (
     <>
-      {backdrop}
-      {readerOpen ? (
-        typeof document !== "undefined"
-          ? createPortal(
-              <div
-                key="expandable-reader-expanded"
-                role="dialog"
-                aria-modal="true"
-                aria-label={`${title} — vue agrandie`}
-                className={expandedShellClass}
-              >
-                {renderPanelInner()}
-              </div>,
-              document.body,
-            )
-          : null
+      {!readerOpen ? (
+        <div className={shellClass}>{renderPanelInner()}</div>
       ) : (
-        <div key="expandable-reader-inline" className={shellClass}>
-          {renderPanelInner()}
-        </div>
+        <div className={`${shellClass} min-h-[12rem] shrink-0`} aria-hidden />
       )}
+      {expandedOverlay}
     </>
   );
 }

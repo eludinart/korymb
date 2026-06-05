@@ -86,18 +86,22 @@ export default function GlobalStatusBar() {
 
   const llm = useQuery({
     queryKey: QK.llm,
-    queryFn: async () => (await requestJson("/llm", { retries: 1 })).data,
-    refetchInterval: () => visibleInterval(8000),
+    queryFn: async () => (await requestJson("/llm", { retries: 1, timeoutMs: 20_000 })).data,
+    refetchInterval: () => visibleInterval(30_000),
+    staleTime: 30_000,
   });
   const tokens = useQuery({
     queryKey: QK.tokens,
-    queryFn: async () => (await requestJson("/tokens", { retries: 2 })).data as TokenData,
-    refetchInterval: () => visibleInterval(15000),
+    queryFn: async () => (await requestJson("/tokens", { retries: 1, timeoutMs: 25_000 })).data as TokenData,
+    refetchInterval: () => visibleInterval(45_000),
+    staleTime: 45_000,
   });
   const jobs = useQuery({
-    queryKey: QK.jobs,
-    queryFn: async () => (await requestJson("/jobs", { headers: agentHeaders(), retries: 2 })).data.jobs || [],
-    refetchInterval: () => visibleInterval(8000),
+    queryKey: QK.jobsLight,
+    queryFn: async () =>
+      (await requestJson("/jobs/light", { headers: agentHeaders(), retries: 1, timeoutMs: 20_000 })).data.jobs || [],
+    refetchInterval: () => visibleInterval(30_000),
+    staleTime: 30_000,
   });
 
   const jobList = (jobs.data || []) as Array<{ status?: string; cost_usd?: number }>;

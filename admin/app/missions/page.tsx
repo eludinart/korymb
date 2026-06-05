@@ -20,14 +20,17 @@ import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel"
 import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import MissionHitlResolver from "../../components/missions/MissionHitlResolver";
+import CioResumePanel from "../../components/missions/CioResumePanel";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
+import { eventPayload } from "../../lib/missionEvents";
 import { bestPreview, extractCioStrategicQuestions } from "../../lib/missionBilan";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
+import { threadHasPendingCioTurn, canResumeMissionCio } from "../../lib/missionThreadPending";
 
 import type { Job } from "../../lib/types";
 
@@ -157,16 +160,15 @@ function MissionsContent() {
   const missionClosedByUser = Boolean(
     detail.data?.user_validated_at || detail.data?.mission_closed_by_user,
   );
-  /** Poursuite chat liée : autorisée en terminé, erreur, ou « en cours » (relance si blocage). */
+  const hasPendingCioTurn = useMemo(
+    () => threadHasPendingCioTurn(detail.data?.mission_thread),
+    [detail.data?.mission_thread],
+  );
+  /** Poursuite chat liée : autorisée en terminé, erreur, en cours, pending, ou fil en attente de réponse CIO. */
   const canResumeCio = Boolean(
     selected &&
       detail.data &&
-      !missionClosedByUser &&
-      selectedJobStatus !== "awaiting_validation" &&
-      selectedJobStatus !== "cancelled" &&
-      (selectedJobStatus === "completed" ||
-        selectedJobStatus.startsWith("error") ||
-        selectedJobStatus === "running"),
+      canResumeMissionCio(selectedJobStatus, missionClosedByUser, hasPendingCioTurn),
   );
   const missionRunningStuck = canResumeCio && selectedJobStatus === "running" && !cioResumeLiveId;
   const canCloseMission = Boolean(
@@ -185,11 +187,16 @@ function MissionsContent() {
     const evts = (detail.data?.events || []) as Array<Record<string, unknown>>;
     return evts
       .filter((ev) => ev.type === "cio_question")
-      .map((ev) => ({
-        questions: (ev.data as Record<string, unknown>)?.questions as string[] ?? [],
-        answered: Boolean((ev.data as Record<string, unknown>)?.answered),
-        missionPreview: String((ev.data as Record<string, unknown>)?.mission_preview || ""),
-      }))
+      .map((ev) => {
+        const pl = eventPayload(ev);
+        const raw = pl.questions;
+        const questions = Array.isArray(raw) ? raw.map((q) => String(q).trim()).filter(Boolean) : [];
+        return {
+          questions,
+          answered: Boolean(pl.answered),
+          missionPreview: String(pl.mission_preview || ""),
+        };
+      })
       .filter((q) => q.questions.length > 0);
   }, [detail.data?.events]);
 
@@ -200,9 +207,12 @@ function MissionsContent() {
   );
   const hasPendingCioQuestions = pendingCioQuestionCount > 0;
 
-  /** Actions CIO / questions (carte violette sous le fil dans la colonne gauche). */
+  /** Actions CIO / questions (carte sous le fil : clôture, précisions, options). */
   const showDecisionRail = Boolean(
-    selected && detail.data && !cioResumeLiveId && (canResumeCio || cioQuestions.length > 0),
+    selected &&
+      detail.data &&
+      !cioResumeLiveId &&
+      (canResumeCio || cioQuestions.length > 0 || canCloseMission),
   );
   /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
   const showConversationSidebar = Boolean(detail.data);
@@ -583,109 +593,58 @@ function MissionsContent() {
         >
           {showConversationSidebar && detail.data ? (
             <aside
-              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:pr-0.5 ${
+              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-y-auto overflow-x-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:pr-0.5 ${
                 mobileDetailPane === "fil" ? "flex" : "hidden lg:flex"
               }`}
             >
-              <div className="relative min-h-[14rem] min-w-0 flex-1 overflow-hidden">
+              <div className="relative flex min-h-[14rem] min-w-0 flex-1 flex-col overflow-hidden">
                 <SessionCadrageTimeline
                   fillColumn
                   messages={detail.data.mission_thread}
                   missionPlan={detail.data.plan}
                   missionBrief={detail.data.mission}
                   title="Fil de cadrage avec le CIO"
-                  className="h-full shadow-sm"
+                  className="h-full min-h-0 flex-1 shadow-sm"
                   cioStrategicFollowup={extractCioStrategicQuestions(
                     String(selectedMissionSynth?.cardResult ?? detail.data.result ?? ""),
                   )}
+                  footer={
+                    canResumeCio ? (
+                      <CioResumePanel
+                        jobId={String(selected)}
+                        jobStatus={selectedJobStatus}
+                        missionClosed={missionClosedByUser}
+                        hasPendingCioTurn={hasPendingCioTurn}
+                        variant="compact"
+                        liveJobId={cioResumeLiveId}
+                        onLiveJobIdChange={setCioResumeLiveId}
+                      />
+                    ) : null
+                  }
                 />
               </div>
               {showDecisionRail ? (
-                <div className="max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-[0_-6px_28px_-6px_rgba(99,102,241,0.18)] ring-1 ring-violet-100/90">
-                  <p className="sticky top-0 z-10 border-b border-violet-100 bg-violet-50/95 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-800">
-                    Votre message au CIO
-                  </p>
-                  {canResumeCio ? (
-                    !cioResumeLiveId ? (
-                      <form onSubmit={onCioResumeSubmit} className="space-y-2 p-3">
-                        {missionRunningStuck ? (
-                          <p
-                            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[10px] leading-snug text-amber-950"
-                            role="status"
-                          >
-                            Mission « en cours » — faites défiler le fil ci-dessus, puis envoyez une consigne pour
-                            relancer le CIO.
-                          </p>
-                        ) : null}
-                        <div className="flex items-center justify-between gap-2">
-                          <label htmlFor="cio-resume-mission" className="text-xs font-semibold text-slate-900">
-                            Discuter avec le CIO — consigne pour la suite
-                          </label>
-                          <Link
-                            href={`/chat?parent=${encodeURIComponent(String(selected))}`}
-                            className="shrink-0 rounded-lg bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-800 hover:bg-violet-100"
-                          >
-                            Chat
-                          </Link>
-                        </div>
-                        <textarea
-                          id="cio-resume-mission"
-                          value={cioResumeInput}
-                          onChange={(e) => setCioResumeInput(e.target.value)}
-                          disabled={cioResumeBusy}
-                          rows={3}
-                          className="w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-snug text-slate-900 outline-none ring-violet-200 focus:border-violet-400 focus:ring-1 disabled:opacity-50"
-                          placeholder="Ex. : Ducoup en euros, j'ai besoin d'un exemple chiffré pour…"
-                        />
-                        <button
-                          type="submit"
-                          disabled={cioResumeBusy || !cioResumeInput.trim()}
-                          className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:opacity-40"
-                        >
-                          {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
-                        </button>
-                        {canCloseMission ? (
-                          <div className="border-t border-violet-100 pt-3">
-                            <button
-                              type="button"
-                              disabled={busyId === selected}
-                              onClick={() => void onCloseMission(String(selected))}
-                              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                            >
-                              {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
-                            </button>
-                            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                              Même si le statut est « en cours » ou sans réponse CIO en attente — enregistre votre
-                              clôture dirigeant.
-                            </p>
-                          </div>
-                        ) : null}
-                      </form>
-                    ) : missionClosedByUser ? (
-                      <div className="border-b border-emerald-100/80 bg-emerald-50/80 px-3 py-3">
-                        <p className="text-xs font-semibold text-emerald-900">Mission clôturée</p>
-                        <p className="mt-1 text-[11px] text-emerald-800">
-                          Vous avez enregistré la fin de cette mission. Consultez la synthèse et les livrables à droite.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2 border-b border-violet-100/80 p-3">
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-violet-500" />
-                        <p className="text-xs text-violet-800">
-                          Tour en cours — le formulaire revient à la fin du tour.
-                        </p>
-                      </div>
-                    )
-                  ) : canCloseMission ? (
-                    <div className="border-b border-violet-100/80 p-3">
+                <div className="mt-2 max-h-[min(36vh,18rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
+                  {canCloseMission && canResumeCio ? (
+                    <div className="border-b border-violet-100 p-3">
                       <button
                         type="button"
                         disabled={busyId === selected}
                         onClick={() => void onCloseMission(String(selected))}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
                       >
                         {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
                       </button>
+                      <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+                        Enregistre votre clôture dirigeant — la poursuite CIO sera désactivée.
+                      </p>
+                    </div>
+                  ) : missionClosedByUser ? (
+                    <div className="border-b border-emerald-100/80 bg-emerald-50/80 px-3 py-3">
+                      <p className="text-xs font-semibold text-emerald-900">Mission clôturée</p>
+                      <p className="mt-1 text-[11px] text-emerald-800">
+                        Consultez la synthèse et les livrables dans la colonne de droite.
+                      </p>
                     </div>
                   ) : null}
                   <SimpleAccordion

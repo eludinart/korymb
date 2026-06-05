@@ -3,9 +3,9 @@ import { QueryClient } from "@tanstack/react-query";
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 3000,
+      staleTime: 20_000,
       gcTime: 5 * 60 * 1000,
-      refetchOnWindowFocus: true,
+      refetchOnWindowFocus: false,
       retry: 1,
     },
   },
@@ -17,6 +17,7 @@ export const QK = {
   health: ["health"],
   agents: ["agents"],
   jobs: ["jobs"],
+  jobsLight: ["jobs-light"],
   missionSessions: ["mission-sessions"],
   adminSettings: ["admin-settings"],
   adminAgents: ["admin-agents-definitions"],

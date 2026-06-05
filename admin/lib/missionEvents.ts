@@ -25,6 +25,15 @@ const TYPE_LABELS_FR: Record<string, string> = {
   delivery_review: "Revue livraison",
 };
 
+/** Corps d'un événement mission (`payload` canonique, repli `data` legacy). */
+export function eventPayload(ev: Record<string, unknown>): Record<string, unknown> {
+  const p = ev.payload;
+  if (p && typeof p === "object") return p as Record<string, unknown>;
+  const d = ev.data;
+  if (d && typeof d === "object") return d as Record<string, unknown>;
+  return {};
+}
+
 export function eventTypeLabelFr(type: string | undefined): string {
   if (!type) return "Événement";
   return TYPE_LABELS_FR[type] || type;

@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
+import CioAnswerResult from "../missions/CioAnswerResult";
 import { agentHeaders, requestJson } from "../../lib/api";
 import {
   useCioAnswer,
@@ -23,6 +24,7 @@ export type InboxActionItem = {
   output_id?: string;
   suggestion_id?: string;
   title?: string;
+  mission?: string;
   status?: string;
   updated_at?: string;
   questions?: string[];
@@ -45,6 +47,7 @@ type Props = {
 export default function InboxActionCard({ item, defaultExpanded = false }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [cioInput, setCioInput] = useState("");
+  const [cioAnswerResult, setCioAnswerResult] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const jobId = item.job_id || "";
 
@@ -74,7 +77,9 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
   const onCioSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!cioInput.trim()) return;
-    await cioAnswerMut.mutateAsync(cioInput.trim());
+    const text = cioInput.trim();
+    await cioAnswerMut.mutateAsync(text);
+    setCioAnswerResult(text);
     setCioInput("");
   };
 
@@ -96,6 +101,17 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
     quality: "kind-badge kind-badge--quality",
   };
 
+  const cioQuestions =
+    item.kind === "cio_question" ? (item.questions || []).map((q) => String(q).trim()).filter(Boolean) : [];
+  const missionContext =
+    item.mission ||
+    (item.kind === "cio_question" &&
+    cioQuestions.length > 0 &&
+    item.title &&
+    !cioQuestions.includes(item.title)
+      ? item.title
+      : undefined);
+
   return (
     <li className="action-card list-none">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -103,7 +119,33 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
           <span className={kindBadgeClass[item.kind] || "kind-badge kind-badge--default"}>
             {kindLabel[item.kind] || item.kind}
           </span>
-          <p className="action-card-title mt-2">{item.title || "—"}</p>
+          {item.kind === "cio_question" && cioAnswerResult ? (
+            <div className="mt-2">
+              <CioAnswerResult answer={cioAnswerResult} compact />
+            </div>
+          ) : null}
+          {item.kind === "cio_question" && !cioAnswerResult ? (
+            <p className="mt-2 text-xs font-bold uppercase tracking-wide text-amber-700">Le CIO vous demande</p>
+          ) : null}
+          {cioQuestions.length > 0 && !cioAnswerResult ? (
+            <ul className="mt-1 space-y-1.5">
+              {cioQuestions.map((q, i) => (
+                <li key={i} className="action-card-title">
+                  {cioQuestions.length > 1 ? (
+                    <span className="mr-1 text-amber-700">{i + 1}.</span>
+                  ) : null}
+                  {q}
+                </li>
+              ))}
+            </ul>
+          ) : item.kind === "cio_question" ? (
+            <p className="action-card-title mt-1">{item.title || "—"}</p>
+          ) : (
+            <p className="action-card-title mt-2">{item.title || "—"}</p>
+          )}
+          {item.kind === "cio_question" && missionContext && cioQuestions.length > 0 ? (
+            <p className="mt-2 text-xs font-medium text-slate-500 line-clamp-2">Mission : {missionContext}</p>
+          ) : null}
           {item.gate_preview?.synthese_attendue ? (
             <p className="mt-2 text-sm font-semibold text-slate-700 line-clamp-3">{item.gate_preview.synthese_attendue}</p>
           ) : null}
@@ -146,18 +188,37 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
           ) : null}
 
           {item.kind === "cio_question" && jobId ? (
-            <form onSubmit={(e) => void onCioSubmit(e)} className="flex gap-2">
-              <input
-                value={cioInput}
-                onChange={(e) => setCioInput(e.target.value)}
-                placeholder="Votre réponse au CIO…"
-                disabled={busy}
-                className="field-input min-w-0 flex-1"
-              />
-              <button type="submit" disabled={busy || !cioInput.trim()} className="btn-amber shrink-0">
-                {cioAnswerMut.isPending ? "Envoi…" : "Envoyer"}
-              </button>
-            </form>
+            <div className="space-y-3">
+              {cioQuestions.length > 0 && !cioAnswerResult ? (
+                <ul className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+                  {cioQuestions.map((q, i) => (
+                    <li key={i} className="flex gap-2 text-sm font-semibold text-slate-800">
+                      <span className="shrink-0 text-amber-700">{i + 1}.</span>
+                      <span>{q}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              {cioAnswerResult ? <CioAnswerResult answer={cioAnswerResult} /> : null}
+              {!cioAnswerResult ? (
+                <form onSubmit={(e) => void onCioSubmit(e)} className="flex gap-2">
+                  <input
+                    value={cioInput}
+                    onChange={(e) => setCioInput(e.target.value)}
+                    placeholder="Votre réponse au CIO…"
+                    disabled={busy}
+                    className="field-input min-w-0 flex-1"
+                  />
+                  <button type="submit" disabled={busy || !cioInput.trim()} className="btn-amber shrink-0">
+                    {cioAnswerMut.isPending ? "Envoi…" : "Envoyer"}
+                  </button>
+                </form>
+              ) : (
+                <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
+                  Voir dans le fil de la mission →
+                </Link>
+              )}
+            </div>
           ) : null}
 
           {item.kind === "closure" && jobId ? (

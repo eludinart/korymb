@@ -14,6 +14,31 @@ def test_admin_inbox(client):
     assert isinstance(body["items"], list)
 
 
+def test_admin_inbox_cio_question_exposes_questions(client):
+    save_job("cioinbx1", "coordinateur", "Mission tarot éditeurs", source="test")
+    update_job(
+        "cioinbx1",
+        "running",
+        None,
+        [],
+        0,
+        0,
+        events=[
+            {
+                "type": "cio_question",
+                "ts": "2026-01-01T00:00:00",
+                "payload": {"questions": ["Souhaitez-vous céder les droits d'édition ?"], "answered": False},
+            },
+        ],
+    )
+    r = client.get("/admin/inbox")
+    assert r.status_code == 200
+    item = next(i for i in r.json()["items"] if i.get("job_id") == "cioinbx1" and i.get("kind") == "cio_question")
+    assert item["title"] == "Souhaitez-vous céder les droits d'édition ?"
+    assert item["mission"] == "Mission tarot éditeurs"
+    assert item["questions"] == ["Souhaitez-vous céder les droits d'édition ?"]
+
+
 def test_admin_briefing(client):
     r = client.get("/admin/briefing?period=today")
     assert r.status_code == 200
@@ -44,7 +69,7 @@ def test_cio_answer_marks_answered(client):
         0,
         0,
         events=[
-            {"type": "cio_question", "ts": "2026-01-01T00:00:00", "data": {"questions": ["Q1?"], "answered": False}},
+            {"type": "cio_question", "ts": "2026-01-01T00:00:00", "payload": {"questions": ["Q1?"], "answered": False}},
         ],
     )
     r = client.post("/jobs/cioans01/cio-answer", json={"answer": "Réponse test"})
@@ -52,8 +77,34 @@ def test_cio_answer_marks_answered(client):
     row = get_job("cioans01")
     events = row.get("events") or []
     assert any(
-        ev.get("type") == "cio_question" and (ev.get("data") or {}).get("answered") is True for ev in events
+        ev.get("type") == "cio_question"
+        and (
+            (ev.get("payload") or {}).get("answered") is True or (ev.get("data") or {}).get("answered") is True
+        )
+        for ev in events
     )
+
+
+def test_cio_answer_large_mission_thread(client):
+    """Fil proche de la limite TEXT MariaDB (~64 Ko) : l'append ne doit pas échouer."""
+    from database import append_job_mission_thread, init_db
+
+    init_db()
+    save_job("ciobig01", "coordinateur", "Gros fil CIO", source="test")
+    big = "x" * 3000
+    for i in range(22):
+        append_job_mission_thread(
+            "ciobig01",
+            role="assistant",
+            agent="coordinateur",
+            content=f"[Bloc {i}] {big}",
+            source="mission",
+        )
+    r = client.post("/jobs/ciobig01/cio-answer", json={"answer": "Réponse dirigeant sur fil long"})
+    assert r.status_code == 200, r.text
+    row = get_job("ciobig01")
+    thread = row.get("mission_thread") or []
+    assert any("[Réponse questions CIO]" in str(m.get("content") or "") for m in thread if isinstance(m, dict))
 
 
 def test_missions_estimate_cost(client):

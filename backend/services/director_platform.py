@@ -13,6 +13,7 @@ from database import (
     list_learning_suggestions,
     insert_director_notification,
 )
+from observability import event_payload
 from runtime_sse import enqueue_job_sse_event
 
 
@@ -66,9 +67,10 @@ def _parse_proposal_meta(content: str) -> dict:
     return {}
 
 
-def build_enriched_inbox(*, limit: int = 40) -> dict[str, Any]:
+def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> dict[str, Any]:
     items: list[dict] = []
-    jobs = list_jobs_summary(limit=limit * 2)
+    if jobs is None:
+        jobs = list_jobs_summary(limit=limit * 2)
     for row in jobs:
         if str(row.get("source") or "") == "chat":
             continue
@@ -107,19 +109,35 @@ def build_enriched_inbox(*, limit: int = 40) -> dict[str, Any]:
             })
         elif st == "running":
             pass
+        pending_cio_questions: list[str] = []
+        latest_cio_ts = None
         for ev in row.get("events") or []:
-            if not isinstance(ev, dict):
+            if not isinstance(ev, dict) or ev.get("type") != "cio_question":
                 continue
-            if ev.get("type") == "cio_question" and not (ev.get("data") or {}).get("answered"):
-                items.append({
-                    "kind": "cio_question",
-                    "job_id": jid,
-                    "title": (row.get("mission") or "")[:120],
-                    "questions": (ev.get("data") or {}).get("questions") or [],
-                    "updated_at": ev.get("ts") or row.get("updated_at"),
-                    "priority_score": _priority_score("cio_question"),
-                })
-                break
+            pl = event_payload(ev)
+            if pl.get("answered"):
+                continue
+            raw_qs = pl.get("questions") or []
+            if not isinstance(raw_qs, list):
+                continue
+            for q in raw_qs:
+                text = str(q).strip()
+                if text and text not in pending_cio_questions:
+                    pending_cio_questions.append(text)
+            if ev.get("ts"):
+                latest_cio_ts = ev.get("ts")
+        if pending_cio_questions:
+            mission = str(row.get("mission") or "").strip()
+            first_q = pending_cio_questions[0]
+            items.append({
+                "kind": "cio_question",
+                "job_id": jid,
+                "title": (first_q or mission)[:200],
+                "mission": mission[:160],
+                "questions": pending_cio_questions,
+                "updated_at": latest_cio_ts or row.get("updated_at"),
+                "priority_score": _priority_score("cio_question"),
+            })
 
     for sug in list_learning_suggestions(status="pending", limit=20):
         payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
@@ -156,8 +174,8 @@ def build_enriched_inbox(*, limit: int = 40) -> dict[str, Any]:
 
 
 def build_briefing(*, period: str = "today") -> dict[str, Any]:
-    inbox = build_enriched_inbox(limit=50)
     jobs = list_jobs_summary(limit=100)
+    inbox = build_enriched_inbox(limit=50, jobs=jobs)
     running = [j for j in jobs if str(j.get("status") or "") == "running" and str(j.get("source") or "") != "chat"]
     hitl_pending = [j for j in jobs if str(j.get("status") or "") == "awaiting_validation"]
     closures = [i for i in inbox["items"] if i.get("kind") == "closure"]

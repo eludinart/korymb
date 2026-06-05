@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
 import SimpleAccordion from "./SimpleAccordion";
+import CioJsonExecutiveView from "./missions/CioJsonExecutiveView";
 import { buildCioDisplayModel } from "../lib/cioResultDisplay";
 
 type Props = {
@@ -51,7 +52,13 @@ export default function CioResultPanel({
   const has = Boolean(result?.trim());
   const model = useMemo(() => buildCioDisplayModel(String(result || "")), [result]);
 
-  const hasCeoDecision = Boolean(model.ceoDecisionReport.trim()) && model.ceoDecisionReport.length > 40;
+  const hasJsonExecutive = Boolean(model.jsonExecutive);
+  const looksLikeRawJson =
+    Boolean(result?.trim().startsWith("{")) && Boolean(result?.includes('"mission_name"') || result?.includes('"plan"'));
+  const hasCeoDecision =
+    hasJsonExecutive ||
+    looksLikeRawJson ||
+    (Boolean(model.ceoDecisionReport.trim()) && model.ceoDecisionReport.length > 40);
   const hasBilan = model.operationalBilan.length > 0;
   const hasDetail = Boolean(model.rolesDetail.trim()) || Boolean(model.preamble.trim());
 
@@ -121,9 +128,17 @@ export default function CioResultPanel({
           <div
             className={`mt-4 rounded-xl border border-violet-100/80 bg-white px-4 py-4 shadow-inner ${
               embedded ? "" : "max-h-[min(70vh,42rem)] overflow-y-auto"
-            } ${proseDecision}`}
+            } ${model.jsonExecutive ? "" : proseDecision}`}
           >
-            <AgentMessageMarkdown source={model.ceoDecisionReport} />
+            {model.jsonExecutive ? (
+              <CioJsonExecutiveView executive={model.jsonExecutive} />
+            ) : looksLikeRawJson ? (
+              <p className="text-sm text-amber-900">
+                Format de livrable non reconnu. Ouvrez le détail technique ci-dessous ou relancez une synthèse CIO.
+              </p>
+            ) : (
+              <AgentMessageMarkdown source={model.ceoDecisionReport} />
+            )}
           </div>
         </div>
       ) : (

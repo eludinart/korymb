@@ -20,7 +20,9 @@ export default function InboxPage() {
       const { data } = await requestJson("/admin/inbox", { headers: agentHeaders(), retries: 2 });
       return (data.items || []) as InboxActionItem[];
     },
-    refetchInterval: 15000,
+    refetchInterval: 60_000,
+    staleTime: 45_000,
+    refetchOnWindowFocus: false,
   });
 
   const items = inbox.data || [];

@@ -98,6 +98,7 @@ export async function qualityOverride(jobId: string, reason = "") {
 
 function invalidateMissionQueries(qc: ReturnType<typeof useQueryClient>, jobId?: string) {
   void qc.invalidateQueries({ queryKey: QK.jobs });
+  void qc.invalidateQueries({ queryKey: QK.jobsLight });
   void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
   void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
   if (jobId) {

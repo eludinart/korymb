@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
 import CioResultPanel from "./CioResultPanel";
@@ -11,8 +12,10 @@ import MissionEventTimeline from "./MissionEventTimeline";
 import MissionMetricsRow from "./MissionMetricsRow";
 import SessionCadrageTimeline from "./SessionCadrageTimeline";
 import CioPlanHitlPanel from "./CioPlanHitlPanel";
+import CioResumePanel from "./missions/CioResumePanel";
 import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
 import { deliverablesMarkdownFromJob } from "../lib/missionDeliverablesMarkdown";
+import { threadHasPendingCioTurn } from "../lib/missionThreadPending";
 import type { DeliverablesUiState, LatestChatFollowup } from "../lib/types";
 
 export type MissionJobLivePayload = {
@@ -71,6 +74,12 @@ export default function MissionJobLiveDetail({
 }: MissionJobLiveDetailProps) {
   const d = live.data;
   const st = String(d?.status || "").toLowerCase();
+  const [cioLiveId, setCioLiveId] = useState<string | null>(null);
+  const hasPendingCioTurn = useMemo(
+    () => threadHasPendingCioTurn(d?.mission_thread),
+    [d?.mission_thread],
+  );
+  const missionClosed = Boolean(d?.user_validated_at || d?.mission_closed_by_user);
   const canCancelMission = Boolean(jobId && (st === "running" || st === "pending" || st === "awaiting_validation"));
   const hitlGate = d?.hitl as { gate?: { kind?: string } } | undefined;
   const showCioPlanHitl =
@@ -166,6 +175,17 @@ export default function MissionJobLiveDetail({
             missionBrief={d.mission}
             title="Fil de cadrage avec le CIO (contexte)"
             maxHeightClass="max-h-[min(24rem,48vh)]"
+            footer={
+              <CioResumePanel
+                jobId={jobId}
+                jobStatus={st}
+                missionClosed={missionClosed}
+                hasPendingCioTurn={hasPendingCioTurn}
+                variant="compact"
+                liveJobId={cioLiveId}
+                onLiveJobIdChange={setCioLiveId}
+              />
+            }
           />
           <CollapsibleMissionSection
             title="Évolution entre agents (événements)"

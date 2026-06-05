@@ -276,6 +276,39 @@ def list_jobs_summary_route(limit: int = 80):
     return {"jobs": rows}
 
 
+@router.get("/jobs/light", dependencies=[Depends(verify_secret)])
+def list_jobs_light_route(limit: int = 50):
+    """Liste minimale pour compteurs UI (évite mission_thread / events / plan)."""
+    from database import list_jobs_list_light
+
+    rows = list_jobs_list_light(limit=limit)
+    cfg = merge_with_env()
+    pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
+    pout = float(cfg.get("llm_price_output_per_million_usd") or 0)
+    out: list[dict] = []
+    for j in rows:
+        if (str(j.get("parent_job_id") or "").strip() and str(j.get("source") or "") == "chat"):
+            continue
+        if len(out) >= limit:
+            break
+        ti = int(j.get("tokens_in") or 0)
+        to = int(j.get("tokens_out") or 0)
+        out.append({
+            "job_id": j.get("id"),
+            "agent": j.get("agent"),
+            "mission": j.get("mission"),
+            "status": j.get("status"),
+            "source": j.get("source", "mission"),
+            "created_at": j.get("created_at", ""),
+            "tokens_in": ti,
+            "tokens_out": to,
+            "tokens_total": ti + to,
+            "cost_usd": round((ti * pin + to * pout) / 1_000_000, 5),
+            "user_validated_at": j.get("user_validated_at"),
+        })
+    return {"jobs": out}
+
+
 @router.get("/jobs/{job_id}", dependencies=[Depends(verify_secret)])
 def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     cfg = merge_with_env()
@@ -456,7 +489,7 @@ def cio_answer(job_id: str, payload: dict):
             "data": {"answer": answer},
         })
 
-    return {"ok": True, "job_id": jid, "stored": True}
+    return {"ok": True, "job_id": jid, "stored": True, "answer": answer}
 
 
 class HitlResolveBody(BaseModel):

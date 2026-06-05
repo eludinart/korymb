@@ -27,6 +27,8 @@ DB_PATH = Path(__file__).parent / "data" / "korymb.db"
 
 # Limite par entrée du fil mission (TEXT / LONGTEXT) — éviter les coupures milieu de phrase pour les longues synthèses CIO.
 MISSION_THREAD_CONTENT_MAX_CHARS = 250_000
+# Taille max sérialisée du fil (MariaDB LONGTEXT ; marge sous 16 Mo).
+MISSION_THREAD_JSON_MAX_BYTES = 14_000_000
 # Source de vérité config backend (.env + .env.local)
 load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
@@ -162,6 +164,57 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN orchestration_phase TEXT NOT NULL DEFAULT ''")
     if "checkpoint_thread_id" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN checkpoint_thread_id TEXT NOT NULL DEFAULT ''")
+    _ensure_jobs_longtext_columns(conn)
+
+
+def _ensure_jobs_longtext_columns(conn) -> None:
+    """MariaDB : TEXT (~64 Ko) est trop petit pour les fils CIO longs → LONGTEXT."""
+    if not _is_mariadb():
+        return
+    specs: dict[str, str] = {
+        "mission_thread_json": "LONGTEXT NOT NULL DEFAULT '[]'",
+        "events_json": "LONGTEXT NOT NULL DEFAULT '[]'",
+        "logs": "LONGTEXT DEFAULT '[]'",
+        "result": "LONGTEXT NULL",
+        "plan_json": "LONGTEXT NOT NULL DEFAULT '{}'",
+        "team_trace": "LONGTEXT DEFAULT '[]'",
+        "mission_config_json": "LONGTEXT NOT NULL DEFAULT '{}'",
+        "deliverables_ui_json": "LONGTEXT NOT NULL DEFAULT '{}'",
+    }
+    for col, ddl_tail in specs.items():
+        try:
+            row = conn.execute(f"SHOW COLUMNS FROM jobs LIKE '{col}'").fetchone()
+            if not row:
+                continue
+            col_type = str(row.get("Type") or row["Type"] or "").lower()
+            default = row.get("Default")
+            needs_type = "longtext" not in col_type and "mediumtext" not in col_type
+            needs_default = "DEFAULT" in ddl_tail and default is None
+            if needs_type or needs_default:
+                conn.execute(f"ALTER TABLE jobs MODIFY COLUMN {col} {ddl_tail}")
+        except Exception:
+            pass
+
+
+def _trim_mission_thread_for_storage(cur: list) -> list:
+    """Garde les messages les plus récents sous la limite JSON (sécurité si fil énorme)."""
+    if not isinstance(cur, list):
+        return []
+    items = list(cur)[-200:]
+    while len(items) > 1:
+        blob = json.dumps(items, ensure_ascii=False).encode("utf-8")
+        if len(blob) <= MISSION_THREAD_JSON_MAX_BYTES:
+            return items
+        items = items[1:]
+    if not items:
+        return []
+    only = dict(items[0])
+    content = str(only.get("content") or "")
+    max_chars = min(MISSION_THREAD_CONTENT_MAX_CHARS, MISSION_THREAD_JSON_MAX_BYTES // 4)
+    if len(content.encode("utf-8")) > max_chars:
+        trimmed = content.encode("utf-8")[: max_chars - 24].decode("utf-8", errors="ignore")
+        only["content"] = f"{trimmed}\n…(fil tronqué)"
+    return [only]
 
 
 def _ensure_platform_tables(conn) -> None:
@@ -884,7 +937,7 @@ def append_job_mission_thread(
         "content": (content or "")[:MISSION_THREAD_CONTENT_MAX_CHARS],
     }
     cur.append(entry)
-    cur = cur[-200:]
+    cur = _trim_mission_thread_for_storage(cur)
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
@@ -2238,12 +2291,16 @@ def mark_cio_questions_answered(job_id: str) -> bool:
             patched.append(ev)
             continue
         if ev.get("type") == "cio_question":
-            data = ev.get("data") if isinstance(ev.get("data"), dict) else {}
-            if not data.get("answered"):
-                data = dict(data)
-                data["answered"] = True
+            from observability import event_payload
+
+            pl = dict(event_payload(ev))
+            if not pl.get("answered"):
+                pl["answered"] = True
                 ev = dict(ev)
-                ev["data"] = data
+                if isinstance(ev.get("payload"), dict):
+                    ev["payload"] = pl
+                else:
+                    ev["data"] = pl
                 changed = True
         patched.append(ev)
     if not changed:
@@ -2258,33 +2315,51 @@ def mark_cio_questions_answered(job_id: str) -> bool:
     return True
 
 
+def _cio_events_from_events_json(raw: str | None) -> list[dict]:
+    """Extrait uniquement les événements cio_question (évite de parser tout le journal)."""
+    text = raw or "[]"
+    if '"cio_question"' not in text:
+        return []
+    try:
+        events = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(events, list):
+        return []
+    return [ev for ev in events if isinstance(ev, dict) and ev.get("type") == "cio_question"]
+
+
+def list_jobs_list_light(limit: int = 50) -> list[dict]:
+    """Liste minimale pour compteurs UI (barre de statut) — sans JSON lourd."""
+    lim = max(1, min(int(limit), 200))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, tokens_in, tokens_out, "
+            "parent_job_id, user_validated_at FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
 def list_jobs_summary(limit: int = 80) -> list[dict]:
-    """Liste légère pour inbox/briefing (sans hydratation JSON lourde)."""
+    """Liste légère pour inbox/briefing (événements CIO + HITL uniquement)."""
     lim = max(1, min(int(limit), 200))
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, tokens_in, tokens_out, "
-            "user_validated_at, hitl_gate_json, events_json, plan_json "
+            "user_validated_at, hitl_gate_json, events_json "
             "FROM jobs ORDER BY created_at DESC LIMIT ?",
             (lim,),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
         d = dict(row)
-        try:
-            events = json.loads(d.pop("events_json", None) or "[]")
-        except json.JSONDecodeError:
-            events = []
-        try:
-            plan = json.loads(d.pop("plan_json", None) or "{}")
-        except json.JSONDecodeError:
-            plan = {}
+        raw_events = d.pop("events_json", None)
+        d["events"] = _cio_events_from_events_json(str(raw_events or "[]"))
         try:
             gate = json.loads(d.pop("hitl_gate_json", None) or "{}")
         except json.JSONDecodeError:
             gate = {}
-        d["events"] = events if isinstance(events, list) else []
-        d["plan"] = plan if isinstance(plan, dict) else {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
         out.append(d)
     return out

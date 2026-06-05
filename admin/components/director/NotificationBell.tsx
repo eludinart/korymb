@@ -33,35 +33,19 @@ export default function NotificationBell() {
   });
 
   useEffect(() => {
-    let es: EventSource | null = null;
-    let closed = false;
-    const openEs = () => {
-      if (closed) return;
+    const onDirectorNotification = (ev: Event) => {
       try {
-        es = new EventSource("/api/korymb-events");
+        const payload = (ev as CustomEvent<NotificationRow>).detail;
+        if (!payload?.id) return;
+        setToast(payload);
+        void qc.invalidateQueries({ queryKey: ["director-notifications"] });
+        void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
       } catch {
-        return;
+        /* ignore */
       }
-      es.addEventListener("director_notification", (ev) => {
-        try {
-          const payload = JSON.parse(ev.data || "{}") as NotificationRow;
-          setToast(payload);
-          void qc.invalidateQueries({ queryKey: ["director-notifications"] });
-          void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
-        } catch {
-          /* ignore */
-        }
-      });
-      es.onerror = () => {
-        if (es) es.close();
-        window.setTimeout(openEs, 5000);
-      };
     };
-    openEs();
-    return () => {
-      closed = true;
-      if (es) es.close();
-    };
+    window.addEventListener("korymb:director_notification", onDirectorNotification);
+    return () => window.removeEventListener("korymb:director_notification", onDirectorNotification);
   }, [qc]);
 
   const unread = notifs.data?.length || 0;

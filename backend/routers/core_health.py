@@ -280,7 +280,6 @@ def _runtime_sync_snapshot() -> dict:
         "backend_version": BACKEND_VERSION,
         "llm": {"provider": provider, "model": model},
         "database": _database_runtime_snapshot(include_probe=False),
-        "tokens": tokens_payload(),
         "health": {"status": "ok"},
     }
 
