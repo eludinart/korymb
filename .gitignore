@@ -47,5 +47,6 @@ __pycache__/
 # Next.js / build artifacts
 .next/
 admin/.next/
+admin/.next-build/
 build/
 coverage/
