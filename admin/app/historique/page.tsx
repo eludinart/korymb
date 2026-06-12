@@ -7,6 +7,7 @@ import JobAuditPanel from "../../components/JobAuditPanel";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import { stripMarkdownLight } from "../../lib/normalizeLooseMarkdown";
 import { QK } from "../../lib/queryClient";
+import { adaptivePollInterval } from "../../lib/korymbEvents";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 
 import type { Job } from "../../lib/types";
@@ -66,9 +67,8 @@ export default function HistoriquePage() {
       (await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 })).data.jobs || [],
     staleTime: 20_000,
     refetchInterval: (query) => {
-      if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
       if (query.state.fetchStatus === "fetching") return false;
-      return 15_000;
+      return adaptivePollInterval(15_000, 45_000);
     },
   });
   const agents = useQuery({
@@ -86,9 +86,10 @@ export default function HistoriquePage() {
         })
       ).data,
     refetchInterval: (q) => {
-      if (!selected || typeof document === "undefined" || document.visibilityState !== "visible") return false;
+      if (!selected) return false;
       const st = String((q.state.data as { status?: string } | undefined)?.status || "");
-      return st === "running" || st === "pending" ? 2000 : 5000;
+      const active = st === "running" || st === "pending";
+      return adaptivePollInterval(active ? 2000 : 5000, active ? 6000 : 15_000);
     },
   });
 
@@ -143,7 +144,7 @@ export default function HistoriquePage() {
     }
   };
 
-  const jobs = (jobsQuery.data || []) as Job[];
+  const jobs = useMemo(() => (jobsQuery.data || []) as Job[], [jobsQuery.data]);
   const entries = useMemo<HistoryEntry[]>(() => {
     const out: HistoryEntry[] = [];
     const chatGroups = new Map<string, Job[]>();
@@ -255,20 +256,42 @@ export default function HistoriquePage() {
             mobilePane === "liste" ? "block" : "hidden lg:block"
           }`}
         >
+          {jobsQuery.isPending ? <p className="text-sm text-slate-400">Chargement de l’historique…</p> : null}
+          {jobsQuery.isError ? (
+            <div className="rounded-xl border border-red-100 bg-red-50 p-3">
+              <p className="text-sm text-red-700">
+                Impossible de charger l’historique.{" "}
+                {jobsQuery.error instanceof Error ? jobsQuery.error.message : ""}
+              </p>
+              <button type="button" onClick={() => void jobsQuery.refetch()} className="btn-secondary mt-2 text-xs">
+                Réessayer
+              </button>
+            </div>
+          ) : null}
           {entries.map((entry) => {
             const isSelected = entry.jobIds.includes(String(selected || ""));
             const type = entry.type;
+            const selectEntry = () => {
+              setSelected(entry.displayJobId);
+              if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+                setMobilePane("detail");
+              }
+            };
 
             return (
               <div
                 key={entry.id}
-                className={`border rounded-xl p-3 cursor-pointer ${
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                className={`border rounded-xl p-3 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 ${
                   isSelected ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white"
                 }`}
-                onClick={() => {
-                  setSelected(entry.displayJobId);
-                  if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
-                    setMobilePane("detail");
+                onClick={selectEntry}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    selectEntry();
                   }
                 }}
               >
@@ -304,7 +327,9 @@ export default function HistoriquePage() {
               </div>
             );
           })}
-          {entries.length === 0 ? <p className="text-sm text-slate-400">Aucun historique.</p> : null}
+          {!jobsQuery.isPending && !jobsQuery.isError && entries.length === 0 ? (
+            <p className="text-sm text-slate-400">Aucun historique.</p>
+          ) : null}
         </aside>
         <div className={`min-w-0 max-w-full ${mobilePane === "detail" ? "block" : "hidden lg:block"}`}>
           {!selected ? (

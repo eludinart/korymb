@@ -43,7 +43,6 @@ function memoryLabels(keys: string[]) {
 }
 
 export default function RepriseChecklistItemRow({
-  domainId,
   itemText,
   variant,
   suggestedAgents,

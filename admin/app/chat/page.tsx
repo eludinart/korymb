@@ -9,6 +9,7 @@ import MissionEventTimeline from "../../components/MissionEventTimeline";
 import { missionThreadToChatHistory } from "../../lib/missionFollowupChat";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
+import { adaptivePollInterval } from "../../lib/korymbEvents";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 
 type Msg = { role: "user" | "assistant"; content: string; agent?: string };
@@ -186,7 +187,7 @@ function ChatPageInner() {
       queryKey: ["chat-live", c.liveJobId],
       queryFn: async () =>
         (await requestJson(`/jobs/${encodeURIComponent(c.liveJobId)}?log_offset=0&events_offset=0`, { headers: agentHeaders(), retries: 1 })).data,
-      refetchInterval: () => (typeof document !== "undefined" && document.visibilityState === "visible" ? 1500 : false),
+      refetchInterval: () => adaptivePollInterval(1500, 5000),
     })),
   });
 
@@ -408,14 +409,26 @@ function ChatPageInner() {
                 onChange={(e) =>
                   setConversations((prev) => prev.map((c) => (c.id === activeConversationId ? { ...c, agent: e.target.value } : c)))
                 }
-                className="min-h-[44px] min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm sm:flex-none"
+                disabled={agents.isPending || agents.isError}
+                className="min-h-[44px] min-w-[8rem] flex-1 rounded-lg border border-slate-200 bg-white px-2 py-2 text-sm disabled:opacity-60 sm:flex-none"
               >
+                {agents.isPending ? <option value={activeAgent}>Chargement des agents…</option> : null}
+                {agents.isError ? <option value={activeAgent}>Agents indisponibles</option> : null}
                 {(agents.data || []).map((a: { key: string; label: string }) => (
                   <option key={a.key} value={a.key}>
                     {a.label}
                   </option>
                 ))}
               </select>
+              {agents.isError ? (
+                <button
+                  type="button"
+                  onClick={() => void agents.refetch()}
+                  className="min-h-[44px] rounded-lg border border-red-200 bg-red-50 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                >
+                  Recharger
+                </button>
+              ) : null}
             </div>
             <input
               value={activeConversation?.title || ""}

@@ -52,6 +52,22 @@ export default function PlaybooksPage() {
         description="Bibliothèque prête à l'emploi — lancement supervisé ou autonome en un clic."
       />
       {playbooks.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
+      {playbooks.isError ? (
+        <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+          <p className="text-sm text-red-700">
+            Impossible de charger les playbooks.{" "}
+            {playbooks.error instanceof Error ? playbooks.error.message : ""}
+          </p>
+          <button type="button" onClick={() => void playbooks.refetch()} className="btn-secondary mt-2 text-xs">
+            Réessayer
+          </button>
+        </div>
+      ) : null}
+      {launch.isError ? (
+        <p className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+          Lancement impossible : {launch.error instanceof Error ? launch.error.message : String(launch.error)}
+        </p>
+      ) : null}
       {(["fleur", "sivana", "generic"] as const).map((cat) => (
         <section key={cat} className="section-card">
           <h2 className="section-title capitalize">{cat}</h2>

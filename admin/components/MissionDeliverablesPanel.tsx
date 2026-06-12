@@ -9,7 +9,6 @@ import {
   matchDeliverableTitleToAgentKey,
   type ParsedDeliverable,
 } from "../lib/extractTeamDeliverables";
-import type { TeamRow } from "../lib/types";
 
 function slugKeyFn(title: string): string {
   return (
@@ -65,7 +64,7 @@ export default function MissionDeliverablesPanel({
   embedded = false,
 }: Props) {
   const rows = useMemo(() => normalizeTeamRows(team), [team]);
-  const items = useMemo(() => deliverablesForMissionPanel(resultMarkdown, rows), [resultMarkdown, rows]);
+  const items = useMemo(() => deliverablesForMissionPanel(resultMarkdown), [resultMarkdown]);
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");

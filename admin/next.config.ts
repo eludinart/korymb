@@ -18,6 +18,9 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Permet de vérifier un build de prod sans entrer en conflit avec le serveur
+  // de dev qui écrit dans .next (ex: NEXT_DIST_DIR=.next-build npm run build).
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   eslint: {
     // Keep lint in CI/editor, but don't fail production image builds.
     ignoreDuringBuilds: true,

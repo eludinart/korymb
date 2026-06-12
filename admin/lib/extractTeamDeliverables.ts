@@ -83,7 +83,7 @@ export function extractFallbackCioDeliverable(md: string): ParsedDeliverable[] {
   return [{ title: "Synthèse & livrable CIO", body }];
 }
 
-export function deliverablesForMissionPanel(md: string, _team: TeamRow[]): ParsedDeliverable[] {
+export function deliverablesForMissionPanel(md: string): ParsedDeliverable[] {
   const fromTeam = extractTeamDeliverablesFromResult(md);
   if (fromTeam.length) return fromTeam;
   // Même avec des sous-agents : si l'annexe « Livrables bruts de l'équipe » est absente,

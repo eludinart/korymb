@@ -411,7 +411,7 @@ export default function ApprobationsPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">File d'approbation</h1>
+          <h1 className="text-xl font-bold text-slate-900">File d&apos;approbation</h1>
           <p className="mt-1 text-sm text-slate-500">
             Outputs générés par les agents autonomes en attente de validation avant publication.
           </p>

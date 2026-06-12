@@ -211,7 +211,7 @@ function BudgetSettingsForm({ showToast }: { showToast: (m: string, ok?: boolean
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Seuil d'alerte tokens / jour
+            Seuil d&apos;alerte tokens / jour
           </label>
           <input
             type="number"
@@ -223,7 +223,7 @@ function BudgetSettingsForm({ showToast }: { showToast: (m: string, ok?: boolean
             }
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
           />
-          <p className="mt-1 text-xs text-slate-400">Déclenche le badge "Alerte" dans la barre d'état</p>
+          <p className="mt-1 text-xs text-slate-400">Déclenche le badge «&nbsp;Alerte&nbsp;» dans la barre d&apos;état</p>
         </div>
 
         <div>
@@ -383,12 +383,12 @@ export default function BudgetPage() {
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Tokens input</p>
             <p className="mt-1 text-xl font-bold text-slate-900">{fmtTokens(t.tokens_in)}</p>
-            <p className="text-xs text-slate-400 mt-0.5">aujourd'hui</p>
+            <p className="text-xs text-slate-400 mt-0.5">aujourd&apos;hui</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Tokens output</p>
             <p className="mt-1 text-xl font-bold text-slate-900">{fmtTokens(t.tokens_out)}</p>
-            <p className="text-xs text-slate-400 mt-0.5">aujourd'hui</p>
+            <p className="text-xs text-slate-400 mt-0.5">aujourd&apos;hui</p>
           </div>
         </div>
       )}

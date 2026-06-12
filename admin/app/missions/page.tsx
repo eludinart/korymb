@@ -3,8 +3,7 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import AgentMessageMarkdown from "../../components/AgentMessageMarkdown";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentActivationBoard, { AgentActivationStrip } from "../../components/AgentActivationBoard";
 import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
@@ -14,64 +13,36 @@ import CollapsibleMissionSection from "../../components/CollapsibleMissionSectio
 import SimpleAccordion from "../../components/SimpleAccordion";
 import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
-import MissionStatusBadge from "../../components/MissionStatusBadge";
 import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
 import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel";
 import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import MissionHitlResolver from "../../components/missions/MissionHitlResolver";
 import CioResumePanel from "../../components/missions/CioResumePanel";
+import MissionListCard from "../../components/missions/MissionListCard";
+import CioResumeLivePanel from "../../components/missions/CioResumeLivePanel";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
-import { bestPreview, extractCioStrategicQuestions } from "../../lib/missionBilan";
+import { extractCioStrategicQuestions } from "../../lib/missionBilan";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 import { threadHasPendingCioTurn, canResumeMissionCio } from "../../lib/missionThreadPending";
+import { useJobDetail } from "../../lib/useJobDetail";
+import { useMissionActions } from "../../lib/useMissionActions";
+import { adaptivePollInterval } from "../../lib/korymbEvents";
 
 import type { Job } from "../../lib/types";
-
-async function fetchJobDetail(jobId: string) {
-  const { data } = await requestJson(
-    `/jobs/${encodeURIComponent(jobId)}?log_offset=0&events_offset=0`,
-    { headers: agentHeaders(), retries: 2, timeoutMs: 60_000 },
-  );
-  return data;
-}
-
-async function validateJob(jobId: string) {
-  const headers = agentHeaders();
-  return requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, {
-    method: "POST",
-    headers,
-    expectOk: false,
-    timeoutMs: 60_000,
-    retries: 1,
-  });
-}
-
-async function closeMissionJob(jobId: string) {
-  const headers = agentHeaders();
-  return requestJson(`/jobs/${encodeURIComponent(jobId)}/close-mission`, {
-    method: "POST",
-    headers,
-    expectOk: false,
-    timeoutMs: 60_000,
-    retries: 1,
-  });
-}
 
 function MissionsContent() {
   const qc = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState("");
-  const [error, setError] = useState("");
+  const { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission } = useMissionActions();
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
@@ -91,9 +62,8 @@ function MissionsContent() {
     },
     staleTime: 20_000,
     refetchInterval: (query) => {
-      if (typeof document === "undefined" || document.visibilityState !== "visible") return false;
       if (query.state.fetchStatus === "fetching") return false;
-      return 20_000;
+      return adaptivePollInterval(20_000, 60_000);
     },
   });
 
@@ -126,21 +96,9 @@ function MissionsContent() {
     setMobileDetailPane("fil");
   }, [selected]);
 
-  const detail = useQuery({
+  const detail = useJobDetail(selected, {
     queryKey: ["job-detail-live", selected],
-    enabled: Boolean(selected),
-    queryFn: () => fetchJobDetail(String(selected)),
-    placeholderData: keepPreviousData,
-    retry: 2,
-    retryDelay: (attempt) => Math.min(1500 * 2 ** attempt, 8000),
-    refetchInterval: (query) => {
-      if (!selected || typeof document === "undefined" || document.visibilityState !== "visible") return false;
-      if (query.state.fetchStatus === "fetching") return false;
-      if (cioResumeLiveId) return 2000;
-      const st = String((query.state.data as { status?: string } | undefined)?.status || "");
-      if (st === "running" || st === "awaiting_validation") return 3000;
-      return 15_000;
-    },
+    forceFastPoll: Boolean(cioResumeLiveId),
   });
 
   const detailRefreshError = detail.isError
@@ -152,17 +110,9 @@ function MissionsContent() {
     /injoignable|8020|fetch failed|ECONNREFUSED|503/i.test(detailRefreshError) ||
     detailRefreshError === "HTTP 500";
 
-  const cioResumeLive = useQuery({
+  const cioResumeLive = useJobDetail(cioResumeLiveId, {
     queryKey: ["mission-cio-resume-live", cioResumeLiveId],
-    enabled: Boolean(cioResumeLiveId),
-    queryFn: () => fetchJobDetail(String(cioResumeLiveId)),
-    placeholderData: keepPreviousData,
-    retry: 2,
-    refetchInterval: (query) => {
-      if (!cioResumeLiveId || typeof document === "undefined" || document.visibilityState !== "visible") return false;
-      if (query.state.fetchStatus === "fetching") return false;
-      return 2500;
-    },
+    forceFastPoll: true,
   });
 
   const selectedJobStatus = String(detail.data?.status || "");
@@ -325,10 +275,7 @@ function MissionsContent() {
 
   const cioSynthReaderBadge = useMemo(() => {
     if (!selectedMissionSynth) return null;
-    const n = deliverablesForMissionPanel(
-      selectedMissionSynth.deliverablesMarkdown,
-      normalizeTeamRows(selectedMissionSynth.deliverablesTeam),
-    ).length;
+    const n = deliverablesForMissionPanel(selectedMissionSynth.deliverablesMarkdown).length;
     const parts: string[] = [];
     if (String(selectedMissionSynth.cardResult || "").trim().length > 40) parts.push("Synthèse CIO");
     if (n > 0) parts.push(`${n} livrable${n > 1 ? "s" : ""}`);
@@ -373,44 +320,6 @@ function MissionsContent() {
     router.replace("/missions");
   };
 
-  const onValidate = async (jobId: string) => {
-    setBusyId(jobId);
-    setError("");
-    setFeedback("");
-    try {
-      await validateJob(jobId);
-      setFeedback(`Mission #${jobId} validée.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyId(null);
-      qc.invalidateQueries({ queryKey: QK.jobsCards });
-      qc.invalidateQueries({ queryKey: QK.tokens });
-      qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
-    }
-  };
-
-  const onCloseMission = async (jobId: string) => {
-    const ok = window.confirm(
-      "Clôturer cette mission ?\n\nVous la considérez terminée : elle ne sera plus modifiable (poursuite CIO désactivée). Les livrables restent consultables.",
-    );
-    if (!ok) return;
-    setBusyId(jobId);
-    setError("");
-    setFeedback("");
-    try {
-      await closeMissionJob(jobId);
-      setFeedback(`Mission #${jobId} clôturée.`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusyId(null);
-      qc.invalidateQueries({ queryKey: QK.jobsCards });
-      qc.invalidateQueries({ queryKey: QK.tokens });
-      qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
-    }
-  };
-
   return (
     <PageShell size="wide" className="space-y-3">
       {!selected ? (
@@ -450,91 +359,17 @@ function MissionsContent() {
             </button>
           </div>
         ) : null}
-        {sortedRows.map((j) => {
-          const closed = j.user_validated_at || j.mission_closed_by_user;
-          const st = String(j.status || "");
-          const canValidate = st === "completed" && !closed;
-          const canCloseFromList = !closed && st !== "cancelled" && !canValidate;
-          // Si une continuation a été faite sur ce job, utiliser son résultat pour la preview
-          const latestChild = latestChildByParent.get(j.job_id);
-          const bestResultSource = latestChild ?? j;
-          const rawResult = String(bestResultSource.result || "").trim();
-          const previewText = bestPreview(rawResult, 25);
-                  return (
-            <div
-              key={j.job_id}
-              className="min-w-0 bg-white border border-slate-200 rounded-2xl p-4 cursor-pointer transition-shadow hover:border-slate-300"
-              onClick={() => setSelected(j.job_id)}
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-                <div className="min-w-0 w-full flex-1 space-y-2 sm:w-auto">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <MissionStatusBadge status={j.status} />
-                    {canValidate ? (
-                      <span className="rounded-md bg-violet-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                        À valider
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="max-h-52 min-h-0 overflow-y-auto rounded-xl border border-slate-100 bg-slate-50/95 p-2.5 text-left shadow-inner">
-                    {j.mission?.trim() ? (
-                      <AgentMessageMarkdown
-                        source={j.mission}
-                        className="text-xs [&_blockquote]:my-1 [&_blockquote]:py-1 [&_h1]:mb-1 [&_h1]:mt-0 [&_h1]:border-0 [&_h1]:pb-0 [&_h1]:text-[13px] [&_h2]:mb-1 [&_h2]:mt-2 [&_h2]:text-xs [&_h3]:text-[11px] [&_li]:my-0 [&_li]:text-[11px] [&_ol]:my-1 [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
-                      />
-                    ) : (
-                      <p className="text-xs font-medium text-slate-500">(mission sans titre)</p>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-500 font-mono">
-                    #{j.job_id} · {j.agent || "coordinateur"}
-                  </p>
-                  {previewText ? (
-                    <SimpleAccordion
-                      title="Bilan CIO"
-                      defaultOpen={false}
-                      className="min-h-0 rounded-lg border border-slate-100 bg-white text-left"
-                      triggerClassName="px-2.5 py-2"
-                      panelClassName="border-t border-slate-100 px-2.5 pb-2.5 pt-2"
-                    >
-                      <AgentMessageMarkdown
-                        source={previewText}
-                        className="text-[11px] [&_h1]:mb-1 [&_h1]:text-[11px] [&_h2]:mb-1 [&_h2]:text-[11px] [&_h3]:text-[11px] [&_li]:text-[10px] [&_li]:my-0.5 [&_p]:mb-1 [&_p]:text-[11px] [&_ul]:my-1"
-                      />
-                    </SimpleAccordion>
-                  ) : (
-                    <p className="text-xs text-slate-400">Pas encore de synthèse disponible.</p>
-                  )}
-                </div>
-                {canValidate ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onValidate(j.job_id);
-                    }}
-                    disabled={busyId === j.job_id}
-                    className="min-h-[44px] w-full shrink-0 rounded-lg bg-violet-900 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
-                  >
-                    {busyId === j.job_id ? "Validation…" : "Valider"}
-                  </button>
-                ) : canCloseFromList ? (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onCloseMission(j.job_id);
-                    }}
-                    disabled={busyId === j.job_id}
-                    className="min-h-[44px] w-full shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 disabled:opacity-40 sm:w-auto"
-                  >
-                    {busyId === j.job_id ? "Clôture…" : "Clôturer"}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
+        {sortedRows.map((j) => (
+          <MissionListCard
+            key={j.job_id}
+            job={j}
+            latestChild={latestChildByParent.get(j.job_id)}
+            busy={busyId === j.job_id}
+            onSelect={setSelected}
+            onValidate={(id) => void onValidate(id)}
+            onClose={(id) => void onCloseMission(id)}
+          />
+        ))}
         {jobs.isSuccess && missionRows.length === 0 ? (
           <p className="text-sm text-slate-400">Aucune mission.</p>
         ) : null}
@@ -844,77 +679,7 @@ function MissionsContent() {
 
               {/* ── PANNEAU LIVE (haut de colonne, visible immédiatement) ─────── */}
               {cioResumeLiveId ? (
-                <div className="overflow-hidden rounded-2xl border-2 border-violet-400 bg-white shadow-lg">
-                  {/* En-tête animé */}
-                  <div className="flex flex-wrap items-center gap-2 bg-violet-600 px-4 py-2.5">
-                    <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-white" />
-                    <p className="text-sm font-bold text-white">Agents au travail — Tour en cours</p>
-                    <span className="ml-auto rounded-full bg-violet-500 px-2 py-0.5 text-[10px] font-semibold text-violet-100">
-                      ↻ 1,5 s
-                    </span>
-                  </div>
-                  {cioResumeLive.data ? (
-                    <div className="space-y-3 p-4">
-                      {/* Métriques temps réel */}
-                      <MissionMetricsRow
-                        status={String(cioResumeLive.data.status || "")}
-                        tokensTotal={Number(cioResumeLive.data.tokens_total || 0)}
-                        costUsd={Number(cioResumeLive.data.cost_usd || 0)}
-                        eventsTotal={Number(cioResumeLive.data.events_total || 0)}
-                        logTotal={Number(cioResumeLive.data.log_total || 0)}
-                      />
-                      {/* Derniers événements */}
-                      {((cioResumeLive.data.events || []) as Array<Record<string, unknown>>).length > 0 ? (
-                        <div className="rounded-xl border border-violet-100 bg-violet-50/50 px-3 py-2">
-                          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-violet-500">
-                            Derniers événements agents
-                          </p>
-                          <ul className="space-y-1">
-                            {((cioResumeLive.data.events || []) as Array<Record<string, unknown>>)
-                              .slice(-6)
-                              .map((ev, i) => (
-                                <li key={i} className="flex min-w-0 gap-1.5 text-[11px]">
-                                  <span className="shrink-0 font-semibold text-violet-700">
-                                    {String(ev.actor || ev.agent || "—")}
-                                  </span>
-                                  <span className="text-slate-400">·</span>
-                                  <span className="text-slate-600">{String(ev.type || ev.event || "")}</span>
-                                  {ev.summary || ev.message ? (
-                                    <span className="truncate text-slate-400">
-                                      {String(ev.summary || ev.message || "").slice(0, 80)}
-                                    </span>
-                                  ) : null}
-                                </li>
-                              ))}
-                          </ul>
-                        </div>
-                      ) : null}
-                      {/* Journal en direct */}
-                      {((cioResumeLive.data.logs || []) as string[]).length > 0 ? (
-                        <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                            Journal en direct
-                          </p>
-                          <pre className="max-h-28 overflow-auto whitespace-pre-wrap text-[10px] leading-relaxed text-slate-600">
-                            {((cioResumeLive.data.logs || []) as string[]).slice(-8).join("\n")}
-                          </pre>
-                        </div>
-                      ) : (
-                        <p className="text-center text-xs text-slate-400">En attente de la première réponse agents…</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center gap-2 p-6">
-                      <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
-                      <p className="text-sm text-slate-500">Initialisation du tour…</p>
-                    </div>
-                  )}
-                  {cioResumeLive.isError ? (
-                    <p className="px-4 pb-3 text-xs text-red-700">
-                      Impossible de suivre l&apos;état du tour en direct.
-                    </p>
-                  ) : null}
-                </div>
+                <CioResumeLivePanel live={cioResumeLive.data as Job | undefined} isError={cioResumeLive.isError} />
               ) : null}
 
               {/* ── Synthèse CIO + livrables (agrandissable plein écran) ─────── */}

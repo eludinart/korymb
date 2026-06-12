@@ -80,6 +80,14 @@ export default function AdministrationDashboardPage() {
 
       <SectionCard title="Analytics missions (7 jours)">
         {analytics.isLoading ? <p className="loading-line">Chargement…</p> : null}
+        {analytics.isError ? (
+          <div>
+            <p className="text-sm text-red-700">Impossible de charger les analytics missions.</p>
+            <button type="button" onClick={() => void analytics.refetch()} className="btn-secondary mt-2 text-xs">
+              Réessayer
+            </button>
+          </div>
+        ) : null}
         {analytics.isSuccess ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Missions" value={analytics.data?.missions_total ?? 0} tone="info" />

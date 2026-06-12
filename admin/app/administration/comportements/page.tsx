@@ -132,6 +132,19 @@ export default function BehaviorSettingsPage() {
         </button>
       </div>
 
+      {listQuery.isPending ? <p className="text-sm text-slate-400">Chargement des réglages…</p> : null}
+      {listQuery.isError ? (
+        <div className="rounded-xl border border-red-100 bg-red-50 p-4">
+          <p className="text-sm text-red-700">
+            Impossible de charger les réglages.{" "}
+            {listQuery.error instanceof Error ? listQuery.error.message : ""}
+          </p>
+          <button type="button" onClick={() => void listQuery.refetch()} className="btn-secondary mt-2 text-xs">
+            Réessayer
+          </button>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-[minmax(0,220px)_minmax(0,280px)_1fr]">
         <div
           className={`rounded-2xl border border-slate-200 bg-white p-3 shadow-sm ${

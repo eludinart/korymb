@@ -6,11 +6,12 @@ import HealthDot from "./HealthDot";
 import type { HealthTone } from "../lib/healthTone";
 import { agentHeaders, requestJson } from "../lib/api";
 import { QK } from "../lib/queryClient";
+import { adaptivePollInterval } from "../lib/korymbEvents";
 
 const COLLAPSED_LS = "korymb_global_status_bar_collapsed";
 
-const visibleInterval = (ms: number) =>
-  typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
+/** Polling allégé quand le flux SSE est connecté (les invalidations arrivent en push). */
+const visibleInterval = (ms: number) => adaptivePollInterval(ms, ms * 3);
 
 function fmt(n: number) {
   return n.toLocaleString("fr-FR");

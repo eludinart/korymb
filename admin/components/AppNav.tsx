@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
+import { ADMIN_NAV_LINKS, isAdminLinkActive } from "../lib/adminNav";
 
 const NAV_PRIORITY = [
   { href: "/briefing", label: "Briefing", priority: true },
@@ -19,12 +20,7 @@ const NAV_PRIORITY = [
   { href: "/administration", label: "Administration" },
 ];
 
-const ADMIN_SUB = [
-  { href: "/administration/dashboard", label: "Santé & outils" },
-  { href: "/administration/agents", label: "Agents & mémoire" },
-  { href: "/administration/playbooks", label: "Playbooks" },
-  { href: "/administration/approbations", label: "Approbations" },
-];
+const ADMIN_SUB = ADMIN_NAV_LINKS;
 
 function isNavActive(pathname: string, href: string, adminActive: boolean) {
   return (
@@ -106,9 +102,7 @@ export default function AppNav() {
         <div className="mt-3 space-y-1 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
           <p className="px-2 text-xs font-extrabold uppercase tracking-wider text-violet-700">Administration</p>
           {ADMIN_SUB.map((item) => {
-            const active =
-              pathname.startsWith(item.href) ||
-              (item.href === "/administration/dashboard" && pathname === "/administration");
+            const active = isAdminLinkActive(pathname, item.href);
             return (
               <Link key={item.href} href={item.href} onClick={closeMenu} className={drawerLinkClass(active)}>
                 {item.label}
@@ -140,9 +134,7 @@ export default function AppNav() {
         {adminActive ? (
           <nav className="flex flex-wrap justify-end gap-1.5 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
             {ADMIN_SUB.map((item) => {
-              const active =
-                pathname.startsWith(item.href) ||
-                (item.href === "/administration/dashboard" && pathname === "/administration");
+              const active = isAdminLinkActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}

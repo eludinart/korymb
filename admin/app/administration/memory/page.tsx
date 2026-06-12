@@ -217,7 +217,6 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
 // ── Tab: History ──────────────────────────────────────────────────────────────
 
 function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; showToast: (m: string, ok?: boolean) => void }) {
-  const [diffTarget, setDiffTarget] = useState<MemorySnapshot | null>(null);
   const [loadedSnap, setLoadedSnap] = useState<MemorySnapshot | null>(null);
 
   const history = useQuery({
@@ -254,7 +253,6 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["memory"] });
       qc.invalidateQueries({ queryKey: ["memory-history"] });
-      setDiffTarget(null);
       setLoadedSnap(null);
       showToast("Snapshot restauré avec succès.");
     },
@@ -297,7 +295,7 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
               </button>
             </div>
           </div>
-          <p className="text-xs font-medium text-slate-600">Diff avec l'état actuel :</p>
+          <p className="text-xs font-medium text-slate-600">Diff avec l&apos;état actuel :</p>
           <DiffView
             before={currentMemory.data?.contexts ?? {}}
             after={loadedSnap.contexts ?? {}}
@@ -390,7 +388,7 @@ function ImportExportTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClie
       if (confirm("Importer et écraser la mémoire actuelle ? Un snapshot sera créé automatiquement.")) {
         importMutation.mutate(ctx as Record<string, string>);
       }
-    } catch (e) {
+    } catch {
       showToast("Fichier JSON invalide.", false);
     }
   }
@@ -470,7 +468,7 @@ function PreviewTab() {
   return (
     <div className="space-y-5">
       <p className="text-sm text-slate-500">
-        Visualise le prompt système complet tel qu'il sera injecté dans le contexte de l'agent avant une mission.
+        Visualise le prompt système complet tel qu&apos;il sera injecté dans le contexte de l&apos;agent avant une mission.
       </p>
 
       <div className="flex items-end gap-3">
@@ -498,7 +496,7 @@ function PreviewTab() {
 
       {preview.isFetching && <p className="text-sm text-slate-400">Assemblage du prompt…</p>}
       {preview.isError && (
-        <p className="text-sm text-red-600">Erreur lors de l'assemblage du prompt.</p>
+        <p className="text-sm text-red-600">Erreur lors de l&apos;assemblage du prompt.</p>
       )}
 
       {preview.isSuccess && preview.data && (
@@ -547,7 +545,7 @@ export default function MemoryConsolePage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Console Mémoire Entreprise</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Éditez les contextes agents, consultez l'historique avec diff, importez/exportez des snapshots,
+          Éditez les contextes agents, consultez l&apos;historique avec diff, importez/exportez des snapshots,
           et prévisualisez le prompt système complet avant une mission.
         </p>
       </div>

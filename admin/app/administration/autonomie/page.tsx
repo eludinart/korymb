@@ -245,7 +245,7 @@ function TaskForm({
           >
             <option value="veille">Veille web</option>
             <option value="mission">Mission directe</option>
-            <option value="mission_proposals">Propositions d'agents</option>
+            <option value="mission_proposals">Propositions d&apos;agents</option>
           </select>
         </div>
 
@@ -517,8 +517,8 @@ export default function AutonomieAdminPage() {
         <p className="text-sm font-semibold text-amber-900">Garde-fous actifs</p>
         <p className="mt-1 text-xs text-amber-700">
           Chaque tâche est soumise à un plafond de tokens par exécution et un plafond de runs par jour.
-          Si un plafond est atteint, l'exécution est annulée silencieusement.
-          Les outputs sont déposés en file d'approbation avant toute publication externe.
+          Si un plafond est atteint, l&apos;exécution est annulée silencieusement.
+          Les outputs sont déposés en file d&apos;approbation avant toute publication externe.
         </p>
       </div>
 

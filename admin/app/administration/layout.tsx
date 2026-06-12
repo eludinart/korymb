@@ -2,20 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ADMIN_NAV_LINKS, isAdminLinkActive } from "../../lib/adminNav";
 
-const LINKS = [
-  { href: "/administration/dashboard", label: "Tableau de bord santé" },
-  { href: "/administration/agents", label: "Agents métiers" },
-  { href: "/administration/playbooks", label: "Playbooks" },
-  { href: "/administration/orchestration", label: "Orchestration CIO" },
-  { href: "/administration/comportements", label: "Comportements moteur" },
-  { href: "/administration/templates", label: "Templates de missions" },
-  { href: "/administration/memory", label: "Mémoire entreprise" },
-  { href: "/administration/reprise", label: "Audit reprise" },
-  { href: "/administration/budget", label: "Budget & Coûts" },
-  { href: "/administration/autonomie", label: "Tâches autonomes" },
-  { href: "/administration/approbations", label: "Approbations" },
-];
+const LINKS = ADMIN_NAV_LINKS;
 
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -25,10 +14,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Administration</p>
         <nav className="-mx-1 mt-3 flex gap-2 overflow-x-auto pb-2 lg:mx-0 lg:flex-col lg:overflow-visible lg:pb-0">
           {LINKS.map((l) => {
-            const active =
-              pathname === l.href ||
-              pathname.startsWith(`${l.href}/`) ||
-              (l.href === "/administration/dashboard" && pathname === "/administration");
+            const active = isAdminLinkActive(pathname, l.href);
             return (
               <Link
                 key={l.href}
