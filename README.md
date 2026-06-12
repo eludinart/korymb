@@ -49,8 +49,10 @@ Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health` : `d
 ### 3) Run app
 
 ```powershell
-.\start-dev-cursor.ps1
+.\start-dev-cursor.ps1 -MariaDbTunnel
 ```
+
+Guide de démarrage détaillé (options, watchdog, logs, dépannage) : [docs/DEMARRAGE.md](docs/DEMARRAGE.md).
 
 Stop with:
 

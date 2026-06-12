@@ -41,7 +41,9 @@ $watchdogFailThreshold = 4
 $watchdogGraceSec = 50
 $backendProc = $null
 $backendLog = $null
+$backendLogErr = $null
 $backendLogOffset = 0
+$backendLogOffsetErr = 0
 $watchdogGraceUntil = [datetime]::MinValue
 $frontendProc = $null
 $frontendLogOut = $null
@@ -200,18 +202,23 @@ function Start-BackendDevProcess {
   $logDir = Join-Path $rootDir ".dev-logs"
   New-Item -ItemType Directory -Force -Path $logDir | Out-Null
   $script:backendLog = Join-Path $logDir "backend.log"
-  if (Test-Path -LiteralPath $script:backendLog) {
-    Remove-Item -LiteralPath $script:backendLog -Force -ErrorAction SilentlyContinue
+  $script:backendLogErr = Join-Path $logDir "backend.err.log"
+  foreach ($p in @($script:backendLog, $script:backendLogErr)) {
+    if (Test-Path -LiteralPath $p) {
+      Remove-Item -LiteralPath $p -Force -ErrorAction SilentlyContinue
+    }
   }
   $script:backendLogOffset = 0
+  $script:backendLogOffsetErr = 0
   # Processus detache : les jobs PowerShell coupent uvicorn sous charge Windows.
+  # PS 5.1 exige deux fichiers distincts pour stdout/stderr.
   $script:backendProc = Start-Process -FilePath "powershell.exe" `
     -ArgumentList $scriptArgs `
     -WorkingDirectory $rootDir `
     -PassThru `
     -WindowStyle Hidden `
     -RedirectStandardOutput $script:backendLog `
-    -RedirectStandardError $script:backendLog
+    -RedirectStandardError $script:backendLogErr
 }
 
 function Test-FrontendReady {
@@ -380,7 +387,7 @@ Start-BackendDevProcess
 if (-not $SkipVerify) {
   Write-Host "Attente backend /health (code_dir + version)..." -ForegroundColor Cyan
   if (-not (Wait-BackendHealthReady -MaxAttempts 90 -DelayMs 500)) {
-    throw "Backend non pret sur /health apres attente. Voir .dev-logs/backend.log"
+    throw "Backend non pret sur /health apres attente. Voir .dev-logs/backend.log et .dev-logs/backend.err.log"
   }
 }
 
@@ -411,6 +418,7 @@ $lastTunnelCheckUtc = [datetime]::UtcNow.AddSeconds(-$watchdogIntervalSec)
 try {
   while ($true) {
     Write-NewLogLines -Path $backendLog -Offset ([ref]$backendLogOffset) -Prefix "[$backendJobName]"
+    Write-NewLogLines -Path $backendLogErr -Offset ([ref]$backendLogOffsetErr) -Prefix "[$backendJobName]"
 
     if ($null -ne $backendProc -and $backendProc.HasExited) {
       $beState = "PID $($backendProc.Id) termine"

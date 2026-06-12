@@ -11,7 +11,8 @@ Utilisation (terminal Cursor, racine du repo)
      - .env.local -> KORYMB_AGENT_SECRET
      - .env.local -> NEXT_PUBLIC_KORYMB_AGENT_SECRET
 3) Démarrage:
-   - .\start-dev-cursor.ps1
+   - .\start-dev-cursor.ps1 -MariaDbTunnel
+   (option -MariaDbTunnel requise si KORYMB_DB_ENGINE=mariadb dans backend/.env.local)
 4) Arrêt:
    - .\stop-dev-cursor.ps1
 
@@ -19,3 +20,6 @@ Option dépannage:
 - .\start-dev-cursor.ps1 -SkipVerify
 - Front attendu: http://127.0.0.1:3000/dashboard
 - API attendue : http://127.0.0.1:8020/health
+- Logs: .dev-logs/backend.log, .dev-logs/backend.err.log
+
+Guide complet: docs/DEMARRAGE.md
