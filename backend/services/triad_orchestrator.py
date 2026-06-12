@@ -12,13 +12,13 @@ Règle d'Or : ne supprime aucune fonctionnalité existante, encapsule-les.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Callable
 
 from config import TEMP_TECH, TEMP_SYST
 from llm_client import llm_turn
 from agent_tool_use import llm_turn_maybe_tools
+from services.quality_gate import parse_critic_verdict as _parse_critic_verdict
 
 logger = logging.getLogger(__name__)
 
@@ -88,40 +88,8 @@ Sois rigoureux mais juste : ne rejette pas pour des raisons stylistiques.
 """
 
 
-# ── Parseur verdict Critique ───────────────────────────────────────────────────
-
-def _parse_critic_verdict(raw: str) -> dict[str, Any]:
-    """Extrait le JSON du verdict Critique depuis la réponse brute."""
-    text = (raw or "").strip()
-    # Cherche le premier bloc JSON valide
-    start = text.find("{")
-    end = text.rfind("}") + 1
-    if start >= 0 and end > start:
-        candidate = text[start:end]
-        try:
-            parsed = json.loads(candidate)
-            if isinstance(parsed, dict):
-                return {
-                    "rejected": bool(parsed.get("rejected", False)),
-                    "alignment_score": int(parsed.get("alignment_score") or 0),
-                    "critique": str(parsed.get("critique") or ""),
-                    "feedback": str(parsed.get("feedback") or ""),
-                    "approved_sections": list(parsed.get("approved_sections") or []),
-                }
-        except (json.JSONDecodeError, ValueError):
-            pass
-    # Fallback: texte heuristique
-    rejected = any(kw in text.lower() for kw in ("rejected: true", '"rejected": true', "rejet", "insuffisant"))
-    return {
-        "rejected": rejected,
-        "alignment_score": 5 if not rejected else 3,
-        "critique": text[:1000],
-        "feedback": text[:600] if rejected else "",
-        "approved_sections": [],
-    }
-
-
 # ── Orchestrateur principal ───────────────────────────────────────────────────
+# (parseur verdict Critique mutualisé dans services/quality_gate.py)
 
 def orchestrate_triad(
     mission_text: str,

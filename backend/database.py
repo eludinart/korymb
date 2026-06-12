@@ -98,6 +98,8 @@ class _MariaConnAdapter:
         # Compat SQLite -> MariaDB
         if "INSERT OR REPLACE INTO" in sql_use:
             sql_use = sql_use.replace("INSERT OR REPLACE INTO", "REPLACE INTO")
+        if "INSERT OR IGNORE INTO" in sql_use:
+            sql_use = sql_use.replace("INSERT OR IGNORE INTO", "INSERT IGNORE INTO")
         cur = self._conn.cursor(pymysql.cursors.DictCursor)
         cur.execute(sql_use, tuple(params or ()))
         return _MariaCursorAdapter(cur)
@@ -1125,6 +1127,31 @@ def save_idempotent_job(idempotency_key: str, job_id: str) -> None:
             (key, job_id, now),
         )
         conn.commit()
+
+
+def claim_idempotent_job(idempotency_key: str, job_id: str) -> str:
+    """Réserve atomiquement la clé d'idempotence AVANT de scheduler la mission.
+
+    Retourne le job_id effectif : `job_id` si la clé vient d'être réservée,
+    sinon le job_id déjà associé (double POST simultané → un seul job créé).
+    """
+    key = (idempotency_key or "").strip()[:128]
+    if not key or not job_id:
+        return job_id
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO mission_idempotency (idempotency_key, job_id, created_at) VALUES (?, ?, ?)",
+            (key, job_id, now),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT job_id FROM mission_idempotency WHERE idempotency_key=?",
+            (key,),
+        ).fetchone()
+    if not row:
+        return job_id
+    return str(row["job_id"] if isinstance(row, dict) else row[0])
 
 
 def append_agent_definition_history(agent_key: str, body: dict[str, Any]) -> None:

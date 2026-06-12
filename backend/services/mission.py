@@ -11,6 +11,7 @@ import re
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from fastapi import BackgroundTasks, HTTPException
@@ -105,6 +106,74 @@ def _behavior_str_list(key: str, fallback: list[str]) -> list[str]:
         return fallback
     out = [str(x).strip() for x in v if str(x).strip()]
     return out or fallback
+
+
+def _behavior_bool(key: str, fallback: bool) -> bool:
+    v = _behavior_value(key)
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        s = v.strip().lower()
+        if s in {"true", "1", "yes", "on"}:
+            return True
+        if s in {"false", "0", "no", "off"}:
+            return False
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return fallback
+
+
+def _parse_plan_dependencies(plan: dict, valid_keys: list[str]) -> dict[str, set[str]]:
+    """Lit le champ optionnel « dependances » du plan CIO : {agent: [agents requis avant lui]}.
+
+    Clés et valeurs hors rôles exécutables (ou auto-dépendances) sont ignorées.
+    """
+    raw = None
+    for k in ("dependances", "dépendances", "dependencies", "depends_on"):
+        v = plan.get(k)
+        if isinstance(v, dict) and v:
+            raw = v
+            break
+    if not raw:
+        return {}
+    valid = set(valid_keys)
+    deps: dict[str, set[str]] = {}
+    for k, v in raw.items():
+        key = str(k).strip().lower()
+        if key not in valid:
+            continue
+        items = v if isinstance(v, list) else [v]
+        wanted = {str(x).strip().lower() for x in items if str(x).strip()}
+        wanted = {x for x in wanted if x in valid and x != key}
+        if wanted:
+            deps[key] = wanted
+    return deps
+
+
+def _delegation_waves(order: list[str], deps: dict[str, set[str]]) -> list[list[str]]:
+    """Découpe l'ordre d'exécution en vagues parallélisables (tri topologique par niveaux).
+
+    Sans dépendances : une seule vague avec tous les agents.
+    En cas de cycle, les agents restants sont exécutés dans l'ordre initial (fallback sûr).
+    """
+    remaining: dict[str, set[str]] = {k: set(deps.get(k) or ()) & set(order) for k in order}
+    waves: list[list[str]] = []
+    placed: set[str] = set()
+    while remaining:
+        ready = [k for k in order if k in remaining and not (remaining[k] - placed)]
+        if not ready:
+            # Cycle de dépendances : on vide dans l'ordre initial, séquentiellement.
+            for k in order:
+                if k in remaining:
+                    waves.append([k])
+                    placed.add(k)
+                    remaining.pop(k)
+            break
+        waves.append(ready)
+        for k in ready:
+            placed.add(k)
+            remaining.pop(k)
+    return waves
 
 
 def _render_orchestration_prompt(prompt_key: str, mapping: dict[str, str]) -> str:
@@ -1215,6 +1284,14 @@ def orchestrate_coordinateur_mission(
             "CQ_RULE": cq_rule,
         },
     )
+    if _behavior_bool("orchestration.parallel_delegation_enabled", True):
+        plan_user += (
+            '\n- Champ optionnel "dependances" : objet JSON {clé_agent: [clés_agents_requis_avant_lui]} '
+            "pour les sous-tâches qui ont besoin du livrable d'un autre rôle "
+            f"(clés exactes parmi : {keys_csv}). "
+            "Les rôles sans dépendance déclarée travaillent EN PARALLÈLE. "
+            "Omets ce champ (ou {}) si toutes les sous-tâches sont indépendantes."
+        )
     log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
     plan_txt, ti, to = llm_turn(
@@ -1518,35 +1595,25 @@ def orchestrate_coordinateur_mission(
 
     resultats: dict[str, str] = {}
     chain_prev = "coordinateur"
-    for agent_key in exec_agent_order:
-        _raise_if_job_cancelled(job_id)
-        tache = _tache_to_str(st.get(agent_key)).strip()
-        if agent_key not in agents_def() or agent_key == "coordinateur":
-            continue
-        if not tache:
-            log(
-                f"[korymb] Sous-tâche ignorée pour {agents_def()[agent_key]['label']} ({agent_key}) : "
-                f"consigne vide après normalisation — aucun tour LLM.",
-            )
-            # region agent log
-            _cio_ndjson_trace(
-                cio_trace_run,
-                "H1",
-                "main.py:orchestrate_skip_subagent",
-                "subtask_skipped_no_llm",
-                {"agent_key": agent_key, "tache_type": type(st.get(agent_key)).__name__},
-            )
-            # endregion
-            continue
+
+    gate_enabled = _behavior_bool("quality.subagent_gate_enabled", False) and not chat_mode
+    gate_min_score = _behavior_int("quality.subagent_gate_min_score", 6)
+
+    def _run_subagent_turn(agent_key: str, tache: str, prev_for_narrative: str) -> tuple[str, int, int]:
+        """Exécute le tour complet d'un sous-agent (événements, LLM + outils, quality gate).
+
+        Thread-safe : appelée séquentiellement ou depuis un ThreadPoolExecutor (vague parallèle).
+        Retourne (texte_livrable, tokens_in, tokens_out).
+        """
         if job_id:
-            if chain_prev == "coordinateur":
+            if prev_for_narrative == "coordinateur":
                 handoff_fr = (
                     f"Le CIO adresse une consigne au {agents_def()[agent_key]['label']} "
                     "(sous-mission issue du plan)."
                 )
             else:
                 handoff_fr = (
-                    f"Après le livrable du {agents_def()[chain_prev]['label']}, "
+                    f"Après le livrable du {agents_def()[prev_for_narrative]['label']}, "
                     f"le CIO enchaîne avec le {agents_def()[agent_key]['label']}."
                 )
             _emit_job_event(
@@ -1554,13 +1621,13 @@ def orchestrate_coordinateur_mission(
                 "handoff",
                 "coordinateur",
                 {
-                    "from": chain_prev,
+                    "from": prev_for_narrative,
                     "to": agent_key,
                     "mediator": "coordinateur",
                     "summary_fr": handoff_fr,
                 },
             )
-            assign_line = _human_dialogue_cio_assign(agent_key, tache, chain_prev)
+            assign_line = _human_dialogue_cio_assign(agent_key, tache, prev_for_narrative)
             _emit_job_event(
                 job_id,
                 "team_dialogue",
@@ -1577,12 +1644,11 @@ def orchestrate_coordinateur_mission(
                     break
             pub_team()
         else:
-            assign_line = _human_dialogue_cio_assign(agent_key, tache, chain_prev)
+            assign_line = _human_dialogue_cio_assign(agent_key, tache, prev_for_narrative)
         log(f"[korymb] [CIO → {agents_def()[agent_key]['label']}] {_clip_one_line(assign_line, 1400)}")
         log(f"[korymb] {agents_def()[agent_key]['label']} travaille...")
         if job_id:
             _persist_running_job_snapshot(job_id)
-        if job_id:
             _emit_job_event(
                 job_id,
                 "instruction_delivered",
@@ -1733,6 +1799,37 @@ def orchestrate_coordinateur_mission(
                     )
                 except Exception:
                     pass
+
+        # ── Quality gate par sous-agent (Critic extrait de la Triade) ─────────
+        if gate_enabled and not sub_agent_exc and (res or "").strip():
+            from services.quality_gate import run_subagent_quality_gate
+
+            res, gti, gto, verdict = run_subagent_quality_gate(
+                agent_key,
+                agents_def()[agent_key]["label"],
+                tache,
+                res,
+                agent_sys,
+                agents_def()[agent_key].get("tools"),
+                job_logs,
+                job_id=job_id,
+                on_tool=on_sub_tool if job_id else None,
+                min_score=gate_min_score,
+            )
+            ti2 += gti
+            to2 += gto
+            if job_id:
+                _emit_job_event(
+                    job_id,
+                    "quality_verdict",
+                    agent_key,
+                    {
+                        "score": verdict.get("alignment_score"),
+                        "rejected": bool(verdict.get("rejected")),
+                        "critique": str(verdict.get("critique") or "")[:400],
+                    },
+                )
+
         # region agent log
         _cio_ndjson_trace(
             cio_trace_run,
@@ -1748,10 +1845,6 @@ def orchestrate_coordinateur_mission(
             },
         )
         # endregion
-        t_in += ti2
-        t_out += to2
-        _sync_active_job_tokens(job_id, t_in, t_out)
-        resultats[agent_key] = res
         reply_plain = (res or "").strip() or "Je n’ai pas de réponse textuelle à te renvoyer pour l’instant."
         reply_line_fr = _clip_dialogue_public(reply_plain)
         log(f"[korymb] [{agents_def()[agent_key]['label']} → CIO] {_clip_one_line(reply_line_fr, 2000)}")
@@ -1775,7 +1868,6 @@ def orchestrate_coordinateur_mission(
                     "line_fr": reply_line_fr,
                 },
             )
-        if job_id:
             for row in team_rows:
                 if row.get("key") == agent_key and row.get("phase") == "delegate":
                     row["status"] = "done"
@@ -1783,7 +1875,79 @@ def orchestrate_coordinateur_mission(
             pub_team()
             _persist_running_job_snapshot(job_id)
         log(f"[korymb] {agents_def()[agent_key]['label']} — terminé.")
-        chain_prev = agent_key
+        return res, ti2, to2
+
+    # ── Vagues d'exécution : parallèle si activé, sinon séquentiel historique ──
+    parallel_enabled = _behavior_bool("orchestration.parallel_delegation_enabled", True) and not chat_mode
+    plan_deps = _parse_plan_dependencies(plan, exec_agent_order) if parallel_enabled else {}
+    waves = (
+        _delegation_waves(exec_agent_order, plan_deps)
+        if parallel_enabled
+        else [[k] for k in exec_agent_order]
+    )
+    max_workers = max(1, _behavior_int("orchestration.parallel_max_workers", 3))
+    if parallel_enabled and any(len(w) > 1 for w in waves):
+        log(
+            "[korymb] Délégation parallèle : "
+            + " puis ".join(
+                "[" + ", ".join(agents_def()[k]["label"] for k in w if k in agents_def()) + "]"
+                for w in waves
+            )
+        )
+        if job_id:
+            _emit_job_event(
+                job_id,
+                "parallel_plan",
+                "coordinateur",
+                {"waves": waves, "dependances": {k: sorted(v) for k, v in plan_deps.items()}},
+            )
+
+    for wave in waves:
+        _raise_if_job_cancelled(job_id)
+        runnable: list[tuple[str, str]] = []
+        for agent_key in wave:
+            if agent_key not in agents_def() or agent_key == "coordinateur":
+                continue
+            tache = _tache_to_str(st.get(agent_key)).strip()
+            if not tache:
+                log(
+                    f"[korymb] Sous-tâche ignorée pour {agents_def()[agent_key]['label']} ({agent_key}) : "
+                    f"consigne vide après normalisation — aucun tour LLM.",
+                )
+                # region agent log
+                _cio_ndjson_trace(
+                    cio_trace_run,
+                    "H1",
+                    "main.py:orchestrate_skip_subagent",
+                    "subtask_skipped_no_llm",
+                    {"agent_key": agent_key, "tache_type": type(st.get(agent_key)).__name__},
+                )
+                # endregion
+                continue
+            runnable.append((agent_key, tache))
+        if not runnable:
+            continue
+        if len(runnable) == 1:
+            agent_key, tache = runnable[0]
+            res, ti2, to2 = _run_subagent_turn(agent_key, tache, chain_prev)
+            resultats[agent_key] = res
+            t_in += ti2
+            t_out += to2
+            _sync_active_job_tokens(job_id, t_in, t_out)
+            chain_prev = agent_key
+        else:
+            with ThreadPoolExecutor(max_workers=min(max_workers, len(runnable))) as pool:
+                futures = {
+                    key: pool.submit(_run_subagent_turn, key, task, "coordinateur")
+                    for key, task in runnable
+                }
+            for agent_key, _task in runnable:
+                res, ti2, to2 = futures[agent_key].result()
+                resultats[agent_key] = res
+                t_in += ti2
+                t_out += to2
+            _sync_active_job_tokens(job_id, t_in, t_out)
+            chain_prev = runnable[-1][0]
 
     if job_id and chain_prev != "coordinateur":
         _emit_job_event(

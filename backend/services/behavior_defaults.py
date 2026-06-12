@@ -253,6 +253,48 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         ),
         "value": 52000,
     },
+    "orchestration.parallel_delegation_enabled": {
+        "category": "orchestration",
+        "type": "boolean",
+        "label": "Délégation parallèle des sous-agents",
+        "description": (
+            "Si activé, les sous-agents sans dépendance entre eux travaillent en parallèle "
+            "(vagues calculées depuis le champ optionnel « dependances » du plan CIO). "
+            "Désactivé = exécution séquentielle historique, un agent après l'autre."
+        ),
+        "value": True,
+    },
+    "orchestration.parallel_max_workers": {
+        "category": "orchestration",
+        "type": "int",
+        "label": "Sous-agents simultanés max (parallèle)",
+        "description": (
+            "Nombre maximum de tours sous-agents exécutés en même temps dans une vague parallèle. "
+            "Augmenter accélère les missions multi-rôles mais multiplie les appels LLM simultanés."
+        ),
+        "value": 3,
+    },
+    "quality.subagent_gate_enabled": {
+        "category": "quality",
+        "type": "boolean",
+        "label": "Quality gate par sous-agent (Critic)",
+        "description": (
+            "Si activé, chaque livrable de sous-agent passe par un Critique LLM (palier lite) : "
+            "verdict JSON + 1 retry automatique avec feedback si rejeté. Améliore la qualité mais "
+            "ajoute un appel LLM par sous-agent (coût et durée)."
+        ),
+        "value": False,
+    },
+    "quality.subagent_gate_min_score": {
+        "category": "quality",
+        "type": "int",
+        "label": "Score minimum quality gate sous-agent",
+        "description": (
+            "Score d'alignement (0-10) en dessous duquel le livrable d'un sous-agent est rejeté "
+            "et un retry avec feedback est tenté. 6 par défaut."
+        ),
+        "value": 6,
+    },
     "quality.min_score_to_complete": {
         "category": "quality",
         "type": "number",

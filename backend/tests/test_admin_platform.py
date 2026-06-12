@@ -372,6 +372,12 @@ def test_reprise_audit_generates_proposals(client, monkeypatch):
         return payload, 0, 0
 
     monkeypatch.setattr("llm_client.llm_turn", _fake_llm)
+    # Contexte écosystème vide : les contextes mémoire par défaut couvrent déjà
+    # toute la checklist reprise — on force des lacunes pour rendre le test hermétique.
+    monkeypatch.setattr(
+        "services.reprise_audit.build_ecosystem_proposal_context",
+        lambda **kwargs: {"memory_contexts": {}},
+    )
     r = client.post("/admin/reprise/audit", json={"nb_proposals": 1, "generate_proposals": True})
     assert r.status_code == 200
     body = r.json()

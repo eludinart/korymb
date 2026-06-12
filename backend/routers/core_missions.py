@@ -19,7 +19,7 @@ from database import (
     mission_session_commit,
     delete_mission_session,
     get_idempotent_job_id,
-    save_idempotent_job,
+    claim_idempotent_job,
 )
 from services.agents import agents_def
 from services.mission import (
@@ -136,6 +136,14 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
 
     job_id = str(uuid.uuid4())[:8]
     agent_key = request.agent if request.agent in agents_def() else "coordinateur"
+
+    # Réservation atomique de la clé AVANT scheduling : un double POST simultané
+    # avec la même Idempotency-Key ne crée qu'un seul job.
+    if idem_key:
+        claimed = claim_idempotent_job(idem_key, job_id)
+        if claimed != job_id:
+            return MissionResponse(status="accepted", job_id=claimed, agent=agent_key)
+
     mcfg = request.mission_config.model_dump() if request.mission_config else _mission_config_from_payload(None)
     _schedule_mission_execution(
         background_tasks,
@@ -146,8 +154,6 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
         "mission",
         mission_config=mcfg,
     )
-    if idem_key:
-        save_idempotent_job(idem_key, job_id)
     return MissionResponse(status="accepted", job_id=job_id, agent=agent_key)
 
 

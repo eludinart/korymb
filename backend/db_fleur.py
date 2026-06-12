@@ -9,7 +9,6 @@ En développement local    : requiert un tunnel SSH sur le port 3307.
 import os
 import json
 import pymysql
-from crewai.tools import tool
 from config import settings
 
 _DB_CONFIG = {
@@ -144,25 +143,3 @@ def run_db_analyze_users(question: str) -> str:
         return f"Erreur : {e}"
 
 
-@tool("Lister les tables de la base Fleur d'Amours")
-def db_list_tables(dummy: str = "") -> str:
-    """Compat CrewAI: wrapper tool -> impl Python callable."""
-    return run_db_list_tables(dummy)
-
-
-@tool("Décrire une table de la base Fleur d'Amours")
-def db_describe_table(table_name: str) -> str:
-    """Compat CrewAI: wrapper tool -> impl Python callable."""
-    return run_db_describe_table(table_name)
-
-
-@tool("Interroger la base de données Fleur d'Amours")
-def db_query(sql: str) -> str:
-    """Compat CrewAI: wrapper tool -> impl Python callable."""
-    return run_db_query(sql)
-
-
-@tool("Analyser les données utilisateurs Fleur d'Amours")
-def db_analyze_users(question: str) -> str:
-    """Compat CrewAI: wrapper tool -> impl Python callable."""
-    return run_db_analyze_users(question)

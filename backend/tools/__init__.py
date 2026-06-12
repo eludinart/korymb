@@ -24,7 +24,6 @@ import time
 from pathlib import Path
 
 import httpx
-from crewai.tools import tool
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
@@ -163,17 +162,6 @@ def run_web_search(query: str, max_results: int = 10) -> str:
     return "Erreur recherche : aucun provider disponible (DuckDuckGo, Brave, Tavily). Vérifiez la connexion."
 
 
-@tool("Recherche web")
-def web_search(query: str) -> str:
-    """
-    Effectue une recherche web multi-provider (Tavily, Brave Search, DuckDuckGo).
-    Retourne 10 résultats avec titre, URL et extrait pour chaque.
-    Utilise pour : prospects, actualités, concurrents, tendances marché, annuaires,
-    profils publics, articles de blog, pages entreprises.
-    """
-    return run_web_search(query)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  READ WEBPAGE — Jina AI Reader (JS) + httpx direct (fallback)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -250,17 +238,6 @@ def run_read_webpage(url: str) -> str:
     return f"Impossible de lire {u} : page inaccessible ou contenu non textuel."
 
 
-@tool("Lire une page web")
-def read_webpage(url: str) -> str:
-    """
-    Lit le contenu textuel d'une page web à partir de son URL.
-    Gère les pages JavaScript modernes via Jina AI Reader.
-    Retourne jusqu'à 8 000 caractères de contenu propre.
-    Utilise pour : profils LinkedIn publics, fiches thérapeutes, pages entreprises, articles.
-    """
-    return run_read_webpage(url)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  LINKEDIN — recherche multi-stratégie + lecture Jina
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -293,16 +270,6 @@ def run_search_linkedin(query: str) -> str:
         "\n\n*Conseil : utilisez `read_webpage` sur les URLs linkedin.com/in/... "
         "pour obtenir plus de détails sur un profil spécifique.*"
     )
-
-
-@tool("Rechercher sur LinkedIn")
-def search_linkedin(query: str) -> str:
-    """
-    Recherche des profils professionnels et pages entreprises sur LinkedIn (résultats publics).
-    Retourne des profils individuels (linkedin.com/in/) et entreprises (linkedin.com/company/).
-    Pour plus de détails sur un profil : utilisez read_webpage avec l'URL trouvée.
-    """
-    return run_search_linkedin(query)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -353,17 +320,6 @@ def run_describe_image(image_url: str, context: str = "") -> str:
         return f"[Analyse image]\n{text}" if text else "Aucune description générée."
     except Exception as e:
         return f"Erreur analyse image : {e}"
-
-
-@tool("Analyser une image")
-def describe_image(image_url: str, context: str = "") -> str:
-    """
-    Analyse et décrit le contenu visuel d'une image (URL publique http/https).
-    Utile pour : analyser des posts Instagram/Facebook, comprendre des visuels
-    de concurrents, décrire des cartes tarot, lire du texte dans une image.
-    context : contexte optionnel pour guider l'analyse.
-    """
-    return run_describe_image(image_url, context)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -437,27 +393,6 @@ def run_read_instagram_media(limit: int = 10) -> str:
         return f"Erreur lecture Instagram : {e}"
 
 
-@tool("Publier sur Instagram")
-def post_instagram(caption: str, image_url: str = "") -> str:
-    """
-    Publie un post sur le compte Instagram d'Élude In Art.
-    caption : texte du post (avec hashtags).
-    image_url : URL publique de l'image (optionnel).
-    Nécessite INSTAGRAM_ACCESS_TOKEN et INSTAGRAM_ACCOUNT_ID dans .env.
-    """
-    return run_post_instagram(caption, image_url)
-
-
-@tool("Lire les médias Instagram")
-def read_instagram_media(limit: int = 10) -> str:
-    """
-    Lit les derniers médias publiés sur le compte Instagram d'Élude In Art.
-    Retourne caption, type de média, date, lien et URL image pour chaque post.
-    Utile pour : auditer la présence Instagram, éviter les doublons, analyser les contenus passés.
-    """
-    return run_read_instagram_media(limit)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  FACEBOOK — post + lecture des posts de la page
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -517,25 +452,6 @@ def run_read_facebook_posts(limit: int = 10) -> str:
         return f"Erreur lecture Facebook : {e}"
 
 
-@tool("Publier sur Facebook")
-def post_facebook(message: str) -> str:
-    """
-    Publie un post sur la page Facebook d'Élude In Art.
-    Nécessite FACEBOOK_ACCESS_TOKEN et FACEBOOK_PAGE_ID dans .env.
-    """
-    return run_post_facebook(message)
-
-
-@tool("Lire les posts Facebook")
-def read_facebook_posts(limit: int = 10) -> str:
-    """
-    Lit les derniers posts de la page Facebook d'Élude In Art.
-    Retourne le texte, la date, le lien et l'image de chaque post.
-    Utile pour : auditer la présence Facebook, éviter les doublons, analyser les contenus.
-    """
-    return run_read_facebook_posts(limit)
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EMAIL — SMTP ou simulation
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -561,16 +477,6 @@ def run_send_email(to: str, subject: str, body: str) -> str:
         return f"✅ Email envoyé à {to}"
     except Exception as e:
         return f"Erreur email : {e}"
-
-
-@tool("Envoyer un email")
-def send_email(to: str, subject: str, body: str) -> str:
-    """
-    Envoie un email de prospection ou suivi.
-    Nécessite SMTP_HOST, SMTP_USER, SMTP_PASS dans .env.
-    Sans SMTP configuré : génère le brouillon (simulation).
-    """
-    return run_send_email(to, subject, body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -674,17 +580,3 @@ def run_upload_google_drive(
         return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}" if link else f"✅ Fichier Drive créé : {name} (id: {fid})"
     except Exception as e:
         return f"Erreur Google Drive : {e}"
-
-
-@tool("Créer un fichier sur Google Drive")
-def upload_google_drive(
-    filename: str,
-    content: str,
-    mime_type: str = "text/plain",
-    folder_id: str = "",
-) -> str:
-    """
-    Crée un fichier texte ou markdown sur Google Drive d'Élude In Art.
-    Nécessite GOOGLE_API_ACCESS_TOKEN ou GOOGLE_OAUTH_REFRESH_TOKEN+CLIENT_ID+CLIENT_SECRET dans .env.
-    """
-    return run_upload_google_drive(filename, content, mime_type, folder_id)

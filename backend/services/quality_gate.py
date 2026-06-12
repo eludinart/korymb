@@ -1,71 +1,158 @@
-"""Garde-fou qualité avant clôture mission."""
+"""
+services/quality_gate.py — Quality gate générique par sous-agent.
+
+Généralisation du pattern Critic de la Triade (services/triad_orchestrator.py) :
+un Critique LLM (palier lite) évalue le livrable d'un sous-agent, et si le verdict
+est « rejeté » (score < seuil), un unique retry avec feedback est tenté.
+
+Le gate est tolérant aux pannes : toute erreur interne accepte le livrable tel quel
+(jamais de blocage de mission à cause du contrôle qualité).
+"""
 from __future__ import annotations
 
+import json
 import logging
-
-from database import get_behavior_setting, insert_quality_verdict, list_quality_verdicts
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
+ToolEmitFn = Callable[[str, str, dict[str, Any]], None]
 
-def _min_score_threshold() -> float:
-    from services.behavior_defaults import behavior_default_value
+CRITIC_SYSTEM = """Tu es le Critique qualité de KORYMB — l'Avocat du Diable.
 
-    raw = get_behavior_setting("quality.min_score_to_complete")
-    if raw is None:
-        raw = behavior_default_value("quality.min_score_to_complete")
-    try:
-        return float(raw or 0)
-    except (TypeError, ValueError):
-        return 0.0
+Tu analyses le livrable d'un agent métier avec un regard implacable. Cherche :
+1. Les angles morts factuels (informations manquantes, non vérifiées, inventées).
+2. Les incohérences logiques (contradictions internes, raisonnements défaillants).
+3. Le hors-sujet par rapport à la consigne reçue.
+4. Les propositions « légères » : génériques, déconnectées, non actionnables.
 
+Réponds UNIQUEMENT en JSON valide (pas de markdown autour) :
+{
+  "rejected": true/false,
+  "alignment_score": 0-10,
+  "critique": "analyse des problèmes trouvés",
+  "feedback": "instructions précises pour corriger (vide si approuvé)"
+}
 
-def _heuristic_score(result: str) -> float:
-    text = (result or "").strip()
-    if not text:
-        return 0.0
-    if "erreur" in text.lower()[:200] or "échec" in text.lower()[:200]:
-        return 2.0
-    score = min(10.0, 3.0 + len(text) / 400.0)
-    return round(score, 2)
+Sois rigoureux mais juste : ne rejette pas pour des raisons stylistiques.
+"""
 
 
-def assess_and_record(job_id: str, *, result: str, phase: str = "completion") -> dict:
-    score = _heuristic_score(result)
-    rejected = False
-    min_score = _min_score_threshold()
-    if min_score > 0 and score < min_score:
-        rejected = True
-    row = insert_quality_verdict(
-        job_id,
-        phase=phase,
-        score=score,
-        rejected=rejected,
-        payload={"min_score": min_score, "result_chars": len(result or "")},
+def parse_critic_verdict(raw: str) -> dict[str, Any]:
+    """Extrait le JSON du verdict Critique depuis la réponse brute (avec fallback heuristique)."""
+    text = (raw or "").strip()
+    start = text.find("{")
+    end = text.rfind("}") + 1
+    if start >= 0 and end > start:
+        candidate = text[start:end]
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return {
+                    "rejected": bool(parsed.get("rejected", False)),
+                    "alignment_score": int(parsed.get("alignment_score") or 0),
+                    "critique": str(parsed.get("critique") or ""),
+                    "feedback": str(parsed.get("feedback") or ""),
+                    "approved_sections": list(parsed.get("approved_sections") or []),
+                }
+        except (json.JSONDecodeError, ValueError):
+            pass
+    rejected = any(kw in text.lower() for kw in ("rejected: true", '"rejected": true', "rejet", "insuffisant"))
+    return {
+        "rejected": rejected,
+        "alignment_score": 5 if not rejected else 3,
+        "critique": text[:1000],
+        "feedback": text[:600] if rejected else "",
+        "approved_sections": [],
+    }
+
+
+def run_subagent_quality_gate(
+    agent_key: str,
+    agent_label: str,
+    tache: str,
+    result_text: str,
+    agent_system: str,
+    tool_tags: list[str] | None,
+    job_logs: list[str] | None,
+    *,
+    job_id: str | None = None,
+    on_tool: ToolEmitFn | None = None,
+    min_score: int = 6,
+    usage_context_prefix: str = "quality_gate",
+) -> tuple[str, int, int, dict[str, Any]]:
+    """
+    Évalue le livrable d'un sous-agent et retente une fois si rejeté.
+
+    Returns:
+        (final_text, tokens_in, tokens_out, verdict)
+    """
+    from llm_client import llm_turn
+    from agent_tool_use import llm_turn_maybe_tools
+
+    t_in = t_out = 0
+    final_text = result_text
+
+    def log(msg: str) -> None:
+        if job_logs is not None:
+            job_logs.append(msg)
+
+    critic_prompt = (
+        f"## Consigne reçue par l'agent ({agent_label})\n\n{tache}\n\n"
+        f"## Livrable de l'agent\n\n{result_text}"
     )
-    return row
-
-
-def should_block_completion(job_id: str, score: float) -> bool:
-    min_score = _min_score_threshold()
-    if min_score <= 0:
-        return False
-    overrides = [v for v in list_quality_verdicts(job_id) if str(v.get("phase") or "") == "override"]
-    if overrides:
-        return False
-    return score < min_score
-
-
-def notify_quality_alert(job_id: str, score: float) -> None:
     try:
-        from services.director_platform import emit_director_notification
-
-        emit_director_notification(
-            kind="quality",
-            title=f"Qualité insuffisante — mission {job_id}",
-            body=f"Score {score}/10 sous le seuil configuré.",
-            job_id=job_id,
-            action_url=f"/missions?job={job_id}",
+        verdict_raw, ti, to = llm_turn(
+            CRITIC_SYSTEM,
+            critic_prompt,
+            max_tokens=1024,
+            or_profile="lite",
+            usage_job_id=job_id,
+            usage_context=f"{usage_context_prefix}:critic:{agent_key}",
         )
-    except Exception:
-        logger.exception("Quality notification failed for %s", job_id)
+        t_in += ti
+        t_out += to
+    except Exception as exc:
+        logger.warning("quality gate critic failed for %s : %s", agent_key, exc)
+        log(f"[korymb] Quality gate {agent_label} : critique indisponible ({exc}) — livrable accepté.")
+        return final_text, t_in, t_out, {"rejected": False, "alignment_score": -1, "critique": "", "feedback": ""}
+
+    verdict = parse_critic_verdict(verdict_raw)
+    score = int(verdict.get("alignment_score") or 0)
+    rejected = bool(verdict.get("rejected")) or (0 <= score < min_score)
+    verdict["rejected"] = rejected
+    log(
+        f"[korymb] Quality gate {agent_label} : score {score}/10 — "
+        f"{'REJETÉ (retry)' if rejected else 'validé'}."
+    )
+
+    if not rejected:
+        return final_text, t_in, t_out, verdict
+
+    retry_prompt = (
+        f"## Consigne initiale\n\n{tache}\n\n"
+        f"## Ton livrable précédent (jugé insuffisant par le contrôle qualité)\n\n{result_text}\n\n"
+        f"## Feedback du Critique qualité\n\n{verdict.get('feedback') or verdict.get('critique') or ''}\n\n"
+        "Corrige les points identifiés et produis une version améliorée, complète et actionnable."
+    )
+    try:
+        revised, ti2, to2 = llm_turn_maybe_tools(
+            agent_system,
+            retry_prompt,
+            tool_tags,
+            job_logs,
+            on_tool=on_tool,
+            tool_actor=agent_key,
+            usage_job_id=job_id,
+            usage_context=f"{usage_context_prefix}:retry:{agent_key}",
+        )
+        t_in += ti2
+        t_out += to2
+        if (revised or "").strip():
+            final_text = revised
+            log(f"[korymb] Quality gate {agent_label} : livrable révisé après feedback.")
+    except Exception as exc:
+        logger.warning("quality gate retry failed for %s : %s", agent_key, exc)
+        log(f"[korymb] Quality gate {agent_label} : retry impossible ({exc}) — livrable initial conservé.")
+
+    return final_text, t_in, t_out, verdict

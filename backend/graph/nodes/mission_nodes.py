@@ -60,6 +60,7 @@ def node_run_cio(state: MissionGraphState) -> dict[str, Any]:
 
 
 def node_run_triad(state: MissionGraphState) -> dict[str, Any]:
+    from services.agents import FLEUR_CONTEXT
     from services.knowledge import build_entity_context_block
     from services.triad_orchestrator import orchestrate_triad
 
@@ -68,15 +69,18 @@ def node_run_triad(state: MissionGraphState) -> dict[str, Any]:
     _set_phase(job_id, "triad")
     mission = state.get("mission_plain") or ""
 
-    def emit(typ: str, agent: str | None, payload: dict):
-        emit_job_event(job_id, typ, agent, payload)
+    def on_tool(actor: str, tool_name: str, meta: dict):
+        emit_job_event(job_id, "tool_call", actor or "executor", {"tool": tool_name, **(meta or {})})
 
     entity_ctx = build_entity_context_block(mission)
     result, ti, to = orchestrate_triad(
-        mission=mission,
-        entity_context=entity_ctx,
-        emit=emit,
-        usage_job_id=job_id,
+        mission,
+        mission,
+        job_logs,
+        job_id=job_id,
+        on_tool=on_tool,
+        fleur_context=FLEUR_CONTEXT,
+        memory_context=entity_ctx,
     )
     _set_phase(job_id, "completed")
     return {"result": result, "tokens_in": ti, "tokens_out": to, "phase": "completed"}
@@ -96,10 +100,18 @@ def node_run_single(state: MissionGraphState) -> dict[str, Any]:
     sub = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
     system = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub
     mission = state.get("mission_plain") or ""
+    tool_tags = list(agent_cfg.get("tools") or [])
+
+    def on_tool(actor: str, tool_name: str, meta: dict):
+        emit_job_event(job_id, "tool_call", actor or agent_key, {"tool": tool_name, **(meta or {})})
+
     result, ti, to = llm_turn_maybe_tools(
         system,
         mission,
-        agent_key=agent_key,
+        tool_tags,
+        job_logs,
+        on_tool=on_tool,
+        tool_actor=agent_key,
         usage_job_id=job_id,
         usage_context="single_agent",
     )

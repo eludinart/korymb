@@ -44,7 +44,8 @@ class BudgetGuard:
     def check(task: dict) -> None:
         """
         Lève BudgetExceededError si l'une des limites est dépassée.
-        Tolérant aux erreurs DB : en cas d'échec de lecture, laisse passer.
+        Fail-closed : si le budget n'est pas vérifiable (erreur DB), le run est refusé —
+        une tâche autonome ne doit jamais dépenser sans plafond vérifié.
         """
         try:
             from database import count_autonomous_runs_today, sum_autonomous_tokens_today
@@ -65,7 +66,10 @@ class BudgetGuard:
         except BudgetExceededError:
             raise
         except Exception as exc:
-            logger.warning("BudgetGuard : erreur lecture budget (tâche=%s) — %s", task.get("id"), exc)
+            logger.warning("BudgetGuard : erreur lecture budget (tâche=%s) — run refusé : %s", task.get("id"), exc)
+            raise BudgetExceededError(
+                f"Tâche {task.get('id')!r} : budget non vérifiable (erreur DB) — run refusé par sécurité"
+            ) from exc
 
 
 # ── Exécution d'une mission autonome ──────────────────────────────────────────
@@ -128,7 +132,14 @@ async def _execute_mission_async(task: dict) -> None:
 
     loop = asyncio.get_event_loop()
     for func, args, kwargs in bt._tasks:
-        loop.run_in_executor(None, lambda f=func, a=args, k=kwargs: f(*a, **k))
+        fut = loop.run_in_executor(None, lambda f=func, a=args, k=kwargs: f(*a, **k))
+        fut.add_done_callback(
+            lambda f, tid=task["id"], jid=job_id: (
+                logger.error("Tâche autonome %r — job %s en erreur : %s", tid, jid, f.exception())
+                if (not f.cancelled() and f.exception())
+                else None
+            )
+        )
 
     logger.info("Tâche autonome %r lancée → job %s", task["id"], job_id)
     return job_id
@@ -149,17 +160,19 @@ async def run_task_by_id(task_id: str) -> None:
         BudgetGuard.check(task)
 
         task_type = str(task.get("task_type") or "mission")
-        now_iso = datetime.utcnow().isoformat()
-        update_scheduled_task(task_id, last_run_at=now_iso)
 
+        # Exécution awaited : les erreurs remontent ici (plus de fire-and-forget silencieux)
+        # et `last_run_at` n'est marqué qu'après un lancement réussi.
         if task_type == "veille":
             from services.veille import run_veille_task
-            asyncio.create_task(run_veille_task(task))
+            await run_veille_task(task)
         elif task_type == "mission_proposals":
             from services.veille import run_mission_proposals_task
-            asyncio.create_task(run_mission_proposals_task(task))
+            await run_mission_proposals_task(task)
         else:
-            asyncio.create_task(_execute_mission_async(task))
+            await _execute_mission_async(task)
+
+        update_scheduled_task(task_id, last_run_at=datetime.utcnow().isoformat())
 
     except BudgetExceededError as exc:
         logger.warning("Budget dépassé — tâche %s ignorée : %s", task_id, exc)
