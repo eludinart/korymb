@@ -17,8 +17,12 @@ from database import (
     update_job,
     append_recent_mission,
     append_job_mission_thread,
+    get_chat_session_summary,
 )
 from services.agents import agents_def, FLEUR_CONTEXT, SUB_AGENT_COORDINATION_FR
+from services.chat_surface import surface_chat_result
+from services.chat_mirror import generate_mirror_ack
+from services.memory import compress_chat_session
 from services.mission import (
     orchestrate_coordinateur_mission,
     _mission_followup_context_from_parent,
@@ -43,6 +47,57 @@ class ChatRequest(BaseModel):
     chat_session_id: str | None = None
 
 
+def _build_chat_mission_txt(
+    msg_snap: str,
+    hist_snap: list[dict],
+    linked_parent_id: str,
+    session_id: str,
+) -> str:
+    session_summary = get_chat_session_summary(session_id) if session_id else ""
+    hist_lines: list[str] = []
+    if not session_summary:
+        for h in hist_snap:
+            if h.get("role") in ("user", "assistant"):
+                role = "Utilisateur" if h["role"] == "user" else "CIO"
+                c = h.get("content", "")
+                if isinstance(c, str):
+                    hist_lines.append(f"{role}: {c[:800]}")
+    parent_blob = (
+        _mission_followup_context_from_parent(linked_parent_id)
+        if linked_parent_id
+        else ""
+    )
+    if parent_blob:
+        if session_summary:
+            return (
+                parent_blob
+                + f"État compressé de la session chat :\n{session_summary}\n\n"
+                f"Dernière demande à traiter maintenant :\n{msg_snap}"
+            )
+        conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
+        return (
+            parent_blob
+            + (
+                "Échanges récents dans cette session (chat) :\n"
+                + conv
+                + "\n\nDernière demande à traiter maintenant :\n"
+                + msg_snap
+                if hist_snap
+                else "Nouvelle demande du dirigeant (à traiter maintenant) :\n" + msg_snap
+            )
+        )
+    if session_summary:
+        return (
+            f"État compressé de la session :\n{session_summary}\n\n"
+            f"Dernière demande à traiter maintenant :\n{msg_snap}"
+        )
+    conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
+    return (
+        f"Échanges récents :\n{conv}\n\n"
+        f"Dernière demande à traiter maintenant :\n{msg_snap}"
+    )
+
+
 @router.post("/chat", dependencies=[Depends(verify_secret)])
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     agent_cfg = agents_def().get(request.agent, agents_def()["coordinateur"])
@@ -52,7 +107,8 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             job_id = str(uuid.uuid4())[:8]
             now_iso = datetime.utcnow().isoformat()
             linked_parent_id = (request.linked_job_id or "").strip()[:16]
-            hist_snap = [] if linked_parent_id else list(request.history[-6:])
+            session_id = (request.chat_session_id or "").strip()[:64] or ""
+            hist_snap = [] if linked_parent_id or session_id else list(request.history[-6:])
             msg_snap = request.message
             save_job(
                 job_id,
@@ -60,7 +116,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 (request.message or "")[:500],
                 source="chat",
                 parent_job_id=linked_parent_id or None,
-                chat_session_id=(request.chat_session_id or "").strip()[:64] or None,
+                chat_session_id=session_id or None,
             )
             job_logs: list[str] = []
             active_jobs[job_id] = {
@@ -68,6 +124,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "agent": "coordinateur",
                 "mission": (request.message or "")[:500],
                 "result": None,
+                "result_surface": None,
                 "logs": job_logs,
                 "tokens_in": 0,
                 "tokens_out": 0,
@@ -77,6 +134,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "source": "chat",
                 "created_at": now_iso,
                 "parent_job_id": linked_parent_id or None,
+                "chat_session_id": session_id or None,
             }
             job_logs_ref = active_jobs[job_id]["logs"]
 
@@ -100,39 +158,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         "coordinateur",
                         {"label": agent_cfg["label"], "mode": "chat", "preview": (msg_snap or "")[:240]},
                     )
-                    hist_lines: list[str] = []
-                    for h in hist_snap:
-                        if h.get("role") in ("user", "assistant"):
-                            role = "Utilisateur" if h["role"] == "user" else "CIO"
-                            c = h.get("content", "")
-                            if isinstance(c, str):
-                                hist_lines.append(f"{role}: {c[:800]}")
-                    conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-                    parent_blob = (
-                        _mission_followup_context_from_parent(linked_parent_id)
-                        if linked_parent_id
-                        else ""
+                    mission_txt = _build_chat_mission_txt(
+                        msg_snap, hist_snap, linked_parent_id, session_id,
                     )
-                    if parent_blob:
-                        mission_txt = (
-                            parent_blob
-                            + (
-                                "Échanges récents dans cette session (chat) :\n"
-                                + conv
-                                + "\n\nDernière demande à traiter maintenant :\n"
-                                + msg_snap
-                                if hist_snap
-                                else "Nouvelle demande du dirigeant (à traiter maintenant) :\n" + msg_snap
-                            )
-                        )
-                    else:
-                        mission_txt = (
-                            f"Échanges récents :\n{conv}\n\n"
-                            f"Dernière demande à traiter maintenant :\n{msg_snap}"
-                        )
                     text, ti, to = orchestrate_coordinateur_mission(
-                        mission_txt, msg_snap, job_logs_ref, chat_mode=True, job_id=job_id,
+                        mission_txt,
+                        msg_snap,
+                        job_logs_ref,
+                        chat_mode=True,
+                        job_id=job_id,
+                        cio_questions_enabled=False,
                     )
+                    surface = surface_chat_result(text)
                     _add_daily_svc(ti, to)
                     team_snap = active_jobs[job_id].get("team", [])
                     pl = active_jobs[job_id].get("plan") or {}
@@ -141,6 +178,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         active_jobs[job_id].update({
                             "status": "completed",
                             "result": text,
+                            "result_surface": surface,
                             "tokens_in": ti,
                             "tokens_out": to,
                         })
@@ -155,9 +193,21 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         plan=pl,
                         events=ev,
                         source="chat",
+                        result_surface=surface,
                     )
+                    if session_id:
+                        try:
+                            turn_count = len([h for h in request.history if h.get("role") == "user"]) + 1
+                            compress_chat_session(
+                                session_id,
+                                user_message=msg_snap,
+                                assistant_message=surface,
+                                turn_count=turn_count,
+                            )
+                        except Exception:
+                            logger.exception("compress_chat_session (chat)")
                     try:
-                        append_recent_mission(job_id, msg_snap, text or "")
+                        append_recent_mission(job_id, msg_snap, surface or text or "")
                     except Exception:
                         logger.exception("append_recent_mission (chat)")
                     if linked_parent_id and linked_parent_id != job_id:
@@ -166,20 +216,44 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                                 linked_parent_id,
                                 role="assistant",
                                 agent="coordinateur",
-                                content=(text or ""),
+                                content=(surface or text or ""),
                                 source="chat_suivi_mission",
                             )
                         except Exception:
                             logger.exception("append_job_mission_thread (réponse CIO → parent)")
+                    try:
+                        from services.director_platform import emit_director_notification
+
+                        preview = (surface or text or "").replace("\n", " ").strip()[:180]
+                        if linked_parent_id and linked_parent_id != job_id:
+                            action_url = f"/missions?job={linked_parent_id}"
+                        elif session_id:
+                            action_url = f"/chat?session={session_id}&job={job_id}"
+                        else:
+                            action_url = f"/chat?job={job_id}"
+                        emit_director_notification(
+                            kind="chat_result",
+                            title="Réponse CIO prête",
+                            body=preview or "La synthèse de votre demande chat est disponible.",
+                            job_id=job_id,
+                            action_url=action_url,
+                        )
+                    except Exception:
+                        logger.exception("emit_director_notification (chat completed)")
                 except Exception as e:
                     user_result = _user_visible_job_failure_markdown(e)
+                    surface_err = surface_chat_result(user_result)
                     team_snap = active_jobs.get(job_id, {}).get("team", [])
                     pl = active_jobs.get(job_id, {}).get("plan") or {}
                     ev = active_jobs.get(job_id, {}).get("events") or []
                     _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
                     job_logs_ref.append(f"[korymb] Erreur : {e}")
                     if job_id in active_jobs:
-                        active_jobs[job_id].update({"status": f"error: {e}", "result": user_result})
+                        active_jobs[job_id].update({
+                            "status": f"error: {e}",
+                            "result": user_result,
+                            "result_surface": surface_err,
+                        })
                     update_job(
                         job_id,
                         f"error: {e}",
@@ -191,6 +265,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         plan=pl,
                         events=ev,
                         source="chat",
+                        result_surface=surface_err,
                     )
                     lp = (linked_parent_id or "").strip()[:16]
                     if lp and lp != job_id:
@@ -199,20 +274,56 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                                 lp,
                                 role="assistant",
                                 agent="coordinateur",
-                                content=(user_result or ""),
+                                content=(surface_err or user_result or ""),
                                 source="chat_suivi_mission_error",
                             )
                         except Exception:
                             logger.exception("append_job_mission_thread (erreur CIO → parent)")
+                    try:
+                        from services.director_platform import emit_director_notification
+
+                        err_preview = (surface_err or user_result or "").replace("\n", " ").strip()[:160]
+                        action_url = (
+                            f"/missions?job={lp}" if lp and lp != job_id
+                            else f"/chat?session={session_id}&job={job_id}" if session_id
+                            else f"/chat?job={job_id}"
+                        )
+                        emit_director_notification(
+                            kind="chat_error",
+                            title="Échec de la demande chat",
+                            body=err_preview or "La mission chat s'est terminée en erreur.",
+                            job_id=job_id,
+                            action_url=action_url,
+                        )
+                    except Exception:
+                        logger.exception("emit_director_notification (chat error)")
                 finally:
                     active_jobs.pop(job_id, None)
+
+            mirror_ack = generate_mirror_ack(msg_snap)
+            if linked_parent_id and linked_parent_id != job_id and mirror_ack:
+                try:
+                    append_job_mission_thread(
+                        linked_parent_id,
+                        role="assistant",
+                        agent="coordinateur",
+                        content=mirror_ack,
+                        source="chat_mirror_ack",
+                    )
+                except Exception:
+                    logger.exception("append_job_mission_thread (mirror_ack → parent)")
 
             threading.Thread(
                 target=execute_chat_cio,
                 name=f"korymb-chat-{job_id[:24]}",
                 daemon=True,
             ).start()
-            return {"status": "accepted", "job_id": job_id, "agent": "coordinateur"}
+            return {
+                "status": "accepted",
+                "job_id": job_id,
+                "agent": "coordinateur",
+                "mirror_ack": mirror_ack,
+            }
 
         system_prompt = (
             agent_cfg["system"]

@@ -3,6 +3,7 @@ import type { HealthTone } from "./healthTone";
 export type IntegrationRow = Record<string, unknown>;
 
 const INTEGRATION_LABELS: Record<string, string> = {
+  llm_mistral:     "LLM — Mistral",
   llm_openrouter:  "LLM — OpenRouter",
   llm_anthropic:   "LLM — Anthropic",
   google_oauth:    "Google OAuth / API",

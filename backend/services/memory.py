@@ -12,6 +12,7 @@ from database import (
     list_jobs_prompt_digest,
     merge_enterprise_contexts,
 )
+from services.mission_labels import clip_mission_title
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +199,8 @@ def operational_memory_digest_prompt(
     if not digest:
         return ""
     rows = [
-        f"- #{row.get('id')} [{row.get('status')}] {row.get('agent')}: "
+        f"- {clip_mission_title(str(row.get('mission') or ''), 90) or f'Mission {row.get('id')}'} "
+        f"[{row.get('status')}] {row.get('agent')}: "
         f"{str(row.get('mission') or '')[:180]}"
         for row in digest
     ]
@@ -235,14 +237,16 @@ def active_memory_prompt(
             blocks.append(f"Résumé mémoriel des missions passées (auto-généré) :\n{auto_summary[:2000]}")
         elif snap.recent_jobs_digest:
             rows = [
-                f"- #{row.get('id')} [{row.get('status')}] {row.get('agent')}: "
+                f"- {clip_mission_title(str(row.get('mission') or ''), 90) or f'Mission {row.get('id')}'} "
+                f"[{row.get('status')}] {row.get('agent')}: "
                 f"{str(row.get('mission') or '')[:180]}"
                 for row in snap.recent_jobs_digest
             ]
             blocks.append("Historique missions recentes:\n" + "\n".join(rows))
     elif snap.recent_jobs_digest:
         rows = [
-            f"- #{row.get('id')} [{row.get('status')}] {row.get('agent')}: "
+            f"- {clip_mission_title(str(row.get('mission') or ''), 90) or f'Mission {row.get('id')}'} "
+            f"[{row.get('status')}] {row.get('agent')}: "
             f"{str(row.get('mission') or '')[:180]}"
             for row in snap.recent_jobs_digest
         ]
@@ -265,3 +269,62 @@ def active_memory_prompt(
     if not blocks:
         return ""
     return "\n\n### Active Memory Skill\n" + "\n\n".join(blocks) + "\n"
+
+
+def compress_chat_session(
+    session_id: str,
+    *,
+    user_message: str,
+    assistant_message: str,
+    prior_summary: str = "",
+    turn_count: int = 0,
+) -> str:
+    """
+    Synthétise une session chat en état compressé (Sivana, Ti Spoun, Élude In Art).
+    Persiste dans chat_sessions via database.upsert_chat_session_summary.
+    """
+    from database import get_chat_session_summary, upsert_chat_session_summary
+
+    sid = (session_id or "").strip()[:64]
+    if not sid:
+        return ""
+    prev = (prior_summary or get_chat_session_summary(sid) or "").strip()
+    user = (user_message or "").strip()[:2000]
+    assistant = (assistant_message or "").strip()[:4000]
+    if not user and not assistant:
+        return prev
+
+    corpus = ""
+    if prev:
+        corpus += f"Résumé session précédent :\n{prev[:2500]}\n\n"
+    corpus += f"Dernier échange :\nUtilisateur : {user}\nCIO : {assistant[:3000]}"
+
+    system = (
+        "Tu es l'assistant de synthèse conversationnelle de KORYMB. "
+        "Compresse cet historique en état relationnel et opérationnel : décisions, projets "
+        "(Sivana, Ti Spoun, Élude In Art), tensions, suites ouvertes. "
+        "Maximum 400 mots, français, dense."
+    )
+    try:
+        from config import TEMP_SYST
+        from llm_client import llm_turn
+
+        summary_text, _, _ = llm_turn(
+            system,
+            corpus,
+            max_tokens=700,
+            or_profile="lite",
+            usage_context="memory:compress_chat_session",
+            temperature=TEMP_SYST,
+        )
+        summary_text = (summary_text or "").strip()
+    except Exception:
+        logger.exception("compress_chat_session: LLM failed")
+        summary_text = prev or f"- Utilisateur : {user[:120]}\n- CIO : {assistant[:200]}"
+
+    try:
+        upsert_chat_session_summary(sid, summary_text, turn_count + 1)
+    except Exception:
+        logger.exception("compress_chat_session: persist failed")
+    return summary_text
+

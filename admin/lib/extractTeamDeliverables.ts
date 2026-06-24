@@ -86,9 +86,5 @@ export function extractFallbackCioDeliverable(md: string): ParsedDeliverable[] {
 export function deliverablesForMissionPanel(md: string): ParsedDeliverable[] {
   const fromTeam = extractTeamDeliverablesFromResult(md);
   if (fromTeam.length) return fromTeam;
-  // Même avec des sous-agents : si l'annexe « Livrables bruts de l'équipe » est absente,
-  // on expose au moins la synthèse CIO (export / notes) au lieu d'un panneau vide.
-  const fallback = extractFallbackCioDeliverable(md);
-  if (fallback.length) return fallback;
   return [];
 }

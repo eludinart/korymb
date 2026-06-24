@@ -1,5 +1,5 @@
 """
-Paliers OpenRouter : plusieurs modèles + tarifs (USD / million de tokens).
+Paliers LLM (courant / médium / expert) : modèles + tarifs par niveau de réflexion.
 Config JSON dans `llm_tiers_json` (runtime_settings / admin).
 """
 from __future__ import annotations
@@ -9,6 +9,70 @@ import re
 from typing import Any
 
 _TIER_ORDER = ("lite", "standard", "heavy")
+
+TIER_LABELS_FR: dict[str, str] = {
+    "lite": "Courant",
+    "standard": "Médium",
+    "heavy": "Expert",
+}
+
+
+def _provider_fallback_model(cfg: dict[str, Any], provider: str) -> str:
+    p = (provider or "").strip().lower()
+    if p == "mistral":
+        return str(cfg.get("mistral_model") or "mistral-small-latest").strip()
+    if p == "openrouter":
+        return str(cfg.get("openrouter_model") or "openai/gpt-4o-mini").strip()
+    return ""
+
+
+def resolve_llm_tier(
+    cfg: dict[str, Any],
+    profile: str,
+    *,
+    provider: str | None = None,
+) -> tuple[str, str, float, float]:
+    """
+    Retourne (model_id, tier_key_used, price_in_per_m, price_out_per_m).
+    `profile` : lite | standard | heavy (courant / médium / expert côté UI).
+    """
+    from llm_providers import normalize_llm_provider
+
+    prov = normalize_llm_provider(provider, cfg)
+    prof = (profile or "lite").strip().lower()
+    if prof not in _TIER_ORDER:
+        prof = "lite"
+    tiers = parse_llm_tiers(cfg)
+    fallback_model = _provider_fallback_model(cfg, prov)
+    pin = _coerce_float(cfg.get("llm_price_input_per_million_usd"), 0.0)
+    pout = _coerce_float(cfg.get("llm_price_output_per_million_usd"), 0.0)
+
+    if prof in tiers:
+        t = tiers[prof]
+        return (
+            t["model"],
+            prof,
+            float(t["price_input_per_million_usd"] or pin),
+            float(t["price_output_per_million_usd"] or pout),
+        )
+    for alt in _TIER_ORDER:
+        if alt in tiers:
+            t = tiers[alt]
+            return (
+                t["model"],
+                f"{prof}→{alt}",
+                float(t["price_input_per_million_usd"] or pin),
+                float(t["price_output_per_million_usd"] or pout),
+            )
+    return fallback_model, "default", pin, pout
+
+
+def resolve_openrouter_tier(
+    cfg: dict[str, Any],
+    profile: str,
+) -> tuple[str, str, float, float]:
+    """Alias historique — utilise le fournisseur actif."""
+    return resolve_llm_tier(cfg, profile)
 
 
 def _coerce_float(v: Any, default: float = 0.0) -> float:
@@ -46,46 +110,13 @@ def parse_llm_tiers(cfg: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
-def resolve_openrouter_tier(
-    cfg: dict[str, Any],
-    profile: str,
-) -> tuple[str, str, float, float]:
-    """
-    Retourne (model_id, tier_key_used, price_in_per_m, price_out_per_m).
-    `profile` : lite | standard | heavy (insensible à la casse).
-    """
-    prof = (profile or "lite").strip().lower()
-    if prof not in _TIER_ORDER:
-        prof = "lite"
-    tiers = parse_llm_tiers(cfg)
-    fallback_model = str(cfg.get("openrouter_model") or "openai/gpt-4o-mini").strip()
-    pin = _coerce_float(cfg.get("llm_price_input_per_million_usd"), 0.0)
-    pout = _coerce_float(cfg.get("llm_price_output_per_million_usd"), 0.0)
-
-    if prof in tiers:
-        t = tiers[prof]
-        return (
-            t["model"],
-            prof,
-            float(t["price_input_per_million_usd"] or pin),
-            float(t["price_output_per_million_usd"] or pout),
-        )
-    for alt in _TIER_ORDER:
-        if alt in tiers:
-            t = tiers[alt]
-            return (
-                t["model"],
-                f"{prof}→{alt}",
-                float(t["price_input_per_million_usd"] or pin),
-                float(t["price_output_per_million_usd"] or pout),
-            )
-    return fallback_model, "default", pin, pout
-
-
 def tier_config_public(cfg: dict[str, Any]) -> dict[str, Any]:
     """Résumé pour l’UI (sans secrets)."""
+    from llm_providers import normalize_llm_provider
+
     tiers = parse_llm_tiers(cfg)
-    fb = str(cfg.get("openrouter_model") or "").strip()
+    prov = normalize_llm_provider(None, cfg)
+    fb = _provider_fallback_model(cfg, prov)
     pin = _coerce_float(cfg.get("llm_price_input_per_million_usd"), 0.0)
     pout = _coerce_float(cfg.get("llm_price_output_per_million_usd"), 0.0)
     heavy_pout = 0.0
@@ -101,12 +132,47 @@ def tier_config_public(cfg: dict[str, Any]) -> dict[str, Any]:
         lite_pout = float(tiers["lite"].get("price_output_per_million_usd") or lite_pout)
     expensive_research = heavy_pout >= max(lite_pout * 2.5, 1.0) and heavy_pout > lite_pout + 1e-6
     return {
-        "openrouter_fallback_model": fb,
-        "tiers": {k: {"model": v["model"], "price_input_per_million_usd": v["price_input_per_million_usd"],
-                      "price_output_per_million_usd": v["price_output_per_million_usd"]} for k, v in tiers.items()},
+        "provider": prov,
+        "fallback_model": fb,
+        "openrouter_fallback_model": str(cfg.get("openrouter_model") or "").strip(),
+        "mistral_fallback_model": str(cfg.get("mistral_model") or "").strip(),
+        "tier_labels": TIER_LABELS_FR,
+        "tiers": {
+            k: {
+                "model": v["model"],
+                "price_input_per_million_usd": v["price_input_per_million_usd"],
+                "price_output_per_million_usd": v["price_output_per_million_usd"],
+                "label": TIER_LABELS_FR.get(k, k),
+            }
+            for k, v in tiers.items()
+        },
         "expensive_research_tier": bool(expensive_research),
         "default_prices": {"input_per_million_usd": pin, "output_per_million_usd": pout},
     }
+
+
+def default_mistral_llm_tiers_json_example() -> str:
+    return json.dumps(
+        {
+            "lite": {
+                "model": "ministral-8b-latest",
+                "price_input_per_million_usd": 0.1,
+                "price_output_per_million_usd": 0.1,
+            },
+            "standard": {
+                "model": "mistral-small-latest",
+                "price_input_per_million_usd": 0.2,
+                "price_output_per_million_usd": 0.6,
+            },
+            "heavy": {
+                "model": "mistral-large-latest",
+                "price_input_per_million_usd": 2.0,
+                "price_output_per_million_usd": 6.0,
+            },
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
 
 
 def default_llm_tiers_json_example() -> str:

@@ -2,10 +2,8 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import MissionStatusBadge from "../../components/MissionStatusBadge";
 import { useQuery } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { plainTextSnippet, sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, type TeamRow } from "../../lib/jobTeam";
 import { QK } from "../../lib/queryClient";
 import { PageHeader, PageLink, PageShell } from "../../components/ui/PageChrome";
@@ -115,7 +113,6 @@ export default function DashboardPage() {
   });
 
   const jobRows = useMemo(() => (jobs.data || []) as JobRow[], [jobs.data]);
-  const recentJobs = useMemo(() => sortJobsForBossView(jobRows).slice(0, 8), [jobRows]);
 
   const agentStatuses = useMemo(() => {
     const list = (agents.data || []) as AgentCard[];
@@ -148,10 +145,10 @@ export default function DashboardPage() {
         accent="sky"
         badge="Vue métier"
         title="Dashboard métier"
-        description="Vue d'ensemble opérationnelle — agents, missions en cours et approbations."
+        description="Agents, approbations et activité par rôle — le suivi mission complet est sur Missions."
         actions={
           <>
-            <PageLink href="/mission/nouvelle">Nouvelle mission</PageLink>
+            <PageLink href="/missions?create=quick">Nouvelle mission</PageLink>
             <PageLink href="/inbox" variant="secondary">
               Inbox
             </PageLink>
@@ -159,7 +156,10 @@ export default function DashboardPage() {
         }
       />
       <div className="flex flex-wrap gap-3">
-        <Link href="/mission/guided" className="btn-primary">
+        <Link href="/missions" className="btn-primary">
+          Hub Missions
+        </Link>
+        <Link href="/mission/guided" className="btn-secondary">
           Mission guidée
         </Link>
         <Link href="/configuration" className="btn-secondary">
@@ -356,8 +356,8 @@ export default function DashboardPage() {
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium text-slate-900">{job.mission || "(sans titre)"}</p>
-                          <p className="mt-0.5 font-mono text-[11px] text-slate-500">
-                            #{job.job_id} · mission {jobStatusLabelFr(job.status)}
+                          <p className="mt-0.5 text-[11px] text-slate-500">
+                            {jobStatusLabelFr(job.status)}
                             {running ? (
                               <span className="ms-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-900">
                                 actif
@@ -422,85 +422,14 @@ export default function DashboardPage() {
         ) : null}
       </section>
 
-      <section className="bg-white border border-slate-200 rounded-2xl p-5">
-        <div className="flex items-center justify-between gap-2 mb-1">
-          <h2 className="text-base font-semibold text-slate-900">Activité récente</h2>
-          <Link href="/missions" className="text-xs font-medium text-violet-800 hover:underline">
-            Toutes les missions →
-          </Link>
-        </div>
-        <p className="mb-4 text-xs text-slate-400">
-          Tri : à valider · en cours · avec livrable · reste.
+      <section className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-5 text-center">
+        <h2 className="text-base font-semibold text-slate-900">Missions récentes</h2>
+        <p className="mx-auto mt-2 max-w-lg text-sm text-slate-600">
+          Liste triée, décision rapide et archives : tout est centralisé dans le hub Missions.
         </p>
-        {jobs.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
-        {jobs.isError ? <p className="text-sm text-red-700">Impossible de charger les missions.</p> : null}
-        {jobs.isSuccess && recentJobs.length === 0 ? (
-          <p className="text-sm text-slate-500 text-center py-8">Aucune mission récente.</p>
-        ) : null}
-        {jobs.isSuccess && recentJobs.length > 0 ? (
-          <ul className="space-y-2">
-            {recentJobs.map((j) => {
-              const snip = plainTextSnippet(j.result, 160);
-              const shortTitle = plainTextSnippet(j.mission, 120);
-              const dateStr = j.created_at
-                ? new Date(j.created_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })
-                : null;
-              return (
-                <li
-                  key={j.job_id}
-                  className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 hover:bg-slate-50 transition-colors"
-                >
-                  {/* icône agent */}
-                  <span className="mt-0.5 shrink-0 text-xl leading-none" aria-hidden>
-                    {agentIcon(j.agent || "coordinateur")}
-                  </span>
-
-                  {/* corps */}
-                  <div className="min-w-0 flex-1 space-y-1">
-                    {/* ligne 1 : badge + titre */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <MissionStatusBadge status={j.status} />
-                      <p
-                        className="flex-1 min-w-0 text-sm font-semibold leading-snug text-slate-900 line-clamp-2"
-                        title={j.mission || undefined}
-                      >
-                        {shortTitle || "(sans titre)"}
-                      </p>
-                    </div>
-
-                    {/* ligne 2 : méta */}
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
-                      <span className="font-mono">#{j.job_id.slice(0, 8)}</span>
-                      <span>·</span>
-                      <span className="capitalize">{(j.agent || "coordinateur").replace(/_/g, " ")}</span>
-                      {dateStr ? (
-                        <>
-                          <span>·</span>
-                          <span>{dateStr}</span>
-                        </>
-                      ) : null}
-                    </p>
-
-                    {/* ligne 3 : aperçu résultat */}
-                    {snip ? (
-                      <p className="text-xs leading-relaxed text-slate-500 line-clamp-2 italic" title={snip}>
-                        {snip}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  {/* action */}
-                  <Link
-                    href={`/missions?job=${encodeURIComponent(j.job_id)}`}
-                    className="min-h-[44px] shrink-0 self-center whitespace-nowrap rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5 text-xs font-medium text-violet-900 hover:bg-violet-100 active:bg-violet-200"
-                  >
-                    Voir →
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
+        <Link href="/missions" className="btn-primary mt-4 inline-flex">
+          Ouvrir le hub Missions →
+        </Link>
       </section>
     </PageShell>
   );

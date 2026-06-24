@@ -1,22 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import CioArbitrageQuestionRow from "../CioArbitrageQuestionRow";
 import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
-import CioAnswerResult from "../missions/CioAnswerResult";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import {
   useCioAnswer,
   useHitlResolve,
+  useInboxDismiss,
   useLearningResolve,
   useQualityOverride,
   useSchedulerApprove,
   useSchedulerReject,
   useValidateMission,
 } from "../../lib/missionActions";
+import InboxMetaStrip from "./InboxMetaStrip";
 
 export type InboxActionItem = {
   kind: string;
@@ -26,7 +29,16 @@ export type InboxActionItem = {
   title?: string;
   mission?: string;
   status?: string;
+  created_at?: string;
   updated_at?: string;
+  job_created_at?: string;
+  days_open?: number;
+  days_overdue?: number;
+  sla_days?: number;
+  urgency?: "ok" | "warning" | "critical";
+  progress_label?: string;
+  priority_score?: number;
+  priority_rank?: number;
   questions?: string[];
   hitl_kind?: string;
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
@@ -46,14 +58,28 @@ export type InboxActionItem = {
 type Props = {
   item: InboxActionItem;
   defaultExpanded?: boolean;
+  onDismissed?: () => void;
 };
 
-export default function InboxActionCard({ item, defaultExpanded = false }: Props) {
+export default function InboxActionCard({ item, defaultExpanded = false, onDismissed }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const [cioInput, setCioInput] = useState("");
-  const [cioAnswerResult, setCioAnswerResult] = useState<string | null>(null);
-  const [rejectReason, setRejectReason] = useState("");
+  const [hidden, setHidden] = useState(false);
   const jobId = item.job_id || "";
+
+  const jobAnswersQuery = useQuery({
+    queryKey: ["inbox-cio-answers", jobId],
+    enabled: expanded && item.kind === "cio_question" && Boolean(jobId),
+    queryFn: async () => (await requestJson(`/jobs/${encodeURIComponent(jobId)}`, { headers: agentHeaders() })).data,
+  });
+
+  const questionAnswers = useMemo(
+    () =>
+      collectCioArbitrageAnswers(
+        (jobAnswersQuery.data?.events || []) as Array<Record<string, unknown>>,
+        (jobAnswersQuery.data?.mission_thread || []) as Array<{ content?: string; source?: string }>,
+      ),
+    [jobAnswersQuery.data?.events, jobAnswersQuery.data?.mission_thread],
+  );
 
   const hitlQuery = useQuery({
     queryKey: ["inbox-hitl", jobId],
@@ -62,12 +88,18 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
   });
 
   const hitlResolve = useHitlResolve(jobId);
-  const cioAnswerMut = useCioAnswer(jobId);
+  const cioAnswerMut = useCioAnswer(jobId, () => {
+    void jobAnswersQuery.refetch();
+  });
   const validateMut = useValidateMission(jobId);
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
   const qualityMut = useQualityOverride(jobId);
+  const dismissMut = useInboxDismiss(() => {
+    setHidden(true);
+    onDismissed?.();
+  });
 
   const busy =
     hitlResolve.isPending ||
@@ -76,16 +108,15 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
     schedApprove.isPending ||
     schedReject.isPending ||
     learningMut.isPending ||
-    qualityMut.isPending;
+    qualityMut.isPending ||
+    dismissMut.isPending;
 
-  const onCioSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!cioInput.trim()) return;
-    const text = cioInput.trim();
-    await cioAnswerMut.mutateAsync(text);
-    setCioAnswerResult(text);
-    setCioInput("");
+  const onCioSubmit = async (question: string, answer: string) => {
+    if (!answer.trim()) return;
+    await cioAnswerMut.mutateAsync({ answer: answer.trim(), question });
   };
+
+  const [rejectReason, setRejectReason] = useState("");
 
   const kindLabel: Record<string, string> = {
     hitl: "HITL",
@@ -116,22 +147,39 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
       ? item.title
       : undefined);
 
+  if (hidden) return null;
+
+  const onDismiss = () => {
+    void dismissMut.mutateAsync({
+      kind: item.kind,
+      job_id: item.job_id,
+      output_id: item.output_id,
+      suggestion_id: item.suggestion_id,
+    });
+  };
+
   return (
-    <li className="action-card list-none">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <li className="action-card relative list-none">
+      <button
+        type="button"
+        onClick={onDismiss}
+        disabled={busy}
+        className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        aria-label="Supprimer cette décision"
+        title="Supprimer — ne plus afficher"
+      >
+        ×
+      </button>
+      <div className="flex flex-col gap-3 pr-10 sm:flex-row sm:items-start sm:justify-between sm:pr-12">
         <div className="min-w-0 flex-1">
           <span className={kindBadgeClass[item.kind] || "kind-badge kind-badge--default"}>
             {kindLabel[item.kind] || item.kind}
           </span>
-          {item.kind === "cio_question" && cioAnswerResult ? (
-            <div className="mt-2">
-              <CioAnswerResult answer={cioAnswerResult} compact />
-            </div>
-          ) : null}
-          {item.kind === "cio_question" && !cioAnswerResult ? (
+          <InboxMetaStrip item={item} />
+          {item.kind === "cio_question" && cioQuestions.length > 0 ? (
             <p className="mt-2 text-xs font-bold uppercase tracking-wide text-amber-700">Le CIO vous demande</p>
           ) : null}
-          {cioQuestions.length > 0 && !cioAnswerResult ? (
+          {cioQuestions.length > 0 ? (
             <ul className="mt-1 space-y-1.5">
               {cioQuestions.map((q, i) => (
                 <li key={i} className="action-card-title">
@@ -183,7 +231,7 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
             </p>
           ) : null}
         </div>
-        <div className="flex shrink-0 flex-row flex-wrap gap-2 sm:flex-col">
+        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
           <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary px-4 py-2.5 text-sm">
             {expanded ? "Réduire" : "Agir maintenant"}
           </button>
@@ -192,6 +240,15 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
               Ouvrir mission
             </Link>
           ) : null}
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={busy}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
+            title="Retirer cette décision de votre briefing et inbox"
+          >
+            {dismissMut.isPending ? "Suppression…" : "Supprimer"}
+          </button>
         </div>
       </div>
 
@@ -214,35 +271,23 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
 
           {item.kind === "cio_question" && jobId ? (
             <div className="space-y-3">
-              {cioQuestions.length > 0 && !cioAnswerResult ? (
-                <ul className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              {cioQuestions.length > 0 ? (
+                <ol className="space-y-2.5">
                   {cioQuestions.map((q, i) => (
-                    <li key={i} className="flex gap-2 text-sm font-semibold text-slate-800">
-                      <span className="shrink-0 text-amber-700">{i + 1}.</span>
-                      <span>{q}</span>
-                    </li>
+                    <CioArbitrageQuestionRow
+                      key={`${i}-${q.slice(0, 40)}`}
+                      index={i}
+                      question={q}
+                      savedAnswer={questionAnswers[q.trim()]}
+                      busy={cioAnswerMut.isPending}
+                      onSubmit={(answer) => onCioSubmit(q, answer)}
+                    />
                   ))}
-                </ul>
+                </ol>
               ) : null}
-              {cioAnswerResult ? <CioAnswerResult answer={cioAnswerResult} /> : null}
-              {!cioAnswerResult ? (
-                <form onSubmit={(e) => void onCioSubmit(e)} className="flex gap-2">
-                  <input
-                    value={cioInput}
-                    onChange={(e) => setCioInput(e.target.value)}
-                    placeholder="Votre réponse au CIO…"
-                    disabled={busy}
-                    className="field-input min-w-0 flex-1"
-                  />
-                  <button type="submit" disabled={busy || !cioInput.trim()} className="btn-amber shrink-0">
-                    {cioAnswerMut.isPending ? "Envoi…" : "Envoyer"}
-                  </button>
-                </form>
-              ) : (
-                <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
-                  Voir dans le fil de la mission →
-                </Link>
-              )}
+              <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
+                Voir dans le fil de la mission →
+              </Link>
             </div>
           ) : null}
 
@@ -326,7 +371,7 @@ export default function InboxActionCard({ item, defaultExpanded = false }: Props
             </div>
           ) : null}
 
-          {[hitlResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error]
+          {[hitlResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
             .map((err, i) => (
               <p key={i} className="mt-2 text-xs text-red-700">

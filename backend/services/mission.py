@@ -52,7 +52,12 @@ from services.agents import (
     _ascii_fold,
 )
 from services.memory import active_memory_prompt, operational_memory_digest_prompt
-from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
+from services.mission_labels import (
+    clip_mission_title,
+    mission_block_heading,
+    mission_block_meta,
+    resolve_mission_id_refs_in_text,
+)
 from services.behavior_defaults import behavior_default_value
 from debug_ndjson import append_session_ndjson
 
@@ -425,7 +430,10 @@ def _materialize_subagents_when_plan_empty(
 
     raw_agents = plan.get("agents")
     # Si le CIO a explicitement decide agents:[] (solo), ne pas surcharger avec heuristiques
+    # — sauf mission terrain (prospection, fichier…) où le solo produirait une simulation.
     cio_said_solo = isinstance(raw_agents, list) and len(raw_agents) == 0
+    if cio_said_solo and _mission_needs_grounded_execution(blob):
+        cio_said_solo = False
 
     keys: list[str] = list(_mentioned_sub_agents(blob))
     if not keys and not cio_said_solo:
@@ -615,6 +623,33 @@ _SUBAGENT_DELIVERABLE_BLOCKS_SUFFIX = (
 )
 
 
+_CONTACT_TABLE_MANDATE_SUFFIX = (
+    "\n\n---\n**Livrable tableau (obligatoire)** : le dirigeant demande une liste / un tableau de contacts. "
+    "Tu DOIS terminer ta réponse par un bloc commençant **exactement** par "
+    "`#### LIVRABLE — Tableau de prospection`, suivi d'une ligne vide, puis d'un **tableau Markdown** "
+    "(`| … | … |`) avec une ligne par contact et des colonnes claires : "
+    "Nom, Prénom, Activité/Spécialité, Zone, Email, Téléphone, Source (URL), Angle d'approche. "
+    "Remplis chaque cellule avec les vraies données issues de tes recherches ; mets `—` si l'information "
+    "est introuvable (n'invente jamais un email ou un téléphone). Le tableau doit contenir le maximum de "
+    "lignes réellement trouvées. Ce bloc est le livrable exploitable — pas un plan, pas « à finaliser »."
+)
+
+
+def _mission_wants_contact_table(blob: str) -> bool:
+    """True si le dirigeant attend un tableau/liste de contacts avec des colonnes nommées."""
+    t = _ascii_fold(blob or "")
+    has_table_word = bool(re.search(r"\b(tableau|liste|fichier|sheet|csv|spreadsheet)\b", t))
+    has_contact_fields = bool(
+        re.search(r"\b(nom|noms|prenom|prenoms|email|e-mail|mail|tel|telephone|contact|contacts|coordonnees)\b", t)
+    )
+    has_prospection = bool(re.search(r"\b(prospect|prospection|coach|therapeute|profil|profils|client|clients)\b", t))
+    if has_table_word and (has_contact_fields or has_prospection):
+        return True
+    if re.search(r"\b(regener|regenere|recree|recreer)\b", t) and has_table_word:
+        return True
+    return False
+
+
 def _blob_needs_commercial_web_evidence(per: str) -> bool:
     """True si la consigne ressemble à de la prospection / veille nécessitant le web (hors simple mail)."""
     t = _ascii_fold(per or "")
@@ -640,6 +675,73 @@ def _blob_needs_commercial_web_evidence(per: str) -> bool:
         return True
     if re.search(r"\bveille\b", t) and re.search(r"\b(marche|concurrent|concurrence|secteur)\b", t):
         return True
+    return False
+
+
+def _mission_needs_grounded_execution(blob: str) -> bool:
+    """Recherche web, prospection terrain ou livrable fichier : pas de réponse CIO directe fictive."""
+    if _blob_needs_commercial_web_evidence(blob):
+        return True
+    t = _ascii_fold(blob or "")
+    if any(
+        h in t
+        for h in (
+            "resalib",
+            "google sheet",
+            "tableau google",
+            "spreadsheet",
+            "google drive",
+            "explore les profils",
+            "profils de coach",
+            "coachs et therapeute",
+            "reseaux coaching",
+            "liste de prospect",
+        )
+    ):
+        return True
+    if re.search(r"\bexplor", t) and re.search(r"\b(profil|coach|therapeute|resalib|linkedin)\b", t):
+        return True
+    if re.search(r"\b(regener|regenere|regénère|recreer|recrée)\b", t) and re.search(
+        r"\b(tableau|fichier|sheet|drive|csv|document)\b", t
+    ):
+        return True
+    if re.search(r"\b(fichier|tableau|sheet)\b", t) and re.search(
+        r"\b(generer|générer|genere|généré|creer|créer|upload|drive)\b", t
+    ):
+        return True
+    return False
+
+
+def _lazy_delegation_blocks_auto_delegation(
+    mission_txt: str,
+    root_mission_label: str,
+    *,
+    lazy_delegation: bool,
+) -> bool:
+    """
+    Délégation sélective : pas d'injection heuristique sauf missions « terrain »
+    (prospection, fichier, Resalib…) où le CIO seul produirait une simulation.
+    """
+    if not lazy_delegation:
+        return False
+    blob = _ascii_fold(f"{mission_txt}\n{root_mission_label}")
+    return not _mission_needs_grounded_execution(blob)
+
+
+def _direct_answer_looks_fabricated(text: str, job_logs: list[str] | None) -> bool:
+    """Détecte une synthèse CIO avec liens ou tableaux inventés (sans appel outil)."""
+    t = _ascii_fold(text or "")
+    log_blob = _ascii_fold("\n".join(job_logs or []))
+    if "remplacer par le lien" in t or "1example" in t:
+        return True
+    if "xxxxx" in t or re.search(r"remplacer\s+\w+\s+par\s+l", t):
+        return True
+    if "docs.google.com" in t or "drive.google.com" in t:
+        if "upload_google_drive" not in log_blob:
+            return True
+    if re.search(r"\b\d+\s+profils?\b", t) and "resalib" in t:
+        if "web_search" not in log_blob and "upload_google_drive" not in log_blob:
+            return True
     return False
 
 
@@ -796,18 +898,62 @@ def _mentioned_sub_agents(t: str) -> list[str]:
     return out
 
 
+def _explicitly_requested_sub_agents(t: str) -> list[str]:
+    """
+    Rôles que le dirigeant demande explicitement d'activer — pas une simple mention thématique.
+    En mode délégation sélective, seules ces sollicitations explicites complètent un plan CIO vide.
+    """
+    found: list[str] = []
+    action = r"\b(demande|sollicite|confie|envoie|passe par|fais appel|dit a|parle a|repond|reponds|verifie|mobilise|active|lance)\b"
+    if re.search(rf"\b(au|le|la|un|une)\s+commercial\b", t) and re.search(action, t):
+        found.append("commercial")
+    if re.search(r"\bdemande.{0,56}\bcommercial\b", t):
+        found.append("commercial")
+    if re.search(r"\bcommercial\b.{0,40}\b(doit|dois|vas|allez|repond|reponds|verifie)\b", t):
+        found.append("commercial")
+    if re.search(r"\b(au|le|la)\s+developpeur\b", t) and re.search(action, t):
+        found.append("developpeur")
+    if re.search(r"\bdemande.{0,56}\b(developpeur|dev)\b", t):
+        found.append("developpeur")
+    if re.search(r"\b(developpeur|dev)\b.{0,40}\b(doit|dois|vas|allez|repond|reponds|verifie|corrige)\b", t):
+        found.append("developpeur")
+    if re.search(r"\b(au|le|la)\s+comptable\b", t) and re.search(action, t):
+        found.append("comptable")
+    if re.search(r"\bdemande.{0,56}\b(comptable|compta)\b", t):
+        found.append("comptable")
+    if re.search(r"\b(au|le|la)\s+(cm|community manager|community_manager)\b", t) and re.search(action, t):
+        found.append("community_manager")
+    if re.search(r"\bdemande.{0,56}\b(community_manager|community manager|cm)\b", t):
+        found.append("community_manager")
+    if re.search(r"\b(community_manager|community manager|cm)\b.{0,40}\b(doit|dois|vas|allez|publie|redige)\b", t):
+        found.append("community_manager")
+    out: list[str] = []
+    seen: set[str] = set()
+    for k in delegatable_subagent_keys_ordered():
+        if k in found and k not in seen:
+            out.append(k)
+            seen.add(k)
+    return out
+
+
 def _inject_sous_taches_for_mentioned_agents(
     st: dict,
     mission_txt: str,
     root_mission_label: str,
     log,
+    *,
+    selective: bool = True,
 ) -> None:
     """
-    Si la consigne nomme explicitement un rôle (ex. « le commercial ») mais le plan JSON n’a aucune
-    sous-tâche valide pour lui (clés hors les quatre rôles exécutables), on ajoute une sous-tâche réelle.
+    Complète le plan si des rôles doivent être mobilisés hors JSON CIO.
+    En mode sélectif (défaut) : uniquement sollicitation explicite du dirigeant.
+    Hors mode sélectif : toute mention nominale du rôle (comportement historique).
     """
     blob = _ascii_fold(f"{mission_txt}\n{root_mission_label}")
-    for key in _mentioned_sub_agents(blob):
+    keys = _explicitly_requested_sub_agents(blob) if selective else _mentioned_sub_agents(blob)
+    if not keys:
+        return
+    for key in keys:
         if key not in agents_def() or key == "coordinateur":
             continue
         if _tache_to_str(st.get(key)).strip():
@@ -822,7 +968,7 @@ def _inject_sous_taches_for_mentioned_agents(
         )
         log(
             f"[korymb] Filet délégation : sous-tâche ajoutée pour {agents_def()[key]['label']} "
-            "(rôle nommé dans la mission, absent ou invalide dans le plan JSON du modèle).",
+            f"({'sollicitation explicite' if selective else 'rôle nommé'} — absent du plan JSON CIO).",
         )
 
 
@@ -884,7 +1030,7 @@ def _past_missions_context_block(
         header = "\n".join(
             [
                 "--- Extraits missions passées (référence interne) ---",
-                "Tu peux t'appuyer sur ces livrables déjà produits ; cite #job_id si tu réutilises une source.",
+                "Tu peux t'appuyer sur ces livrables déjà produits ; cite l'intitulé de la mission si tu réutilises une source.",
                 "",
             ]
         )
@@ -893,7 +1039,7 @@ def _past_missions_context_block(
             [
                 "--- Historique missions Korymb (base locale) ---",
                 "Missions déjà exécutées. Réutilise ces livrables quand le dirigeant fait référence au travail passé, "
-                "à une mission précédente, ou à des éléments « déjà trouvés ». Cite le #job_id lorsque tu t'appuies sur une source.",
+                "à une mission précédente, ou à des éléments « déjà trouvés ». Cite l'intitulé de la mission (pas son numéro technique) lorsque tu t'appuies sur une source.",
                 "",
             ]
         )
@@ -918,7 +1064,8 @@ def _past_missions_context_block(
         cap = min(per, remain - 120)
         body = _clip_mem_text(res_raw, cap) if res_raw else "(aucun livrable textuel enregistré)"
         block = (
-            f"### Mission #{jid} · agent pilote: {agent} · {st} · {created} · source {src}\n"
+            f"{mission_block_heading(mis, jid)}\n"
+            f"{mission_block_meta(jid=jid, agent=agent, status=st, created=created, source=src)}\n"
             f"Consigne :\n{mis}\n\nSynthèse / livrable :\n{body}\n"
         )
         parts.append(block)
@@ -929,6 +1076,12 @@ def _past_missions_context_block(
 
 def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = None) -> str:
     """Bloc texte injecté dans le system prompt : mémoire entreprise + missions récentes (+ historique DB pour le CIO)."""
+    try:
+        from services.drive_workspace import build_drive_workspace_memory_prompt
+
+        drive_blk = build_drive_workspace_memory_prompt()
+    except Exception:
+        drive_blk = ""
     try:
         mem = get_enterprise_memory()
     except Exception:
@@ -953,7 +1106,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
             logger.exception("_past_missions_context_block")
 
     if not ctx("global") and not has_roles and not recent and not db_block:
-        return ""
+        return drive_blk if drive_blk else ""
 
     lines: list[str] = ["", "--- Mémoire entreprise (persistante) ---"]
 
@@ -982,7 +1135,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
         if agent_key == "coordinateur":
             shown_db = set()
             if db_block:
-                for m in re.finditer(r"### Mission #([0-9a-fA-F-]{4,20})", db_block):
+                for m in re.finditer(r"\(réf\.\s*([0-9a-fA-F-]{4,20})", db_block):
                     shown_db.add(m.group(1))
             lines.append("Missions récentes (mémoire de clôture — complément si une mission n'apparaît pas ci-dessus) :")
             tail = recent[-8:]
@@ -994,7 +1147,8 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
                     continue
                 m = _clip_mem_text(str(item.get("mission") or ""), 360)
                 pv = _clip_mem_text(str(item.get("preview") or ""), 2800)
-                lines.append(f"  · #{jid}\n    Consigne : {m}\n    Extrait livrable : {pv}")
+                title = clip_mission_title(m, 90) or f"Mission {jid}"
+                lines.append(f"  · {title}\n    Consigne : {m}\n    Extrait livrable : {pv}")
         else:
             lines.append("Missions récentes (résumé — le CIO porte l'historique détaillé) :")
             tail = recent[-6:]
@@ -1004,7 +1158,11 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
                 jid = str(item.get("job_id") or "")
                 m = _clip_mem_text(str(item.get("mission") or ""), 160)
                 pv = _clip_mem_text(str(item.get("preview") or ""), 320)
-                lines.append(f"  · #{jid} {m} → {pv}")
+                title = clip_mission_title(m, 90) or f"Mission {jid}"
+                lines.append(f"  · {title} → {pv}")
+
+    if drive_blk:
+        lines.append(drive_blk.strip())
 
     lines.append("--- Fin mémoire entreprise ---")
     return "\n".join(lines)
@@ -1189,6 +1347,91 @@ def _team_livrables_markdown_annex(resultats: dict[str, str]) -> str:
     )
 
 
+def _mission_requires_delegation(mission_txt: str, root_mission_label: str) -> bool:
+    """True si la mission exige explicitement des sous-agents (test multi-rôles, ordre au dirigeant, etc.)."""
+    blob = _ascii_fold(f"{mission_txt}\n{root_mission_label}")
+    if _signals_explicit_multi_agent_communication(blob):
+        return True
+    if _forced_multi_agent_sous_taches(mission_txt, root_mission_label):
+        return True
+    if _explicitly_requested_sub_agents(blob):
+        return True
+    if "[[delegate" in blob:
+        return True
+    if _mission_needs_grounded_execution(blob):
+        return True
+    return False
+
+
+CHAT_MODE_RESPONSE_RULES = (
+    "\n\n[Mode chat dirigeant] Conversation directe : réponds uniquement à la dernière question, "
+    "de façon concise et utile. Utilise la mémoire interne en silence si besoin — "
+    "n'expose jamais le contexte global, les checklists reprise/RGPD/conformité, "
+    "l'historique de missions, ni les métadonnées d'orchestration. "
+    "Si tu fais référence à une mission passée, cite son **intitulé** (consigne), jamais son numéro #job_id. "
+    "Pas de préambule du type « je consulte l'historique » : va droit au fait."
+)
+
+
+def _cio_prompt_memory(agent_key: str, *, exclude_job_id: str | None, chat_mode: bool) -> str:
+    """Mémoire injectée au CIO : complète en mission, allégée en chat."""
+    try:
+        from services.drive_workspace import build_drive_workspace_memory_prompt
+
+        drive_blk = build_drive_workspace_memory_prompt()
+    except Exception:
+        drive_blk = ""
+    if chat_mode:
+        return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+    return (
+        _korymb_memory_prompt_for(agent_key, exclude_job_id=exclude_job_id)
+        + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+    )
+
+
+def _cio_attempt_direct_answer(
+    mission_txt: str,
+    root_mission_label: str,
+    job_id: str | None,
+    job_logs: list | None,
+    chat_mode: bool,
+) -> tuple[str | None, int, int]:
+    """Phase 0 : le CIO tente de répondre seul (mémoire + outils) avant plan JSON."""
+    agent_cfg = agents_def()["coordinateur"]
+    system = (
+        agent_cfg["system"]
+        + FLEUR_CONTEXT
+        + _cio_prompt_memory("coordinateur", exclude_job_id=job_id, chat_mode=chat_mode)
+        + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
+        "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
+        "Par défaut, assume seul. Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
+        "Interdit : inventer des URLs (Google Drive/Sheets, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
+        "sans avoir appelé upload_google_drive ou une recherche web dans ce tour."
+    )
+    messages = [{"role": "user", "content": mission_txt}]
+    reply, ti, to = llm_chat_maybe_tools(
+        system,
+        messages,
+        agent_cfg.get("tools"),
+        job_logs=job_logs,
+        max_tokens=2048 if chat_mode else 3072,
+        usage_job_id=job_id,
+        usage_context="cio_direct_attempt",
+    )
+    text = (reply or "").strip()
+    if not text or text.upper().startswith("[[DELEGATE]]"):
+        return None, ti, to
+    if "[[DELEGATE]]" in text:
+        return None, ti, to
+    if _direct_answer_looks_fabricated(text, job_logs):
+        if job_logs is not None:
+            job_logs.append(
+                "[korymb] Réponse directe CIO rejetée (livrable ou lien fictif) — bascule vers délégation."
+            )
+        return None, ti, to
+    return text, ti, to
+
+
 def orchestrate_coordinateur_mission(
     mission_txt: str,
     root_mission_label: str,
@@ -1205,10 +1448,7 @@ def orchestrate_coordinateur_mission(
     job_id : si fourni (mission /run), met à jour active_jobs[job_id]["team"] pour l'interface.
     """
     agent_cfg = agents_def()["coordinateur"]
-    memory_brain = _korymb_memory_prompt_for("coordinateur", exclude_job_id=job_id) + active_memory_prompt(
-        "coordinateur",
-        exclude_job_id=job_id,
-    )
+    memory_brain = _cio_prompt_memory("coordinateur", exclude_job_id=job_id, chat_mode=chat_mode)
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain
     deleg = delegatable_subagent_keys_ordered()
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -1262,6 +1502,45 @@ def orchestrate_coordinateur_mission(
             {"chat_mode": chat_mode, "mission_preview": (root_mission_label or "")[:400]},
         )
 
+    lazy_delegation = _behavior_bool("orchestration.strict_lazy_delegation", True)
+
+    if lazy_delegation and not _mission_requires_delegation(mission_txt, root_mission_label):
+        direct, ti0, to0 = _cio_attempt_direct_answer(
+            mission_txt, root_mission_label, job_id, job_logs, chat_mode,
+        )
+        t_in += ti0
+        t_out += to0
+        _sync_active_job_tokens(job_id, t_in, t_out)
+        if direct:
+            log("[korymb] CIO — réponse directe (sans délégation sous-agents).")
+            from services.drive_workspace import finalize_mission_drive_deliverables
+
+            ev = (active_jobs[job_id].get("events") or []) if job_id and job_id in active_jobs else []
+            direct, _drive_arts = finalize_mission_drive_deliverables(
+                job_id=job_id,
+                mission_txt=mission_txt,
+                root_mission_label=root_mission_label,
+                resultats={},
+                synthesis=direct,
+                events=ev if isinstance(ev, list) else [],
+                job_logs=job_logs,
+            )
+            if job_id:
+                for row in team_rows:
+                    if row.get("key") == "coordinateur":
+                        row["status"] = "done"
+                        row["phase"] = "synth"
+                        row["detail"] = "Réponse directe CIO"
+                        break
+                pub_team()
+                _emit_job_event(
+                    job_id,
+                    "synthesis_done",
+                    "coordinateur",
+                    {"mode": "direct", "chars": len(direct)},
+                )
+            return direct, t_in, t_out
+
     cq_schema_field = (
         ',\n  "clarifying_questions": []'
         if cio_questions_enabled else ""
@@ -1284,7 +1563,7 @@ def orchestrate_coordinateur_mission(
             "CQ_RULE": cq_rule,
         },
     )
-    if _behavior_bool("orchestration.parallel_delegation_enabled", True):
+    if _behavior_bool("orchestration.parallel_delegation_enabled", False):
         plan_user += (
             '\n- Champ optionnel "dependances" : objet JSON {clé_agent: [clés_agents_requis_avant_lui]} '
             "pour les sous-tâches qui ont besoin du livrable d'un autre rôle "
@@ -1294,11 +1573,13 @@ def orchestrate_coordinateur_mission(
         )
     log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
+    plan_max_tokens = 1024 if chat_mode else 4096
+    plan_profile = "lite" if chat_mode else "standard"
     plan_txt, ti, to = llm_turn(
         system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
         plan_user,
-        max_tokens=4096,
-        or_profile="standard",
+        max_tokens=plan_max_tokens,
+        or_profile=plan_profile,
         usage_job_id=job_id,
         usage_context="cio_plan_json",
     )
@@ -1381,11 +1662,16 @@ def orchestrate_coordinateur_mission(
             + ", ".join(agents_def()[k]["label"] for k in forced_st)
         )
 
-    _inject_sous_taches_for_mentioned_agents(st, mission_txt, root_mission_label, log)
+    _inject_sous_taches_for_mentioned_agents(
+        st, mission_txt, root_mission_label, log, selective=lazy_delegation,
+    )
     plan["sous_taches"] = st
 
     if (
-        "commercial" in agents_def()
+        not _lazy_delegation_blocks_auto_delegation(
+            mission_txt, root_mission_label, lazy_delegation=lazy_delegation,
+        )
+        and "commercial" in agents_def()
         and not any(
             _tache_to_str(st.get(k)).strip()
             for k in st
@@ -1405,7 +1691,10 @@ def orchestrate_coordinateur_mission(
 
     _repair_plan_delegation_gaps(st, plan, mission_txt, root_mission_label, log)
     plan["sous_taches"] = st
-    _materialize_subagents_when_plan_empty(st, plan, mission_txt, root_mission_label, log)
+    if not _lazy_delegation_blocks_auto_delegation(
+        mission_txt, root_mission_label, lazy_delegation=lazy_delegation,
+    ):
+        _materialize_subagents_when_plan_empty(st, plan, mission_txt, root_mission_label, log)
     plan["sous_taches"] = st
 
     for _rk in list(st.keys()):
@@ -1420,7 +1709,11 @@ def orchestrate_coordinateur_mission(
         ctx_chat = (root_mission_label or mission_txt or "").strip()
         if len(ctx_chat) > 2200:
             ctx_chat = ctx_chat[:2200] + "…"
-        for role in _mentioned_sub_agents(blob_chat):
+        for role in (
+            _explicitly_requested_sub_agents(blob_chat)
+            if lazy_delegation
+            else _mentioned_sub_agents(blob_chat)
+        ):
             if role not in agents_def() or role == "coordinateur":
                 continue
             tpl = _behavior_text(
@@ -1679,8 +1972,12 @@ def orchestrate_coordinateur_mission(
         agent_sys = (
             agents_def()[agent_key]["system"]
             + FLEUR_CONTEXT
-            + _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
-            + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+            + (
+                ""
+                if chat_mode
+                else _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+                + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+            )
         )
 
         web_evidence_calls = 0
@@ -1725,6 +2022,11 @@ def orchestrate_coordinateur_mission(
             sub_user_final += _behavior_text(
                 "orchestration.subagent.commercial_web_mandate_suffix",
                 _COMMERCIAL_WEB_MANDATE_SUFFIX,
+            )
+        if agent_key == "commercial" and _mission_wants_contact_table(per_blob):
+            sub_user_final += _behavior_text(
+                "orchestration.subagent.contact_table_mandate_suffix",
+                _CONTACT_TABLE_MANDATE_SUFFIX,
             )
         elif need_dev_web:
             sub_user_final += _behavior_text(
@@ -1878,7 +2180,7 @@ def orchestrate_coordinateur_mission(
         return res, ti2, to2
 
     # ── Vagues d'exécution : parallèle si activé, sinon séquentiel historique ──
-    parallel_enabled = _behavior_bool("orchestration.parallel_delegation_enabled", True) and not chat_mode
+    parallel_enabled = _behavior_bool("orchestration.parallel_delegation_enabled", False) and not chat_mode
     plan_deps = _parse_plan_dependencies(plan, exec_agent_order) if parallel_enabled else {}
     waves = (
         _delegation_waves(exec_agent_order, plan_deps)
@@ -1996,6 +2298,18 @@ def orchestrate_coordinateur_mission(
         if chat_mode
         else ""
     )
+    chat_solo_honesty = (
+        "\n\nInterdit en mode chat sans exécution réelle : reporter (« dès validation », « sous 2h », "
+        "« je régénère quand… »), poser des questions bloquantes au lieu de livrer, ou prétendre qu'un "
+        "fichier/tableau existe. Si aucun sous-agent n'a travaillé, dis-le clairement."
+        if chat_mode and not resultats
+        else ""
+    )
+    contact_table_mandate = (
+        _CONTACT_TABLE_MANDATE_SUFFIX
+        if _mission_wants_contact_table(f"{mission_txt}\n{root_mission_label}")
+        else ""
+    )
     synth_grounding = (
         "\n\nRègle de vérité : seuls les rôles listés dans « Contributions des agents » ont réellement travaillé. "
         "Ne dis jamais qu'un agent a fait des recherches web ou une tâche s'il n'apparaît pas dans ce bloc."
@@ -2024,7 +2338,7 @@ def orchestrate_coordinateur_mission(
         )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + synth_grounding,
-            synthese_user,
+            synthese_user + contact_table_mandate,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,
@@ -2033,8 +2347,8 @@ def orchestrate_coordinateur_mission(
     else:
         solo_questions_suffix = "" if chat_mode else _render_orchestration_prompt("cio_synthesis_solo_suffix", {})
         result, ti3, to3 = llm_turn(
-            system_prompt + chat_tail + synth_grounding,
-            mission_txt + solo_questions_suffix,
+            system_prompt + chat_tail + chat_solo_honesty + synth_grounding,
+            mission_txt + solo_questions_suffix + contact_table_mandate,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,
@@ -2050,12 +2364,29 @@ def orchestrate_coordinateur_mission(
         result = re.sub(r"\n?```\s*$", "", result.rstrip())
         result = result.strip()
 
-    if resultats:
+    if resultats and not chat_mode:
         ann = _team_livrables_markdown_annex(resultats)
         if ann:
             result = ((result or "").rstrip() + ann) if (result or "").strip() else (result or "") + ann
             if job_id and job_id in active_jobs:
                 active_jobs[job_id]["result"] = result
+
+    from services.drive_workspace import finalize_mission_drive_deliverables
+
+    ev_for_drive = []
+    if job_id and job_id in active_jobs:
+        ev_for_drive = active_jobs[job_id].get("events") or []
+    result, _drive_artifacts = finalize_mission_drive_deliverables(
+        job_id=job_id,
+        mission_txt=mission_txt,
+        root_mission_label=root_mission_label,
+        resultats=resultats,
+        synthesis=result or "",
+        events=ev_for_drive if isinstance(ev_for_drive, list) else [],
+        job_logs=job_logs,
+    )
+    if job_id and job_id in active_jobs:
+        active_jobs[job_id]["result"] = result if isinstance(result, str) else ""
 
     if job_id:
         _emit_job_event(

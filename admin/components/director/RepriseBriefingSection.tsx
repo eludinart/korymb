@@ -38,12 +38,14 @@ export default function RepriseBriefingSection() {
   const coverage = useRepriseCoverage();
   const data = coverage.data;
   const gaps = data?.gaps ?? [];
-  const attention = (data?.domains ?? []).filter((d) => d.status !== "covered");
+  const attention = (data?.domains ?? []).filter(
+    (d) => !["covered", "dormant", "not_applicable"].includes(d.status),
+  );
   const tone = gaps.length > 0 || coverage.isError ? "alert" : undefined;
 
   return (
     <SectionCard
-      title="Reprise d'entreprise"
+      title="Évolution d'activité"
       tone={tone}
       action={
         <PageLink href="/administration/reprise" variant="secondary">
@@ -87,12 +89,19 @@ export default function RepriseBriefingSection() {
           </div>
 
           {!data.has_reprise_context ? (
-            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-              Peu de contexte reprise en mémoire —{" "}
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Mode <span className="font-semibold">activité courante</span> — les domaines acquisition (banque, RH,
+              due diligence…) restent en veille tant qu&apos;une reprise n&apos;est pas documentée en mémoire.{" "}
               <Link href="/administration/memory" className="font-bold underline">
-                enrichir la mémoire
+                Enrichir la mémoire
               </Link>
               .
+            </p>
+          ) : null}
+
+          {(data.summary.dormant ?? 0) > 0 ? (
+            <p className="text-xs font-medium text-slate-500">
+              {data.summary.dormant} domaine(s) en veille (hors périmètre actuel).
             </p>
           ) : null}
 

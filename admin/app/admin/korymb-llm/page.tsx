@@ -3,8 +3,12 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import HealthDot from "../../../components/HealthDot";
+import MistralReflectionTiersEditor from "../../../components/config/MistralReflectionTiersEditor";
 import type { HealthTone } from "../../../lib/healthTone";
 import { DEFAULT_LLM_TIERS_JSON_EXAMPLE } from "../../../lib/defaultLlmTiersExample";
+import { defaultMistralTiersJson } from "../../../lib/mistralReflectionTiers";
+
+type LlmProvider = "mistral" | "anthropic" | "openrouter";
 
 type Settings = Record<string, string | number | boolean | undefined>;
 
@@ -67,12 +71,14 @@ function modelOptions(raw: unknown): string[] {
   return [];
 }
 
-function apiKeyTone(configured: boolean, kind: "anthropic" | "openrouter", activeProvider: string): HealthTone {
+function apiKeyTone(
+  configured: boolean,
+  kind: LlmProvider,
+  activeProvider: string,
+): HealthTone {
   if (configured) return "ok";
   const p = activeProvider.toLowerCase();
-  const required =
-    (kind === "anthropic" && p === "anthropic") || (kind === "openrouter" && p === "openrouter");
-  if (required) return "warn";
+  if (kind === p) return "warn";
   return "bad";
 }
 
@@ -82,15 +88,14 @@ function ApiKeyStatusRow({
   configured,
   activeProvider,
 }: {
-  kind: "anthropic" | "openrouter";
+  kind: LlmProvider;
   label: string;
   configured: boolean;
   activeProvider: string;
 }) {
   const tone = apiKeyTone(configured, kind, activeProvider);
   const p = activeProvider.toLowerCase();
-  const required =
-    (kind === "anthropic" && p === "anthropic") || (kind === "openrouter" && p === "openrouter");
+  const required = kind === p;
   let caption: string;
   if (configured) caption = "Clé présente côté serveur.";
   else if (required) caption = "Clé manquante — requise pour ce fournisseur.";
@@ -110,6 +115,7 @@ function ApiKeyStatusRow({
 function ActiveProviderBadge({ provider }: { provider: string }) {
   const p = provider.toLowerCase();
   const styles: Record<string, string> = {
+    mistral: "bg-orange-50 text-orange-950 ring-orange-100",
     anthropic: "bg-violet-50 text-violet-900 ring-violet-100",
     openrouter: "bg-sky-50 text-sky-900 ring-sky-100",
   };
@@ -140,8 +146,10 @@ function ConfigSkeleton() {
 
 function syncDraftsFromSettings(d: Settings) {
   return {
-    provider: String(d.llm_provider || "anthropic"),
+    provider: String(d.llm_provider || "mistral"),
     anthropicModel: String(d.anthropic_model ?? ""),
+    mistralModel: String(d.mistral_model ?? ""),
+    mistralBase: String(d.mistral_base_url ?? ""),
     openrouterModel: String(d.openrouter_model ?? ""),
     openrouterBase: String(d.openrouter_base_url ?? ""),
     openrouterReferer: String(d.openrouter_http_referer ?? ""),
@@ -165,8 +173,10 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [tiersDraft, setTiersDraft] = useState("");
 
-  const [providerDraft, setProviderDraft] = useState("anthropic");
+  const [providerDraft, setProviderDraft] = useState<LlmProvider>("mistral");
   const [anthropicModel, setAnthropicModel] = useState("");
+  const [mistralModel, setMistralModel] = useState("");
+  const [mistralBase, setMistralBase] = useState("");
   const [openrouterModel, setOpenrouterModel] = useState("");
   const [openrouterBase, setOpenrouterBase] = useState("");
   const [openrouterReferer, setOpenrouterReferer] = useState("");
@@ -175,6 +185,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   const [priceOut, setPriceOut] = useState("");
 
   const anthropicModels = useMemo(() => modelOptions(data?.anthropic_models), [data?.anthropic_models]);
+  const mistralModels = useMemo(() => modelOptions(data?.mistral_models), [data?.mistral_models]);
   const openrouterModels = useMemo(() => modelOptions(data?.openrouter_models), [data?.openrouter_models]);
 
   const tierRouting = (data?.tier_routing || {}) as TierRouting;
@@ -186,15 +197,17 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   useEffect(() => {
     if (!data) return;
     const s = syncDraftsFromSettings(data);
-    setProviderDraft(s.provider);
+    setProviderDraft(s.provider as LlmProvider);
     setAnthropicModel(s.anthropicModel);
+    setMistralModel(s.mistralModel);
+    setMistralBase(s.mistralBase);
     setOpenrouterModel(s.openrouterModel);
     setOpenrouterBase(s.openrouterBase);
     setOpenrouterReferer(s.openrouterReferer);
     setOpenrouterTitle(s.openrouterTitle);
     setPriceIn(s.priceIn);
     setPriceOut(s.priceOut);
-    setTiersDraft(s.tiersJson);
+    setTiersDraft(s.tiersJson || (s.provider === "mistral" ? defaultMistralTiersJson() : ""));
   }, [data]);
 
   async function load(mode: "initial" | "refresh" = "initial") {
@@ -223,18 +236,24 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   async function saveModelQuick() {
     setErr("");
     setOk("");
-    const prov = providerDraft.trim().toLowerCase();
-    if (prov !== "anthropic" && prov !== "openrouter") {
+    const prov = providerDraft.trim().toLowerCase() as LlmProvider;
+    if (prov !== "anthropic" && prov !== "openrouter" && prov !== "mistral") {
       setErr("Fournisseur invalide.");
       return;
     }
     const model =
-      prov === "openrouter" ? openrouterModel.trim() : anthropicModel.trim();
+      prov === "openrouter"
+        ? openrouterModel.trim()
+        : prov === "mistral"
+          ? mistralModel.trim()
+          : anthropicModel.trim();
     if (!model) {
       setErr(
         prov === "openrouter"
           ? "Saisis un identifiant modèle OpenRouter (ex. openai/gpt-4o-mini, google/gemini-2.5-flash…)."
-          : "Saisis l’identifiant du modèle Claude.",
+          : prov === "mistral"
+            ? "Saisis l’identifiant du modèle Mistral (ex. mistral-small-latest)."
+            : "Saisis l’identifiant du modèle Claude.",
       );
       return;
     }
@@ -242,6 +261,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
     try {
       const body: Record<string, string> = { llm_provider: prov };
       if (prov === "openrouter") body.openrouter_model = model;
+      else if (prov === "mistral") body.mistral_model = model;
       else body.anthropic_model = model;
       const r = await fetch("/api/korymb-admin", {
         method: "PUT",
@@ -253,8 +273,10 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
       setData(j);
       setOk(
         prov === "openrouter"
-          ? "Modèle OpenRouter enregistré. Si un JSON de paliers est actif (options avancées), les appels peuvent encore utiliser les modèles définis par palier ; ce champ sert alors de secours et de défaut hors paliers."
-          : "Modèle Anthropic enregistré. Les prochains appels utiliseront cet identifiant.",
+          ? "Modèle OpenRouter enregistré. Si un JSON de paliers est actif, les appels peuvent utiliser les modèles par niveau de réflexion."
+          : prov === "mistral"
+            ? "Modèle Mistral enregistré (secours). Configurez les paliers Courant / Médium / Expert ci-dessous pour le routage automatique."
+            : "Modèle Anthropic enregistré. Les prochains appels utiliseront cet identifiant.",
       );
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
@@ -278,7 +300,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
       if (!r.ok) throw new Error(j.detail || JSON.stringify(j) || `HTTP ${r.status}`);
       setData(j);
       setTiersDraft("");
-      setOk("Routage par paliers désactivé. Les appels OpenRouter utilisent uniquement le modèle défini en tête de page.");
+      setOk("Routage par paliers désactivé. Les appels utilisent uniquement le modèle défini en tête de page.");
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -298,6 +320,10 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
 
     const am = anthropicModel.trim();
     if (am) body.anthropic_model = am;
+    const mm = mistralModel.trim();
+    if (mm) body.mistral_model = mm;
+    const mb = mistralBase.trim();
+    if (mb) body.mistral_base_url = mb;
     const om = openrouterModel.trim();
     if (om) body.openrouter_model = om;
 
@@ -310,6 +336,8 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
 
     const ak = String(fd.get("anthropic_api_key") || "").trim();
     if (ak) body.anthropic_api_key = ak;
+    const mk = String(fd.get("mistral_api_key") || "").trim();
+    if (mk) body.mistral_api_key = mk;
     const okr = String(fd.get("openrouter_api_key") || "").trim();
     if (okr) body.openrouter_api_key = okr;
 
@@ -317,7 +345,10 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
     const pout = priceOut.trim();
     if (pin) body.llm_price_input_per_million_usd = parseFloat(pin);
     if (pout) body.llm_price_output_per_million_usd = parseFloat(pout);
-    body.llm_tiers_json = tiersDraft.trim();
+    const tiersPayload =
+      tiersDraft.trim() ||
+      (prov === "mistral" ? defaultMistralTiersJson() : "");
+    body.llm_tiers_json = tiersPayload;
     try {
       const r = await fetch("/api/korymb-admin", {
         method: "PUT",
@@ -419,7 +450,11 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                   Fournisseur utilisé pour les appels
                 </label>
                 <label htmlFor="llm_active_model" className={`${fieldLabelClass} lg:col-start-2 lg:row-start-1`}>
-                  {providerDraft === "openrouter" ? "Modèle OpenRouter (identifiant)" : "Modèle Claude (identifiant)"}
+                  {providerDraft === "openrouter"
+                    ? "Modèle OpenRouter (secours)"
+                    : providerDraft === "mistral"
+                      ? "Modèle Mistral (secours)"
+                      : "Modèle Claude (identifiant)"}
                 </label>
                 <span className={`${fieldLabelClass} hidden lg:col-start-3 lg:row-start-1 lg:block`}>Mise à jour</span>
 
@@ -428,34 +463,53 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                     id="llm_provider"
                     name="llm_provider"
                     value={providerDraft}
-                    onChange={(e) => setProviderDraft(e.target.value)}
+                    onChange={(e) => setProviderDraft(e.target.value as LlmProvider)}
                     className={`${inputClass} ${controlH} font-medium`}
                   >
+                    <option value="mistral">Mistral AI (recommandé)</option>
                     <option value="anthropic">Anthropic (API native)</option>
-                    <option value="openrouter">OpenRouter</option>
+                    <option value="openrouter">OpenRouter (option)</option>
                   </select>
                 </div>
                 <div className="min-w-0 lg:col-start-2 lg:row-start-2">
                   <input
                     id="llm_active_model"
-                    name={providerDraft === "openrouter" ? "openrouter_model" : "anthropic_model"}
-                    type="text"
-                    value={providerDraft === "openrouter" ? openrouterModel : anthropicModel}
-                    onChange={(e) =>
+                    name={
                       providerDraft === "openrouter"
-                        ? setOpenrouterModel(e.target.value)
-                        : setAnthropicModel(e.target.value)
+                        ? "openrouter_model"
+                        : providerDraft === "mistral"
+                          ? "mistral_model"
+                          : "anthropic_model"
                     }
+                    type="text"
+                    value={
+                      providerDraft === "openrouter"
+                        ? openrouterModel
+                        : providerDraft === "mistral"
+                          ? mistralModel
+                          : anthropicModel
+                    }
+                    onChange={(e) => {
+                      if (providerDraft === "openrouter") setOpenrouterModel(e.target.value);
+                      else if (providerDraft === "mistral") setMistralModel(e.target.value);
+                      else setAnthropicModel(e.target.value);
+                    }}
                     className={`${inputClass} ${controlH} font-mono`}
                     placeholder={
-                      providerDraft === "openrouter" ? "openai/gpt-4o-mini" : "claude-sonnet-4-20250514"
+                      providerDraft === "openrouter"
+                        ? "openai/gpt-4o-mini"
+                        : providerDraft === "mistral"
+                          ? "mistral-small-latest"
+                          : "claude-sonnet-4-20250514"
                     }
                     autoComplete="off"
                   />
                   <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
                     {providerDraft === "openrouter"
-                      ? "ID exact sur OpenRouter (souvent fournisseur/nom). Défaut courant : openai/gpt-4o-mini."
-                      : "Identifiant du modèle Claude côté API Anthropic."}
+                      ? "ID exact sur OpenRouter. Utilisé si les paliers de réflexion sont désactivés."
+                      : providerDraft === "mistral"
+                        ? "Modèle de secours si un palier Courant / Médium / Expert n’est pas configuré."
+                        : "Identifiant du modèle Claude côté API Anthropic."}
                   </p>
                 </div>
                 <div className="flex lg:col-start-3 lg:row-start-2 lg:items-stretch">
@@ -470,7 +524,13 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                 </div>
               </div>
             </div>
-            <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 sm:px-6">
+            <div className="grid gap-3 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3 sm:px-6">
+              <ApiKeyStatusRow
+                kind="mistral"
+                label="Clé Mistral"
+                configured={Boolean(data.mistral_api_key_set)}
+                activeProvider={providerDraft}
+              />
               <ApiKeyStatusRow
                 kind="anthropic"
                 label="Clé Anthropic"
@@ -488,11 +548,11 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
               <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 text-xs leading-relaxed text-slate-600">
-                    <p className="font-semibold text-slate-800">Routage OpenRouter par paliers</p>
+                    <p className="font-semibold text-slate-800">Routage par niveaux de réflexion</p>
                     <p className="mt-1">
                       {savedTiersActive
-                        ? "Un JSON de paliers est enregistré : les modèles lite / standard / heavy peuvent remplacer le modèle en tête de page pour une partie des appels."
-                        : "Un brouillon JSON est présent dans « Options avancées » (non enregistré tant que tu n’as pas cliqué sur Enregistrer)."}
+                        ? "Les paliers Courant / Médium / Expert sont actifs — chaque type d’appel utilise le modèle adapté."
+                        : "Un brouillon JSON est présent dans « Options avancées » (non enregistré tant que vous n’avez pas cliqué sur Enregistrer)."}
                     </p>
                   </div>
                   <button
@@ -547,11 +607,99 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                     placeholder={data.anthropic_api_key_set ? "Laisser vide pour conserver" : "sk-ant-…"}
                     className={`${inputClass} font-mono`}
                   />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {saving ? "Enregistrement…" : "Enregistrer la clé"}
+                    </button>
+                    <p className="text-xs text-slate-500">Enregistre aussi le reste du formulaire visible.</p>
+                  </div>
                 </div>
+              </div>
+            ) : providerDraft === "mistral" ? (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Mistral AI</h2>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    Fournisseur principal. Collez votre clé API Mistral, puis cliquez{" "}
+                    <span className="font-medium">Enregistrer la clé</span> sous le champ (ou{" "}
+                    <span className="font-medium">Enregistrer</span> en bas de page).
+                  </p>
+                </div>
+                {mistralModels.length ? (
+                  <div>
+                    <p className={`${labelClass} mb-1.5`}>Raccourcis modèle (secours)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {mistralModels.map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-mono text-slate-700 hover:border-orange-300 hover:bg-orange-50/50"
+                          onClick={() => setMistralModel(m)}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                <div>
+                  <label className={`${labelClass} mb-1.5 block`} htmlFor="mistral_api_key">
+                    Clé API Mistral
+                  </label>
+                  <p className="mb-1.5 text-xs text-slate-500">
+                    {data.mistral_api_key_set
+                      ? "Déjà enregistrée — ne remplissez que pour la faire tourner."
+                      : "Obligatoire pour appeler l’API Mistral."}
+                  </p>
+                  <input
+                    id="mistral_api_key"
+                    name="mistral_api_key"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={data.mistral_api_key_set ? "Laisser vide pour conserver" : "Votre clé Mistral…"}
+                    className={`${inputClass} font-mono`}
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {saving ? "Enregistrement…" : "Enregistrer la clé"}
+                    </button>
+                    {data.mistral_api_key_set ? (
+                      <p className="text-xs font-medium text-emerald-700">Clé enregistrée côté serveur.</p>
+                    ) : (
+                      <p className="text-xs text-slate-500">Requis avant tout appel LLM Mistral.</p>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className={`${labelClass} mb-1.5 block`} htmlFor="mistral_base_url">
+                    URL de base API
+                  </label>
+                  <input
+                    id="mistral_base_url"
+                    name="mistral_base_url"
+                    type="url"
+                    value={mistralBase}
+                    onChange={(e) => setMistralBase(e.target.value)}
+                    placeholder="https://api.mistral.ai/v1"
+                    className={`${inputClass} font-mono text-xs`}
+                  />
+                </div>
+                <MistralReflectionTiersEditor
+                  tiersJson={tiersDraft || defaultMistralTiersJson()}
+                  onChange={setTiersDraft}
+                />
               </div>
             ) : (
               <div className="space-y-5">
-                <h2 className="text-base font-semibold text-slate-900">OpenRouter</h2>
+                <h2 className="text-base font-semibold text-slate-900">OpenRouter (option)</h2>
                 <p className="text-xs leading-relaxed text-slate-600">
                   Le modèle se saisit en haut à côté du fournisseur (format <span className="font-mono">fournisseur/nom</span>, ex.{" "}
                   <span className="font-mono">google/gemini-2.5-flash</span>), puis <span className="font-medium">Appliquer le modèle</span>. Variantes gratuites : suffixe{" "}
@@ -606,6 +754,16 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                     placeholder={data.openrouter_api_key_set ? "Laisser vide pour conserver" : "sk-or-…"}
                     className={`${inputClass} font-mono`}
                   />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {saving ? "Enregistrement…" : "Enregistrer la clé"}
+                    </button>
+                    <p className="text-xs text-slate-500">Enregistre aussi le reste du formulaire visible.</p>
+                  </div>
                 </div>
               </div>
             )}
@@ -621,7 +779,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
               <span>
                 <span className="block text-sm font-semibold text-slate-900">Options avancées</span>
                 <span className="mt-0.5 block text-xs text-slate-500">
-                  URL OpenRouter, en-têtes optionnels, coûts estimés, JSON des paliers
+                  URL Mistral / OpenRouter, en-têtes optionnels, coûts estimés, JSON des paliers
                 </span>
               </span>
               <span className={`shrink-0 text-slate-400 transition-transform ${showAdvanced ? "rotate-180" : ""}`} aria-hidden>

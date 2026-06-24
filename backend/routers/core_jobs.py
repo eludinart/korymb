@@ -22,6 +22,7 @@ from database import (
     job_close_mission_by_user,
     delete_mission_session,
     merge_job_deliverables_ui,
+    update_job,
 )
 from runtime_settings import merge_with_env
 from state import (
@@ -31,9 +32,27 @@ from state import (
     parse_team_field,
     extract_delivery_warnings_from_events,
 )
+from services.chat_surface import surface_chat_result
 
 router = APIRouter(tags=["jobs"])
 logger = logging.getLogger(__name__)
+
+
+def _result_surface_for_payload(job_like: dict, row_db: dict | None = None) -> str | None:
+    surf = job_like.get("result_surface")
+    if isinstance(surf, str) and surf.strip():
+        return surf.strip()
+    if row_db:
+        rs = row_db.get("result_surface")
+        if isinstance(rs, str) and rs.strip():
+            return rs.strip()
+    src = str(job_like.get("source") or (row_db or {}).get("source") or "")
+    raw = job_like.get("result")
+    if raw is None and row_db:
+        raw = row_db.get("result")
+    if src.startswith("chat") and raw:
+        return surface_chat_result(str(raw))
+    return None
 
 
 def _followup_payload_for_parent(job_id: str, row: dict, pin: float, pout: float) -> dict | None:
@@ -296,6 +315,155 @@ def list_jobs_cards_route(limit: int = 80):
     return {"jobs": list_jobs_cards_light(limit=limit)}
 
 
+_ACTIVE_JOB_STATUSES = frozenset({"running", "pending", "awaiting_validation", "paused"})
+
+
+def _event_preview(ev: dict) -> str:
+    if not isinstance(ev, dict):
+        return ""
+    t = str(ev.get("type") or "")
+    p = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+    if t == "tool_call":
+        return f"Outil · {str(p.get('tool') or '…')}"
+    if t == "delegation":
+        to = p.get("to")
+        if isinstance(to, list) and to:
+            return "Délégation → " + ", ".join(str(x) for x in to[:4])
+        return "Délégation équipe"
+    if t in ("sub_agent_working", "instruction_delivered"):
+        s = str(p.get("summary_fr") or p.get("phase") or "").strip()
+        return s[:140] if s else "Sous-agent au travail"
+    if t == "synthesis_start":
+        return "Synthèse CIO en cours"
+    if t == "synthesis_done":
+        return "Synthèse CIO terminée"
+    if t == "orchestration_start":
+        return "Orchestration démarrée"
+    if t == "mission_start":
+        return "Mission démarrée"
+    if t == "agent_turn_start":
+        return str(p.get("task_preview") or "Tour agent")[:120]
+    labels = {
+        "plan_parsed": "Plan analysé",
+        "mission_done": "Mission terminée",
+        "mission_cancelled": "Mission annulée",
+        "mission_paused": "Mission en pause",
+        "mission_resumed": "Mission reprise",
+        "delivery_review": "Revue livrables",
+    }
+    return labels.get(t, t.replace("_", " "))
+
+
+def _active_job_payload(job_id: str, mem: dict | None, row: dict | None) -> dict:
+    src_mem = mem or {}
+    src_row = row or {}
+    status = str(src_mem.get("status") or src_row.get("status") or "")
+    events = src_mem.get("events") if isinstance(src_mem.get("events"), list) else []
+    if not events and src_row.get("events_json"):
+        try:
+            import json as _json
+
+            parsed = _json.loads(str(src_row.get("events_json") or "[]"))
+            events = parsed[-40:] if isinstance(parsed, list) else []
+        except Exception:
+            events = []
+    last = events[-1] if events else {}
+    team = src_mem.get("team") if isinstance(src_mem.get("team"), list) else parse_team_field(src_row)
+    live = bool(mem and str(mem.get("status") or "") in _ACTIVE_JOB_STATUSES)
+    return {
+        "job_id": job_id,
+        "mission": str(src_mem.get("mission") or src_row.get("mission") or "")[:500],
+        "status": status,
+        "source": str(src_mem.get("source") or src_row.get("source") or "mission"),
+        "agent": str(src_mem.get("agent") or src_row.get("agent") or "coordinateur"),
+        "team": team,
+        "parent_job_id": src_mem.get("parent_job_id") or src_row.get("parent_job_id"),
+        "chat_session_id": src_mem.get("chat_session_id") or src_row.get("chat_session_id"),
+        "created_at": str(src_mem.get("created_at") or src_row.get("created_at") or ""),
+        "tokens_in": int(src_mem.get("tokens_in") or src_row.get("tokens_in") or 0),
+        "tokens_out": int(src_mem.get("tokens_out") or src_row.get("tokens_out") or 0),
+        "events": events[-60:],
+        "events_total": len(events),
+        "last_event_type": str(last.get("type") or "") if isinstance(last, dict) else None,
+        "last_event_agent": str(last.get("agent") or "") if isinstance(last, dict) else None,
+        "last_event_preview": _event_preview(last) if isinstance(last, dict) else "",
+        "pause_requested": bool(src_mem.get("pause_requested")),
+        "cancel_requested": bool(src_mem.get("cancel_requested")),
+        "execution_live": live,
+    }
+
+
+@router.get("/jobs/active", dependencies=[Depends(verify_secret)])
+def list_active_jobs_route():
+    """Jobs en cours (mémoire vive + base) pour le bandeau d'activité global."""
+    from database import list_jobs_active_rows
+
+    seen: set[str] = set()
+    out: list[dict] = []
+    for jid, mem in active_jobs.items():
+        st = str(mem.get("status") or "")
+        if st not in _ACTIVE_JOB_STATUSES:
+            continue
+        out.append(_active_job_payload(str(jid), mem, db_get_job(str(jid))))
+        seen.add(str(jid))
+    for row in list_jobs_active_rows(limit=24):
+        jid = str(row.get("id") or "")
+        if not jid or jid in seen:
+            continue
+        out.append(_active_job_payload(jid, active_jobs.get(jid), row))
+        seen.add(jid)
+    out.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    _rank = {"running": 0, "paused": 1, "pending": 2, "awaiting_validation": 3}
+    out.sort(key=lambda x: _rank.get(str(x.get("status") or ""), 9))
+    from database import list_jobs_recently_stopped_rows
+
+    stopped_rows = list_jobs_recently_stopped_rows(limit=8)
+    recently_stopped: list[dict] = []
+    for row in stopped_rows:
+        jid = str(row.get("id") or "")
+        if not jid or jid in seen:
+            continue
+        recently_stopped.append(_active_job_payload(jid, None, row))
+    orphan_count = sum(1 for j in out if not j.get("execution_live"))
+    return {
+        "jobs": out,
+        "count": len(out),
+        "orphan_count": orphan_count,
+        "recently_stopped": recently_stopped,
+    }
+
+
+@router.post("/jobs/cleanup-orphans", dependencies=[Depends(verify_secret)])
+def cleanup_orphan_jobs_route():
+    """Annule en base les jobs « running » sans thread actif (fantômes après redémarrage)."""
+    from database import list_orphan_active_job_rows
+
+    live_ids = set(active_jobs.keys())
+    cleaned: list[str] = []
+    msg = (
+        "## Mission interrompue\n\n"
+        "Processus fantôme nettoyé depuis le bandeau (plus actif côté serveur)."
+    )
+    for row in list_orphan_active_job_rows(limit=80):
+        jid = str(row.get("id") or "")
+        if not jid or jid in live_ids:
+            continue
+        st = str(row.get("status") or "")
+        if st not in ("running", "pending", "awaiting_validation", "paused"):
+            continue
+        update_job(
+            jid,
+            "cancelled",
+            msg,
+            logs=[],
+            tokens_in=int(row.get("tokens_in") or 0),
+            tokens_out=int(row.get("tokens_out") or 0),
+            source=row.get("source"),
+        )
+        cleaned.append(jid)
+    return {"ok": True, "cleaned": cleaned, "count": len(cleaned)}
+
+
 @router.get("/jobs/light", dependencies=[Depends(verify_secret)])
 def list_jobs_light_route(limit: int = 50):
     """Liste minimale pour compteurs UI (évite mission_thread / events / plan)."""
@@ -365,7 +533,9 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         fb = _followup_payload_for_parent(job_id, row_db or {}, pin, pout) if row_db else None
         out = {
             "job_id": job_id, "status": job["status"], "agent": job["agent"], "mission": job["mission"],
-            "result": job.get("result"), "team": job.get("team") or [],
+            "result": job.get("result"),
+            "result_surface": _result_surface_for_payload(job, row_db),
+            "team": job.get("team") or [],
             "logs": logs[log_offset:], "log_total": len(logs),
             "tokens_in": job.get("tokens_in", 0), "tokens_out": job.get("tokens_out", 0),
             "tokens_total": total,
@@ -385,8 +555,10 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             out["latest_chat_followup"] = fb
         if row_db:
             out["deliverables_ui"] = row_db.get("deliverables_ui") or {"agents": {}}
+            out["drive_artifacts"] = row_db.get("drive_artifacts") or []
         else:
             out["deliverables_ui"] = {"agents": {}}
+            out["drive_artifacts"] = []
         return out
     row = db_get_job(job_id)
     if not row:
@@ -408,7 +580,9 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     fb = _followup_payload_for_parent(job_id, row, pin, pout)
     out = {
         "job_id": job_id, "status": row["status"], "agent": row["agent"], "mission": row["mission"],
-        "result": row.get("result"), "team": parse_team_field(row),
+        "result": row.get("result"),
+        "result_surface": _result_surface_for_payload(row),
+        "team": parse_team_field(row),
         "logs": logs[log_offset:], "log_total": len(logs),
         "tokens_in": row.get("tokens_in", 0), "tokens_out": row.get("tokens_out", 0),
         "tokens_total": total,
@@ -427,6 +601,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     if fb:
         out["latest_chat_followup"] = fb
     out["deliverables_ui"] = row.get("deliverables_ui") or {"agents": {}}
+    out["drive_artifacts"] = row.get("drive_artifacts") or []
     return out
 
 
@@ -446,13 +621,96 @@ def cancel_running_job(job_id: str):
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
     row = active_jobs.get(jid)
-    if not row:
-        raise HTTPException(status_code=404, detail="Mission introuvable en mémoire (déjà terminée ou redémarrage serveur).")
-    st = str(row.get("status") or "")
-    if st not in ("running", "awaiting_validation"):
+    if row:
+        st = str(row.get("status") or "")
+        if st not in ("running", "awaiting_validation", "paused", "pending"):
+            raise HTTPException(status_code=400, detail="La mission n'est pas en cours d'exécution.")
+        row["cancel_requested"] = True
+        row["pause_requested"] = False
+        return {"ok": True, "job_id": jid, "message": "Annulation enregistrée ; l'exécution s'arrête dès la prochaine étape."}
+    db_row = db_get_job(jid)
+    if not db_row:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    st_db = str(db_row.get("status") or "")
+    if st_db not in ("running", "pending", "awaiting_validation", "paused"):
         raise HTTPException(status_code=400, detail="La mission n'est pas en cours d'exécution.")
-    row["cancel_requested"] = True
-    return {"ok": True, "job_id": jid, "message": "Annulation enregistrée ; l'exécution s'arrête dès la prochaine étape."}
+    msg = (
+        "## Mission interrompue\n\n"
+        "L'exécution a été **stoppée manuellement** depuis le bandeau d'activité "
+        "(processus non actif en mémoire serveur)."
+    )
+    update_job(
+        jid,
+        "cancelled",
+        msg,
+        logs=[],
+        tokens_in=int(db_row.get("tokens_in") or 0),
+        tokens_out=int(db_row.get("tokens_out") or 0),
+        source=db_row.get("source"),
+    )
+    return {
+        "ok": True,
+        "job_id": jid,
+        "forced": True,
+        "message": "Mission marquée annulée (processus déjà terminé côté serveur).",
+    }
+
+
+@router.post("/jobs/{job_id}/pause", dependencies=[Depends(verify_secret)])
+def pause_running_job(job_id: str):
+    jid = (job_id or "").strip()
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = active_jobs.get(jid)
+    if row:
+        st = str(row.get("status") or "")
+        if st not in ("running",):
+            raise HTTPException(status_code=400, detail="Seule une mission en cours peut être mise en pause.")
+        row["pause_requested"] = True
+        row["status"] = "paused"
+        from database import set_job_status_quick
+        from state import emit_job_event
+
+        set_job_status_quick(jid, "paused")
+        emit_job_event(jid, "mission_paused", None, {"reason": "user_pause"})
+        return {"ok": True, "job_id": jid, "status": "paused", "execution_live": True, "message": "Pause enregistrée ; reprise possible à tout moment."}
+    db_row = db_get_job(jid)
+    if not db_row:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    st_db = str(db_row.get("status") or "")
+    if st_db not in ("running", "pending"):
+        raise HTTPException(status_code=400, detail="Seule une mission en cours peut être mise en pause.")
+    from database import set_job_status_quick
+
+    set_job_status_quick(jid, "paused")
+    return {
+        "ok": True,
+        "job_id": jid,
+        "status": "paused",
+        "forced": True,
+        "execution_live": False,
+        "message": "Processus fantôme mis en pause en base. Utilisez Relancer pour repartir ou Arrêter pour nettoyer.",
+    }
+
+
+@router.post("/jobs/{job_id}/resume-work", dependencies=[Depends(verify_secret)])
+def resume_paused_job(job_id: str):
+    jid = (job_id or "").strip()
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = active_jobs.get(jid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Mission introuvable en mémoire.")
+    if not row.get("pause_requested") and str(row.get("status") or "") != "paused":
+        raise HTTPException(status_code=400, detail="La mission n'est pas en pause.")
+    row["pause_requested"] = False
+    row["status"] = "running"
+    from database import set_job_status_quick
+    from state import emit_job_event
+
+    set_job_status_quick(jid, "running")
+    emit_job_event(jid, "mission_resumed", None, {"reason": "user_resume"})
+    return {"ok": True, "job_id": jid, "status": "running", "execution_live": True, "message": "Mission reprise."}
 
 
 @router.put("/jobs/{job_id}/deliverables-ui", dependencies=[Depends(verify_secret)])
@@ -474,6 +732,7 @@ def cio_answer(job_id: str, payload: dict):
     Injecte dans mission_thread (state + DB) pour que la synthèse CIO en cours ou future en tienne compte.
     """
     answer = str(payload.get("answer", "")).strip()
+    question = str(payload.get("question", "")).strip()
     if not answer:
         raise HTTPException(status_code=400, detail="Réponse vide.")
 
@@ -488,19 +747,32 @@ def cio_answer(job_id: str, payload: dict):
     if row is None:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
 
+    if question:
+        thread_content = f"[Réponse arbitrage CIO]\nQuestion : {question}\nRéponse : {answer}"
+        thread_source = "cio_arbitrage_answer"
+    else:
+        thread_content = f"[Réponse questions CIO] {answer}"
+        thread_source = "cio_question_answer"
+
     try:
         append_job_mission_thread(
             jid,
             role="user",
             agent="dirigeant",
-            content=f"[Réponse questions CIO] {answer}",
-            source="cio_question_answer",
+            content=thread_content,
+            source=thread_source,
         )
     except Exception:
         raise HTTPException(status_code=500, detail="Impossible d'enregistrer la réponse sur le fil mission.") from None
 
-    from database import mark_cio_questions_answered
-    mark_cio_questions_answered(jid)
+    from database import list_cio_arbitrage_answers, mark_cio_questions_answered, record_cio_arbitrage_answer
+
+    question_answers: dict[str, str] = {}
+    if question:
+        question_answers = record_cio_arbitrage_answer(jid, question, answer)
+    else:
+        mark_cio_questions_answered(jid)
+        question_answers = list_cio_arbitrage_answers(jid)
 
     refreshed = db_get_job(jid)
     job = active_jobs.get(jid)
@@ -509,13 +781,20 @@ def cio_answer(job_id: str, payload: dict):
         job["events"] = list(refreshed.get("events") or [])
         events = job.setdefault("events", [])
         events.append({
-            "type": "cio_question_answer",
+            "type": "cio_arbitrage_answer" if question else "cio_question_answer",
             "actor": "dirigeant",
             "ts": now,
-            "data": {"answer": answer},
+            "data": {"answer": answer, **({"question": question} if question else {})},
         })
 
-    return {"ok": True, "job_id": jid, "stored": True, "answer": answer}
+    return {
+        "ok": True,
+        "job_id": jid,
+        "stored": True,
+        "answer": answer,
+        "question": question or None,
+        "question_answers": question_answers,
+    }
 
 
 class HitlResolveBody(BaseModel):

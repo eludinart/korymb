@@ -25,9 +25,29 @@ class KorymbJobCancelled(Exception):
     """Annulation demandée par l'utilisateur (POST /jobs/{id}/cancel)."""
 
 
+def _wait_while_job_paused(job_id: str) -> None:
+    """Bloque le thread mission jusqu'à reprise ou annulation."""
+    import time
+
+    job = active_jobs.get(job_id)
+    if not job or not job.get("pause_requested"):
+        return
+    if str(job.get("status") or "") == "running":
+        job["status"] = "paused"
+    while job_id in active_jobs and active_jobs[job_id].get("pause_requested"):
+        if active_jobs[job_id].get("cancel_requested"):
+            raise KorymbJobCancelled()
+        time.sleep(0.35)
+    if job_id in active_jobs and str(active_jobs[job_id].get("status") or "") == "paused":
+        active_jobs[job_id]["status"] = "running"
+
+
 def raise_if_job_cancelled(job_id: str | None) -> None:
-    if job_id and job_id in active_jobs and active_jobs[job_id].get("cancel_requested"):
-        raise KorymbJobCancelled()
+    if job_id and job_id in active_jobs:
+        if active_jobs[job_id].get("cancel_requested"):
+            raise KorymbJobCancelled()
+        if active_jobs[job_id].get("pause_requested"):
+            _wait_while_job_paused(job_id)
 
 
 def today() -> str:
@@ -97,6 +117,19 @@ def emit_job_event(
     payload: dict | None = None,
 ) -> None:
     """Append-only : prêt pour export NDJSON / bus async plus tard."""
+    if job_id and job_id in active_jobs:
+        job_src = str(active_jobs[job_id].get("source") or "")
+        if job_src == "chat":
+            _chat_public_events = frozenset({
+                "mission_start",
+                "orchestration_start",
+                "synthesis_start",
+                "synthesis_done",
+                "mission_done",
+                "error",
+            })
+            if typ not in _chat_public_events:
+                return
     if not job_id or job_id not in active_jobs:
         if typ in (
             "delegation",

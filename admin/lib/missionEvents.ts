@@ -19,6 +19,8 @@ const TYPE_LABELS_FR: Record<string, string> = {
   synthesis_done: "Synthèse terminée",
   mission_done: "Mission terminée",
   mission_cancelled: "Mission interrompue",
+  mission_paused: "Mission en pause",
+  mission_resumed: "Mission reprise",
   refinement_round: "Boucle d'exécution (affinage)",
   error: "Erreur",
   team_dialogue: "Échange équipe",

@@ -14,6 +14,7 @@ type Props = {
   variant?: "compact" | "full";
   onLiveJobIdChange?: (liveId: string | null) => void;
   liveJobId?: string | null;
+  onAccepted?: () => void;
   className?: string;
 };
 
@@ -25,6 +26,7 @@ export default function CioResumePanel({
   variant = "full",
   onLiveJobIdChange,
   liveJobId = null,
+  onAccepted,
   className = "",
 }: Props) {
   const [input, setInput] = useState("");
@@ -65,6 +67,7 @@ export default function CioResumePanel({
       setInput("");
       if (data?.status === "accepted" && data?.job_id) {
         onLiveJobIdChange?.(String(data.job_id));
+        onAccepted?.();
       } else {
         setError("Réponse chat inattendue (pas de job_id).");
       }

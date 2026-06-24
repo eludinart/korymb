@@ -10,6 +10,7 @@ from auth import verify_secret
 from database import (
     get_conn,
     get_learning_suggestion,
+    dismiss_inbox_item,
     list_director_notifications,
     mark_all_director_notifications_read,
     mark_director_notification_read,
@@ -25,6 +26,14 @@ class LearningResolveBody(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
 
 
+class InboxDismissBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(..., min_length=1, max_length=32)
+    job_id: str | None = Field(None, max_length=16)
+    output_id: str | None = Field(None, max_length=64)
+    suggestion_id: str | None = Field(None, max_length=64)
+
+
 class RepriseAuditBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     nb_proposals: int = Field(5, ge=1, le=10)
@@ -35,8 +44,14 @@ class RepriseItemActionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     domain_id: str = Field(..., min_length=1, max_length=80)
     item_text: str = Field(..., min_length=1, max_length=500)
-    action: str = Field(..., pattern="^(validated|noted|deferred)$")
+    action: str = Field(..., pattern="^(validated|noted|deferred|ignored)$")
     note: str = Field("", max_length=4000)
+
+
+class RepriseItemReopenBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    domain_id: str = Field(..., min_length=1, max_length=80)
+    item_text: str = Field(..., min_length=1, max_length=500)
 
 
 class RepriseChecklistItem(BaseModel):
@@ -89,6 +104,17 @@ def admin_reprise_record_action(body: RepriseItemActionBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/admin/reprise/actions/reopen", dependencies=[Depends(verify_secret)])
+def admin_reprise_reopen_item(body: RepriseItemReopenBody):
+    """Réaffiche un point checklist ignoré ou reporté."""
+    from services.reprise_audit import reopen_reprise_item
+
+    try:
+        return reopen_reprise_item(domain_id=body.domain_id, item_text=body.item_text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/admin/reprise/items/missions", dependencies=[Depends(verify_secret)])
 def admin_reprise_items_missions(body: RepriseItemsMissionsBody):
     """Transforme des points checklist sélectionnés en propositions de mission."""
@@ -128,6 +154,19 @@ async def admin_reprise_audit(body: RepriseAuditBody):
 @router.get("/admin/inbox", dependencies=[Depends(verify_secret)])
 def admin_inbox(limit: int = Query(40, ge=1, le=200)):
     return build_enriched_inbox(limit=limit)
+
+
+@router.post("/admin/inbox/dismiss", dependencies=[Depends(verify_secret)])
+def admin_inbox_dismiss(body: InboxDismissBody):
+    try:
+        return dismiss_inbox_item(
+            body.kind,
+            job_id=body.job_id,
+            output_id=body.output_id,
+            suggestion_id=body.suggestion_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _require_database_or_503() -> None:

@@ -128,6 +128,8 @@ export function useKorymbEventStream(): RuntimeStreamState {
           jobInvalidateTimer = window.setTimeout(() => {
             void queryClient.invalidateQueries({ queryKey: QK.jobsCards });
             void queryClient.invalidateQueries({ queryKey: QK.jobsLight });
+            void queryClient.invalidateQueries({ queryKey: QK.jobsActive });
+            void queryClient.invalidateQueries({ queryKey: QK.deliverablesLibrary });
           }, 4000);
           const jid = d?.job_id != null ? String(d.job_id) : "";
           if (jid) {

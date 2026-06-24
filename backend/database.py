@@ -170,8 +170,12 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN parent_job_id TEXT")
     if "chat_session_id" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN chat_session_id TEXT")
+    if "result_surface" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN result_surface TEXT")
     if "deliverables_ui_json" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN deliverables_ui_json TEXT NOT NULL DEFAULT '{}'")
+    if "drive_artifacts_json" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN drive_artifacts_json TEXT NOT NULL DEFAULT '[]'")
     if "orchestration_phase" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN orchestration_phase TEXT NOT NULL DEFAULT ''")
     if "checkpoint_thread_id" not in cols:
@@ -192,6 +196,7 @@ def _ensure_jobs_longtext_columns(conn) -> None:
         "team_trace": "LONGTEXT DEFAULT '[]'",
         "mission_config_json": "LONGTEXT NOT NULL DEFAULT '{}'",
         "deliverables_ui_json": "LONGTEXT NOT NULL DEFAULT '{}'",
+        "drive_artifacts_json": "LONGTEXT NOT NULL DEFAULT '[]'",
     }
     for col, ddl_tail in specs.items():
         try:
@@ -360,6 +365,23 @@ def _ensure_platform_tables(conn) -> None:
             PRIMARY KEY (domain_id, item_text)
         )
     """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS chat_sessions (
+            id {text_pk} PRIMARY KEY,
+            summary TEXT NOT NULL DEFAULT '',
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            entities_json TEXT NOT NULL DEFAULT '{{}}',
+            updated_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS inbox_dismissals (
+            dismiss_key {text_pk} PRIMARY KEY,
+            kind TEXT NOT NULL,
+            ref_id TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -448,6 +470,14 @@ def _hydrate_job_row(d: dict) -> dict:
         agents_u = {}
     out["deliverables_ui"] = {"agents": agents_u}
     out.pop("deliverables_ui_json", None)
+    try:
+        da = json.loads(out.get("drive_artifacts_json") or "[]")
+    except json.JSONDecodeError:
+        da = []
+    if not isinstance(da, list):
+        da = []
+    out["drive_artifacts"] = da
+    out.pop("drive_artifacts_json", None)
     raw_hres = out.get("hitl_resolution_json")
     if raw_hres:
         try:
@@ -1031,6 +1061,7 @@ def update_job(
     events: list | None = None,
     source: str | None = None,
     mission_config: dict | None = None,
+    result_surface: str | None = None,
 ):
     now = datetime.utcnow().isoformat()
     team_json = json.dumps(team_trace if team_trace is not None else [], ensure_ascii=False)
@@ -1066,10 +1097,79 @@ def update_job(
     if mission_config is not None:
         sets.append("mission_config_json=?")
         vals.append(json.dumps(mission_config, ensure_ascii=False))
+    if result_surface is not None:
+        sets.append("result_surface=?")
+        vals.append(result_surface)
     vals.append(job_id)
 
     with get_conn() as conn:
         conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=?", vals)
+        conn.commit()
+
+
+def set_job_status_quick(job_id: str, status: str) -> None:
+    """Mise à jour légère du statut (pause / annulation fantôme)."""
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET status=?, updated_at=? WHERE id=?",
+            (str(status or "")[:32], now, job_id),
+        )
+        conn.commit()
+
+
+def list_orphan_active_job_rows(limit: int = 40) -> list[dict]:
+    """Jobs actifs en base mais sans thread mémoire (à nettoyer)."""
+    lim = max(1, min(int(limit), 80))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
+            "chat_session_id, team_trace, tokens_in, tokens_out "
+            "FROM jobs WHERE status IN ('running', 'pending', 'awaiting_validation', 'paused') "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
+def get_chat_session_summary(session_id: str) -> str:
+    """Résumé compressé d'une session chat (vide si inexistante)."""
+    sid = (session_id or "").strip()[:64]
+    if not sid:
+        return ""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT summary FROM chat_sessions WHERE id=?",
+            (sid,),
+        ).fetchone()
+    if not row:
+        return ""
+    summary = row[0] if not isinstance(row, dict) else row.get("summary")
+    return str(summary or "").strip()
+
+
+def upsert_chat_session_summary(session_id: str, summary: str, turn_count: int) -> None:
+    sid = (session_id or "").strip()[:64]
+    if not sid:
+        return
+    now = datetime.utcnow().isoformat()
+    summ = (summary or "")[:12000]
+    turns = max(0, int(turn_count))
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at) "
+                "VALUES (?, ?, ?, '{}', ?) "
+                "ON DUPLICATE KEY UPDATE summary = VALUES(summary), turn_count = VALUES(turn_count), updated_at = VALUES(updated_at)",
+                (sid, summ, turns, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at) "
+                "VALUES (?, ?, ?, '{}', ?) "
+                "ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, turn_count=excluded.turn_count, updated_at=excluded.updated_at",
+                (sid, summ, turns, now),
+            )
         conn.commit()
 
 
@@ -1278,6 +1378,28 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
         conn.execute(
             "UPDATE jobs SET deliverables_ui_json=?, updated_at=? WHERE id=?",
             (json.dumps(payload, ensure_ascii=False), now, jid),
+        )
+        conn.commit()
+    return get_job(jid)
+
+
+def append_job_drive_artifacts(job_id: str, artifacts: list[dict[str, Any]] | None) -> dict | None:
+    """Ajoute des fichiers Drive exportés automatiquement au job."""
+    jid = (job_id or "").strip()[:16]
+    if not jid or not artifacts:
+        return get_job(jid) if jid else None
+    row = get_job(jid)
+    if not row:
+        return None
+    cur = list(row.get("drive_artifacts") or [])
+    if not isinstance(cur, list):
+        cur = []
+    cur.extend(artifacts)
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET drive_artifacts_json=?, updated_at=? WHERE id=?",
+            (json.dumps(cur[-20:], ensure_ascii=False), now, jid),
         )
         conn.commit()
     return get_job(jid)
@@ -1675,7 +1797,7 @@ _CONTEXT_KEYS_LEGACY = frozenset(
     {"global", "commercial", "community_manager", "developpeur", "comptable"},
 )
 # Champs système persistés dans contexts_json (hors volets métier édités par l’admin).
-_SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset({"auto_summary"})
+_SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset({"auto_summary", "drive_workspace"})
 
 CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
 _CUSTOM_AGENT_RESERVED = frozenset(
@@ -2400,6 +2522,113 @@ def delete_job_cascade(job_id: str) -> bool:
     return True
 
 
+def make_inbox_dismiss_key(
+    kind: str,
+    *,
+    job_id: str | None = None,
+    output_id: str | None = None,
+    suggestion_id: str | None = None,
+) -> str:
+    k = (kind or "").strip()
+    jid = (job_id or "").strip()[:16]
+    oid = (output_id or "").strip()[:64]
+    sid = (suggestion_id or "").strip()[:64]
+    if k in ("hitl", "cio_question", "closure", "quality") and jid:
+        return f"{k}:{jid}"
+    if k == "scheduler_output" and oid:
+        return f"scheduler_output:{oid}"
+    if k == "learning_suggestion" and sid:
+        return f"learning_suggestion:{sid}"
+    raise ValueError(f"Impossible de construire une clé de rejet pour kind={k!r}")
+
+
+def list_inbox_dismiss_keys() -> set[str]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT dismiss_key FROM inbox_dismissals").fetchall()
+    out: set[str] = set()
+    for row in rows or []:
+        if isinstance(row, dict):
+            key = str(row.get("dismiss_key") or "").strip()
+        else:
+            key = str(row[0] if row else "").strip()
+        if key:
+            out.add(key)
+    return out
+
+
+def dismiss_inbox_item(
+    kind: str,
+    *,
+    job_id: str | None = None,
+    output_id: str | None = None,
+    suggestion_id: str | None = None,
+) -> dict:
+    """Masque un élément inbox/briefing pour le dirigeant (persistant)."""
+    key = make_inbox_dismiss_key(
+        kind,
+        job_id=job_id,
+        output_id=output_id,
+        suggestion_id=suggestion_id,
+    )
+    ref = (job_id or output_id or suggestion_id or "").strip()[:64]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at) VALUES (?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)",
+                (key, (kind or "").strip()[:32], ref, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(dismiss_key) DO UPDATE SET created_at = excluded.created_at",
+                (key, (kind or "").strip()[:32], ref, now),
+            )
+        conn.commit()
+    if kind == "cio_question" and (job_id or "").strip():
+        mark_cio_questions_dismissed((job_id or "").strip()[:16])
+    return {"dismissed": True, "dismiss_key": key}
+
+
+def mark_cio_questions_dismissed(job_id: str) -> bool:
+    """Marque les questions CIO comme ignorées par le dirigeant (answered + dismissed)."""
+    row = get_job(job_id)
+    if not row:
+        return False
+    events = list(row.get("events") or [])
+    changed = False
+    patched: list = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            patched.append(ev)
+            continue
+        if ev.get("type") == "cio_question":
+            from observability import event_payload
+
+            pl = dict(event_payload(ev))
+            if not pl.get("answered"):
+                pl["answered"] = True
+                pl["dismissed"] = True
+                ev = dict(ev)
+                if isinstance(ev.get("payload"), dict):
+                    ev["payload"] = pl
+                else:
+                    ev["data"] = pl
+                changed = True
+        patched.append(ev)
+    if not changed:
+        return False
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id),
+        )
+        conn.commit()
+    return True
+
+
 def mark_cio_questions_answered(job_id: str) -> bool:
     """Marque les événements cio_question non répondus comme answered=true."""
     row = get_job(job_id)
@@ -2437,6 +2666,92 @@ def mark_cio_questions_answered(job_id: str) -> bool:
     return True
 
 
+def _patch_cio_question_event(ev: dict, question: str, answer: str) -> dict:
+    from observability import event_payload
+
+    pl = dict(event_payload(ev))
+    qa = dict(pl.get("question_answers") or {})
+    qa[question] = answer
+    pl["question_answers"] = qa
+    qs = [str(x).strip() for x in (pl.get("questions") or []) if str(x).strip()]
+    if qs and all(qq in qa for qq in qs):
+        pl["answered"] = True
+    ev = dict(ev)
+    if isinstance(ev.get("payload"), dict):
+        ev["payload"] = pl
+    else:
+        ev["data"] = pl
+    return ev
+
+
+def record_cio_arbitrage_answer(job_id: str, question: str, answer: str) -> dict[str, str]:
+    """Enregistre une réponse à une question CIO précise (arbitrage unitaire)."""
+    q = (question or "").strip()
+    a = (answer or "").strip()
+    if not q or not a:
+        return {}
+    row = get_job(job_id)
+    if not row:
+        return {}
+    from observability import event_payload
+
+    events = list(row.get("events") or [])
+    patched: list = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            patched.append(ev)
+            continue
+        if ev.get("type") == "cio_question":
+            pl = event_payload(ev)
+            qs = [str(x).strip() for x in (pl.get("questions") or []) if str(x).strip()]
+            if q in qs:
+                patched.append(_patch_cio_question_event(ev, q, a))
+                continue
+        patched.append(ev)
+
+    now = datetime.utcnow().isoformat()
+    patched.append({
+        "type": "cio_arbitrage_answer",
+        "actor": "dirigeant",
+        "ts": now,
+        "payload": {"question": q, "answer": a},
+    })
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id),
+        )
+        conn.commit()
+    return list_cio_arbitrage_answers(job_id)
+
+
+def list_cio_arbitrage_answers(job_id: str) -> dict[str, str]:
+    """Retourne les réponses dirigeant indexées par libellé de question."""
+    row = get_job(job_id)
+    if not row:
+        return {}
+    from observability import event_payload
+
+    out: dict[str, str] = {}
+    for ev in row.get("events") or []:
+        if not isinstance(ev, dict):
+            continue
+        if ev.get("type") == "cio_arbitrage_answer":
+            pl = event_payload(ev)
+            qq = str(pl.get("question") or "").strip()
+            aa = str(pl.get("answer") or "").strip()
+            if qq and aa:
+                out[qq] = aa
+        elif ev.get("type") == "cio_question":
+            pl = event_payload(ev)
+            for qq, aa in (pl.get("question_answers") or {}).items():
+                qq_s = str(qq).strip()
+                aa_s = str(aa).strip()
+                if qq_s and aa_s:
+                    out[qq_s] = aa_s
+    return out
+
+
 def _cio_events_from_events_json(raw: str | None) -> list[dict]:
     """Extrait uniquement les événements cio_question (évite de parser tout le journal)."""
     text = raw or "[]"
@@ -2458,6 +2773,55 @@ def list_jobs_list_light(limit: int = 50) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, tokens_in, tokens_out, "
             "parent_job_id, user_validated_at FROM jobs ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
+def list_deliverables_library_rows(limit: int = 200) -> list[dict]:
+    """Jobs terminés avec livrables Drive ou blocs LIVRABLE."""
+    lim = max(1, min(int(limit), 400))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
+            "chat_session_id, result, drive_artifacts_json "
+            "FROM jobs WHERE status = 'completed' AND ("
+            "(drive_artifacts_json IS NOT NULL AND drive_artifacts_json != '[]' AND drive_artifacts_json != '') "
+            "OR result LIKE '%%#### LIVRABLE%%' "
+            "OR result LIKE '%%drive.google.com%%' "
+            "OR result LIKE '%%docs.google.com%%'"
+            ") ORDER BY updated_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
+def list_jobs_recently_stopped_rows(limit: int = 8, hours: int = 48) -> list[dict]:
+    """Missions annulées récemment — relance depuis le bandeau."""
+    from datetime import datetime, timedelta
+
+    lim = max(1, min(int(limit), 16))
+    cutoff = (datetime.utcnow() - timedelta(hours=max(1, min(int(hours), 168)))).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
+            "chat_session_id, team_trace, tokens_in, tokens_out "
+            "FROM jobs WHERE status = 'cancelled' AND updated_at >= ? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (cutoff, lim),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
+def list_jobs_active_rows(limit: int = 24) -> list[dict]:
+    """Jobs running / pending / awaiting_validation pour le bandeau d'activité."""
+    lim = max(1, min(int(limit), 40))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
+            "chat_session_id, team_trace, tokens_in, tokens_out, events_json "
+            "FROM jobs WHERE status IN ('running', 'pending', 'awaiting_validation', 'paused') "
+            "ORDER BY updated_at DESC LIMIT ?",
             (lim,),
         ).fetchall()
     return [dict(row) for row in rows or []]
@@ -2721,7 +3085,9 @@ def resolve_learning_suggestion(suggestion_id: str, status: str) -> dict | None:
     return get_learning_suggestion(suggestion_id)
 
 
-REPRISE_ACTIONS_ALLOWED = frozenset({"validated", "noted", "deferred", "mission_pending", "agent_launched"})
+REPRISE_ACTIONS_ALLOWED = frozenset({
+    "validated", "noted", "deferred", "ignored", "mission_pending", "agent_launched",
+})
 
 
 def list_reprise_checklist_actions() -> list[dict]:
@@ -2785,6 +3151,23 @@ def upsert_reprise_checklist_action(
             )
         conn.commit()
     return get_reprise_checklist_action(dom, item) or {}
+
+
+def delete_reprise_checklist_action(domain_id: str, item_text: str) -> bool:
+    dom = (domain_id or "").strip()
+    item = (item_text or "").strip()
+    if not dom or not item:
+        return False
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM reprise_checklist_actions WHERE domain_id=? AND item_text=?",
+            (dom, item),
+        )
+        conn.commit()
+    try:
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+    except (TypeError, ValueError):
+        return True
 
 
 def list_playbooks(*, category: str | None = None) -> list[dict]:

@@ -13,8 +13,8 @@ type Props = {
   latestChild?: Job;
   busy: boolean;
   onSelect: (jobId: string) => void;
-  onValidate: (jobId: string) => void;
-  onClose: (jobId: string) => void;
+  onValidate: (jobId: string, mission?: string | null) => void;
+  onClose: (jobId: string, mission?: string | null) => void;
 };
 
 /** Carte mission de la liste /missions : statut, brief, bilan CIO, actions valider/clôturer. */
@@ -59,9 +59,7 @@ export default function MissionListCard({ job: j, latestChild, busy, onSelect, o
               <p className="text-xs font-medium text-slate-500">(mission sans titre)</p>
             )}
           </div>
-          <p className="font-mono text-xs text-slate-500">
-            #{j.job_id} · {j.agent || "coordinateur"}
-          </p>
+          <p className="text-xs text-slate-500">{j.agent || "coordinateur"}</p>
           {previewText ? (
             <SimpleAccordion
               title="Bilan CIO"
@@ -84,7 +82,7 @@ export default function MissionListCard({ job: j, latestChild, busy, onSelect, o
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onValidate(j.job_id);
+              onValidate(j.job_id, j.mission);
             }}
             disabled={busy}
             className="min-h-[44px] w-full shrink-0 rounded-lg bg-violet-900 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
@@ -96,7 +94,7 @@ export default function MissionListCard({ job: j, latestChild, busy, onSelect, o
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onClose(j.job_id);
+              onClose(j.job_id, j.mission);
             }}
             disabled={busy}
             className="min-h-[44px] w-full shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 disabled:opacity-40 sm:w-auto"

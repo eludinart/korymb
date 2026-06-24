@@ -4,6 +4,7 @@ import "./globals.css";
 import Providers from "../components/Providers";
 import AppNav from "../components/AppNav";
 import GlobalStatusBar from "../components/GlobalStatusBar";
+import AgentWorkActivityBar from "../components/AgentWorkActivityBar";
 import RuntimeHeader from "../components/RuntimeHeader";
 import NotificationBell from "../components/director/NotificationBell";
 
@@ -47,7 +48,8 @@ export default function RootLayout({
               <AppNav />
             </div>
             <div className="app-status-strip">
-              <div className="w-full min-w-0 px-3 py-2.5 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+              <div className="w-full min-w-0 space-y-2.5 px-3 py-2.5 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+                <AgentWorkActivityBar />
                 <GlobalStatusBar />
               </div>
             </div>

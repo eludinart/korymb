@@ -29,7 +29,8 @@ from database import (
     usage_daily_breakdown,
 )
 from runtime_settings import merge_with_env
-from llm_tiers import resolve_openrouter_tier, tier_config_public
+from llm_tiers import resolve_llm_tier, tier_config_public
+from llm_providers import is_chat_completions_provider, normalize_llm_provider
 from state import active_jobs, daily_tokens, today, tokens_inflight
 from database import get_job as _db_get_job
 from version import BACKEND_REVISION_AT, BACKEND_VERSION
@@ -99,6 +100,10 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     cfg = merge_with_env()
 
     status: dict[str, dict] = {
+        "llm_mistral": {
+            "configured": _env_is_set("MISTRAL_API_KEY"),
+            "provider_selected": str(cfg.get("llm_provider") or "") == "mistral",
+        },
         "llm_openrouter": {
             "configured": _env_is_set("OPENROUTER_API_KEY"),
             "provider_selected": str(cfg.get("llm_provider") or "") == "openrouter",
@@ -306,9 +311,9 @@ def _lifetime_tokens_total() -> int:
 
 def _runtime_sync_snapshot() -> dict:
     cfg = merge_with_env()
-    provider = str(cfg.get("llm_provider") or "anthropic").strip().lower()
-    if provider == "openrouter":
-        model, _, _, _ = resolve_openrouter_tier(cfg, "lite")
+    provider = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(provider):
+        model, _, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
     else:
         provider = "anthropic"
         model = cfg.get("anthropic_model")
@@ -399,15 +404,16 @@ def probe_web_tools_endpoint(refresh: bool = False):
 @router.get("/llm")
 def llm_public_info():
     cfg = merge_with_env()
-    provider = str(cfg.get("llm_provider") or "anthropic").strip().lower()
-    if provider == "openrouter":
-        model, tier_key, _, _ = resolve_openrouter_tier(cfg, "lite")
+    provider = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(provider):
+        model, tier_key, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
         payload = {
-            "provider": "openrouter",
+            "provider": provider,
             "model": model,
-            "model_fallback": cfg.get("openrouter_model"),
+            "model_fallback": cfg.get("mistral_model") if provider == "mistral" else cfg.get("openrouter_model"),
             "tier": tier_key,
-            "base_url": cfg.get("openrouter_base_url"),
+            "base_url": cfg.get("mistral_base_url") if provider == "mistral" else cfg.get("openrouter_base_url"),
+            "tier_labels": tier_config_public(cfg).get("tier_labels"),
         }
     else:
         payload = {"provider": "anthropic", "model": cfg.get("anthropic_model")}

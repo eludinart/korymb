@@ -52,7 +52,7 @@ _GDRIVE_FOLDER_ID  = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
 _GOOGLE_REFRESH_TOKEN   = os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
 _GOOGLE_CLIENT_ID       = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
 _GOOGLE_CLIENT_SECRET   = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-_GOOGLE_TOKEN_ENDPOINT  = os.getenv("GOOGLE_OAUTH_TOKEN_ENDPOINT", "https://oauth2.googleapis.com/token").strip()
+_GOOGLE_TOKEN_ENDPOINT  = (os.getenv("GOOGLE_OAUTH_TOKEN_ENDPOINT") or "https://oauth2.googleapis.com/token").strip()
 _GOOGLE_TOKEN_CACHE: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
 
 
@@ -517,9 +517,192 @@ def _refresh_google_access_token(force: bool = False) -> str:
 
 
 def _get_google_drive_token() -> str:
+    # Le refresh token (auto-renouvelé) prime quand il est configuré : le token statique
+    # GOOGLE_DRIVE_ACCESS_TOKEN expire en ~1 h et masquerait sinon un OAuth réparé.
+    if _GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET:
+        refreshed = _refresh_google_access_token(force=False)
+        if refreshed:
+            return refreshed
     if _GDRIVE_TOKEN:
         return _GDRIVE_TOKEN
     return _refresh_google_access_token(force=False) or ""
+
+
+def _drive_multipart_upload(
+    *,
+    filename: str,
+    content: str,
+    source_mime: str,
+    target_mime: str = "",
+    folder_id: str = "",
+    convert: bool = False,
+) -> dict[str, str]:
+    """Upload Drive v3 multipart. Retourne {id, name, webViewLink, mimeType} ou lève."""
+    token = _get_google_drive_token()
+    if not token:
+        raise RuntimeError(
+            "Google Drive non configuré (GOOGLE_API_ACCESS_TOKEN ou OAuth refresh + client id/secret)."
+        )
+    fn = (filename or "").strip()[:220]
+    if not fn:
+        raise ValueError("Nom de fichier vide.")
+    effective_folder = (folder_id or _GDRIVE_FOLDER_ID or "").strip()
+    parent_json = f', "parents": ["{effective_folder}"]' if effective_folder else ""
+    meta_mime = (target_mime or source_mime or "text/plain").strip()
+    metadata = f'{{"name":{json.dumps(fn)}{parent_json}, "mimeType":{json.dumps(meta_mime)}}}'
+    safe_src = (source_mime or "text/plain").strip() or "text/plain"
+    boundary = "korymb_drive_boundary"
+    body = (
+        f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{metadata}\r\n"
+        f"--{boundary}\r\nContent-Type: {safe_src}; charset=UTF-8\r\n\r\n"
+        f"{content or ''}\r\n"
+        f"--{boundary}--\r\n"
+    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": f"multipart/related; boundary={boundary}",
+    }
+    url = (
+        "https://www.googleapis.com/upload/drive/v3/files"
+        "?uploadType=multipart&fields=id,name,webViewLink,mimeType"
+    )
+    if convert:
+        url += "&convert=true"
+    r = httpx.post(url, headers=headers, content=body.encode("utf-8"), timeout=45)
+    if r.status_code == 401 and (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
+        refreshed = _refresh_google_access_token(force=True)
+        if refreshed:
+            headers["Authorization"] = f"Bearer {refreshed}"
+            r = httpx.post(url, headers=headers, content=body.encode("utf-8"), timeout=45)
+    r.raise_for_status()
+    data = r.json() if r.content else {}
+    return {
+        "id": str(data.get("id") or ""),
+        "name": str(data.get("name") or fn),
+        "webViewLink": str(data.get("webViewLink") or ""),
+        "mimeType": str(data.get("mimeType") or meta_mime),
+    }
+
+
+def _markdown_table_to_csv(text: str) -> str | None:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip().startswith("|")]
+    if len(lines) < 2:
+        return None
+    rows: list[list[str]] = []
+    for ln in lines:
+        if re.match(r"^\|[\s\-:|]+\|$", ln):
+            continue
+        cells = [c.strip() for c in ln.strip("|").split("|")]
+        if cells:
+            rows.append(cells)
+    if not rows:
+        return None
+    import csv
+    import io
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    for row in rows:
+        writer.writerow(row)
+    return buf.getvalue()
+
+
+def run_create_drive_deliverable(
+    title: str,
+    content: str,
+    *,
+    format_kind: str = "auto",
+    folder_id: str = "",
+) -> str:
+    """
+    Crée un livrable sur Google Drive (texte, CSV, Google Sheet ou Google Doc).
+    format_kind : auto | text | csv | sheet | doc
+    """
+    title = (title or "").strip()[:200] or "Livrable Korymb"
+    body = content or ""
+    fk = (format_kind or "auto").strip().lower()
+    blob = _ascii_fold(f"{title}\n{body[:800]}")
+    if fk == "auto":
+        if "|" in body and re.search(r"^\|.+\|", body, re.MULTILINE):
+            fk = "sheet"
+        elif any(
+            h in blob
+            for h in (
+                "objet:",
+                "madame",
+                "monsieur",
+                "cher ",
+                "chere ",
+                "chère ",
+                "cordialement",
+            )
+        ):
+            fk = "doc"
+        elif any(h in blob for h in ("tableau", "csv", "profils", "liste")) and "|" in body:
+            fk = "sheet"
+        else:
+            fk = "text"
+    try:
+        if fk == "sheet":
+            csv_body = body
+            if "|" in body and not body.lstrip().startswith(","):
+                parsed = _markdown_table_to_csv(body)
+                if parsed:
+                    csv_body = parsed
+            if not title.lower().endswith(".csv"):
+                upload_name = f"{title}.csv" if not title.lower().endswith(".csv") else title
+            else:
+                upload_name = title
+            data = _drive_multipart_upload(
+                filename=upload_name,
+                content=csv_body,
+                source_mime="text/csv",
+                target_mime="application/vnd.google-apps.spreadsheet",
+                folder_id=folder_id,
+                convert=True,
+            )
+        elif fk == "doc":
+            upload_name = title if title.lower().endswith((".md", ".txt")) else f"{title}.md"
+            data = _drive_multipart_upload(
+                filename=upload_name,
+                content=body,
+                source_mime="text/markdown",
+                target_mime="application/vnd.google-apps.document",
+                folder_id=folder_id,
+                convert=True,
+            )
+        elif fk == "csv":
+            upload_name = title if title.lower().endswith(".csv") else f"{title}.csv"
+            data = _drive_multipart_upload(
+                filename=upload_name,
+                content=body,
+                source_mime="text/csv",
+                target_mime="text/csv",
+                folder_id=folder_id,
+            )
+        else:
+            upload_name = title if "." in title else f"{title}.md"
+            data = _drive_multipart_upload(
+                filename=upload_name,
+                content=body,
+                source_mime="text/markdown",
+                target_mime="text/markdown",
+                folder_id=folder_id,
+            )
+        fid = data.get("id") or "?"
+        name = data.get("name") or upload_name
+        link = data.get("webViewLink") or ""
+        return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}" if link else f"✅ Fichier Drive créé : {name} (id: {fid})"
+    except Exception as e:
+        return f"Erreur Google Drive : {e}"
+
+
+def _ascii_fold(s: str) -> str:
+    import unicodedata
+
+    s = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in s if not unicodedata.combining(c)).lower()
 
 
 def run_upload_google_drive(
@@ -531,52 +714,17 @@ def run_upload_google_drive(
     fn = (filename or "").strip()[:220]
     if not fn:
         return "Nom de fichier vide."
-    token = _get_google_drive_token()
-    if not token:
-        return (
-            "[SIMULATION] Fichier Drive prêt :\n"
-            f"Nom : {fn}\nMIME : {mime_type or 'text/plain'}\n"
-            f"Taille : {len(content or '')} caractères\n"
-            "⚠️ Configure GOOGLE_API_ACCESS_TOKEN ou GOOGLE_OAUTH_REFRESH_TOKEN+CLIENT_ID+CLIENT_SECRET dans .env."
-        )
-    effective_folder = (folder_id or _GDRIVE_FOLDER_ID or "").strip()
-    parent_json = f', "parents": ["{effective_folder}"]' if effective_folder else ""
-    safe_mime = (mime_type or "text/plain").strip() or "text/plain"
-    boundary = "korymb_drive_boundary"
-    metadata = f'{{"name":"{fn}"{parent_json}}}'
-    body = (
-        f"--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n"
-        f"{metadata}\r\n"
-        f"--{boundary}\r\nContent-Type: {safe_mime}; charset=UTF-8\r\n\r\n"
-        f"{content or ''}\r\n"
-        f"--{boundary}--\r\n"
-    )
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": f"multipart/related; boundary={boundary}",
-    }
     try:
-        r = httpx.post(
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
-            headers=headers,
-            content=body.encode("utf-8"),
-            timeout=25,
+        data = _drive_multipart_upload(
+            filename=fn,
+            content=content or "",
+            source_mime=(mime_type or "text/plain").strip() or "text/plain",
+            target_mime=(mime_type or "text/plain").strip() or "text/plain",
+            folder_id=folder_id,
         )
-        if r.status_code == 401 and (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
-            refreshed = _refresh_google_access_token(force=True)
-            if refreshed:
-                headers["Authorization"] = f"Bearer {refreshed}"
-                r = httpx.post(
-                    "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink",
-                    headers=headers,
-                    content=body.encode("utf-8"),
-                    timeout=25,
-                )
-        r.raise_for_status()
-        data = r.json() if r.content else {}
-        fid  = data.get("id") or "?"
+        fid = data.get("id") or "?"
         name = data.get("name") or fn
-        link = data.get("webViewLink")
+        link = data.get("webViewLink") or ""
         return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}" if link else f"✅ Fichier Drive créé : {name} (id: {fid})"
     except Exception as e:
         return f"Erreur Google Drive : {e}"

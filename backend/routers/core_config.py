@@ -15,6 +15,10 @@ class AdminSettingsPut(BaseModel):
     llm_provider: str | None = None
     anthropic_api_key: str | None = None
     anthropic_model: str | None = None
+    mistral_api_key: str | None = None
+    mistral_model: str | None = None
+    mistral_models: str | None = None
+    mistral_base_url: str | None = None
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
     openrouter_base_url: str | None = None
@@ -43,8 +47,8 @@ def admin_get_llm_settings():
 @router.put("/admin/settings", dependencies=[Depends(verify_secret)])
 def admin_put_llm_settings(body: AdminSettingsPut):
     data = body.model_dump(exclude_unset=True, exclude_none=True)
-    if "llm_provider" in data and str(data["llm_provider"]) not in ("anthropic", "openrouter"):
-        raise HTTPException(status_code=400, detail="llm_provider doit être anthropic ou openrouter")
+    if "llm_provider" in data and str(data["llm_provider"]) not in ("anthropic", "openrouter", "mistral"):
+        raise HTTPException(status_code=400, detail="llm_provider doit être anthropic, openrouter ou mistral")
     try:
         merged = save_partial(data)
     except ValueError as e:

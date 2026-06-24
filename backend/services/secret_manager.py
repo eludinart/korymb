@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 _SENSITIVE_KEYS: frozenset[str] = frozenset({
     "anthropic_api_key",
     "openrouter_api_key",
+    "mistral_api_key",
     "agent_api_secret",
     "fleur_db_password",
     "korymb_db_password",
@@ -55,8 +56,8 @@ def assert_secret_present(key: str, hint: str = "") -> str:
 
 
 def get_llm_provider() -> str:
-    """Retourne le fournisseur LLM effectif ('anthropic' | 'openrouter')."""
-    return str(get_secret("llm_provider") or "anthropic")
+    """Retourne le fournisseur LLM effectif ('anthropic' | 'openrouter' | 'mistral')."""
+    return str(get_secret("llm_provider") or "mistral")
 
 
 def mask_secret(value: str | None, visible_chars: int = 4) -> str:

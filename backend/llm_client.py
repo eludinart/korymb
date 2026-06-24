@@ -1,5 +1,5 @@
 """
-Appels LLM unifiés : Anthropic (API native) ou OpenRouter (compatible OpenAI /chat/completions).
+Appels LLM unifiés : Anthropic (API native) ou chat/completions (Mistral, OpenRouter).
 Configuration : .env + surcharges `runtime_settings.merge_with_env()`.
 """
 from __future__ import annotations
@@ -16,7 +16,8 @@ import httpx
 
 from runtime_settings import merge_with_env
 
-from llm_tiers import resolve_openrouter_tier
+from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
+from llm_tiers import resolve_llm_tier
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +198,15 @@ def _message_content_to_text(content: Any) -> str:
 
 
 def _assert_llm_ready(cfg: dict[str, Any]) -> None:
-    prov = str(cfg.get("llm_provider") or "anthropic")
-    if prov == "openrouter" and not str(cfg.get("openrouter_api_key") or "").strip():
-        raise RuntimeError("OPENROUTER_API_KEY manquant (env ou fichier runtime_settings.json)")
+    prov = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(prov):
+        chat_completions_settings(cfg, prov)
+        return
     if prov == "anthropic" and not str(cfg.get("anthropic_api_key") or "").strip():
         raise RuntimeError("ANTHROPIC_API_KEY manquant (env ou fichier runtime_settings.json)")
 
 
-def _openrouter_chat(
+def _chat_completions_chat(
     messages: list[dict[str, str]],
     max_tokens: int,
     cfg: dict[str, Any],
@@ -214,22 +216,17 @@ def _openrouter_chat(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
-    _assert_llm_ready(cfg)
-    base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1")
-    url = _normalize_chat_completions_url(base)
+    prov = normalize_llm_provider(None, cfg)
+    cc = chat_completions_settings(cfg, prov)
+    url = _normalize_chat_completions_url(cc["base_url"])
     headers = {
-        "Authorization": f"Bearer {cfg['openrouter_api_key']}",
+        "Authorization": f"Bearer {cc['api_key']}",
         "Content-Type": "application/json",
+        **cc.get("extra_headers", {}),
     }
-    ref = str(cfg.get("openrouter_http_referer") or "").strip()
-    if ref:
-        headers["HTTP-Referer"] = ref
-    title = str(cfg.get("openrouter_app_title") or "").strip()
-    if title:
-        headers["X-Title"] = title
 
-    model, tier_key, pin, pout = resolve_openrouter_tier(cfg, or_profile)
-    model_id = _normalize_model_id(model, fallback="openai/gpt-4o-mini")
+    model, tier_key, pin, pout = resolve_llm_tier(cfg, or_profile, provider=prov)
+    model_id = _normalize_model_id(model, fallback=cc["fallback_model"])
     body: dict[str, Any] = {
         "model": model_id,
         "messages": messages,
@@ -249,12 +246,12 @@ def _openrouter_chat(
     try:
         text = _message_content_to_text(data["choices"][0]["message"].get("content"))
     except (KeyError, IndexError, TypeError) as e:
-        raise RuntimeError(f"Réponse OpenRouter inattendue : {data!r}") from e
+        raise RuntimeError(f"Réponse LLM inattendue : {data!r}") from e
     usage = data.get("usage") or {}
     pt = int(usage.get("prompt_tokens") or 0)
     ct = int(usage.get("completion_tokens") or 0)
     log_llm_call_financial(
-        provider="openrouter",
+        provider=str(cc["provider"]),
         model=model_id,
         tier=tier_key,
         tokens_in=pt,
@@ -265,6 +262,28 @@ def _openrouter_chat(
         context_label=usage_context,
     )
     return text, pt, ct
+
+
+def _openrouter_chat(
+    messages: list[dict[str, str]],
+    max_tokens: int,
+    cfg: dict[str, Any],
+    *,
+    or_profile: str = "lite",
+    usage_job_id: Any = _UNSET,
+    usage_context: Any = _UNSET,
+    temperature: float | None = None,
+) -> tuple[str, int, int]:
+    """Alias historique — routage chat/completions selon le fournisseur actif."""
+    return _chat_completions_chat(
+        messages,
+        max_tokens,
+        cfg,
+        or_profile=or_profile,
+        usage_job_id=usage_job_id,
+        usage_context=usage_context,
+        temperature=temperature,
+    )
 
 
 def llm_turn(
@@ -279,13 +298,13 @@ def llm_turn(
 ) -> tuple[str, int, int]:
     t0 = time.monotonic()
     cfg = merge_with_env()
-    prov = str(cfg.get("llm_provider") or "anthropic")
-    if prov == "openrouter":
+    prov = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(prov):
         messages: list[dict[str, str]] = []
         if system.strip():
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": user_text})
-        return _openrouter_chat(
+        return _chat_completions_chat(
             messages,
             max_tokens,
             dict(cfg),
@@ -337,8 +356,8 @@ def llm_chat(
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
     cfg = merge_with_env()
-    prov = str(cfg.get("llm_provider") or "anthropic")
-    if prov == "openrouter":
+    prov = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(prov):
         om: list[dict[str, str]] = []
         if system.strip():
             om.append({"role": "system", "content": system})
@@ -349,7 +368,7 @@ def llm_chat(
             if not isinstance(c, str):
                 continue
             om.append({"role": m["role"], "content": c})
-        return _openrouter_chat(
+        return _chat_completions_chat(
             om,
             max_tokens,
             dict(cfg),

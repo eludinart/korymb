@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import InboxActionCard from "../../components/director/InboxActionCard";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import {
   AlertBox,
-  EmptyState,
   LoadingLine,
   PageHeader,
   PageLink,
@@ -40,7 +38,7 @@ export default function BriefingPage() {
         accent="violet"
         badge="Cockpit dirigeant"
         title="Briefing du jour"
-        description="Décisions urgentes, missions en cours, budget IA et autonomie — tout en un coup d'œil."
+        description="Vue exécutive : budget, missions en cours et liens vers vos files de décision."
         actions={
           <>
             <PageLink href="/inbox">Inbox {inboxTotal > 0 ? `(${inboxTotal})` : ""}</PageLink>
@@ -118,18 +116,24 @@ export default function BriefingPage() {
             </ul>
           </SectionCard>
 
-          <section>
-            <h2 className="section-title mb-4">Décisions prioritaires</h2>
-            <ul className="space-y-3">
-              {(b.decisions_today || []).length === 0 ? (
-                <EmptyState title="Rien en attente — bonne journée !" />
-              ) : (
-                (b.decisions_today || []).map((item: Record<string, unknown>, idx: number) => (
-                  <InboxActionCard key={`${item.kind}-${item.job_id || item.output_id}-${idx}`} item={item as never} />
-                ))
-              )}
-            </ul>
-          </section>
+          <SectionCard
+            title={inboxTotal > 0 ? "Décisions en attente" : "Inbox dirigeant"}
+            tone={inboxTotal > 0 ? "alert" : "default"}
+          >
+            {inboxTotal > 0 ? (
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-slate-800">
+                  {inboxTotal} action{inboxTotal > 1 ? "s" : ""} nécessite{inboxTotal > 1 ? "nt" : ""} votre arbitrage
+                  {hitlCount > 0 ? ` (${hitlCount} validation${hitlCount > 1 ? "s" : ""} HITL)` : ""}.
+                </p>
+                <Link href="/inbox" className="btn-primary inline-flex">
+                  Ouvrir l&apos;inbox →
+                </Link>
+              </div>
+            ) : (
+              <p className="text-muted-strong">Rien en attente — bonne journée.</p>
+            )}
+          </SectionCard>
         </>
       ) : null}
       </div>

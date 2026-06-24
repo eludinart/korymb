@@ -18,12 +18,14 @@ import httpx
 
 from llm_client import (
     _UNSET,
+    _normalize_chat_completions_url,
     format_llm_provider_http_error,
     llm_turn,
     log_llm_call_financial,
     openrouter_post_with_retries,
 )
-from llm_tiers import resolve_openrouter_tier
+from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
+from llm_tiers import resolve_llm_tier
 from runtime_settings import merge_with_env
 from tools import (
     run_describe_image,
@@ -604,8 +606,8 @@ def llm_turn_with_tools(
     )
     system_use = system + extra
     cfg = merge_with_env()
-    prov = str(cfg.get("llm_provider") or "anthropic")
-    if prov == "openrouter":
+    prov = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(prov):
         return _openrouter_tool_loop(
             system_use,
             user_text,
@@ -806,20 +808,14 @@ def _openrouter_tool_loop(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
-    if not str(cfg.get("openrouter_api_key") or "").strip():
-        raise RuntimeError("OPENROUTER_API_KEY manquant")
-    base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
-    url = f"{base}/chat/completions"
+    cc = chat_completions_settings(cfg)
+    url = _normalize_chat_completions_url(cc["base_url"])
     headers = {
-        "Authorization": f"Bearer {cfg['openrouter_api_key']}",
+        "Authorization": f"Bearer {cc['api_key']}",
         "Content-Type": "application/json",
+        **cc.get("extra_headers", {}),
     }
-    ref = str(cfg.get("openrouter_http_referer") or "").strip()
-    if ref:
-        headers["HTTP-Referer"] = ref
-    title = str(cfg.get("openrouter_app_title") or "").strip()
-    if title:
-        headers["X-Title"] = title
+    provider_log = str(cc["provider"])
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -838,7 +834,7 @@ def _openrouter_tool_loop(
         om.append({"role": "system", "content": system})
     om.append({"role": "user", "content": user_text})
 
-    model, tier_key, pin, pout = resolve_openrouter_tier(cfg, "heavy")
+    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
 
@@ -882,7 +878,7 @@ def _openrouter_tool_loop(
             t_in += pi
             t_out += co
             log_llm_call_financial(
-                provider="openrouter",
+                provider=provider_log,
                 model=model,
                 tier=tier_key,
                 tokens_in=pi,
@@ -952,7 +948,7 @@ def _openrouter_tool_loop(
                     t_in += pi2
                     t_out += co2
                     log_llm_call_financial(
-                        provider="openrouter",
+                        provider=provider_log,
                         model=model,
                         tier=f"{tier_key}+followup",
                         tokens_in=pi2,
@@ -1028,8 +1024,8 @@ def llm_chat_with_tools(
     )
     system_use = system + extra
     cfg = merge_with_env()
-    prov = str(cfg.get("llm_provider") or "anthropic")
-    if prov == "openrouter":
+    prov = normalize_llm_provider(None, cfg)
+    if is_chat_completions_provider(prov):
         return _openrouter_chat_tool_loop(
             system_use,
             messages,
@@ -1189,20 +1185,14 @@ def _openrouter_chat_tool_loop(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
 ) -> tuple[str, int, int]:
-    if not str(cfg.get("openrouter_api_key") or "").strip():
-        raise RuntimeError("OPENROUTER_API_KEY manquant")
-    base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").rstrip("/")
-    url = f"{base}/chat/completions"
+    cc = chat_completions_settings(cfg)
+    url = _normalize_chat_completions_url(cc["base_url"])
     headers = {
-        "Authorization": f"Bearer {cfg['openrouter_api_key']}",
+        "Authorization": f"Bearer {cc['api_key']}",
         "Content-Type": "application/json",
+        **cc.get("extra_headers", {}),
     }
-    ref = str(cfg.get("openrouter_http_referer") or "").strip()
-    if ref:
-        headers["HTTP-Referer"] = ref
-    title = str(cfg.get("openrouter_app_title") or "").strip()
-    if title:
-        headers["X-Title"] = title
+    provider_log = str(cc["provider"])
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -1220,7 +1210,7 @@ def _openrouter_chat_tool_loop(
         if isinstance(c, str):
             om.append({"role": m["role"], "content": c})
 
-    model, tier_key, pin, pout = resolve_openrouter_tier(cfg, "heavy")
+    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
 
@@ -1256,7 +1246,7 @@ def _openrouter_chat_tool_loop(
             t_in += pi
             t_out += co
             log_llm_call_financial(
-                provider="openrouter",
+                provider=provider_log,
                 model=model,
                 tier=tier_key,
                 tokens_in=pi,
@@ -1313,7 +1303,7 @@ def _openrouter_chat_tool_loop(
                     t_in += pi2
                     t_out += co2
                     log_llm_call_financial(
-                        provider="openrouter",
+                        provider=provider_log,
                         model=model,
                         tier=f"{tier_key}+chat_followup",
                         tokens_in=pi2,

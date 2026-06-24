@@ -37,6 +37,16 @@ REALITY_ASSET_CONSTRAINTS = (
     "- Science de la Fleur d'Amours: posture non divinatoire, systemique, ethiquement responsable.\n"
 )
 
+KORYMB_DRIVE_AUTOPUBLISH = (
+    "\n\n### Livrables fichiers (Google Drive)\n"
+    "Korymb depose **uniquement les pieces operationnelles** sur le Google Drive du dirigeant "
+    "(dossier « Korymb ») : **tableaux** → Google Sheet, **courriers / lettres / mails** → Google Doc. "
+    "Chaque piece doit etre marquee `#### LIVRABLE — <titre>` avec le **texte integral** pret a l'emploi.\n"
+    "**Ne pas** deposer de synthese de mission, de plan d'action, ni de description de ce que tu vas faire — "
+    "cela reste dans l'application Korymb. Tu n'inventes jamais de lien Drive : le moteur ajoute les URLs reelles "
+    "en fin de mission pour les vrais livrables uniquement.\n"
+)
+
 MODE_CADRAGE_CIO = (
     "\n\n### Mode cadrage mission (pré-lancement)\n"
     "Tu échanges avec le dirigeant pour CADER la future mission. "
@@ -121,15 +131,17 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "
             "Tu décomposes les objectifs en missions actionnables, assures la cohérence entre toutes les actions "
             "et valides les livrables avant de les soumettre au dirigeant.\n"
-            "Tu disposes d'une équipe d'agents spécialisés (commercial, community_manager, developpeur, comptable). "
-            "C'est TOI qui décides, selon ton jugement, qui mobiliser pour chaque mission — le dirigeant ne doit pas avoir à nommer les agents. "
-            "Délègue dès qu'un agent apporterait une valeur réelle, même non demandée explicitement. "
-            "En revanche, ne mobilise pas un agent juste pour confirmer sa présence : il doit avoir une tâche concrète à produire.\n"
+            "Tu maîtrises l'écosystème Élude In Art et connais les agents spécialisés (commercial, community_manager, "
+            "developpeur, comptable) : tu ne les consultes que lorsque leur expertise produit un livrable que tu ne peux "
+            "pas assumer seul avec ta mémoire et tes outils. Le dirigeant n'a pas à nommer les agents — c'est ton arbitrage. "
+            "Par défaut, réponds en CIO seul ; mobilise un rôle uniquement si une tâche concrète lui incombe "
+            "(prospection terrain, contenu réseaux, code, compta, etc.). "
+            "Ne déploie jamais plusieurs agents « par principe » ni pour confirmer leur présence.\n"
             "Si une mission est ambiguë ou nécessite des arbitrages importants, tu peux poser des questions au dirigeant "
             "via le champ 'clarifying_questions' du plan JSON — la mission continue à s'exécuter pendant qu'il répond.\n"
             "Tu reçois aussi un bloc « Historique missions Korymb » (missions déjà exécutées, avec livrables). "
             "Exploite-le quand le dirigeant prolonge ou réutilise un travail passé (ex. courriers pour des pistes déjà trouvées) : "
-            "ne réponds pas « impossible » sans t'appuyer sur ces sources et citer les #job_id concernés.\n\n"
+            "ne réponds pas « impossible » sans t'appuyer sur ces sources et citer l'intitulé des missions concernées (pas leur numéro technique).\n\n"
         ),
     },
 }
@@ -156,6 +168,8 @@ def agents_def() -> dict[str, dict]:
             row = dict(cfg)
             sys_prompt = str(row.get("system") or "")
             sys_prompt = sys_prompt + "\n" + REALITY_ASSET_CONSTRAINTS + "\n"
+            if "drive" in (row.get("tools") or []):
+                sys_prompt += KORYMB_DRIVE_AUTOPUBLISH
             petals_cfg = petals.get(key) or {}
             if petals_cfg:
                 p = petals_cfg.get("petales") or []
@@ -206,6 +220,12 @@ _DELEGATION_KEY_ALIASES: dict[str, str] = {
     "developer": "developpeur",
     "dev": "developpeur",
     "tech": "developpeur",
+    "ops": "commercial",
+    "life": "community_manager",
+    "syst": "comptable",
+    "technique": "developpeur",
+    "operationnel": "commercial",
+    "operations": "commercial",
     "comptable": "comptable",
     "compta": "comptable",
     "finance": "comptable",

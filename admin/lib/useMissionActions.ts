@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { closeMission, validateMission } from "./missionActions";
+import { missionActionLabel } from "./missionLabel";
 import { QK } from "./queryClient";
 
 /**
@@ -32,14 +33,15 @@ export function useMissionActions() {
     }
   };
 
-  const onValidate = (jobId: string) => runAction(jobId, validateMission, `Mission #${jobId} validée.`);
+  const onValidate = (jobId: string, mission?: string | null) =>
+    runAction(jobId, validateMission, `« ${missionActionLabel(jobId, mission)} » validée.`);
 
-  const onCloseMission = (jobId: string) => {
+  const onCloseMission = (jobId: string, mission?: string | null) => {
     const ok = window.confirm(
       "Clôturer cette mission ?\n\nVous la considérez terminée : elle ne sera plus modifiable (poursuite CIO désactivée). Les livrables restent consultables.",
     );
     if (!ok) return Promise.resolve();
-    return runAction(jobId, closeMission, `Mission #${jobId} clôturée.`);
+    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
   };
 
   return { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission };

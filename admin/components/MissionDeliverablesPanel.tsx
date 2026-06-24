@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
+import DeliverableAccessHub from "./deliverables/DeliverableAccessHub";
 import { agentHeaders, requestJson } from "../lib/api";
 import { normalizeTeamRows } from "../lib/jobTeam";
+import type { DriveArtifact } from "../lib/types";
 import {
   deliverablesForMissionPanel,
   matchDeliverableTitleToAgentKey,
   type ParsedDeliverable,
 } from "../lib/extractTeamDeliverables";
+import { livrableAnchorId } from "../lib/deliverableAssets";
 
 function slugKeyFn(title: string): string {
   return (
@@ -28,6 +31,7 @@ type Props = {
   resultMarkdown: string;
   team: unknown;
   deliverablesUi: { agents?: Record<string, AgentUi> } | null | undefined;
+  driveArtifacts?: DriveArtifact[] | null;
   missionClosed: boolean;
   canValidateMission: boolean;
   validateBusy?: boolean;
@@ -54,6 +58,7 @@ export default function MissionDeliverablesPanel({
   resultMarkdown,
   team,
   deliverablesUi,
+  driveArtifacts,
   missionClosed,
   canValidateMission,
   validateBusy = false,
@@ -163,16 +168,25 @@ export default function MissionDeliverablesPanel({
       ) : feedback ? (
         <p className="text-[11px] text-emerald-800">{feedback}</p>
       ) : null}
+      <DeliverableAccessHub
+        jobId={jobId}
+        deliverablesMarkdown={resultMarkdown}
+        driveArtifacts={driveArtifacts}
+        compact
+        className="mb-1"
+      />
       <div className={embedded ? "space-y-4" : "space-y-4 px-4 py-4"}>
         {items.map((it, idx) => {
           const agentKey = resolveKey(it);
           const ui = agentsUi[agentKey] || {};
           const accepted = Boolean(ui.accepted_at);
           const fname = `livrable-${jobId}-${agentKey || idx}.md`;
+          const anchorId = livrableAnchorId(it.title);
           return (
             <article
               key={`${agentKey}-${idx}`}
-              className="rounded-xl border border-emerald-100 bg-white/95 p-4 shadow-sm"
+              id={anchorId}
+              className="scroll-mt-24 rounded-xl border border-emerald-100 bg-white/95 p-4 shadow-sm transition-shadow"
             >
               <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-2">
                 <h3 className="text-sm font-semibold text-slate-900">{it.title}</h3>

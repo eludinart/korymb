@@ -18,6 +18,8 @@ type Props = {
   fillColumn?: boolean;
   /** Section « questions stratégiques » (résultat CIO complet) ; sinon détection sur la fin du fil. */
   cioStrategicFollowup?: string | null;
+  /** Masque la carte « suite mission » (évite doublon avec le panneau décision). */
+  hideStrategicFollowup?: boolean;
   /** Plan mission (sous_taches) pour reconstituer les consignes CIO tronquées dans le fil archivé. */
   missionPlan?: unknown;
   /** Consigne mission complète (texte initial) — affichée en tête du fil si plus riche que le 1er message user. */
@@ -155,8 +157,8 @@ function turnIcon(turnIdx: number): string {
 function TruncationNotice({ className = "" }: { className?: string }) {
   return (
     <p className={`rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[10px] leading-snug text-amber-950 ${className}`}>
-      Extrait limité dans le fil (10 000 car. max.). Texte intégral de l&apos;agent : onglet{" "}
-      <span className="font-semibold">Synthèse &amp; livrables</span>.
+      Extrait limité dans le fil (10 000 car. max.). Texte intégral : onglet{" "}
+      <span className="font-semibold">Décision</span>.
     </p>
   );
 }
@@ -268,6 +270,7 @@ export default function SessionCadrageTimeline({
   maxHeightClass = "max-h-[min(32rem,60vh)]",
   fillColumn = false,
   cioStrategicFollowup = null,
+  hideStrategicFollowup = false,
   missionPlan = null,
   missionBrief = null,
   footer = null,
@@ -470,6 +473,7 @@ export default function SessionCadrageTimeline({
         ) : null}
 
         {(viewMode === "full" || (activeTurn && activeTurn.id === lastTurnId)) &&
+        !hideStrategicFollowup &&
         strategicBody &&
         strategicBody.length > 10 ? (
           <div className="mt-3 flex justify-start" role="article" aria-label="Suite du CIO après la réponse">

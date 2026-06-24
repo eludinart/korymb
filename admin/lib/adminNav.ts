@@ -7,6 +7,7 @@ export const ADMIN_NAV_LINKS = [
   { href: "/administration/comportements", label: "Comportements moteur" },
   { href: "/administration/templates", label: "Templates de missions" },
   { href: "/administration/memory", label: "Mémoire entreprise" },
+  { href: "/administration/historique", label: "Historique interactions" },
   { href: "/administration/reprise", label: "Audit reprise" },
   { href: "/administration/budget", label: "Budget & Coûts" },
   { href: "/administration/autonomie", label: "Tâches autonomes" },

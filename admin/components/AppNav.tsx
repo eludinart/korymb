@@ -9,13 +9,11 @@ import { ADMIN_NAV_LINKS, isAdminLinkActive } from "../lib/adminNav";
 const NAV_PRIORITY = [
   { href: "/briefing", label: "Briefing", priority: true },
   { href: "/inbox", label: "Inbox", priority: true },
-  { href: "/administration/reprise", label: "Audit reprise", priority: true },
-  { href: "/dashboard", label: "Métier" },
-  { href: "/missions", label: "Missions" },
+  { href: "/missions", label: "Missions", priority: true },
   { href: "/chat", label: "Chat" },
-  { href: "/historique", label: "Historique" },
-  { href: "/mission/nouvelle", label: "Nouvelle mission" },
-  { href: "/mission/guided", label: "Mission guidée" },
+  { href: "/livrables", label: "Livrables" },
+  { href: "/dashboard", label: "Métier" },
+  { href: "/administration/reprise", label: "Audit reprise", priority: true },
   { href: "/configuration", label: "Configuration" },
   { href: "/administration", label: "Administration" },
 ];

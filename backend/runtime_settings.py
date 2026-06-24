@@ -21,6 +21,10 @@ _KEYS = frozenset({
     "anthropic_api_key",
     "anthropic_model",
     "anthropic_models",
+    "mistral_api_key",
+    "mistral_model",
+    "mistral_models",
+    "mistral_base_url",
     "openrouter_api_key",
     "openrouter_model",
     "openrouter_models",
@@ -55,6 +59,10 @@ def merge_with_env() -> dict[str, Any]:
         "anthropic_api_key": settings.anthropic_api_key,
         "anthropic_model": settings.anthropic_model,
         "anthropic_models": settings.anthropic_models,
+        "mistral_api_key": settings.mistral_api_key,
+        "mistral_model": settings.mistral_model,
+        "mistral_models": settings.mistral_models,
+        "mistral_base_url": settings.mistral_base_url,
         "openrouter_api_key": settings.openrouter_api_key,
         "openrouter_model": settings.openrouter_model,
         "openrouter_models": settings.openrouter_models,
@@ -103,7 +111,7 @@ def save_partial(updates: dict[str, Any]) -> dict[str, Any]:
     for k, v in updates.items():
         if k not in _KEYS:
             continue
-        if k in ("anthropic_api_key", "openrouter_api_key"):
+        if k in ("anthropic_api_key", "openrouter_api_key", "mistral_api_key"):
             if isinstance(v, str) and v.strip():
                 current[k] = v.strip()
             continue
@@ -113,6 +121,7 @@ def save_partial(updates: dict[str, Any]) -> dict[str, Any]:
             continue
         if isinstance(v, str) and (not v.strip()) and k in (
             "anthropic_model", "anthropic_models",
+            "mistral_model", "mistral_models", "mistral_base_url",
             "openrouter_model", "openrouter_models", "openrouter_base_url",
         ):
             continue

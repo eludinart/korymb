@@ -11,6 +11,7 @@ from database import (
     list_learning_suggestions,
 )
 from services.director_platform import build_enriched_inbox
+from services.mission_labels import clip_mission_title
 
 
 def _truncate(text: str, max_len: int) -> str:
@@ -134,7 +135,7 @@ def format_context_for_prompt(ctx: dict[str, Any]) -> str:
         for t in threads[:4]:
             if not isinstance(t, dict):
                 continue
-            tlines.append(f"### Mission #{t.get('job_id')} ({t.get('status')})\n{t.get('mission')}")
+            tlines.append(f"### {clip_mission_title(str(t.get('mission') or ''), 90) or 'Mission sans titre'}\n{t.get('mission')}")
             for msg in (t.get("thread_tail") or [])[:5]:
                 if not isinstance(msg, dict):
                     continue

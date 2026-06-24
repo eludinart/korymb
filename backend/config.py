@@ -52,12 +52,19 @@ class Settings(BaseSettings):
             return "openrouter"
         return v
 
-    # ── Fournisseur LLM : anthropic | openrouter ─────────────────────────────
-    llm_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    # ── Fournisseur LLM : anthropic | openrouter | mistral ───────────────────
+    llm_provider: Literal["anthropic", "openrouter", "mistral"] = "mistral"
 
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-6"
     anthropic_models: str = "claude-sonnet-4-6,claude-3-5-haiku-latest"
+
+    mistral_api_key: str = ""
+    mistral_model: str = "mistral-small-latest"
+    mistral_models: str = (
+        "ministral-8b-latest,mistral-small-latest,mistral-large-latest,open-mistral-nemo"
+    )
+    mistral_base_url: str = "https://api.mistral.ai/v1"
 
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"

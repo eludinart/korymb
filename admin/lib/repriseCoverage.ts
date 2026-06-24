@@ -1,9 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "./api";
 
-export type DomainStatus = "covered" | "partial" | "missing";
+export type DomainStatus = "covered" | "partial" | "missing" | "dormant" | "not_applicable" | "deferred";
 
-export type RepriseItemActionKind = "validated" | "noted" | "deferred" | "mission_pending" | "agent_launched";
+export type RepriseItemActionKind =
+  | "validated"
+  | "noted"
+  | "deferred"
+  | "ignored"
+  | "mission_pending"
+  | "agent_launched";
 
 export type RepriseItemAction = {
   domain_id: string;
@@ -25,11 +31,14 @@ export type RepriseDomain = {
   id: string;
   label: string;
   description: string;
+  scope?: string;
   status: DomainStatus;
+  dormant_reason?: string;
   keyword_hits: string[];
   checklist_covered: string[];
   checklist_missing: string[];
   checklist_deferred?: string[];
+  checklist_ignored?: string[];
   suggested_agents: string[];
   item_notes?: RepriseItemNote[];
 };
@@ -37,10 +46,19 @@ export type RepriseDomain = {
 export type CoverageResult = {
   scanned_at: string;
   coverage_score: number;
-  summary: { total_domains: number; covered: number; partial: number; missing: number };
+  summary: {
+    total_domains: number;
+    active_domains?: number;
+    covered: number;
+    partial: number;
+    missing: number;
+    dormant?: number;
+    not_applicable?: number;
+  };
   domains: RepriseDomain[];
   gaps: RepriseDomain[];
   has_reprise_context: boolean;
+  director_decisions_summary?: string;
   user_actions?: Record<string, RepriseItemAction>;
 };
 
@@ -54,6 +72,7 @@ export const REPRISE_ACTION_LABELS: Record<RepriseItemActionKind, string> = {
   validated: "Validé",
   noted: "Complété",
   deferred: "Reporté",
+  ignored: "Ignoré",
   mission_pending: "Mission proposée",
   agent_launched: "Agents lancés",
 };
@@ -84,18 +103,27 @@ export const STATUS_LABELS: Record<DomainStatus, string> = {
   covered: "Couvert",
   partial: "Partiel",
   missing: "Manquant",
+  dormant: "En veille",
+  not_applicable: "Non pertinent",
+  deferred: "Reporté",
 };
 
 export const STATUS_STYLES: Record<DomainStatus, string> = {
   covered: "border-emerald-200 bg-emerald-50 text-emerald-900",
   partial: "border-amber-200 bg-amber-50 text-amber-900",
   missing: "border-red-200 bg-red-50 text-red-900",
+  dormant: "border-slate-200 bg-slate-100 text-slate-600",
+  not_applicable: "border-slate-200 bg-slate-50 text-slate-500",
+  deferred: "border-violet-200 bg-violet-50 text-violet-900",
 };
 
 export const STATUS_DOT: Record<DomainStatus, string> = {
   covered: "bg-emerald-500",
   partial: "bg-amber-500",
   missing: "bg-red-500",
+  dormant: "bg-slate-400",
+  not_applicable: "bg-slate-300",
+  deferred: "bg-violet-500",
 };
 
 export function repriseDomainHref(domainId: string) {
@@ -132,7 +160,7 @@ export function useRepriseItemAction() {
     mutationFn: async (body: {
       domain_id: string;
       item_text: string;
-      action: "validated" | "noted" | "deferred";
+      action: "validated" | "noted" | "deferred" | "ignored";
       note?: string;
     }) => {
       const res = await requestJson("/admin/reprise/actions", {
@@ -145,6 +173,23 @@ export function useRepriseItemAction() {
         coverage: CoverageResult;
         memory_contexts_updated?: string[];
       };
+    },
+    onSuccess: (data) => {
+      applyCoverage(qc, data.coverage);
+    },
+  });
+}
+
+export function useRepriseItemReopen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { domain_id: string; item_text: string }) => {
+      const res = await requestJson("/admin/reprise/actions/reopen", {
+        method: "POST",
+        headers: { ...agentHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return res.data as { reopened: boolean; coverage: CoverageResult };
     },
     onSuccess: (data) => {
       applyCoverage(qc, data.coverage);

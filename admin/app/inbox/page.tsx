@@ -1,10 +1,10 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import InboxActionCard, { type InboxActionItem } from "../../components/director/InboxActionCard";
+import DirectorInboxList from "../../components/director/DirectorInboxList";
+import type { InboxActionItem } from "../../components/director/InboxActionCard";
 import {
   AlertBox,
-  EmptyState,
   LoadingLine,
   PageHeader,
   PageLink,
@@ -27,6 +27,7 @@ export default function InboxPage() {
 
   const items = inbox.data || [];
   const pending = items.length;
+  const overdueCount = items.filter((i) => Number(i.days_overdue ?? 0) > 0).length;
 
   return (
     <PageShell size="narrow">
@@ -34,7 +35,7 @@ export default function InboxPage() {
         accent="amber"
         badge="Actions requises"
         title="Inbox dirigeant"
-        description="HITL, questions CIO, clôtures, qualité, apprentissage et approbations — agissez sans quitter cette page."
+        description="HITL, questions CIO, clôtures, qualité, apprentissage et approbations — triez, filtrez et agissez sans quitter cette page."
         actions={
           <>
             <PageLink href="/briefing">Briefing</PageLink>
@@ -48,6 +49,12 @@ export default function InboxPage() {
       {!inbox.isLoading && pending > 0 ? (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
           <StatCard label="En attente" value={pending} tone="urgent" hint="Tapez « Agir » sur chaque carte" />
+          <StatCard
+            label="En retard"
+            value={overdueCount}
+            tone={overdueCount > 0 ? "warn" : "ok"}
+            hint={overdueCount > 0 ? "Au-delà du délai cible" : "Dans les délais"}
+          />
         </div>
       ) : null}
 
@@ -59,15 +66,13 @@ export default function InboxPage() {
         </AlertBox>
       ) : null}
 
-      {!inbox.isLoading && items.length === 0 ? (
-        <EmptyState title="Aucune action en attente">Votre inbox est vide pour le moment.</EmptyState>
+      {!inbox.isLoading ? (
+        <DirectorInboxList
+          items={items}
+          emptyTitle="Aucune action en attente"
+          emptyHint="Votre inbox est vide pour le moment."
+        />
       ) : null}
-
-      <ul className="space-y-4">
-        {items.map((item, idx) => (
-          <InboxActionCard key={`${item.kind}-${item.job_id || item.output_id || item.suggestion_id}-${idx}`} item={item} />
-        ))}
-      </ul>
     </PageShell>
   );
 }

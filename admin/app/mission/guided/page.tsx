@@ -1,7 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import CioResultPanel from "../../../components/CioResultPanel";
 import LiveAgentInteractionStrip from "../../../components/LiveAgentInteractionStrip";
@@ -9,7 +10,7 @@ import MissionMetricsRow from "../../../components/MissionMetricsRow";
 import SessionCadrageTimeline from "../../../components/SessionCadrageTimeline";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../../lib/missionRefinement";
-import { QK } from "../../../lib/queryClient";
+import { missionJobLine, missionTitleLabel } from "../../../lib/missionLabel";
 
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
@@ -29,6 +30,15 @@ function sessionDeleteErrorUserMessage(raw: string): string {
 }
 
 export default function MissionGuidedPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-center text-slate-500">Chargement…</div>}>
+      <MissionGuidedPageInner />
+    </Suspense>
+  );
+}
+
+function MissionGuidedPageInner() {
+  const searchParams = useSearchParams();
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState<string | null>(null);
   /** Job renvoyé par validate (avant que `linked_job_id` soit reflété dans le détail session). */
@@ -45,6 +55,15 @@ export default function MissionGuidedPage() {
   /** Formulaire « Nouvelle session » : visible seulement après action explicite (bouton en-tête). */
   const [showNewSessionForm, setShowNewSessionForm] = useState(false);
   const [mobilePane, setMobilePane] = useState<"sessions" | "cadrage">("sessions");
+
+  useEffect(() => {
+    const sid = (searchParams.get("session") || "").trim();
+    if (sid) {
+      setSessionId(sid);
+      setShowNewSessionForm(false);
+      setMobilePane("cadrage");
+    }
+  }, [searchParams]);
 
   const agents = useQuery({
     queryKey: QK.agents,
@@ -261,7 +280,12 @@ export default function MissionGuidedPage() {
       qc.invalidateQueries({ queryKey: QK.tokens });
       const jobId = String(data?.job_id || "");
       if (jobId) setTrackingJobId(jobId);
-      setOk(jobId ? `Mission validée et lancée (#${jobId}). Le déroulé des agents s’affiche ci-dessous.` : "Mission validée et lancée.");
+      const label = missionTitleLabel(lastUserCadrage || message, 80) || jobId;
+      setOk(
+        jobId
+          ? `Mission « ${label} » validée et lancée. Le déroulé des agents s’affiche ci-dessous.`
+          : "Mission validée et lancée.",
+      );
     } catch (error) {
       setErr(error instanceof Error ? error.message : String(error));
     } finally {
@@ -293,6 +317,12 @@ export default function MissionGuidedPage() {
           <p className="text-sm text-slate-500 mt-1">Cadrage avec le coordinateur, puis lancement de la mission.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
+          <Link
+            href="/missions"
+            className="min-h-[44px] inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50"
+          >
+            ← Hub Missions
+          </Link>
           {showNewSessionForm ? (
             <button
               type="button"
@@ -423,7 +453,12 @@ export default function MissionGuidedPage() {
                   <CioResultPanel
                     result={jobLive.data.result}
                     missionTitle={jobLive.data.mission}
-                    jobLine={`#${jobLive.data.job_id} · ${jobLive.data.agent} · ${jobLive.data.status}`}
+                    jobLine={missionJobLine({
+                      jobId: String(jobLive.data.job_id || ""),
+                      mission: jobLive.data.mission,
+                      agent: jobLive.data.agent,
+                      status: jobLive.data.status,
+                    })}
                   />
                   <MissionMetricsRow
                     status={jobLive.data.status}

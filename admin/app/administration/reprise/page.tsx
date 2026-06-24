@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import RepriseChecklistItemRow, {
   getUserAction,
 } from "../../../components/reprise/RepriseChecklistItemRow";
+import RepriseUndoSnack from "../../../components/reprise/RepriseUndoSnack";
 import { PageHeader, PageLink, PageShell } from "../../../components/ui/PageChrome";
 import { requestJson, agentHeaders } from "../../../lib/api";
 import {
@@ -17,6 +18,7 @@ import {
   repriseItemKey,
   useRepriseCoverage,
   useRepriseItemAction,
+  useRepriseItemReopen,
   useRepriseItemsLaunch,
   useRepriseItemsMissions,
   type CoverageResult,
@@ -30,9 +32,15 @@ export default function RepriseAuditPage() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, true>>({});
+  const [undoSnack, setUndoSnack] = useState<{
+    domainId: string;
+    itemText: string;
+    action: "deferred" | "ignored";
+  } | null>(null);
 
   const coverageQuery = useRepriseCoverage();
   const itemActionMut = useRepriseItemAction();
+  const itemReopenMut = useRepriseItemReopen();
   const itemsMissionsMut = useRepriseItemsMissions();
   const itemsLaunchMut = useRepriseItemsLaunch();
 
@@ -66,6 +74,7 @@ export default function RepriseAuditPage() {
     coverageQuery.isFetching ||
     auditMut.isPending ||
     itemActionMut.isPending ||
+    itemReopenMut.isPending ||
     itemsMissionsMut.isPending ||
     itemsLaunchMut.isPending;
 
@@ -102,7 +111,7 @@ export default function RepriseAuditPage() {
   const runItemAction = async (
     domainId: string,
     itemText: string,
-    action: "validated" | "noted" | "deferred",
+    action: "validated" | "noted" | "deferred" | "ignored",
     note: string,
   ) => {
     setActionMessage(null);
@@ -112,13 +121,19 @@ export default function RepriseAuditPage() {
       const mem = res.memory_contexts_updated?.length
         ? ` Mémoire : ${res.memory_contexts_updated.join(", ")}.`
         : "";
-      setActionMessage(
-        (action === "validated"
+      const msg =
+        action === "validated"
           ? "Point validé — intégré à la mémoire entreprise."
           : action === "noted"
             ? "Information enregistrée — le prochain scan en tiendra compte."
-            : "Point reporté.") + mem,
-      );
+            : action === "ignored"
+              ? "Point ignoré — enregistré en mémoire, ne sera plus reproposé."
+              : "Point reporté — enregistré en mémoire, à revisiter plus tard.";
+      if (action === "ignored" || action === "deferred") {
+        setUndoSnack({ domainId, itemText, action });
+      } else {
+        setActionMessage(msg + mem);
+      }
       setSelected((prev) => {
         const next = { ...prev };
         delete next[repriseItemKey(domainId, itemText)];
@@ -126,7 +141,30 @@ export default function RepriseAuditPage() {
       });
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action impossible.");
+      throw err;
     }
+  };
+
+  const runReopenItem = async (domainId: string, itemText: string, silent = false) => {
+    if (!silent) {
+      setActionMessage(null);
+      setActionError(null);
+    }
+    try {
+      await itemReopenMut.mutateAsync({ domain_id: domainId, item_text: itemText });
+      if (!silent) setActionMessage("Point réaffiché dans les listes à traiter.");
+      setUndoSnack((prev) =>
+        prev?.domainId === domainId && prev.itemText === itemText ? null : prev,
+      );
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Réaffichage impossible.");
+      throw err;
+    }
+  };
+
+  const runUndoSnack = async () => {
+    if (!undoSnack) return;
+    await runReopenItem(undoSnack.domainId, undoSnack.itemText, true);
   };
 
   const runCreateMission = async (domainId: string, itemText: string, note: string) => {
@@ -223,9 +261,9 @@ export default function RepriseAuditPage() {
     <PageShell size="wide">
       <PageHeader
         accent="amber"
-        badge="Pilotage projet"
-        title="Audit reprise d'entreprise"
-        description="Checklist des domaines à ne pas rater : lancez les agents sur un sujet, alimentez le contexte global et les volets métiers, validez ou affinez — l'organisation du projet s'enrichit à chaque réponse."
+        badge="Évolution d'activité"
+        title="Pilotage & couverture métier"
+        description="Checklist ancrée dans votre réalité (tarot, commercial, IT, éditorial…). Ignorez ou reportez ce qui n'est pas pour maintenant — l'application et les agents en tiennent compte. Les sujets acquisition (banque, RH…) n'apparaissent que si une reprise est documentée en mémoire."
         actions={
           <>
             <PageLink href="/briefing">Briefing</PageLink>
@@ -389,6 +427,16 @@ export default function RepriseAuditPage() {
                       <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium">
                         {STATUS_LABELS[d.status]}
                       </span>
+                      {d.checklist_missing.length > 0 ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900">
+                          {d.checklist_missing.length} à traiter
+                        </span>
+                      ) : null}
+                      {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0) > 0 ? (
+                        <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-xs font-bold text-slate-600">
+                          {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0)} mis de côté
+                        </span>
+                      ) : null}
                       {d.keyword_hits.length > 0 ? (
                         <span className="text-xs opacity-80">
                           Indices : {d.keyword_hits.slice(0, 3).join(", ")}
@@ -398,6 +446,13 @@ export default function RepriseAuditPage() {
                     <p className="mt-1 text-xs opacity-80">{d.description}</p>
                   </summary>
                   <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    {d.checklist_missing.length === 0 &&
+                    d.checklist_covered.length === 0 &&
+                    ((d.checklist_deferred?.length ?? 0) > 0 || (d.checklist_ignored?.length ?? 0) > 0) ? (
+                      <p className="md:col-span-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-3 text-sm text-slate-600">
+                        Tous les points de ce domaine sont mis de côté. Ouvrez « Mis de côté » pour les réafficher.
+                      </p>
+                    ) : null}
                     {d.checklist_missing.length > 0 ? (
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wide">À traiter</p>
@@ -413,7 +468,7 @@ export default function RepriseAuditPage() {
                               selected={Boolean(selected[repriseItemKey(d.id, item)])}
                               busy={busy}
                               onToggleSelect={() => toggleSelect(d.id, item)}
-                              onAction={(action, note) => void runItemAction(d.id, item, action, note)}
+                              onAction={(action, note) => runItemAction(d.id, item, action, note)}
                               onLaunchAgents={(note) => void runLaunchAgents(d.id, item, note)}
                               onCreateMission={(note) => void runCreateMission(d.id, item, note)}
                             />
@@ -436,7 +491,7 @@ export default function RepriseAuditPage() {
                               selected={Boolean(selected[repriseItemKey(d.id, item)])}
                               busy={busy}
                               onToggleSelect={() => toggleSelect(d.id, item)}
-                              onAction={(action, note) => void runItemAction(d.id, item, action, note)}
+                              onAction={(action, note) => runItemAction(d.id, item, action, note)}
                               onLaunchAgents={(note) => void runLaunchAgents(d.id, item, note)}
                               onCreateMission={(note) => void runCreateMission(d.id, item, note)}
                             />
@@ -444,28 +499,49 @@ export default function RepriseAuditPage() {
                         </ul>
                       </div>
                     ) : null}
-                    {(d.checklist_deferred?.length ?? 0) > 0 ? (
-                      <div className="md:col-span-2">
-                        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Reportés</p>
-                        <ul className="mt-2 space-y-2">
+                    {((d.checklist_deferred?.length ?? 0) > 0 || (d.checklist_ignored?.length ?? 0) > 0) ? (
+                      <details className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                        <summary className="cursor-pointer text-xs font-bold uppercase tracking-wide text-slate-500">
+                          Mis de côté (
+                          {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0)})
+                        </summary>
+                        <ul className="mt-3 space-y-2">
                           {(d.checklist_deferred ?? []).map((item) => (
                             <RepriseChecklistItemRow
                               key={`deferred-${item}`}
                               domainId={d.id}
                               itemText={item}
-                              variant="covered"
+                              variant="deferred"
                               suggestedAgents={d.suggested_agents}
                               userAction={getUserAction(data.user_actions, d.id, item)}
-                              selected={Boolean(selected[repriseItemKey(d.id, item)])}
+                              selected={false}
                               busy={busy}
-                              onToggleSelect={() => toggleSelect(d.id, item)}
-                              onAction={(action, note) => void runItemAction(d.id, item, action, note)}
+                              onToggleSelect={() => {}}
+                              onAction={(action, note) => runItemAction(d.id, item, action, note)}
                               onLaunchAgents={(note) => void runLaunchAgents(d.id, item, note)}
                               onCreateMission={(note) => void runCreateMission(d.id, item, note)}
+                              onReopen={() => runReopenItem(d.id, item)}
+                            />
+                          ))}
+                          {(d.checklist_ignored ?? []).map((item) => (
+                            <RepriseChecklistItemRow
+                              key={`ignored-${item}`}
+                              domainId={d.id}
+                              itemText={item}
+                              variant="ignored"
+                              suggestedAgents={d.suggested_agents}
+                              userAction={getUserAction(data.user_actions, d.id, item)}
+                              selected={false}
+                              busy={busy}
+                              onToggleSelect={() => {}}
+                              onAction={(action, note) => runItemAction(d.id, item, action, note)}
+                              onLaunchAgents={(note) => void runLaunchAgents(d.id, item, note)}
+                              onCreateMission={(note) => void runCreateMission(d.id, item, note)}
+                              onReopen={() => runReopenItem(d.id, item)}
                             />
                           ))}
                         </ul>
-                      </div>
+                      </details>
                     ) : null}
                   </div>
                 </details>
@@ -492,6 +568,15 @@ export default function RepriseAuditPage() {
         </>
       ) : null}
       </div>
+      {undoSnack ? (
+        <RepriseUndoSnack
+          message={undoSnack.action === "ignored" ? "Point ignoré" : "Reporté pour plus tard"}
+          detail={undoSnack.itemText}
+          busy={itemReopenMut.isPending}
+          onUndo={() => void runUndoSnack()}
+          onDismiss={() => setUndoSnack(null)}
+        />
+      ) : null}
     </PageShell>
   );
 }

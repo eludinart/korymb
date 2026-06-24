@@ -7,7 +7,7 @@ def test_admin_settings_get(client):
     assert r.status_code == 200
     body = r.json()
     assert "llm_provider" in body
-    assert body["llm_provider"] in ("anthropic", "openrouter")
+    assert body["llm_provider"] in ("anthropic", "openrouter", "mistral")
     assert "anthropic_api_key_set" in body or "anthropic_api_key" in body
 
 

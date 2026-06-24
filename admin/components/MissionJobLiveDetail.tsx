@@ -16,6 +16,7 @@ import CioResumePanel from "./missions/CioResumePanel";
 import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
 import { deliverablesMarkdownFromJob } from "../lib/missionDeliverablesMarkdown";
 import { threadHasPendingCioTurn } from "../lib/missionThreadPending";
+import { missionJobLine, missionTitleLabel } from "../lib/missionLabel";
 import type { DeliverablesUiState, LatestChatFollowup } from "../lib/types";
 
 export type MissionJobLivePayload = {
@@ -92,7 +93,8 @@ export default function MissionJobLiveDetail({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
           <p className="text-sm font-semibold text-slate-900">
-            {title} #{jobId}
+            {title}
+            {consigne ? ` — ${missionTitleLabel(consigne, 80)}` : ""}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             Statut : {String(d?.status || "…")} · Agent : {String(d?.agent || agentFallback)}
@@ -113,7 +115,7 @@ export default function MissionJobLiveDetail({
             href={`/missions?job=${encodeURIComponent(jobId)}`}
             className="inline-flex min-h-[44px] items-center rounded-lg border border-slate-200 px-3 py-2.5 text-xs font-medium text-violet-900 hover:bg-violet-50"
           >
-            Panneau mission
+            Hub Missions
           </Link>
         </div>
       </div>
@@ -146,7 +148,12 @@ export default function MissionJobLiveDetail({
           <CioResultPanel
             result={d.result}
             missionTitle={d.mission}
-            jobLine={`#${d.job_id} · ${d.agent} · ${d.status}`}
+            jobLine={missionJobLine({
+              jobId: String(d.job_id || jobId),
+              mission: d.mission,
+              agent: d.agent,
+              status: d.status,
+            })}
           />
           {(() => {
             const { markdown, team } = deliverablesMarkdownFromJob(d);
@@ -156,6 +163,7 @@ export default function MissionJobLiveDetail({
                 resultMarkdown={markdown}
                 team={team}
                 deliverablesUi={d.deliverables_ui}
+                driveArtifacts={d.drive_artifacts}
                 missionClosed={Boolean(d.user_validated_at || d.mission_closed_by_user)}
                 canValidateMission={false}
                 onSaved={onDeliverablesSaved}

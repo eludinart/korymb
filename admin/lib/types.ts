@@ -78,6 +78,18 @@ export type Job = {
   /** Présent sur les jobs mission (parent) : dernier enfant chat terminé */
   latest_chat_followup?: LatestChatFollowup | null;
   deliverables_ui?: DeliverablesUiState;
+  drive_artifacts?: DriveArtifact[];
+};
+
+/** Fichier déposé sur Google Drive (export auto ou outil agent). */
+export type DriveArtifact = {
+  id?: string;
+  name?: string;
+  webViewLink?: string;
+  url?: string;
+  kind?: string;
+  agent?: string;
+  job_id?: string;
 };
 
 /** Ligne Job légère (liste /jobs) */

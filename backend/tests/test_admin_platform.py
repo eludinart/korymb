@@ -37,6 +37,20 @@ def test_admin_inbox_cio_question_exposes_questions(client):
     assert item["title"] == "Souhaitez-vous céder les droits d'édition ?"
     assert item["mission"] == "Mission tarot éditeurs"
     assert item["questions"] == ["Souhaitez-vous céder les droits d'édition ?"]
+    assert "created_at" in item
+    assert "days_open" in item
+    assert "progress_label" in item
+
+    dismiss = client.post(
+        "/admin/inbox/dismiss",
+        json={"kind": "cio_question", "job_id": "cioinbx1"},
+    )
+    assert dismiss.status_code == 200
+    assert dismiss.json().get("dismissed") is True
+    r2 = client.get("/admin/inbox")
+    assert not any(
+        i.get("job_id") == "cioinbx1" and i.get("kind") == "cio_question" for i in r2.json()["items"]
+    )
 
 
 def test_admin_briefing(client):
@@ -83,6 +97,55 @@ def test_cio_answer_marks_answered(client):
         )
         for ev in events
     )
+
+
+def test_cio_answer_per_question(client):
+    from database import get_job, list_cio_arbitrage_answers, save_job, update_job
+
+    qs = [
+        "Question A pour le dirigeant ?",
+        "Question B pour le dirigeant ?",
+    ]
+    save_job("cioq2", "coordinateur", "Mission arbitrages", source="test")
+    update_job(
+        "cioq2",
+        "running",
+        None,
+        [],
+        0,
+        0,
+        events=[
+            {
+                "type": "cio_question",
+                "ts": "2026-01-01T00:00:00",
+                "payload": {"questions": qs, "answered": False},
+            },
+        ],
+    )
+    r = client.post(
+        "/jobs/cioq2/cio-answer",
+        json={"question": qs[0], "answer": "Réponse A"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["question_answers"][qs[0]] == "Réponse A"
+    row = get_job("cioq2")
+    events = row.get("events") or []
+    cq = next(ev for ev in events if ev.get("type") == "cio_question")
+    pl = cq.get("payload") or cq.get("data") or {}
+    assert pl.get("question_answers", {}).get(qs[0]) == "Réponse A"
+    assert pl.get("answered") is not True
+    assert list_cio_arbitrage_answers("cioq2")[qs[0]] == "Réponse A"
+
+    r2 = client.post(
+        "/jobs/cioq2/cio-answer",
+        json={"question": qs[1], "answer": "Réponse B"},
+    )
+    assert r2.status_code == 200
+    row2 = get_job("cioq2")
+    cq2 = next(ev for ev in row2.get("events") or [] if ev.get("type") == "cio_question")
+    pl2 = cq2.get("payload") or cq2.get("data") or {}
+    assert pl2.get("answered") is True
 
 
 def test_cio_answer_large_mission_thread(client):
@@ -278,6 +341,66 @@ def test_reprise_item_action_validates_and_updates_coverage(client):
     assert r2.status_code == 200
     dom2 = next(d for d in r2.json()["domains"] if d["id"] == "conformite_rgpd")
     assert item in dom2.get("checklist_covered", [])
+
+
+def test_reprise_item_action_ignore_and_reopen(client):
+    from database import merge_enterprise_contexts
+
+    merge_enterprise_contexts({
+        "global": "Projet de reprise Élude In Art — cession en cours.",
+    })
+    r0 = client.get("/admin/reprise/coverage")
+    assert r0.status_code == 200
+    domain = next(
+        d for d in r0.json()["domains"]
+        if d.get("checklist_missing") and d.get("status") != "dormant"
+    )
+    domain_id = domain["id"]
+    item = domain["checklist_missing"][0]
+
+    r = client.post(
+        "/admin/reprise/actions",
+        json={"domain_id": domain_id, "item_text": item, "action": "ignored"},
+    )
+    assert r.status_code == 200
+    dom = next(d for d in r.json()["coverage"]["domains"] if d["id"] == domain_id)
+    assert item in dom.get("checklist_ignored", [])
+    assert item not in dom.get("checklist_missing", [])
+    assert item not in dom.get("checklist_covered", [])
+
+    r2 = client.post(
+        "/admin/reprise/actions/reopen",
+        json={"domain_id": domain_id, "item_text": item},
+    )
+    assert r2.status_code == 200
+    dom2 = next(d for d in r2.json()["coverage"]["domains"] if d["id"] == domain_id)
+    assert item not in dom2.get("checklist_ignored", [])
+    assert item in dom2.get("checklist_missing", []) or item in dom2.get("checklist_covered", [])
+
+
+def test_reprise_item_action_defer_covered_item(client):
+    from database import merge_enterprise_contexts
+
+    merge_enterprise_contexts({
+        "global": "Projet de reprise Élude In Art — cession en cours.",
+    })
+    r0 = client.get("/admin/reprise/coverage")
+    domain = next(
+        d for d in r0.json()["domains"]
+        if d.get("checklist_missing") and d.get("status") != "dormant"
+    )
+    domain_id = domain["id"]
+    item = domain["checklist_missing"][0]
+
+    r = client.post(
+        "/admin/reprise/actions",
+        json={"domain_id": domain_id, "item_text": item, "action": "deferred"},
+    )
+    assert r.status_code == 200
+    dom = next(d for d in r.json()["coverage"]["domains"] if d["id"] == domain_id)
+    assert item in dom.get("checklist_deferred", [])
+    assert item not in dom.get("checklist_missing", [])
+    assert item not in dom.get("checklist_covered", [])
 
 
 def test_reprise_items_launch_starts_job(client):

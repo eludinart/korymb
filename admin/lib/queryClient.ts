@@ -19,6 +19,8 @@ export const QK = {
   jobs: ["jobs"],
   jobsCards: ["jobs-cards"],
   jobsLight: ["jobs-light"],
+  jobsActive: ["jobs-active"],
+  deliverablesLibrary: ["deliverables-library"],
   missionSessions: ["mission-sessions"],
   adminSettings: ["admin-settings"],
   adminAgents: ["admin-agents-definitions"],

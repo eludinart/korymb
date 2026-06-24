@@ -12,6 +12,8 @@ from database import (
     list_jobs_summary,
     list_learning_suggestions,
     insert_director_notification,
+    list_inbox_dismiss_keys,
+    make_inbox_dismiss_key,
 )
 from observability import event_payload
 from runtime_sse import enqueue_job_sse_event
@@ -26,6 +28,83 @@ def _priority_score(kind: str) -> int:
         "scheduler_output": 4,
         "quality": 2,
     }.get(kind, 9)
+
+
+def _sla_days(kind: str) -> int:
+    """Délai cible (jours) avant considérer l'item en retard."""
+    return {
+        "hitl": 1,
+        "cio_question": 2,
+        "closure": 3,
+        "quality": 1,
+        "learning_suggestion": 7,
+        "scheduler_output": 2,
+    }.get(kind, 3)
+
+
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        if raw.endswith("Z"):
+            raw = raw[:-1]
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _days_open_since(iso_ts: str | None) -> int:
+    dt = _parse_iso_dt(iso_ts)
+    if not dt:
+        return 0
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return max(0, (datetime.utcnow() - dt).days)
+
+
+def _progress_label(kind: str) -> str:
+    return {
+        "hitl": "Validation dirigeant requise",
+        "cio_question": "Réponse dirigeant attendue",
+        "closure": "Mission terminée — clôture en attente",
+        "quality": "Contrôle qualité bloquant",
+        "learning_suggestion": "Suggestion d'apprentissage à arbitrer",
+        "scheduler_output": "Proposition autonome à approuver",
+    }.get(kind, "Action requise")
+
+
+def _urgency_level(days_open: int, sla_days: int) -> str:
+    overdue = max(0, days_open - sla_days)
+    if overdue >= 3:
+        return "critical"
+    if overdue >= 1 or days_open >= sla_days:
+        return "warning"
+    return "ok"
+
+
+def _enrich_inbox_item(item: dict, *, job_row: dict | None = None) -> dict:
+    kind = str(item.get("kind") or "")
+    created_at = str(item.get("created_at") or item.get("updated_at") or "")
+    days_open = _days_open_since(created_at)
+    sla = _sla_days(kind)
+    days_overdue = max(0, days_open - sla)
+    priority_score = int(item.get("priority_score", 9))
+    enriched = dict(item)
+    enriched["created_at"] = created_at
+    enriched["days_open"] = days_open
+    enriched["sla_days"] = sla
+    enriched["days_overdue"] = days_overdue
+    enriched["urgency"] = _urgency_level(days_open, sla)
+    enriched["progress_label"] = _progress_label(kind)
+    enriched["priority_rank"] = priority_score + 1
+    if job_row:
+        enriched["job_created_at"] = job_row.get("created_at")
+        if job_row.get("status") and not enriched.get("status"):
+            enriched["status"] = job_row.get("status")
+    return enriched
 
 
 def _hitl_kind_from_gate(gate: dict | None) -> str:
@@ -73,8 +152,22 @@ def _parse_proposal_meta(content: str) -> dict:
 
 def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> dict[str, Any]:
     items: list[dict] = []
+    dismissed = list_inbox_dismiss_keys()
     if jobs is None:
         jobs = list_jobs_summary(limit=limit * 2)
+
+    def _is_dismissed(item: dict) -> bool:
+        try:
+            key = make_inbox_dismiss_key(
+                str(item.get("kind") or ""),
+                job_id=item.get("job_id"),
+                output_id=item.get("output_id"),
+                suggestion_id=item.get("suggestion_id"),
+            )
+            return key in dismissed
+        except ValueError:
+            return False
+
     for row in jobs:
         if str(row.get("source") or "") == "chat":
             continue
@@ -83,34 +176,37 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         if st == "awaiting_validation":
             gate = get_hitl_gate(jid) or {"gate": row.get("hitl_gate") or {}}
             hk = _hitl_kind_from_gate(gate)
-            items.append({
+            items.append(_enrich_inbox_item({
                 "kind": "hitl",
                 "job_id": jid,
                 "title": (row.get("mission") or "")[:160],
                 "status": st,
+                "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "hitl_kind": hk,
                 "gate_preview": _gate_preview(gate),
                 "priority_score": _priority_score("hitl"),
-            })
+            }, job_row=row))
         elif st == "completed" and not row.get("user_validated_at"):
-            items.append({
+            items.append(_enrich_inbox_item({
                 "kind": "closure",
                 "job_id": jid,
                 "title": (row.get("mission") or "")[:160],
                 "status": st,
+                "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "priority_score": _priority_score("closure"),
-            })
+            }, job_row=row))
         elif st == "quality_blocked":
-            items.append({
+            items.append(_enrich_inbox_item({
                 "kind": "quality",
                 "job_id": jid,
                 "title": (row.get("mission") or "")[:160],
                 "status": st,
+                "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "priority_score": _priority_score("quality"),
-            })
+            }, job_row=row))
         elif st == "running":
             pass
         pending_cio_questions: list[str] = []
@@ -119,7 +215,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
             if not isinstance(ev, dict) or ev.get("type") != "cio_question":
                 continue
             pl = event_payload(ev)
-            if pl.get("answered"):
+            if pl.get("answered") or pl.get("dismissed"):
                 continue
             raw_qs = pl.get("questions") or []
             if not isinstance(raw_qs, list):
@@ -133,48 +229,53 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         if pending_cio_questions:
             mission = str(row.get("mission") or "").strip()
             first_q = pending_cio_questions[0]
-            items.append({
+            cio_created = latest_cio_ts or row.get("updated_at")
+            items.append(_enrich_inbox_item({
                 "kind": "cio_question",
                 "job_id": jid,
                 "title": (first_q or mission)[:200],
                 "mission": mission[:160],
                 "questions": pending_cio_questions,
-                "updated_at": latest_cio_ts or row.get("updated_at"),
+                "created_at": cio_created,
+                "updated_at": cio_created,
                 "priority_score": _priority_score("cio_question"),
-            })
+            }, job_row=row))
 
     for sug in list_learning_suggestions(status="pending", limit=20):
         payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
-        items.append({
+        items.append(_enrich_inbox_item({
             "kind": "learning_suggestion",
             "suggestion_id": sug.get("id"),
             "job_id": sug.get("job_id"),
             "title": str(payload.get("title") or "Suggestion d'apprentissage")[:160],
             "learnings": payload.get("learnings") or [],
+            "created_at": sug.get("created_at"),
             "updated_at": sug.get("created_at"),
             "priority_score": _priority_score("learning_suggestion"),
-        })
+        }))
 
     try:
         for out in list_autonomous_outputs(status="pending", limit=20):
             meta = _parse_proposal_meta(str(out.get("content") or ""))
-            item = {
+            item = _enrich_inbox_item({
                 "kind": "scheduler_output",
                 "output_id": out.get("id"),
                 "output_type": out.get("output_type"),
                 "title": out.get("title") or out.get("output_type") or "Approbation",
                 "status": out.get("status"),
+                "created_at": out.get("created_at"),
                 "updated_at": out.get("created_at"),
                 "proposal_meta": meta,
                 "estimated_cost_usd": meta.get("estimated_cost_usd", 0),
                 "priority_score": _priority_score("scheduler_output"),
-            }
+            })
             items.append(item)
     except Exception:
         pass
 
     items.sort(key=lambda x: (x.get("priority_score", 9), str(x.get("updated_at") or "")))
-    return {"items": items[:limit], "total": len(items)}
+    visible = [i for i in items if not _is_dismissed(i)]
+    return {"items": visible[:limit], "total": len(visible)}
 
 
 def build_briefing(*, period: str = "today") -> dict[str, Any]:

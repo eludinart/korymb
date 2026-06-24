@@ -262,6 +262,17 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
             "(vagues calculées depuis le champ optionnel « dependances » du plan CIO). "
             "Désactivé = exécution séquentielle historique, un agent après l'autre."
         ),
+        "value": False,
+    },
+    "orchestration.strict_lazy_delegation": {
+        "category": "orchestration",
+        "type": "boolean",
+        "label": "Délégation sélective CIO (recommandé)",
+        "description": (
+            "Si activé, seul le plan JSON du CIO (ou une demande explicite du dirigeant) mobilise des sous-agents. "
+            "Pas de filet commercial, pas d'inférence par mots-clés, pas d'injection sur simple mention thématique. "
+            "Le CIO répond seul par défaut — réduit fortement les coûts tokens."
+        ),
         "value": True,
     },
     "orchestration.parallel_max_workers": {

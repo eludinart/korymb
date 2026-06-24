@@ -4,35 +4,41 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import AgentActivationBoard, { AgentActivationStrip } from "../../components/AgentActivationBoard";
+import AgentActivationBoard from "../../components/AgentActivationBoard";
 import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
 import CioQuestionsPanel from "../../components/CioQuestionsPanel";
-import MissionDecisionCard from "../../components/MissionDecisionCard";
+import MissionExecutiveBrief from "../../components/MissionExecutiveBrief";
+import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel";
+import DeliverableAccessHub from "../../components/deliverables/DeliverableAccessHub";
 import CollapsibleMissionSection from "../../components/CollapsibleMissionSection";
 import SimpleAccordion from "../../components/SimpleAccordion";
 import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
-import SessionCadrageTimeline from "../../components/SessionCadrageTimeline";
-import MissionDeliverablesPanel from "../../components/MissionDeliverablesPanel";
+import MissionExchangeBrief from "../../components/missions/MissionExchangeBrief";
 import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import MissionHitlResolver from "../../components/missions/MissionHitlResolver";
 import CioResumePanel from "../../components/missions/CioResumePanel";
 import MissionListCard from "../../components/missions/MissionListCard";
 import CioResumeLivePanel from "../../components/missions/CioResumeLivePanel";
+import MissionCreatePanel from "../../components/missions/MissionCreatePanel";
+import MissionsArchivesList from "../../components/missions/MissionsArchivesList";
+import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
+import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
+import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
 import { sortJobsForBossView } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
-import { extractCioStrategicQuestions } from "../../lib/missionBilan";
-import { agentHeaders, requestJson } from "../../lib/api";
+import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 import { threadHasPendingCioTurn, canResumeMissionCio } from "../../lib/missionThreadPending";
 import { useJobDetail } from "../../lib/useJobDetail";
 import { useMissionActions } from "../../lib/useMissionActions";
+import { missionActionLabel, missionJobLine } from "../../lib/missionLabel";
 import { adaptivePollInterval } from "../../lib/korymbEvents";
 
 import type { Job } from "../../lib/types";
@@ -47,7 +53,9 @@ function MissionsContent() {
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
   const [cioQuestionBusy, setCioQuestionBusy] = useState(false);
-  const [mobileDetailPane, setMobileDetailPane] = useState<"fil" | "resultats">("fil");
+  const [mobileDetailPane, setMobileDetailPane] = useState<"fil" | "resultats">("resultats");
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [archiveDeleteBusy, setArchiveDeleteBusy] = useState(false);
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -92,8 +100,65 @@ function MissionsContent() {
     if (j) setSelected(j);
   }, [searchParams]);
 
+  const hubView: MissionsHubView = searchParams.get("view") === "archives" ? "archives" : "active";
+
   useEffect(() => {
-    setMobileDetailPane("fil");
+    if (searchParams.get("create") === "quick") setShowCreatePanel(true);
+  }, [searchParams]);
+
+  const archiveEntries = useMemo(() => buildHistoryEntries(rows), [rows]);
+
+  const setHubView = (view: MissionsHubView) => {
+    const p = new URLSearchParams(searchParams.toString());
+    if (view === "archives") p.set("view", "archives");
+    else p.delete("view");
+    p.delete("create");
+    router.replace(p.toString() ? `/missions?${p.toString()}` : "/missions");
+  };
+
+  const openMission = (jobId: string) => {
+    setSelected(jobId);
+    const p = new URLSearchParams(searchParams.toString());
+    p.set("job", jobId);
+    router.replace(`/missions?${p.toString()}`);
+  };
+
+  const deleteArchiveEntry = async (entry: HistoryEntry) => {
+    const label =
+      entry.type === "chat"
+        ? `la conversation (${entry.jobIds.length} échange(s))`
+        : `la mission « ${entry.title} »`;
+    if (typeof window !== "undefined" && !window.confirm(`Supprimer ${label} ?`)) return;
+    setArchiveDeleteBusy(true);
+    setError("");
+    try {
+      for (const jobId of entry.jobIds) {
+        const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}`, {
+          method: "DELETE",
+          headers: agentHeaders(),
+          retries: 1,
+          timeoutMs: 60_000,
+          expectOk: false,
+        });
+        if (!res.ok) {
+          throw new Error(formatHttpApiErrorPayload(data) || `Suppression impossible (HTTP ${res.status})`);
+        }
+      }
+      if (selected && entry.jobIds.includes(selected)) {
+        setSelected(null);
+        router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
+      }
+      setFeedback(entry.type === "chat" ? "Conversation supprimée." : `Mission « ${entry.title} » supprimée.`);
+      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setArchiveDeleteBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    setMobileDetailPane("resultats");
   }, [selected]);
 
   const detail = useJobDetail(selected, {
@@ -159,11 +224,21 @@ function MissionsContent() {
       .filter((q) => q.questions.length > 0);
   }, [detail.data?.events]);
 
-  const pendingCioQuestionCount = useMemo(
+  const cioQuestionAnswers = useMemo(
     () =>
-      cioQuestions.filter((q) => !q.answered).reduce((n, q) => n + (q.questions?.length || 0), 0),
-    [cioQuestions],
+      collectCioArbitrageAnswers(
+        (detail.data?.events || []) as Array<Record<string, unknown>>,
+        (detail.data?.mission_thread || []) as Array<{ content?: string; source?: string }>,
+      ),
+    [detail.data?.events, detail.data?.mission_thread],
   );
+
+  const pendingCioQuestionCount = useMemo(() => {
+    const texts = cioQuestions
+      .filter((q) => !q.answered)
+      .flatMap((q) => q.questions);
+    return countPendingArbitrageQuestions(texts, cioQuestionAnswers);
+  }, [cioQuestions, cioQuestionAnswers]);
   const hasPendingCioQuestions = pendingCioQuestionCount > 0;
 
   /** Actions CIO / questions (carte sous le fil : clôture, précisions, options). */
@@ -176,22 +251,21 @@ function MissionsContent() {
   /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
   const showConversationSidebar = Boolean(detail.data);
 
-  const onAnswerCioQuestion = async (answer: string) => {
+  const onAnswerCioQuestion = async (answer: string, question?: string) => {
     if (!selected || !answer.trim() || cioQuestionBusy) return;
     setCioQuestionBusy(true);
     setError("");
     try {
-      // Injecter directement dans le fil de la mission courante (non-bloquant)
       await requestJson(`/jobs/${encodeURIComponent(selected)}/cio-answer`, {
         method: "POST",
         headers: agentHeaders(),
         timeoutMs: 10000,
-        body: JSON.stringify({ answer }),
+        body: JSON.stringify({ answer, ...(question ? { question } : {}) }),
       });
-      // Rafraîchir les événements pour mettre à jour l'état "answered"
       void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      throw err;
     } finally {
       setCioQuestionBusy(false);
     }
@@ -317,7 +391,13 @@ function MissionsContent() {
 
   const clearMissionSelection = () => {
     setSelected(null);
-    router.replace("/missions");
+    const base = hubView === "archives" ? "/missions?view=archives" : "/missions";
+    router.replace(base);
+  };
+
+  const onMissionCreated = (jobId: string) => {
+    setShowCreatePanel(false);
+    openMission(jobId);
   };
 
   return (
@@ -325,13 +405,40 @@ function MissionsContent() {
       {!selected ? (
         <PageHeader
           accent="emerald"
-          badge="Suivi opérationnel"
+          badge="Hub opérationnel"
           title="Missions"
-          description="Les missions à valider et en cours remontent en premier. Touchez une carte pour le détail complet."
+          description="Un seul endroit : lancer, décider, échanger avec le CIO, consulter les archives."
         />
       ) : null}
       {!selected ? (
-      <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(320px,1fr)]">
+      <div className="w-full min-w-0 max-w-full space-y-4">
+        <MissionsHubToolbar
+          view={hubView}
+          onViewChange={setHubView}
+          showCreate={showCreatePanel}
+          onToggleCreate={() => {
+            setShowCreatePanel((v) => !v);
+            const p = new URLSearchParams(searchParams.toString());
+            p.delete("create");
+            const qs = p.toString();
+            router.replace(qs ? `/missions?${qs}` : "/missions");
+          }}
+          activeCount={sortedRows.length}
+          archivesCount={archiveEntries.length}
+        />
+        {showCreatePanel ? (
+          <MissionCreatePanel
+            onCreated={onMissionCreated}
+            onCancel={() => {
+              setShowCreatePanel(false);
+              const p = new URLSearchParams(searchParams.toString());
+              p.delete("create");
+              const qs = p.toString();
+              router.replace(qs ? `/missions?${qs}` : "/missions");
+            }}
+          />
+        ) : null}
+      <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(280px,0.75fr)]">
         <div className="min-w-0 space-y-3">
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
         {feedback ? (
@@ -359,30 +466,69 @@ function MissionsContent() {
             </button>
           </div>
         ) : null}
-        {sortedRows.map((j) => (
-          <MissionListCard
-            key={j.job_id}
-            job={j}
-            latestChild={latestChildByParent.get(j.job_id)}
-            busy={busyId === j.job_id}
-            onSelect={setSelected}
-            onValidate={(id) => void onValidate(id)}
-            onClose={(id) => void onCloseMission(id)}
+        {hubView === "active" ? (
+          <>
+            {sortedRows.map((j) => (
+              <MissionListCard
+                key={j.job_id}
+                job={j}
+                latestChild={latestChildByParent.get(j.job_id)}
+                busy={busyId === j.job_id}
+                onSelect={(id) => openMission(id)}
+                onValidate={(id) => {
+                  const job = sortedRows.find((x) => x.job_id === id);
+                  void onValidate(id, job?.mission);
+                }}
+                onClose={(id) => {
+                  const job = sortedRows.find((x) => x.job_id === id);
+                  void onCloseMission(id, job?.mission);
+                }}
+              />
+            ))}
+            {jobs.isSuccess && missionRows.length === 0 ? (
+              <p className="text-sm text-slate-400">Aucune mission opérationnelle. Lancez-en une ou consultez les archives.</p>
+            ) : null}
+          </>
+        ) : (
+          <MissionsArchivesList
+            jobs={rows}
+            selectedId={selected}
+            busy={archiveDeleteBusy}
+            onSelect={(id) => openMission(id)}
+            onDelete={(entry) => void deleteArchiveEntry(entry)}
           />
-        ))}
-        {jobs.isSuccess && missionRows.length === 0 ? (
-          <p className="text-sm text-slate-400">Aucune mission.</p>
-        ) : null}
+        )}
         </div>
-        <section className="min-h-[280px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="min-h-[200px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="space-y-4">
-              <AgentMindMap />
+              {hubView === "active" ? (
+                <>
+                  <AgentMindMap />
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    <strong className="text-slate-700">Opérationnel</strong> — missions à traiter en priorité. Le détail
+                    ouvre la synthèse décisionnelle et le fil CIO.
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm leading-relaxed text-slate-600">
+                  <strong className="text-slate-800">Archives</strong> — tout l&apos;historique (missions, guidées,
+                  conversations liées). Ouvrez une entrée pour le détail ; supprimez pour nettoyer.
+                </p>
+              )}
               <p className="text-xs text-slate-400 leading-relaxed">
-                Cliquez sur une mission à gauche : la page affichera uniquement son détail, avec un bouton pour revenir à
-                cette liste.
+                Besoin d&apos;une conversation libre ?{" "}
+                <Link href="/chat" className="font-medium text-violet-800 hover:underline">
+                  Chat
+                </Link>
+                . Décisions urgentes ?{" "}
+                <Link href="/inbox" className="font-medium text-violet-800 hover:underline">
+                  Inbox
+                </Link>
+                .
               </p>
             </div>
         </section>
+      </div>
       </div>
       ) : (
       <div className="w-full min-w-0 space-y-3">
@@ -407,13 +553,6 @@ function MissionsContent() {
               <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
             )}
           </div>
-          {activeBoardData ? (
-            <AgentActivationStrip
-              events={activeBoardData.events}
-              jobStatus={String(activeBoardData.status || "")}
-              className="w-full min-w-0"
-            />
-          ) : null}
         </div>
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
         {feedback ? (
@@ -429,14 +568,14 @@ function MissionsContent() {
               onClick={() => setMobileDetailPane("fil")}
               className={`mobile-tab ${mobileDetailPane === "fil" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
             >
-              Fil CIO
+              Résumé équipe
             </button>
             <button
               type="button"
               onClick={() => setMobileDetailPane("resultats")}
               className={`mobile-tab ${mobileDetailPane === "resultats" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
             >
-              Synthèse & livrables
+              Décision
             </button>
           </div>
         ) : null}
@@ -444,7 +583,7 @@ function MissionsContent() {
         <div
           className={
             showConversationSidebar
-              ? "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0"
+              ? "lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0"
               : ""
           }
         >
@@ -455,16 +594,18 @@ function MissionsContent() {
               }`}
             >
               <div className="relative flex min-h-[14rem] min-w-0 flex-1 flex-col overflow-hidden">
-                <SessionCadrageTimeline
+                <MissionExchangeBrief
                   fillColumn
-                  messages={detail.data.mission_thread}
-                  missionPlan={detail.data.plan}
+                  jobId={selected || undefined}
+                  driveArtifacts={detail.data.drive_artifacts}
+                  result={selectedMissionSynth?.cardResult ?? detail.data.result}
+                  thread={detail.data.mission_thread}
+                  team={selectedMissionSynth?.cardTeam ?? detail.data.team}
+                  deliverablesMarkdown={selectedMissionSynth?.deliverablesMarkdown}
                   missionBrief={detail.data.mission}
-                  title="Fil de cadrage avec le CIO"
-                  className="h-full min-h-0 flex-1 shadow-sm"
-                  cioStrategicFollowup={extractCioStrategicQuestions(
-                    String(selectedMissionSynth?.cardResult ?? detail.data.result ?? ""),
-                  )}
+                  missionPlan={detail.data.plan}
+                  title="Résumé des échanges"
+                  className="h-full min-h-0 flex-1"
                   footer={
                     canResumeCio ? (
                       <CioResumePanel
@@ -475,6 +616,7 @@ function MissionsContent() {
                         variant="compact"
                         liveJobId={cioResumeLiveId}
                         onLiveJobIdChange={setCioResumeLiveId}
+                        onAccepted={() => void detail.refetch()}
                       />
                     ) : null
                   }
@@ -487,7 +629,7 @@ function MissionsContent() {
                       <button
                         type="button"
                         disabled={busyId === selected}
-                        onClick={() => void onCloseMission(String(selected))}
+                        onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
                       >
                         {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
@@ -546,7 +688,8 @@ function MissionsContent() {
                     {cioQuestions.length > 0 && !cioResumeLiveId ? (
                       <CioQuestionsPanel
                         questions={cioQuestions}
-                        onAnswer={(a) => onAnswerCioQuestion(a)}
+                        questionAnswers={cioQuestionAnswers}
+                        onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
                         busy={cioQuestionBusy}
                       />
                     ) : null}
@@ -573,7 +716,7 @@ function MissionsContent() {
               <div className="rounded-2xl border border-violet-300 bg-violet-50/90 p-3 shadow-sm lg:hidden">
                 <p className="text-xs font-semibold text-violet-950">Discuter avec le CIO</p>
                 <p className="mt-1 text-[11px] text-violet-900/90">
-                  Le champ de saisie est sur l&apos;onglet <span className="font-semibold">Fil CIO</span>, ou utilisez le
+                  Le champ de saisie est sur l&apos;onglet <span className="font-semibold">Résumé équipe</span>, ou utilisez le
                   formulaire ci‑dessous.
                 </p>
                 {missionRunningStuck ? (
@@ -600,7 +743,7 @@ function MissionsContent() {
                     <button
                       type="button"
                       disabled={busyId === selected}
-                      onClick={() => void onCloseMission(String(selected))}
+                      onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
                     >
                       {busyId === selected ? "Clôture…" : "Clôturer la mission"}
@@ -609,23 +752,7 @@ function MissionsContent() {
                 </form>
               </div>
             ) : null}
-            {detail.data && selectedMissionSynth ? (
-              <MissionDecisionCard
-                job={{
-                  result: selectedMissionSynth.cardResult,
-                  status: selectedMissionSynth.liveStatus,
-                  team: selectedMissionSynth.cardTeam,
-                  tokens_total: selectedMissionSynth.cardTokens,
-                  cost_usd: selectedMissionSynth.cardCost,
-                  events_total: selectedMissionSynth.cardEvents,
-                  delivery_warnings: selectedMissionSynth.deliveryWarnings,
-                  delivery_blocked: selectedMissionSynth.deliveryBlocked,
-                  created_at: detail.data.created_at as string | undefined,
-                }}
-                updatedByContinuation={selectedMissionSynth.hasChild}
-              />
-            ) : null}
-            <section className="min-h-0 min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className="min-h-0 min-w-0 space-y-4">
           {detail.isLoading && !detail.data ? (
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.data ? (
@@ -672,47 +799,82 @@ function MissionsContent() {
               {!showDecisionRail && cioQuestions.length > 0 && !cioResumeLiveId && (
                 <CioQuestionsPanel
                   questions={cioQuestions}
-                  onAnswer={(a) => onAnswerCioQuestion(a)}
+                  questionAnswers={cioQuestionAnswers}
+                  onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
                   busy={cioQuestionBusy}
                 />
               )}
+
+              {selected && selectedMissionSynth && !cioResumeLiveId ? (
+                <DeliverableAccessHub
+                  jobId={String(selected)}
+                  deliverablesMarkdown={selectedMissionSynth.deliverablesMarkdown}
+                  driveArtifacts={detail.data.drive_artifacts}
+                  result={detail.data.result}
+                />
+              ) : null}
+
+              {selectedMissionSynth && !cioResumeLiveId ? (
+                <MissionExecutiveBrief
+                  result={selectedMissionSynth.cardResult}
+                  status={selectedMissionSynth.liveStatus}
+                  deliveryWarnings={selectedMissionSynth.deliveryWarnings}
+                  deliveryBlocked={selectedMissionSynth.deliveryBlocked}
+                  jobId={selected || undefined}
+                  questionAnswers={cioQuestionAnswers}
+                  onAnswerQuestion={(q, a) => onAnswerCioQuestion(a, q)}
+                  answerBusy={cioQuestionBusy}
+                />
+              ) : null}
 
               {/* ── PANNEAU LIVE (haut de colonne, visible immédiatement) ─────── */}
               {cioResumeLiveId ? (
                 <CioResumeLivePanel live={cioResumeLive.data as Job | undefined} isError={cioResumeLive.isError} />
               ) : null}
 
-              {/* ── Synthèse CIO + livrables (agrandissable plein écran) ─────── */}
+              {/* ── Détail complet (replié par défaut) ───────────────────────── */}
               <div className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}>
-                <ExpandableMissionReader
-                  title="Réponse du CIO · synthèse & livrables"
-                  hint={detail.data.mission?.trim() || null}
-                  badge={cioSynthReaderBadge}
+                <CollapsibleMissionSection
+                  title="Détail complet & livrables"
+                  hint="Synthèse CIO intégrale, livrables par rôle — ouvrir si besoin de vérification"
+                  defaultOpen={false}
                 >
-                  <CioResultPanel
-                    embedded
-                    result={detail.data.result}
-                    missionTitle={detail.data.mission}
-                    jobLine={`#${detail.data.job_id} · ${detail.data.agent} · ${detail.data.status}`}
-                  />
-                  {selected && selectedMissionSynth ? (
-                    <MissionDeliverablesPanel
+                  <ExpandableMissionReader
+                    title="Réponse du CIO · synthèse & livrables"
+                    hint={detail.data.mission?.trim() || null}
+                    badge={cioSynthReaderBadge}
+                  >
+                    <CioResultPanel
                       embedded
-                      jobId={selected}
-                      resultMarkdown={selectedMissionSynth.deliverablesMarkdown}
-                      team={selectedMissionSynth.deliverablesTeam}
-                      deliverablesUi={detail.data.deliverables_ui}
-                      missionClosed={Boolean(
-                        detail.data.user_validated_at || detail.data.mission_closed_by_user,
-                      )}
-                      canValidateMission={canCloseMission}
-                      validateBusy={busyId === selected}
-                      onValidateMission={() => void onCloseMission(selected)}
-                      validateLabel="Clôturer la mission (terminée pour moi)"
-                      onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
+                      result={detail.data.result}
+                      missionTitle={detail.data.mission}
+                      jobLine={missionJobLine({
+                        jobId: String(detail.data.job_id || ""),
+                        mission: detail.data.mission,
+                        agent: detail.data.agent,
+                        status: detail.data.status,
+                      })}
                     />
-                  ) : null}
-                </ExpandableMissionReader>
+                    {selected && selectedMissionSynth ? (
+                      <MissionDeliverablesPanel
+                        embedded
+                        jobId={selected}
+                        resultMarkdown={selectedMissionSynth.deliverablesMarkdown}
+                        team={selectedMissionSynth.deliverablesTeam}
+                        deliverablesUi={detail.data.deliverables_ui}
+                        driveArtifacts={detail.data.drive_artifacts}
+                        missionClosed={Boolean(
+                          detail.data.user_validated_at || detail.data.mission_closed_by_user,
+                        )}
+                        canValidateMission={canCloseMission}
+                        validateBusy={busyId === selected}
+                        onValidateMission={() => void onCloseMission(selected)}
+                        validateLabel="Clôturer la mission (terminée pour moi)"
+                        onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
+                      />
+                    ) : null}
+                  </ExpandableMissionReader>
+                </CollapsibleMissionSection>
               </div>
 
               <CollapsibleMissionSection

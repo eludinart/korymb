@@ -18,15 +18,15 @@ export async function hitlResolve(
   return data;
 }
 
-export async function cioAnswer(jobId: string, answer: string) {
+export async function cioAnswer(jobId: string, answer: string, question?: string) {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/cio-answer`, {
     method: "POST",
     headers: agentHeaders(),
-    body: JSON.stringify({ answer }),
+    body: JSON.stringify({ answer, ...(question ? { question } : {}) }),
     expectOk: false,
   });
   if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
-  return data;
+  return data as { question_answers?: Record<string, string> };
 }
 
 export async function validateMission(jobId: string) {
@@ -43,6 +43,27 @@ export async function closeMission(jobId: string) {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/close-mission`, {
     method: "POST",
     headers: agentHeaders(),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data;
+}
+
+export async function dismissInboxItem(item: {
+  kind: string;
+  job_id?: string;
+  output_id?: string;
+  suggestion_id?: string;
+}) {
+  const { res, data } = await requestJson("/admin/inbox/dismiss", {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({
+      kind: item.kind,
+      job_id: item.job_id || null,
+      output_id: item.output_id || null,
+      suggestion_id: item.suggestion_id || null,
+    }),
     expectOk: false,
   });
   if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
@@ -121,7 +142,8 @@ export function useHitlResolve(jobId: string, onSuccess?: () => void) {
 export function useCioAnswer(jobId: string, onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (answer: string) => cioAnswer(jobId, answer),
+    mutationFn: ({ answer, question }: { answer: string; question?: string }) =>
+      cioAnswer(jobId, answer, question),
     onSuccess: () => {
       invalidateMissionQueries(qc, jobId);
       onSuccess?.();
@@ -181,6 +203,18 @@ export function useQualityOverride(jobId: string, onSuccess?: () => void) {
     mutationFn: (reason?: string) => qualityOverride(jobId, reason),
     onSuccess: () => {
       invalidateMissionQueries(qc, jobId);
+      onSuccess?.();
+    },
+  });
+}
+
+export function useInboxDismiss(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (item: { kind: string; job_id?: string; output_id?: string; suggestion_id?: string }) =>
+      dismissInboxItem(item),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
       onSuccess?.();
     },
   });
