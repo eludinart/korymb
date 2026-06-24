@@ -131,11 +131,11 @@ function LivrablesContent() {
   const library = useQuery({
     queryKey: [...QK.deliverablesLibrary, filterJob || "all"],
     queryFn: async () => {
-      const { data } = await requestJson<{ total?: number; themes?: LibraryTheme[] }>(
+      const { data } = await requestJson(
         "/deliverables/library?limit=250",
         { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 },
       );
-      return data;
+      return data as { total?: number; themes?: LibraryTheme[] };
     },
     staleTime: 30_000,
     refetchOnWindowFocus: false,

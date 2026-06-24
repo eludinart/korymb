@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionTitleLabel } from "../../lib/missionLabel";
+import { QK } from "../../lib/queryClient";
 
 type Props = {
   onCreated: (jobId: string) => void;

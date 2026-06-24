@@ -17,7 +17,7 @@ type Props = {
 export default function DirectorToast({ notification, onDismiss, onNavigate, onMarkRead }: Props) {
   const actions = buildNotificationActions(notification);
   const primary = actions.find((a) => a.primary) || actions[0];
-  const secondary = actions.filter((a) => a !== primary).slice(0, 1);
+  const secondary = actions.find((a) => a !== primary);
 
   useEffect(() => {
     const t = window.setTimeout(onDismiss, 12000);

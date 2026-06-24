@@ -22,53 +22,53 @@ export function canStopJob(job: ActiveAgentJob): boolean {
 }
 
 export async function pauseActiveJob(jobId: string) {
-  const { data } = await requestJson<{ ok?: boolean; message?: string }>(
+  const { data } = await requestJson(
     `/jobs/${encodeURIComponent(jobId)}/pause`,
     { method: "POST", headers: agentHeaders(), retries: 0, timeoutMs: 15_000 },
   );
-  return data;
+  return data as { ok?: boolean; message?: string };
 }
 
 export async function resumeActiveJob(jobId: string) {
-  const { data } = await requestJson<{ ok?: boolean; message?: string }>(
+  const { data } = await requestJson(
     `/jobs/${encodeURIComponent(jobId)}/resume-work`,
     { method: "POST", headers: agentHeaders(), retries: 0, timeoutMs: 15_000 },
   );
-  return data;
+  return data as { ok?: boolean; message?: string };
 }
 
 export async function cancelActiveJob(jobId: string) {
-  const { data } = await requestJson<{ ok?: boolean; message?: string; forced?: boolean }>(
+  const { data } = await requestJson(
     `/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST", headers: agentHeaders(), retries: 0, timeoutMs: 15_000 },
   );
-  return data;
+  return data as { ok?: boolean; message?: string; forced?: boolean };
 }
 
 /** Relance une mission arrêtée (clone de la consigne + config). */
 export async function restartStoppedJob(jobId: string) {
-  const { data } = await requestJson<{ ok?: boolean; job_id?: string; source_job_id?: string }>(
+  const { data } = await requestJson(
     `/jobs/${encodeURIComponent(jobId)}/clone`,
     { method: "POST", headers: agentHeaders(), retries: 0, timeoutMs: 20_000 },
   );
-  return data;
+  return data as { ok?: boolean; job_id?: string; source_job_id?: string };
 }
 
 /** Supprime définitivement un job arrêté (base + état mémoire). */
 export async function deleteJob(jobId: string) {
-  const { data } = await requestJson<{ deleted?: string }>(
+  const { data } = await requestJson(
     `/jobs/${encodeURIComponent(jobId)}`,
     { method: "DELETE", headers: agentHeaders(), retries: 0, timeoutMs: 20_000 },
   );
-  return data;
+  return data as { deleted?: string };
 }
 
 export async function cleanupOrphanJobs() {
-  const { data } = await requestJson<{ ok?: boolean; count?: number; cleaned?: string[] }>(
+  const { data } = await requestJson(
     "/jobs/cleanup-orphans",
     { method: "POST", headers: agentHeaders(), retries: 0, timeoutMs: 30_000 },
   );
-  return data;
+  return data as { ok?: boolean; count?: number; cleaned?: string[] };
 }
 
 export function jobControlErrorMessage(err: unknown): string {

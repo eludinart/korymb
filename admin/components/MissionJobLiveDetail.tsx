@@ -17,7 +17,7 @@ import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
 import { deliverablesMarkdownFromJob } from "../lib/missionDeliverablesMarkdown";
 import { threadHasPendingCioTurn } from "../lib/missionThreadPending";
 import { missionJobLine, missionTitleLabel } from "../lib/missionLabel";
-import type { DeliverablesUiState, LatestChatFollowup } from "../lib/types";
+import type { DeliverablesUiState, DriveArtifact, LatestChatFollowup } from "../lib/types";
 
 export type MissionJobLivePayload = {
   job_id?: string;
@@ -37,6 +37,7 @@ export type MissionJobLivePayload = {
   hitl?: Record<string, unknown> | null;
   latest_chat_followup?: LatestChatFollowup | null;
   deliverables_ui?: DeliverablesUiState;
+  drive_artifacts?: DriveArtifact[];
   user_validated_at?: string | null;
   mission_closed_by_user?: boolean;
 };

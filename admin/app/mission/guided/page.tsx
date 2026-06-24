@@ -11,6 +11,7 @@ import SessionCadrageTimeline from "../../../components/SessionCadrageTimeline";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../../lib/missionRefinement";
 import { missionJobLine, missionTitleLabel } from "../../../lib/missionLabel";
+import { QK } from "../../../lib/queryClient";
 
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
