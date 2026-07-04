@@ -730,6 +730,8 @@ def _lazy_delegation_blocks_auto_delegation(
 
 def _direct_answer_looks_fabricated(text: str, job_logs: list[str] | None) -> bool:
     """Détecte une synthèse CIO avec liens ou tableaux inventés (sans appel outil)."""
+    from services.drive_workspace import is_placeholder_prospect_table
+
     t = _ascii_fold(text or "")
     log_blob = _ascii_fold("\n".join(job_logs or []))
     if "remplacer par le lien" in t or "1example" in t:
@@ -741,6 +743,9 @@ def _direct_answer_looks_fabricated(text: str, job_logs: list[str] | None) -> bo
             return True
     if re.search(r"\b\d+\s+profils?\b", t) and "resalib" in t:
         if "web_search" not in log_blob and "upload_google_drive" not in log_blob:
+            return True
+    if "|" in (text or "") and is_placeholder_prospect_table(text):
+        if "web_search" not in log_blob and "create_google_sheet" not in log_blob:
             return True
     return False
 

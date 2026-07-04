@@ -72,6 +72,109 @@ def markdown_table_to_csv(text: str) -> str | None:
     return buf.getvalue()
 
 
+_PLACEHOLDER_SURNAMES = frozenset(
+    {"dupont", "martin", "durand", "bernard", "petit", "robert", "richard", "test", "exemple", "example", "demo"}
+)
+_PLACEHOLDER_FIRSTNAMES = frozenset({"jean", "marie", "pierre", "paul", "jacques", "michel", "anne", "sophie"})
+
+
+def count_table_data_rows(content: str) -> int:
+    """Nombre de lignes de données (hors en-tête) dans un tableau markdown ou CSV."""
+    text = (content or "").strip()
+    if not text:
+        return 0
+    if "|" in text:
+        lines = [ln for ln in text.splitlines() if ln.strip().startswith("|")]
+        data = 0
+        for ln in lines:
+            if re.match(r"^\|[\s\-:|]+\|$", ln.strip()):
+                continue
+            data += 1
+        return max(0, data - 1)
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    return max(0, len(lines) - 1)
+
+
+def find_largest_markdown_table(text: str) -> str | None:
+    """Retourne le plus grand tableau markdown trouvé dans un texte."""
+    lines = (text or "").splitlines()
+    best: list[str] = []
+    cur: list[str] = []
+    for ln in lines:
+        if ln.strip().startswith("|"):
+            cur.append(ln)
+        else:
+            if len(cur) > len(best):
+                best = cur
+            cur = []
+    if len(cur) > len(best):
+        best = cur
+    if len(best) < 2:
+        return None
+    return "\n".join(best).strip()
+
+
+def _table_row_cells(table_md: str) -> list[list[str]]:
+    rows: list[list[str]] = []
+    for ln in (table_md or "").splitlines():
+        if not ln.strip().startswith("|") or re.match(r"^\|[\s\-:|]+\|$", ln.strip()):
+            continue
+        rows.append([c.strip() for c in ln.strip("|").split("|")])
+    if len(rows) <= 1:
+        return []
+    return rows[1:]
+
+
+def is_placeholder_prospect_table(content: str) -> bool:
+    """
+    Détecte les tableaux d'exemple (Dupont/Martin, 1–2 lignes) que le LLM dépose
+    sur Drive au lieu des vraies données de prospection.
+    """
+    table = extract_table_only(content) or content
+    data_rows = _table_row_cells(table if "|" in table else "")
+    if not data_rows and "|" not in (content or ""):
+        lines = [ln for ln in (content or "").splitlines() if ln.strip() and "," in ln]
+        if len(lines) > 1:
+            import csv
+            import io
+
+            try:
+                reader = csv.reader(io.StringIO("\n".join(lines)))
+                data_rows = list(reader)[1:]
+            except Exception:
+                data_rows = []
+    n = len(data_rows)
+    if n >= 4:
+        return False
+    generic_hits = 0
+    for row in data_rows:
+        joined = _ascii_fold(" ".join(row[:3]))
+        if any(s in joined for s in _PLACEHOLDER_SURNAMES):
+            generic_hits += 1
+        if any(s in joined.split() for s in _PLACEHOLDER_FIRSTNAMES) and any(
+            s in joined for s in _PLACEHOLDER_SURNAMES
+        ):
+            generic_hits += 1
+    if n <= 2 and generic_hits >= 1:
+        return True
+    if n <= 3 and generic_hits >= 2:
+        return True
+    return False
+
+
+def validate_sheet_export_content(content: str) -> tuple[bool, str]:
+    if is_placeholder_prospect_table(content):
+        rows = count_table_data_rows(content)
+        return (
+            False,
+            f"Tableau refusé : données d'exemple ou trop peu de lignes ({rows} ligne(s) utile(s)). "
+            "Incluez les vrais contacts issus de web_search / read_webpage dans un tableau Markdown complet.",
+        )
+    if count_table_data_rows(content) < 1:
+        return False, "Tableau vide — aucune ligne de données à exporter."
+    return True, ""
+
+
 def mission_implies_drive_export(blob: str) -> bool:
     """True si la mission demande explicitement un fichier livrable sur Drive."""
     t = _ascii_fold(blob or "")
@@ -163,6 +266,15 @@ def extract_exportable_content(title: str, body: str) -> tuple[str, str] | None:
 
     table = extract_table_only(body)
     if table:
+        if is_placeholder_prospect_table(table):
+            better = find_largest_markdown_table(body)
+            if better and not is_placeholder_prospect_table(better):
+                table = better
+            else:
+                return None
+        ok, _ = validate_sheet_export_content(table)
+        if not ok:
+            return None
         return table, "sheet"
     if _looks_like_letter(body):
         return body, "doc"
@@ -421,11 +533,21 @@ def _collect_export_candidates(
     candidates: list[dict[str, str]] = []
     seen_titles: set[str] = set()
 
-    def add(title: str, body: str, agent: str = "coordinateur") -> None:
+    def add(title: str, body: str, agent: str = "coordinateur", full_text: str = "") -> None:
         extracted = extract_exportable_content(title, body)
         if not extracted:
             return
         export_body, format_kind = extracted
+        if format_kind == "sheet":
+            ok, reason = validate_sheet_export_content(export_body)
+            if not ok and full_text:
+                better = find_largest_markdown_table(full_text)
+                if better and not is_placeholder_prospect_table(better):
+                    export_body = better
+                    ok, reason = validate_sheet_export_content(export_body)
+            if not ok:
+                logger.info("Export Drive ignoré pour « %s » : %s", (title or "")[:60], reason)
+                return
         t = _slug_filename(title)
         if not export_body.strip() or t in seen_titles:
             return
@@ -441,10 +563,10 @@ def _collect_export_candidates(
 
     for ag, txt in (resultats or {}).items():
         for block in parse_livrable_blocks(txt or ""):
-            add(block["title"], block["body"], ag)
+            add(block["title"], block["body"], ag, full_text=txt or "")
 
     for block in parse_livrable_blocks(synthesis or ""):
-        add(block["title"], block["body"])
+        add(block["title"], block["body"], full_text=synthesis or "")
 
     if existing:
         return candidates

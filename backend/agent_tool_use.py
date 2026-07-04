@@ -249,7 +249,11 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "upload_google_drive",
-        "description": "Crée un fichier texte ou markdown sur Google Drive d'Élude In Art.",
+        "description": (
+            "Crée un fichier sur Google Drive (texte, CSV ou tableau Markdown → Google Sheet). "
+            "Pour un tableau de prospection : inclure TOUTES les lignes réelles (web_search), "
+            "jamais d'exemple Dupont/Martin."
+        ),
         "input_schema": {
             "type": "object",
             "properties": {

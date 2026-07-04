@@ -105,6 +105,36 @@ def test_collect_candidates_keeps_livrable_table():
         synthesis="",
         events=None,
     )
+    assert candidates == []
+
+
+def test_collect_candidates_keeps_real_table():
+    rows = "\n".join(
+        f"| Therapeute {i} | Nice | coach | — | — | resalib | angle |"
+        for i in range(6)
+    )
+    resultats = {
+        "commercial": (
+            "#### LIVRABLE — Prospects PACA\n\n"
+            f"| Nom | Ville | Role | Email | Tel | Source | Angle |\n| --- | --- | --- | --- | --- | --- | --- |\n{rows}\n"
+        ),
+    }
+    candidates = _collect_export_candidates(
+        mission_txt="tableau prospects",
+        root_mission_label="Prospects",
+        resultats=resultats,
+        synthesis="",
+        events=None,
+    )
     assert len(candidates) == 1
     assert candidates[0]["format_kind"] == "sheet"
-    assert "Dupont" in candidates[0]["body"]
+    assert "Therapeute" in candidates[0]["body"]
+
+
+def test_is_placeholder_prospect_table():
+    from services.drive_workspace import is_placeholder_prospect_table
+
+    stub = "| Nom | Prenom | Ville | Priorite |\n| --- | --- | --- | --- |\n| Dupont | Marie | Toulon | 1 |\n| Martin | Jean | Hyeres | 2 |\n"
+    assert is_placeholder_prospect_table(stub) is True
+    real = "| Nom | Ville |\n| --- | --- |\n" + "\n".join(f"| Profil {i} | Nice |" for i in range(5))
+    assert is_placeholder_prospect_table(real) is False

@@ -668,6 +668,12 @@ def run_create_drive_deliverable(
             fk = "sheet"
         else:
             fk = "text"
+    if fk in ("sheet", "csv") or ("|" in body and fk == "auto"):
+        from services.drive_workspace import validate_sheet_export_content
+
+        ok, reason = validate_sheet_export_content(body)
+        if not ok:
+            return f"Erreur Google Drive : {reason}"
     try:
         if fk == "sheet":
             csv_body = body
@@ -739,10 +745,19 @@ def run_upload_google_drive(
     fn = (filename or "").strip()[:220]
     if not fn:
         return "Nom de fichier vide."
+    body = content or ""
+    if "|" in body and re.search(r"^\|.+\|", body, re.MULTILINE):
+        title = fn.rsplit(".", 1)[0] if "." in fn else fn
+        return run_create_drive_deliverable(
+            title=title,
+            content=body,
+            format_kind="sheet",
+            folder_id=folder_id,
+        )
     try:
         data = _drive_multipart_upload(
             filename=fn,
-            content=content or "",
+            content=body,
             source_mime=(mime_type or "text/plain").strip() or "text/plain",
             target_mime=(mime_type or "text/plain").strip() or "text/plain",
             folder_id=folder_id,

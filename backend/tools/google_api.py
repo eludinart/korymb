@@ -268,6 +268,20 @@ def run_create_google_sheet(title: str, headers_row: str, rows_csv: str = "") ->
     for line in (rows_csv or "").strip().splitlines():
         if line.strip():
             data_rows.append([c.strip() for c in line.split(",")])
+    preview = "\n".join(",".join(r) for r in data_rows)
+    try:
+        from services.drive_workspace import validate_sheet_export_content
+
+        ok, reason = validate_sheet_export_content(
+            "| " + " | ".join(headers) + " |\n| " + " | ".join(["---"] * len(headers)) + " |\n"
+            + "\n".join("| " + " | ".join(r) + " |" for r in data_rows[1:])
+            if len(data_rows) > 1
+            else preview
+        )
+        if not ok:
+            return f"Erreur Google Sheets : {reason}"
+    except Exception:
+        pass
     try:
         hdrs = _google_headers("sheets")
     except RuntimeError:
