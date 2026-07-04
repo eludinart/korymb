@@ -4,9 +4,9 @@ import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import ChatAgentMacaron from "./ChatAgentMacaron";
 import ChatMessageDeliverables from "./ChatMessageDeliverables";
-import { extractJobIdFromMessageId, fetchJobAgentKeys } from "@/lib/chatJobAgents";
-import { chatBubbleDisplayText } from "@/lib/chatMirrorDisplay";
-import type { DriveArtifact } from "@/lib/types";
+import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
+import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
+import type { DriveArtifact } from "../../lib/types";
 
 export type ChatMsg = {
   id: string;

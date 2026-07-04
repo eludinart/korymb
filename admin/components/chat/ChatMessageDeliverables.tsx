@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import DeliverableAccessHub from "../deliverables/DeliverableAccessHub";
-import { extractJobIdFromMessageId, fetchChatJobDelivery } from "@/lib/chatJobAgents";
-import type { DriveArtifact } from "@/lib/types";
+import { extractJobIdFromMessageId, fetchChatJobDelivery } from "../../lib/chatJobAgents";
+import type { DriveArtifact } from "../../lib/types";
 import type { ChatMsg } from "./ChatShell";
 
 type Props = {

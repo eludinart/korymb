@@ -127,3 +127,19 @@ Si Coolify refuse de sauvegarder après changement de build pack (bug connu v4) 
 Le backend (`api-korymb.eludein.art`) utilise **`backend/Dockerfile`** avec le build pack Dockerfile et le base directory `/backend` (ou contexte `backend/` selon votre config).
 
 **Vérification post-fix** : les logs de build doivent afficher `FROM node:20-alpine`, pas `nixpacks` ni `nix-env`.
+
+## 8) Dépannage — échec build Next.js (module not found / next/font)
+
+Symptômes :
+
+- `Failed to compile` / `Module not found` sur `@/lib/...` ou `app/layout.tsx` + `next/font`
+- Build Dockerfile avec `node:20-alpine` mais échec à `RUN npm run build`
+
+**Causes fréquentes** :
+
+1. **`NODE_ENV=production` avant `npm ci`** — omet tailwind/postcss/typescript (devDependencies). Le Dockerfile du repo installe d’abord les deps, puis définit `NODE_ENV=production` avant le build.
+2. **Build pack encore Nixpacks** — `next` introuvable (`suivant: not found` en logs FR) car `npm --prefix admin ci` n’est pas exécuté.
+3. **`KORYMB_AGENT_SECRET` en build ARG** — à garder en variable **runtime** uniquement (pas en argument de build Docker).
+4. **Polices Google** — `next/font/google` peut échouer sans accès réseau au build ; le layout utilise des polices système.
+
+**Build arguments Coolify (frontend)** : uniquement `NEXT_PUBLIC_KORYMB_API_URL` si nécessaire.

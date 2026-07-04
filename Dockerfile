@@ -3,22 +3,24 @@
 FROM node:20-alpine
 WORKDIR /app
 
-ENV NODE_ENV=production
-ENV NEXT_DIST_DIR=.next-build
-ENV PORT=3000
-
-# Build-time env for frontend runtime config.
-# Le secret agent (KORYMB_AGENT_SECRET) est fourni au runtime uniquement,
-# jamais en build ARG NEXT_PUBLIC_* : il ne doit pas entrer dans le bundle JS.
 ARG NEXT_PUBLIC_KORYMB_API_URL
 ENV NEXT_PUBLIC_KORYMB_API_URL=$NEXT_PUBLIC_KORYMB_API_URL
+ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package*.json ./
 COPY admin/package*.json ./admin/
+# NODE_ENV=production avant npm ci omet les devDependencies (tailwind, postcss, typescript).
 RUN npm ci && npm --prefix admin ci
 
 COPY . .
+RUN test -f admin/lib/chatJobAgents.ts && test -f admin/lib/chatMirrorDisplay.ts
+
+ENV NODE_ENV=production
+ENV NEXT_DIST_DIR=.next-build
+ENV PORT=3000
 RUN npm run build
+
+RUN npm --prefix admin prune --omit=dev
 
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
