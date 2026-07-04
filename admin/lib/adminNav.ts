@@ -14,6 +14,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     label: "Pilotage",
     links: [
       { href: "/administration/dashboard", label: "Santé système" },
+      { href: "/administration/integrations", label: "Intégrations & clés" },
       { href: "/administration/budget", label: "Budget & coûts" },
       { href: "/administration/reprise", label: "Audit reprise" },
     ],

@@ -1,5 +1,5 @@
 import { buildCioDisplayModel } from "./cioResultDisplay";
-import { extractCioStrategicQuestions, extractSynthese } from "./missionBilan";
+import { extractCioStrategicQuestions, extractShortSummary, extractSynthese } from "./missionBilan";
 
 export type MissionExecutiveBriefModel = {
   missionName: string;
@@ -9,6 +9,20 @@ export type MissionExecutiveBriefModel = {
   questions: string[];
   alerts: string[];
 };
+
+const EXEC_SYNTHESIS_MAX = 2400;
+
+/** Résumé court quand le livrable est long et non structuré (sous-agent sans enveloppe CIO). */
+function fallbackExecutiveSynthesis(raw: string): string {
+  const { text } = extractShortSummary(raw);
+  if (text.trim().length > 40) return text.trim();
+
+  const intro = raw.match(/^([\s\S]*?)(?=\n##\s|\n---\s*\n##|$)/)?.[1]?.trim();
+  if (intro && intro.length > 40) {
+    return intro.length > EXEC_SYNTHESIS_MAX ? `${intro.slice(0, EXEC_SYNTHESIS_MAX - 1)}…` : intro;
+  }
+  return "";
+}
 
 function parseListItems(text: string): string[] {
   const items: string[] = [];
@@ -38,7 +52,7 @@ function resolveSynthesis(raw: string): { missionName: string; synthesis: string
 
   const ceo = model.ceoDecisionReport.trim();
   if (ceo) {
-    const synBlock = ceo.match(/##\s*Synthèse[^\n]*\n([\s\S]*?)(?=\n##\s|$)/i);
+    const synBlock = ceo.match(/##[^\n]*Synthèse[^\n]*\n([\s\S]*?)(?=\n##\s|$)/i);
     if (synBlock?.[1]?.trim() && synBlock[1].trim().length > 40) {
       return { missionName: exec?.missionName || "", synthesis: synBlock[1].trim() };
     }
@@ -57,9 +71,20 @@ function resolveSynthesis(raw: string): { missionName: string; synthesis: string
       }
       return { missionName: "", synthesis: "" };
     }
-    if (ceo.length > 40 && ceo.length < 2400) {
+    if (ceo.length > 40 && ceo.length <= EXEC_SYNTHESIS_MAX) {
       return { missionName: exec?.missionName || "", synthesis: ceo };
     }
+    if (ceo.length > EXEC_SYNTHESIS_MAX) {
+      const fallback = fallbackExecutiveSynthesis(raw);
+      if (fallback) {
+        return { missionName: exec?.missionName || "", synthesis: fallback };
+      }
+    }
+  }
+
+  const fallback = fallbackExecutiveSynthesis(raw);
+  if (fallback) {
+    return { missionName: exec?.missionName || "", synthesis: fallback };
   }
 
   return { missionName: exec?.missionName || "", synthesis: "" };

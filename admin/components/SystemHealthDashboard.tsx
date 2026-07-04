@@ -1,17 +1,21 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import HealthDot from "./HealthDot";
 import SimpleAccordion from "./SimpleAccordion";
 import type { HealthTone } from "../lib/healthTone";
 import {
+  compareByStatusThenName,
+  healthStatusLabel,
   healthToneForCpuPercent,
   healthToneForDiskPercent,
   healthToneForIntegration,
   healthToneForMemoryPercent,
   integrationDisplayName,
   type IntegrationRow,
+  type StatusSortOrder,
 } from "../lib/integrationHealth";
+import { buildToolProbeRows, type ToolProbeRowData } from "../lib/systemHealthToolProbe";
 
 function formatBytes(n: number | undefined): string {
   if (n == null || Number.isNaN(n) || n < 0) return "—";
@@ -31,6 +35,68 @@ function worstTone(a: HealthTone, b: HealthTone): HealthTone {
   return rank[a] >= rank[b] ? a : b;
 }
 
+function StatusSortSelect({
+  value,
+  onChange,
+  id,
+}: {
+  value: StatusSortOrder;
+  onChange: (v: StatusSortOrder) => void;
+  id: string;
+}) {
+  return (
+    <label htmlFor={id} className="inline-flex items-center gap-2 text-xs text-slate-600">
+      <span className="sr-only">Trier par</span>
+      <span className="hidden sm:inline">Trier</span>
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value as StatusSortOrder)}
+        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:border-violet-300 focus:outline-none focus:ring-2 focus:ring-violet-100"
+      >
+        <option value="status-desc">Statut — problèmes d&apos;abord</option>
+        <option value="status-asc">Statut — opérationnels d&apos;abord</option>
+        <option value="name">Nom (A → Z)</option>
+      </select>
+    </label>
+  );
+}
+
+function ToolProbeRowBody({ row }: { row: ToolProbeRowData }) {
+  return (
+    <>
+      <p className="text-sm font-medium text-slate-800">
+        {row.title}
+        {row.providerBadge ? (
+          <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+            {row.providerBadge}
+          </span>
+        ) : null}
+      </p>
+      {row.webChain ? (
+        <p className="mt-0.5 text-[11px] text-slate-500">
+          Chaîne :{" "}
+          {row.webChain.tavily ? (
+            <span className="font-medium text-emerald-600">Tavily ✓</span>
+          ) : (
+            <span className="text-slate-400">Tavily —</span>
+          )}
+          {" → "}
+          {row.webChain.brave ? (
+            <span className="font-medium text-emerald-600">Brave ✓</span>
+          ) : (
+            <span className="text-slate-400">Brave —</span>
+          )}
+          {" → "}
+          <span className="text-slate-600">DuckDuckGo ✓</span>
+        </p>
+      ) : (
+        <p className="mt-0.5 text-[11px] text-slate-500">{row.description}</p>
+      )}
+    </>
+  );
+}
+
 function aggregateIntegrationsTone(integrations: Record<string, IntegrationRow> | undefined): HealthTone {
   if (!integrations) return "neutral";
   let t: HealthTone = "neutral";
@@ -47,6 +113,7 @@ type Props = {
 };
 
 export default function SystemHealthDashboard({ data, loading, error }: Props) {
+  const [statusSort, setStatusSort] = useState<StatusSortOrder>("status-desc");
   const integrations = data?.integrations as Record<string, IntegrationRow> | undefined;
   const toolsProbe = data?.tools_probe as Record<string, unknown> | undefined;
   const system = data?.system as Record<string, unknown> | undefined;
@@ -72,13 +139,35 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
     return t;
   }, [data, loading, error, integrations, cpu, memPct, diskPct, toolsProbe]);
 
+  const integrationEntries = useMemo(() => {
+    if (!integrations) return [] as Array<[string, IntegrationRow]>;
+    return Object.entries(integrations).sort(([idA, rowA], [idB, rowB]) => {
+      const nameA = integrationDisplayName(idA);
+      const nameB = integrationDisplayName(idB);
+      return compareByStatusThenName(
+        healthToneForIntegration(idA, rowA),
+        healthToneForIntegration(idB, rowB),
+        nameA,
+        nameB,
+        statusSort,
+      );
+    });
+  }, [integrations, statusSort]);
+
+  const toolProbeEntries = useMemo(() => {
+    if (!toolsProbe) return [] as ToolProbeRowData[];
+    return [...buildToolProbeRows(toolsProbe)].sort((a, b) =>
+      compareByStatusThenName(a.tone, b.tone, a.title, b.title, statusSort),
+    );
+  }, [toolsProbe, statusSort]);
+
   const headerMsg =
     headerTone === "bad"
-      ? "Au moins un point critique nécessite une action."
+      ? "Au moins une intégration est en panne (pastilles rouges)."
       : headerTone === "warn"
-        ? "Configuration partielle ou charge élevée : vérifier les pastilles orange."
+        ? "Des clés API manquent ou la configuration est incomplète (pastilles orange)."
         : headerTone === "ok"
-          ? "Aucun signal critique sur les intégrations et la sonde outils."
+          ? "Intégrations configurées et opérationnelles."
           : "État en cours d’analyse…";
 
   if (loading) {
@@ -92,8 +181,6 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
     );
   }
   if (!data) return null;
-
-  const integrationEntries = integrations ? Object.entries(integrations).sort(([a], [b]) => a.localeCompare(b)) : [];
 
   return (
     <div className="space-y-5">
@@ -117,23 +204,23 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
 
       <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="ok" label="OK" />
-          OK
+          <HealthDot tone="ok" label="Opérationnel" />
+          Opérationnel
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="warn" label="Attention" />
-          Attention
+          <HealthDot tone="warn" label="Clé manquante" />
+          Clé manquante
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="bad" label="Critique" />
-          Critique
+          <HealthDot tone="bad" label="Indisponible" />
+          Indisponible
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="neutral" label="Neutre / non concerné" />
-          Neutre
+          <HealthDot tone="neutral" label="Non concerné" />
+          Non concerné
         </span>
       </div>
 
@@ -223,15 +310,18 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-100 pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Intégrations & clés</p>
-          {summary ? (
-            <p className="text-xs text-slate-500">
-              Configurées :{" "}
-              <span className="font-medium text-slate-800">{String(summary.configured_count ?? "—")}</span> /{" "}
-              {String(summary.total_integrations ?? "—")}
-            </p>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-3">
+            {summary ? (
+              <p className="text-xs text-slate-500">
+                Configurées :{" "}
+                <span className="font-medium text-slate-800">{String(summary.configured_count ?? "—")}</span> /{" "}
+                {String(summary.total_integrations ?? "—")}
+              </p>
+            ) : null}
+            <StatusSortSelect id="integration-status-sort" value={statusSort} onChange={setStatusSort} />
+          </div>
         </div>
         <ul className="mt-3 divide-y divide-slate-100">
           {integrationEntries.map(([id, row]) => {
@@ -240,7 +330,22 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
               <li key={id} className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
                 <HealthDot tone={tone} label={integrationDisplayName(id)} className="mt-1.5" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-800">{integrationDisplayName(id)}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium text-slate-800">{integrationDisplayName(id)}</p>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                        tone === "ok"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : tone === "warn"
+                            ? "bg-amber-100 text-amber-800"
+                            : tone === "bad"
+                              ? "bg-red-100 text-red-700"
+                              : "bg-slate-100 text-slate-600"
+                      }`}
+                    >
+                      {healthStatusLabel(tone)}
+                    </span>
+                  </div>
                   <p className="mt-0.5 font-mono text-[11px] text-slate-500">{id}</p>
                   {"note" in row && row.note && !("probe_detail" in row && row.probe_detail) ? (
                     <p className="mt-1 text-[11px] text-slate-400">{String(row.note).slice(0, 220)}</p>
@@ -262,132 +367,34 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
 
       {toolsProbe ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Sonde outils — état en direct
-          </p>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Sonde outils — état en direct
+            </p>
+            <StatusSortSelect id="tools-status-sort" value={statusSort} onChange={setStatusSort} />
+          </div>
           <ul className="divide-y divide-slate-100">
-            {/* Recherche web */}
-            {(() => {
-              const ws = toolsProbe.web_search as { ok?: boolean; provider?: string; providers_configured?: Record<string, boolean> } | undefined;
-              const prov = ws?.provider ?? "?";
-              const provs = ws?.providers_configured ?? {};
-              return (
-                <li className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
-                  <HealthDot tone={ws?.ok ? "ok" : "bad"} label="Recherche web" className="mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">
-                      Recherche web
-                      {ws?.ok && (
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                          {prov}
-                        </span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Chaîne : {" "}
-                      {[
-                        provs.tavily ? <span key="t" className="text-emerald-600 font-medium">Tavily ✓</span> : <span key="t" className="text-slate-400">Tavily —</span>,
-                        " → ",
-                        provs.brave ? <span key="b" className="text-emerald-600 font-medium">Brave ✓</span> : <span key="b" className="text-slate-400">Brave —</span>,
-                        " → ",
-                        <span key="d" className="text-slate-600">DuckDuckGo ✓</span>,
-                      ]}
-                    </p>
-                  </div>
-                </li>
-              );
-            })()}
-
-            {/* Lecture de pages */}
-            {(() => {
-              const rp = toolsProbe.read_webpage as { ok?: boolean; provider?: string; jina_available?: boolean } | undefined;
-              const prov = rp?.provider ?? "?";
-              return (
-                <li className="flex flex-wrap items-start gap-3 py-2.5">
-                  <HealthDot tone={rp?.ok ? "ok" : "bad"} label="Lecture de pages" className="mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">
-                      Lecture de pages (JS + HTML)
-                      {rp?.ok && (
-                        <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                          {prov}
-                        </span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Jina AI Reader (sans clé) → httpx direct · 8 000 caractères
-                    </p>
-                  </div>
-                </li>
-              );
-            })()}
-
-            {/* Analyse d'images */}
-            {(() => {
-              const img = toolsProbe.describe_image as { ok?: boolean; configured?: boolean } | undefined;
-              const hasKey = img != null ? img.configured : Boolean((toolsProbe as Record<string, unknown>)?.describe_image);
-              const tone = hasKey ? "ok" : "neutral";
-              return (
-                <li className="flex flex-wrap items-start gap-3 py-2.5">
-                  <HealthDot tone={tone} label="Analyse d'images" className="mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">Analyse d&apos;images (Vision)</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Claude Haiku Vision via ANTHROPIC_API_KEY · décrit photos, posts, visuels
-                    </p>
-                  </div>
-                </li>
-              );
-            })()}
-
-            {/* Instagram lecture */}
-            {(() => {
-              const ig = toolsProbe.instagram as { ok?: boolean; configured?: boolean } | undefined;
-              const ok = ig?.ok ?? ig?.configured;
-              return (
-                <li className="flex flex-wrap items-start gap-3 py-2.5">
-                  <HealthDot tone={ok ? "ok" : "neutral"} label="Instagram" className="mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">Instagram</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Lecture des médias + publication · INSTAGRAM_ACCESS_TOKEN + ACCOUNT_ID
-                    </p>
-                  </div>
-                </li>
-              );
-            })()}
-
-            {/* Facebook lecture */}
-            {(() => {
-              const fb = toolsProbe.facebook as { ok?: boolean; configured?: boolean } | undefined;
-              const ok = fb?.ok ?? fb?.configured;
-              return (
-                <li className="flex flex-wrap items-start gap-3 py-2.5">
-                  <HealthDot tone={ok ? "ok" : "neutral"} label="Facebook" className="mt-0.5" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800">Facebook</p>
-                    <p className="mt-0.5 text-[11px] text-slate-500">
-                      Lecture des posts + publication · FACEBOOK_ACCESS_TOKEN + PAGE_ID
-                    </p>
-                  </div>
-                </li>
-              );
-            })()}
-
-            {/* LinkedIn */}
-            <li className="flex flex-wrap items-start gap-3 py-2.5">
-              <HealthDot
-                tone={(toolsProbe.web_search as { ok?: boolean })?.ok ? "ok" : "bad"}
-                label="LinkedIn"
-                className="mt-0.5"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800">Recherche LinkedIn</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">
-                  Profils + entreprises via moteur web ciblé · sans clé LinkedIn
-                </p>
-              </div>
-            </li>
+            {toolProbeEntries.map((item) => (
+              <li key={item.key} className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
+                <HealthDot tone={item.tone} label={item.title} className="mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <ToolProbeRowBody row={item} />
+                  <span
+                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      item.tone === "ok"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : item.tone === "warn"
+                          ? "bg-amber-100 text-amber-800"
+                          : item.tone === "bad"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-slate-100 text-slate-600"
+                    }`}
+                  >
+                    {healthStatusLabel(item.tone)}
+                  </span>
+                </div>
+              </li>
+            ))}
           </ul>
         </div>
       ) : null}

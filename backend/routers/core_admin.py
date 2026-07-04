@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     JOB_ID_MAX_LEN,
     get_conn,
@@ -82,7 +82,7 @@ class RepriseItemsLaunchBody(BaseModel):
     launch_mode: str = Field("supervised", pattern="^(supervised|autonomous)$")
 
 
-@router.get("/admin/reprise/coverage", dependencies=[Depends(verify_secret)])
+@router.get("/admin/reprise/coverage", dependencies=[Depends(require_admin)])
 def admin_reprise_coverage():
     """Scan checklist reprise vs mémoire/missions — sans appel LLM."""
     from services.reprise_audit import scan_reprise_coverage
@@ -91,14 +91,14 @@ def admin_reprise_coverage():
     return scan_reprise_coverage()
 
 
-@router.get("/admin/reprise/actions", dependencies=[Depends(verify_secret)])
+@router.get("/admin/reprise/actions", dependencies=[Depends(require_admin)])
 def admin_reprise_actions():
     from database import list_reprise_checklist_actions
 
     return {"actions": list_reprise_checklist_actions()}
 
 
-@router.post("/admin/reprise/actions", dependencies=[Depends(verify_secret)])
+@router.post("/admin/reprise/actions", dependencies=[Depends(require_admin)])
 def admin_reprise_record_action(body: RepriseItemActionBody):
     """Valide, note ou reporte un point checklist — enrichit la mémoire entreprise."""
     from services.reprise_audit import record_reprise_item_action
@@ -114,7 +114,7 @@ def admin_reprise_record_action(body: RepriseItemActionBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/admin/reprise/actions/reopen", dependencies=[Depends(verify_secret)])
+@router.post("/admin/reprise/actions/reopen", dependencies=[Depends(require_admin)])
 def admin_reprise_reopen_item(body: RepriseItemReopenBody):
     """Réaffiche un point checklist ignoré ou reporté."""
     from services.reprise_audit import reopen_reprise_item
@@ -125,7 +125,7 @@ def admin_reprise_reopen_item(body: RepriseItemReopenBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/admin/reprise/items/missions", dependencies=[Depends(verify_secret)])
+@router.post("/admin/reprise/items/missions", dependencies=[Depends(require_admin)])
 def admin_reprise_items_missions(body: RepriseItemsMissionsBody):
     """Transforme des points checklist sélectionnés en propositions de mission."""
     from services.reprise_audit import create_missions_from_checklist_items
@@ -137,7 +137,7 @@ def admin_reprise_items_missions(body: RepriseItemsMissionsBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/admin/reprise/items/launch", dependencies=[Depends(verify_secret)])
+@router.post("/admin/reprise/items/launch", dependencies=[Depends(require_admin)])
 async def admin_reprise_items_launch(body: RepriseItemsLaunchBody):
     """Lance les agents immédiatement et alimente contexte global + volets métiers."""
     from services.reprise_audit import launch_agents_from_checklist_items
@@ -149,7 +149,7 @@ async def admin_reprise_items_launch(body: RepriseItemsLaunchBody):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.post("/admin/reprise/audit", dependencies=[Depends(verify_secret)])
+@router.post("/admin/reprise/audit", dependencies=[Depends(require_admin)])
 async def admin_reprise_audit(body: RepriseAuditBody):
     """Scan reprise + génération de missions concrètes pour les lacunes."""
     from services.reprise_audit import run_reprise_audit
@@ -161,12 +161,12 @@ async def admin_reprise_audit(body: RepriseAuditBody):
     return result
 
 
-@router.get("/admin/inbox", dependencies=[Depends(verify_secret)])
+@router.get("/admin/inbox", dependencies=[Depends(require_admin)])
 def admin_inbox(limit: int = Query(40, ge=1, le=200)):
     return build_enriched_inbox(limit=limit)
 
 
-@router.post("/admin/inbox/dismiss", dependencies=[Depends(verify_secret)])
+@router.post("/admin/inbox/dismiss", dependencies=[Depends(require_admin)])
 def admin_inbox_dismiss(body: InboxDismissBody):
     try:
         return dismiss_inbox_item(
@@ -190,19 +190,19 @@ def _require_database_or_503() -> None:
         )
 
 
-@router.get("/admin/briefing", dependencies=[Depends(verify_secret)])
+@router.get("/admin/briefing", dependencies=[Depends(require_admin)])
 def admin_briefing(period: str = Query("today")):
     _require_database_or_503()
     return build_briefing(period=period)
 
 
-@router.get("/admin/notifications", dependencies=[Depends(verify_secret)])
+@router.get("/admin/notifications", dependencies=[Depends(require_admin)])
 def admin_notifications(unread_only: bool = Query(False), limit: int = Query(50, ge=1, le=200)):
     rows = list_director_notifications(unread_only=unread_only, limit=limit)
     return {"items": rows, "total": len(rows)}
 
 
-@router.patch("/admin/notifications/{notif_id}/read", dependencies=[Depends(verify_secret)])
+@router.patch("/admin/notifications/{notif_id}/read", dependencies=[Depends(require_admin)])
 def admin_notification_mark_read(notif_id: str):
     row = mark_director_notification_read(notif_id)
     if not row:
@@ -210,20 +210,20 @@ def admin_notification_mark_read(notif_id: str):
     return row
 
 
-@router.post("/admin/notifications/mark-all-read", dependencies=[Depends(verify_secret)])
+@router.post("/admin/notifications/mark-all-read", dependencies=[Depends(require_admin)])
 def admin_notifications_mark_all_read():
     n = mark_all_director_notifications_read()
     return {"marked": n}
 
 
-@router.delete("/admin/notifications/{notif_id}", dependencies=[Depends(verify_secret)])
+@router.delete("/admin/notifications/{notif_id}", dependencies=[Depends(require_admin)])
 def admin_notification_delete(notif_id: str):
     if not delete_director_notification(notif_id):
         raise HTTPException(status_code=404, detail="Notification introuvable.")
     return {"deleted": notif_id}
 
 
-@router.post("/admin/learning-suggestions/{suggestion_id}/resolve", dependencies=[Depends(verify_secret)])
+@router.post("/admin/learning-suggestions/{suggestion_id}/resolve", dependencies=[Depends(require_admin)])
 def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveBody):
     sug = get_learning_suggestion(suggestion_id)
     if not sug:
@@ -234,8 +234,12 @@ def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveB
         if memory_updates:
             try:
                 from database import merge_enterprise_contexts, snapshot_memory_history
+                from services.learning import normalize_learning_memory_updates
+
                 snapshot_memory_history(comment="auto — learning suggestion approved")
-                merge_enterprise_contexts({str(k): str(v).strip() for k, v in memory_updates.items() if str(v).strip()})
+                normalized = normalize_learning_memory_updates(memory_updates)
+                if normalized:
+                    merge_enterprise_contexts(normalized)
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Impossible d'appliquer la mémoire : {exc}") from exc
         resolve_learning_suggestion(suggestion_id, "approved")
@@ -244,7 +248,7 @@ def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveB
     return get_learning_suggestion(suggestion_id)
 
 
-@router.get("/admin/mission-analytics", dependencies=[Depends(verify_secret)])
+@router.get("/admin/mission-analytics", dependencies=[Depends(require_admin)])
 def admin_mission_analytics(days: int = Query(7, ge=1, le=90)):
     since = (datetime.utcnow() - timedelta(days=days)).isoformat()
     with get_conn() as conn:

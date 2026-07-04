@@ -33,6 +33,18 @@ MISSION_THREAD_JSON_MAX_BYTES = 14_000_000
 load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
 
+
+def _ws() -> str:
+    from workspace_db import ws_id
+
+    return ws_id()
+
+
+def _scoped_key(store_key: str) -> str:
+    from workspace_db import scoped_store_key
+
+    return scoped_store_key(store_key)
+
 # Les ids jobs peuvent dépasser 16 car. (ex. delivlib_merge_<hex> en tests / prod).
 JOB_ID_MAX_LEN = 64
 
@@ -51,8 +63,12 @@ def resolve_job_id(job_id: str | None) -> str | None:
         if c and c not in candidates:
             candidates.append(c)
     with get_conn() as conn:
+        ws = _ws()
         for cand in candidates:
-            row = conn.execute("SELECT id FROM jobs WHERE id=?", (cand,)).fetchone()
+            row = conn.execute(
+                "SELECT id FROM jobs WHERE id=? AND workspace_id=?",
+                (cand, ws),
+            ).fetchone()
             if row:
                 rid = str(dict(row).get("id") or cand).strip()[:JOB_ID_MAX_LEN]
                 return rid or None
@@ -60,8 +76,8 @@ def resolve_job_id(job_id: str | None) -> str | None:
         if len(prefix) >= 8:
             len_fn = "CHAR_LENGTH(id)" if _is_mariadb() else "LENGTH(id)"
             row = conn.execute(
-                f"SELECT id FROM jobs WHERE id LIKE ? ORDER BY {len_fn} ASC LIMIT 1",
-                (prefix + "%",),
+                f"SELECT id FROM jobs WHERE id LIKE ? AND workspace_id=? ORDER BY {len_fn} ASC LIMIT 1",
+                (prefix + "%", ws),
             ).fetchone()
             if row:
                 rid = str(dict(row).get("id") or "").strip()[:JOB_ID_MAX_LEN]
@@ -219,6 +235,7 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN orchestration_phase TEXT NOT NULL DEFAULT ''")
     if "checkpoint_thread_id" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN checkpoint_thread_id TEXT NOT NULL DEFAULT ''")
+    _ensure_jobs_hitl_column(conn)
     _ensure_jobs_longtext_columns(conn)
 
 
@@ -364,6 +381,19 @@ def _ensure_platform_tables(conn) -> None:
             job_id {text_pk} NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             payload_json TEXT NOT NULL DEFAULT '{{}}',
+            created_at TEXT NOT NULL,
+            resolved_at TEXT
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS config_suggestions (
+            id {text_pk} PRIMARY KEY,
+            kind TEXT NOT NULL DEFAULT 'misc',
+            target_key TEXT NOT NULL DEFAULT '',
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            status TEXT NOT NULL DEFAULT 'pending',
             created_at TEXT NOT NULL,
             resolved_at TEXT
         )
@@ -621,6 +651,10 @@ def init_db():
         """)
         _ensure_memory_columns(conn)
         _ensure_platform_tables(conn)
+        from workspace_db import ensure_saas_tables, ensure_workspace_columns
+
+        ensure_saas_tables(conn)
+        ensure_workspace_columns(conn)
         conn.commit()
     init_enterprise_memory_row()
     _init_autonomous_tables()
@@ -645,6 +679,12 @@ def init_db():
         pass
     try:
         seed_scheduled_task_defaults()
+    except Exception:
+        pass
+    try:
+        from workspace_db import seed_bootstrap_admin
+
+        seed_bootstrap_admin()
     except Exception:
         pass
 
@@ -726,19 +766,40 @@ def seed_playbooks() -> None:
         )
 
 
+def _scoped_prompt_key(prompt_key: str) -> str:
+    key = (prompt_key or "").strip()
+    prefix = f"{_ws()}:"
+    if key.startswith(prefix):
+        return key
+    return f"{prefix}{key}"
+
+
+def _bare_prompt_key(stored_key: str) -> str:
+    key = (stored_key or "").strip()
+    prefix = f"{_ws()}:"
+    if key.startswith(prefix):
+        return key[len(prefix) :]
+    return key
+
+
 def seed_orchestration_prompt_defaults() -> None:
     """Insère les prompts d'orchestration par défaut si absents."""
     from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
 
     now = datetime.utcnow().isoformat()
+    wid = _ws()
     with get_conn() as conn:
         for key, body in DEFAULT_ORCHESTRATION_PROMPTS.items():
-            row = conn.execute("SELECT prompt_key FROM orchestration_prompts WHERE prompt_key = ?", (key,)).fetchone()
+            stored = _scoped_prompt_key(key)
+            row = conn.execute(
+                "SELECT prompt_key FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
+                (stored, wid),
+            ).fetchone()
             if row:
                 continue
             conn.execute(
-                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?)",
-                (key, body, now),
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
+                (stored, body, now, wid),
             )
         conn.commit()
 
@@ -747,11 +808,17 @@ def get_orchestration_prompt(prompt_key: str) -> str | None:
     key = (prompt_key or "").strip()
     if not key:
         return None
+    stored = _scoped_prompt_key(key)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT body FROM orchestration_prompts WHERE prompt_key = ?",
-            (key,),
+            "SELECT body FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
+            (stored, _ws()),
         ).fetchone()
+        if not row and stored != key:
+            row = conn.execute(
+                "SELECT body FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
+                (key, _ws()),
+            ).fetchone()
     if not row:
         return None
     try:
@@ -769,48 +836,81 @@ def upsert_orchestration_prompt(prompt_key: str, body: str) -> dict:
         raise ValueError("prompt_key manquant")
     text = str(body or "")
     now = datetime.utcnow().isoformat()
+    stored = _scoped_prompt_key(key)
+    wid = _ws()
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE body = VALUES(body), updated_at = VALUES(updated_at)",
-                (key, text, now),
+                (stored, text, now, wid),
             )
         else:
             conn.execute(
-                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(prompt_key) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
-                (key, text, now),
+                (stored, text, now, wid),
             )
         conn.commit()
         row = conn.execute(
-            "SELECT prompt_key, body, updated_at FROM orchestration_prompts WHERE prompt_key = ?",
-            (key,),
+            "SELECT prompt_key, body, updated_at FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
+            (stored, wid),
         ).fetchone()
-    return dict(row) if row else {"prompt_key": key, "body": text, "updated_at": now}
+    out = dict(row) if row else {"prompt_key": key, "body": text, "updated_at": now}
+    if out.get("prompt_key"):
+        out["prompt_key"] = _bare_prompt_key(str(out["prompt_key"]))
+    return out
 
 
 def list_orchestration_prompts() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts ORDER BY prompt_key ASC",
+            "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts "
+            "WHERE workspace_id = ? ORDER BY prompt_key ASC",
+            (_ws(),),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out: list[dict] = []
+    for r in rows or []:
+        d = dict(r)
+        d["prompt_key"] = _bare_prompt_key(str(d.get("prompt_key") or ""))
+        out.append(d)
+    return out
+
+
+def _scoped_behavior_key(setting_key: str) -> str:
+    key = (setting_key or "").strip()
+    prefix = f"{_ws()}:"
+    if key.startswith(prefix):
+        return key
+    return f"{prefix}{key}"
+
+
+def _bare_behavior_key(stored_key: str) -> str:
+    key = (stored_key or "").strip()
+    prefix = f"{_ws()}:"
+    if key.startswith(prefix):
+        return key[len(prefix) :]
+    return key
 
 
 def seed_behavior_defaults() -> None:
     from services.behavior_defaults import BEHAVIOR_DEFAULTS
 
     now = datetime.utcnow().isoformat()
+    wid = _ws()
     with get_conn() as conn:
         for key, meta in BEHAVIOR_DEFAULTS.items():
-            row = conn.execute("SELECT setting_key FROM behavior_settings WHERE setting_key = ?", (key,)).fetchone()
+            stored = _scoped_behavior_key(key)
+            row = conn.execute(
+                "SELECT setting_key FROM behavior_settings WHERE setting_key = ? AND workspace_id = ?",
+                (stored, wid),
+            ).fetchone()
             if row:
                 continue
             payload = json.dumps(meta.get("value"), ensure_ascii=False)
             conn.execute(
-                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?)",
-                (key, payload, now),
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
+                (stored, payload, now, wid),
             )
         conn.commit()
 
@@ -819,11 +919,17 @@ def get_behavior_setting(setting_key: str) -> Any | None:
     key = (setting_key or "").strip()
     if not key:
         return None
+    stored = _scoped_behavior_key(key)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT value_json FROM behavior_settings WHERE setting_key = ?",
-            (key,),
+            "SELECT value_json FROM behavior_settings WHERE setting_key = ? AND workspace_id = ?",
+            (stored, _ws()),
         ).fetchone()
+        if not row and stored != key:
+            row = conn.execute(
+                "SELECT value_json FROM behavior_settings WHERE setting_key = ? AND workspace_id = ?",
+                (key, _ws()),
+            ).fetchone()
     if not row:
         return None
     raw = dict(row).get("value_json") if isinstance(row, dict) else row[0]
@@ -838,34 +944,43 @@ def upsert_behavior_setting(setting_key: str, value: Any) -> dict:
     if not key:
         raise ValueError("setting_key manquant")
     now = datetime.utcnow().isoformat()
+    stored = _scoped_behavior_key(key)
+    wid = _ws()
     payload = json.dumps(value, ensure_ascii=False)
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = VALUES(updated_at)",
-                (key, payload, now),
+                (stored, payload, now, wid),
             )
         else:
             conn.execute(
-                "INSERT INTO behavior_settings (setting_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO behavior_settings (setting_key, value_json, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(setting_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
-                (key, payload, now),
+                (stored, payload, now, wid),
             )
         conn.commit()
     return {"setting_key": key, "value": value, "updated_at": now}
 
 
 _LLM_RUNTIME_STORE_KEY = "default"
+_INTEGRATION_STORE_KEY = "integrations"
 
 
-def load_llm_runtime_settings_raw() -> dict[str, Any]:
-    """Charge les surcharges LLM persistées (table llm_runtime_settings)."""
+def load_settings_store(store_key: str) -> dict[str, Any]:
+    """Charge un blob JSON depuis llm_runtime_settings (clé libre, scoping workspace)."""
+    scoped = _scoped_key(store_key)
+    wid = _ws()
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT value_json FROM llm_runtime_settings WHERE store_key = ?",
-            (_LLM_RUNTIME_STORE_KEY,),
-        ).fetchone()
+        row = None
+        for key in (scoped, store_key):
+            row = conn.execute(
+                "SELECT value_json FROM llm_runtime_settings WHERE store_key = ? AND workspace_id = ?",
+                (key, wid),
+            ).fetchone()
+            if row:
+                break
     if not row:
         return {}
     raw = dict(row).get("value_json") if isinstance(row, dict) else row[0]
@@ -876,24 +991,44 @@ def load_llm_runtime_settings_raw() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def save_llm_runtime_settings_raw(data: dict[str, Any]) -> None:
-    """Persiste les surcharges LLM (dev sqlite / prod MariaDB)."""
+def save_settings_store(store_key: str, data: dict[str, Any]) -> None:
+    """Persiste un blob JSON (dev sqlite / prod MariaDB), scoping workspace."""
     now = datetime.utcnow().isoformat()
+    scoped = _scoped_key(store_key)
     payload = json.dumps(data, ensure_ascii=False)
+    wid = _ws()
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = VALUES(updated_at)",
-                (_LLM_RUNTIME_STORE_KEY, payload, now),
+                (scoped, payload, now, wid),
             )
         else:
             conn.execute(
-                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at, workspace_id) VALUES (?, ?, ?, ?) "
                 "ON CONFLICT(store_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
-                (_LLM_RUNTIME_STORE_KEY, payload, now),
+                (scoped, payload, now, wid),
             )
         conn.commit()
+
+
+def save_llm_runtime_settings_raw(data: dict[str, Any]) -> None:
+    """Persiste les surcharges LLM (dev sqlite / prod MariaDB)."""
+    save_settings_store(_LLM_RUNTIME_STORE_KEY, data)
+
+
+def load_llm_runtime_settings_raw() -> dict[str, Any]:
+    """Charge les surcharges LLM persistées (table llm_runtime_settings)."""
+    return load_settings_store(_LLM_RUNTIME_STORE_KEY)
+
+
+def load_integration_settings_raw() -> dict[str, Any]:
+    return load_settings_store(_INTEGRATION_STORE_KEY)
+
+
+def save_integration_settings_raw(data: dict[str, Any]) -> None:
+    save_settings_store(_INTEGRATION_STORE_KEY, data)
 
 
 def list_behavior_settings() -> list[dict]:
@@ -901,17 +1036,19 @@ def list_behavior_settings() -> list[dict]:
 
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT setting_key, value_json, updated_at FROM behavior_settings ORDER BY setting_key ASC",
+            "SELECT setting_key, value_json, updated_at FROM behavior_settings WHERE workspace_id = ? ORDER BY setting_key ASC",
+            (_ws(),),
         ).fetchall()
     indexed: dict[str, dict] = {}
     for r in rows:
         item = dict(r)
+        bare = _bare_behavior_key(str(item.get("setting_key") or ""))
         try:
             parsed = json.loads(item.get("value_json") or "null")
         except Exception:
             parsed = item.get("value_json")
-        indexed[str(item.get("setting_key") or "")] = {
-            "setting_key": str(item.get("setting_key") or ""),
+        indexed[bare] = {
+            "setting_key": bare,
             "value": parsed,
             "updated_at": item.get("updated_at"),
         }
@@ -1113,8 +1250,8 @@ def append_job_mission_thread(
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET mission_thread_json=?, updated_at=? WHERE id=?",
-            (json.dumps(cur, ensure_ascii=False), now, job_id),
+            "UPDATE jobs SET mission_thread_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(cur, ensure_ascii=False), now, job_id, _ws()),
         )
         conn.commit()
 
@@ -1132,12 +1269,13 @@ def save_job(
     cfg_json = json.dumps(mission_config if isinstance(mission_config, dict) else {}, ensure_ascii=False)
     parent = _norm_job_id(parent_job_id) or None
     session_id = (chat_session_id or "").strip()[:64] or None
+    wid = _ws()
     with get_conn() as conn:
         conn.execute(
             "INSERT OR REPLACE INTO jobs (id, agent, mission, status, logs, team_trace, "
-            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, chat_session_id, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'running', '[]', '[]', ?, '{}', '[]', ?, '[]', ?, ?, ?, ?)",
-            (job_id, agent, mission, source, cfg_json, parent, session_id, now, now),
+            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, chat_session_id, workspace_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'running', '[]', '[]', ?, '{}', '[]', ?, '[]', ?, ?, ?, ?, ?)",
+            (job_id, agent, mission, source, cfg_json, parent, session_id, wid, now, now),
         )
         conn.commit()
 
@@ -1193,10 +1331,10 @@ def update_job(
     if result_surface is not None:
         sets.append("result_surface=?")
         vals.append(result_surface)
-    vals.append(job_id)
+    vals.extend([job_id, _ws()])
 
     with get_conn() as conn:
-        conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=?", vals)
+        conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=? AND workspace_id=?", vals)
         conn.commit()
 
 
@@ -1205,8 +1343,8 @@ def set_job_status_quick(job_id: str, status: str) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET status=?, updated_at=? WHERE id=?",
-            (str(status or "")[:32], now, job_id),
+            "UPDATE jobs SET status=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (str(status or "")[:32], now, job_id, _ws()),
         )
         conn.commit()
 
@@ -1218,9 +1356,9 @@ def list_orphan_active_job_rows(limit: int = 40) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
             "chat_session_id, team_trace, tokens_in, tokens_out "
-            "FROM jobs WHERE status IN ('running', 'pending', 'awaiting_validation', 'paused') "
+            "FROM jobs WHERE workspace_id=? AND status IN ('running', 'pending', 'awaiting_validation', 'paused') "
             "ORDER BY updated_at DESC LIMIT ?",
-            (lim,),
+            (_ws(), lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
 
@@ -1270,8 +1408,8 @@ def update_job_orchestration_phase(job_id: str, phase: str) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET orchestration_phase=?, updated_at=? WHERE id=?",
-            (str(phase or "")[:64], now, job_id),
+            "UPDATE jobs SET orchestration_phase=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (str(phase or "")[:64], now, job_id, _ws()),
         )
         conn.commit()
 
@@ -1280,8 +1418,8 @@ def update_job_checkpoint_thread(job_id: str, thread_id: str) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET checkpoint_thread_id=?, updated_at=? WHERE id=?",
-            (str(thread_id or "")[:64], now, job_id),
+            "UPDATE jobs SET checkpoint_thread_id=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (str(thread_id or "")[:64], now, job_id, _ws()),
         )
         conn.commit()
 
@@ -1432,7 +1570,7 @@ def get_job(job_id: str) -> dict | None:
     if not jid:
         return None
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
+        row = conn.execute("SELECT * FROM jobs WHERE id=? AND workspace_id=?", (jid, _ws())).fetchone()
     if not row:
         return None
     return _hydrate_job_row(dict(row))
@@ -1472,8 +1610,8 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET deliverables_ui_json=?, updated_at=? WHERE id=?",
-            (json.dumps(payload, ensure_ascii=False), now, jid),
+            "UPDATE jobs SET deliverables_ui_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(payload, ensure_ascii=False), now, jid, _ws()),
         )
         conn.commit()
     return get_job(jid)
@@ -1494,8 +1632,8 @@ def append_job_drive_artifacts(job_id: str, artifacts: list[dict[str, Any]] | No
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET drive_artifacts_json=?, updated_at=? WHERE id=?",
-            (json.dumps(cur[-20:], ensure_ascii=False), now, jid),
+            "UPDATE jobs SET drive_artifacts_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(cur[-20:], ensure_ascii=False), now, jid, _ws()),
         )
         conn.commit()
     return get_job(jid)
@@ -1509,8 +1647,8 @@ def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | No
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, agent, status, result, created_at, team_trace, tokens_in, tokens_out, events_json "
-            "FROM jobs WHERE parent_job_id=? AND source=? ORDER BY created_at DESC LIMIT 1",
-            (pid, "chat"),
+            "FROM jobs WHERE parent_job_id=? AND source=? AND workspace_id=? ORDER BY created_at DESC LIMIT 1",
+            (pid, "chat", _ws()),
         ).fetchone()
     if not row:
         return None
@@ -1537,7 +1675,7 @@ def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | No
 def list_jobs(limit: int = 50) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?", (_ws(), limit)
         ).fetchall()
     return [_hydrate_job_row(dict(row)) for row in rows]
 
@@ -1550,18 +1688,19 @@ def list_jobs_prompt_digest(*, limit: int = 12, exclude_job_id: str | None = Non
     lim = max(1, min(20, int(limit)))
     overfetch = min(60, lim * 4)
     ex = (exclude_job_id or "").strip()
+    ws = _ws()
     with get_conn() as conn:
         if ex:
             rows = conn.execute(
                 "SELECT id, agent, mission, status, result, created_at, source FROM jobs "
-                "WHERE id != ? ORDER BY created_at DESC LIMIT ?",
-                (ex, overfetch),
+                "WHERE workspace_id=? AND id != ? ORDER BY created_at DESC LIMIT ?",
+                (ws, ex, overfetch),
             ).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, agent, mission, status, result, created_at, source FROM jobs "
-                "ORDER BY created_at DESC LIMIT ?",
-                (overfetch,),
+                "WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+                (ws, overfetch),
             ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -1595,8 +1734,8 @@ def list_jobs_thread_digest(*, limit: int = 5, thread_tail: int = 6) -> list[dic
         rows = conn.execute(
             "SELECT id, agent, mission, status, "
             "SUBSTR(COALESCE(mission_thread_json, '[]'), 1, 12000) AS thread_slice "
-            "FROM jobs ORDER BY created_at DESC LIMIT ?",
-            (lim * 4,),
+            "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (_ws(), lim * 4),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -1639,7 +1778,8 @@ def sum_jobs_tokens_total() -> int:
     """Somme des tokens enregistrés sur toutes les missions (persistées)."""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS t FROM jobs",
+            "SELECT COALESCE(SUM(tokens_in + tokens_out), 0) AS t FROM jobs WHERE workspace_id=?",
+            (_ws(),)
         ).fetchone()
     return int(row["t"] or 0) if row else 0
 
@@ -1674,8 +1814,8 @@ def job_close_mission_by_user(job_id: str) -> bool:
     with get_conn() as conn:
         _ensure_jobs_columns(conn)
         row = conn.execute(
-            "SELECT id, status, user_validated_at FROM jobs WHERE id = ?",
-            (jid,),
+            "SELECT id, status, user_validated_at FROM jobs WHERE id = ? AND workspace_id = ?",
+            (jid, _ws()),
         ).fetchone()
         if not row:
             return False
@@ -1687,8 +1827,8 @@ def job_close_mission_by_user(job_id: str) -> bool:
         new_status = "completed"
         cur = conn.execute(
             "UPDATE jobs SET user_validated_at = ?, status = ?, updated_at = ? "
-            "WHERE id = ? AND (user_validated_at IS NULL OR TRIM(user_validated_at) = '')",
-            (now, new_status, now, jid),
+            "WHERE id = ? AND workspace_id = ? AND (user_validated_at IS NULL OR TRIM(user_validated_at) = '')",
+            (now, new_status, now, jid, _ws()),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
@@ -1703,8 +1843,8 @@ def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
         cur = conn.execute(
             "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, hitl_resolved_at = NULL, "
             "hitl_comment = '', hitl_resolution_json = NULL, updated_at = ? "
-            "WHERE id = ? AND status = 'running'",
-            (gate_json, now, job_id),
+            "WHERE id = ? AND workspace_id = ? AND status = 'running'",
+            (gate_json, now, job_id, _ws()),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
@@ -1744,8 +1884,8 @@ def job_resume_after_hitl(
         _ensure_jobs_hitl_column(conn)
         cur = conn.execute(
             "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
-            "updated_at = ? WHERE id = ? AND status = 'awaiting_validation'",
-            (new_status, now, comment_s, res_blob, now, job_id),
+            "updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'awaiting_validation'",
+            (new_status, now, comment_s, res_blob, now, job_id, _ws()),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
@@ -1756,8 +1896,9 @@ def get_hitl_gate(job_id: str) -> dict | None:
     with get_conn() as conn:
         _ensure_jobs_hitl_column(conn)
         row = conn.execute(
-            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs WHERE id = ?",
-            (job_id,),
+            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs "
+            "WHERE id = ? AND workspace_id = ?",
+            (job_id, _ws()),
         ).fetchone()
     if not row:
         return None
@@ -1893,7 +2034,14 @@ _CONTEXT_KEYS_LEGACY = frozenset(
     {"global", "commercial", "community_manager", "developpeur", "comptable"},
 )
 # Champs système persistés dans contexts_json (hors volets métier édités par l’admin).
-_SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset({"auto_summary", "drive_workspace"})
+_SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset(
+    {"auto_summary", "auto_summary_updated_at", "drive_workspace"},
+)
+
+
+def _memory_user_deletable_keys() -> frozenset[str]:
+    """Volets mémoire supprimables par l'admin (hors champs système auto-générés)."""
+    return _memory_context_allowed_keys() - _SYSTEM_ENTERPRISE_CONTEXT_KEYS
 
 CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
 _CUSTOM_AGENT_RESERVED = frozenset(
@@ -2049,25 +2197,30 @@ def delete_custom_agent(agent_key: str) -> bool:
 
 
 def init_enterprise_memory_row() -> None:
-    """Table singleton : contexte entreprise + fil des missions récentes."""
+    """Contexte entreprise par espace Korymb."""
     now = datetime.utcnow().isoformat()
+    wid = _ws()
     with get_conn() as conn:
+        text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
         conn.execute(
-            """
+            f"""
             CREATE TABLE IF NOT EXISTS enterprise_memory (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                contexts_json TEXT NOT NULL DEFAULT '{}',
+                workspace_id {text_pk} PRIMARY KEY,
+                contexts_json TEXT NOT NULL DEFAULT '{{}}',
                 recent_missions_json TEXT NOT NULL DEFAULT '[]',
                 updated_at TEXT NOT NULL
             )
             """
         )
-        row = conn.execute("SELECT id FROM enterprise_memory WHERE id=1").fetchone()
+        row = conn.execute(
+            "SELECT workspace_id FROM enterprise_memory WHERE workspace_id=?",
+            (wid,),
+        ).fetchone()
         if not row:
             conn.execute(
-                "INSERT INTO enterprise_memory (id, contexts_json, recent_missions_json, updated_at) "
-                "VALUES (1, '{}', '[]', ?)",
-                (now,),
+                "INSERT INTO enterprise_memory (contexts_json, recent_missions_json, updated_at, workspace_id) "
+                "VALUES ('{}', '[]', ?, ?)",
+                (now, wid),
             )
         conn.commit()
 
@@ -2080,7 +2233,8 @@ def get_enterprise_memory() -> dict:
         return copy.deepcopy(_ENTERPRISE_MEM_CACHE)
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE id=1",
+            "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE workspace_id=?",
+            (_ws(),),
         ).fetchone()
     allowed = _memory_context_allowed_keys()
     if not row:
@@ -2127,8 +2281,32 @@ def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE id=1",
-            (json.dumps(base, ensure_ascii=False), now),
+            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
+            (json.dumps(base, ensure_ascii=False), now, _ws()),
+        )
+        conn.commit()
+    invalidate_enterprise_memory_cache()
+    return get_enterprise_memory()
+
+
+def delete_enterprise_context_keys(keys: list[str]) -> dict:
+    """Retire des volets mémoire éditables du JSON persisté (snapshot recommandé avant)."""
+    init_enterprise_memory_row()
+    invalidate_enterprise_memory_cache()
+    deletable = _memory_user_deletable_keys()
+    to_drop = [str(k).strip() for k in (keys or []) if str(k).strip() in deletable]
+    if not to_drop:
+        return get_enterprise_memory()
+    cur = get_enterprise_memory()
+    base = dict(cur.get("contexts") or {})
+    for k in to_drop:
+        base.pop(k, None)
+    to_save = {k: v for k, v in base.items() if isinstance(v, str) and v.strip()}
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
+            (json.dumps(to_save, ensure_ascii=False), now, _ws()),
         )
         conn.commit()
     invalidate_enterprise_memory_cache()
@@ -2153,8 +2331,8 @@ def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE enterprise_memory SET recent_missions_json=?, updated_at=? WHERE id=1",
-            (json.dumps(lst, ensure_ascii=False), now),
+            "UPDATE enterprise_memory SET recent_missions_json=?, updated_at=? WHERE workspace_id=?",
+            (json.dumps(lst, ensure_ascii=False), now, _ws()),
         )
         conn.commit()
     invalidate_enterprise_memory_cache()
@@ -2216,15 +2394,17 @@ def upsert_mission_template(
     created_at: str | None = None,
 ) -> dict:
     now = datetime.utcnow().isoformat()
+    wid = _ws()
     with get_conn() as conn:
         prev = conn.execute(
-            "SELECT created_at FROM mission_templates WHERE id=?", (template_id,)
+            "SELECT created_at FROM mission_templates WHERE id=? AND workspace_id=?",
+            (template_id, wid),
         ).fetchone()
         c_at = created_at or (dict(prev)["created_at"] if prev else now)
         conn.execute(
             "INSERT OR REPLACE INTO mission_templates "
-            "(id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(id, name, description, agent, mission_text, variables_json, config_json, workspace_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 template_id,
                 (name or "").strip(),
@@ -2233,6 +2413,7 @@ def upsert_mission_template(
                 (mission_text or "").strip(),
                 json.dumps(variables or [], ensure_ascii=False),
                 json.dumps(config or {}, ensure_ascii=False),
+                wid,
                 c_at,
                 now,
             ),
@@ -2577,8 +2758,8 @@ def count_autonomous_runs_today(task_id: str) -> int:
     source_tag = f"autonomous:{task_id}"
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM jobs WHERE source=? AND substr(created_at,1,10)=?",
-            (source_tag, today),
+            "SELECT COUNT(*) FROM jobs WHERE workspace_id=? AND source=? AND substr(created_at,1,10)=?",
+            (_ws(), source_tag, today),
         ).fetchone()
     return int(row[0] or 0) if row else 0
 
@@ -2594,7 +2775,7 @@ def delete_job_cascade(job_id: str) -> bool:
     resolved = resolve_job_id(jid) or jid
     jid = resolved
     with get_conn() as conn:
-        row = conn.execute("SELECT id FROM jobs WHERE id=?", (jid,)).fetchone()
+        row = conn.execute("SELECT id FROM jobs WHERE id=? AND workspace_id=?", (jid, _ws())).fetchone()
         if not row:
             return False
         for table, col in (
@@ -2615,7 +2796,7 @@ def delete_job_cascade(job_id: str) -> bool:
             conn.execute("UPDATE autonomous_outputs SET job_id='' WHERE job_id=?", (jid,))
         except Exception:
             pass
-        conn.execute("DELETE FROM jobs WHERE id=?", (jid,))
+        conn.execute("DELETE FROM jobs WHERE id=? AND workspace_id=?", (jid, _ws()))
         conn.commit()
     return True
 
@@ -2631,8 +2812,12 @@ def _cluster_delete_order(job_ids: list[str]) -> list[str]:
     id_set = set(job_ids)
     is_parent: dict[str, bool] = {}
     with get_conn() as conn:
+        ws = _ws()
         for jid in job_ids:
-            rows = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (jid,)).fetchall()
+            rows = conn.execute(
+                "SELECT id FROM jobs WHERE parent_job_id=? AND workspace_id=?",
+                (jid, ws),
+            ).fetchall()
             is_parent[jid] = any(_norm_job_id(dict(r).get("id")) in id_set for r in rows or [])
     return sorted(job_ids, key=lambda x: is_parent.get(x, False))
 
@@ -2656,10 +2841,11 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
     agent_k, sig = _mission_signature(mission, agent)
 
     with get_conn() as conn:
+        ws = _ws()
         if mission:
             rows = conn.execute(
-                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=? AND mission=?",
-                (agent, mission),
+                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=? AND mission=? AND workspace_id=?",
+                (agent, mission, ws),
             ).fetchall()
             for row in rows or []:
                 rid = _norm_job_id(dict(row).get("id"))
@@ -2668,8 +2854,8 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
 
         if sig:
             rows2 = conn.execute(
-                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=?",
-                (agent,),
+                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=? AND workspace_id=?",
+                (agent, ws),
             ).fetchall()
             for row in rows2 or []:
                 d = dict(row)
@@ -2680,7 +2866,10 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
                         ids.add(rid)
 
         def add_descendants(parent: str) -> None:
-            children = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (parent,)).fetchall()
+            children = conn.execute(
+                "SELECT id FROM jobs WHERE parent_job_id=? AND workspace_id=?",
+                (parent, ws),
+            ).fetchall()
             for child in children or []:
                 cid = _norm_job_id(dict(child).get("id"))
                 if cid and cid not in ids:
@@ -2692,7 +2881,10 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
         while cur_id and cur_id not in seen_up:
             seen_up.add(cur_id)
             ids.add(cur_id)
-            row = conn.execute("SELECT parent_job_id FROM jobs WHERE id=?", (cur_id,)).fetchone()
+            row = conn.execute(
+                "SELECT parent_job_id FROM jobs WHERE id=? AND workspace_id=?",
+                (cur_id, ws),
+            ).fetchone()
             if not row:
                 break
             pid = _norm_job_id(dict(row).get("parent_job_id"))
@@ -2703,7 +2895,10 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
 
         parent_of_primary = _norm_job_id(primary.get("parent_job_id"))
         if parent_of_primary:
-            sibs = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (parent_of_primary,)).fetchall()
+            sibs = conn.execute(
+                "SELECT id FROM jobs WHERE parent_job_id=? AND workspace_id=?",
+                (parent_of_primary, ws),
+            ).fetchall()
             for sib in sibs or []:
                 sid = _norm_job_id(dict(sib).get("id"))
                 if sid:
@@ -2749,7 +2944,10 @@ def make_inbox_dismiss_key(
 
 def list_inbox_dismiss_keys() -> set[str]:
     with get_conn() as conn:
-        rows = conn.execute("SELECT dismiss_key FROM inbox_dismissals").fetchall()
+        rows = conn.execute(
+            "SELECT dismiss_key FROM inbox_dismissals WHERE workspace_id = ?",
+            (_ws(),),
+        ).fetchall()
     out: set[str] = set()
     for row in rows or []:
         if isinstance(row, dict):
@@ -2777,18 +2975,19 @@ def dismiss_inbox_item(
     )
     ref = (job_id or output_id or suggestion_id or "").strip()[:64]
     now = datetime.utcnow().isoformat()
+    wid = _ws()
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at) VALUES (?, ?, ?, ?) "
+                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at, workspace_id) VALUES (?, ?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)",
-                (key, (kind or "").strip()[:32], ref, now),
+                (key, (kind or "").strip()[:32], ref, now, wid),
             )
         else:
             conn.execute(
-                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at) VALUES (?, ?, ?, ?) "
+                "INSERT INTO inbox_dismissals (dismiss_key, kind, ref_id, created_at, workspace_id) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(dismiss_key) DO UPDATE SET created_at = excluded.created_at",
-                (key, (kind or "").strip()[:32], ref, now),
+                (key, (kind or "").strip()[:32], ref, now, wid),
             )
         conn.commit()
     if kind == "cio_question" and (job_id or "").strip():
@@ -2827,8 +3026,8 @@ def mark_cio_questions_dismissed(job_id: str) -> bool:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id),
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
         )
         conn.commit()
     return True
@@ -2864,8 +3063,8 @@ def mark_cio_questions_answered(job_id: str) -> bool:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id),
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
         )
         conn.commit()
     return True
@@ -2923,8 +3122,8 @@ def record_cio_arbitrage_answer(job_id: str, question: str, answer: str) -> dict
     })
     with get_conn() as conn:
         conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id),
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
         )
         conn.commit()
     return list_cio_arbitrage_answers(job_id)
@@ -2977,8 +3176,8 @@ def list_jobs_list_light(limit: int = 50) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, tokens_in, tokens_out, "
-            "parent_job_id, user_validated_at FROM jobs ORDER BY created_at DESC LIMIT ?",
-            (lim,),
+            "parent_job_id, user_validated_at FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (_ws(), lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
 
@@ -3052,13 +3251,13 @@ def list_deliverables_library_rows(limit: int = 200) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
             "chat_session_id, result, drive_artifacts_json "
-            "FROM jobs WHERE status = 'completed' AND ("
+            "FROM jobs WHERE workspace_id=? AND status = 'completed' AND ("
             "(drive_artifacts_json IS NOT NULL AND drive_artifacts_json != '[]' AND drive_artifacts_json != '') "
             "OR result LIKE '%%#### LIVRABLE%%' "
             "OR result LIKE '%%drive.google.com%%' "
             "OR result LIKE '%%docs.google.com%%'"
             ") ORDER BY updated_at DESC LIMIT ?",
-            (lim,),
+            (_ws(), lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
 
@@ -3073,9 +3272,9 @@ def list_jobs_recently_stopped_rows(limit: int = 8, hours: int = 48) -> list[dic
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
             "chat_session_id, team_trace, tokens_in, tokens_out "
-            "FROM jobs WHERE status = 'cancelled' AND updated_at >= ? "
+            "FROM jobs WHERE workspace_id=? AND status = 'cancelled' AND updated_at >= ? "
             "ORDER BY updated_at DESC LIMIT ?",
-            (cutoff, lim),
+            (_ws(), cutoff, lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
 
@@ -3087,9 +3286,9 @@ def list_jobs_active_rows(limit: int = 24) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
             "chat_session_id, team_trace, tokens_in, tokens_out, events_json "
-            "FROM jobs WHERE status IN ('running', 'pending', 'awaiting_validation', 'paused') "
+            "FROM jobs WHERE workspace_id=? AND status IN ('running', 'pending', 'awaiting_validation', 'paused') "
             "ORDER BY updated_at DESC LIMIT ?",
-            (lim,),
+            (_ws(), lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
 
@@ -3101,8 +3300,8 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
-            "FROM jobs ORDER BY created_at DESC LIMIT ?",
-            (lim,),
+            "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (_ws(), lim),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -3119,8 +3318,8 @@ def list_jobs_summary(limit: int = 80) -> list[dict]:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, tokens_in, tokens_out, "
             "user_validated_at, hitl_gate_json, events_json "
-            "FROM jobs ORDER BY created_at DESC LIMIT ?",
-            (lim,),
+            "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (_ws(), lim),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -3362,6 +3561,122 @@ def resolve_learning_suggestion(suggestion_id: str, status: str) -> dict | None:
     return get_learning_suggestion(suggestion_id)
 
 
+def insert_config_suggestion(
+    *,
+    kind: str,
+    target_key: str,
+    title: str,
+    body: str,
+    payload: dict | None = None,
+    suggestion_id: str | None = None,
+) -> dict:
+    import uuid as _uuid
+
+    sid = (suggestion_id or _uuid.uuid4().hex[:16]).strip()[:32]
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO config_suggestions "
+            "(id, kind, target_key, title, body, payload_json, status, created_at, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NULL)",
+            (
+                sid,
+                (kind or "misc")[:48],
+                (target_key or "")[:120],
+                (title or "")[:200],
+                (body or "")[:4000],
+                json.dumps(payload or {}, ensure_ascii=False),
+                now,
+            ),
+        )
+        conn.commit()
+    return get_config_suggestion(sid) or {
+        "id": sid,
+        "kind": kind,
+        "target_key": target_key,
+        "status": "pending",
+    }
+
+
+def get_config_suggestion(suggestion_id: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM config_suggestions WHERE id=?", (suggestion_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+    except json.JSONDecodeError:
+        d["payload"] = {}
+    return d
+
+
+def find_pending_config_suggestion(*, kind: str, target_key: str) -> dict | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM config_suggestions WHERE status='pending' AND kind=? AND target_key=? "
+            "ORDER BY created_at DESC LIMIT 1",
+            ((kind or "misc")[:48], (target_key or "")[:120]),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+    except json.JSONDecodeError:
+        d["payload"] = {}
+    return d
+
+
+def list_config_suggestions(*, status: str | None = "pending", limit: int = 40) -> list[dict]:
+    lim = max(1, min(int(limit), 200))
+    if status:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM config_suggestions WHERE status=? ORDER BY created_at DESC LIMIT ?",
+                (status, lim),
+            ).fetchall()
+    else:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT * FROM config_suggestions ORDER BY created_at DESC LIMIT ?",
+                (lim,),
+            ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            d["payload"] = json.loads(d.pop("payload_json", None) or "{}")
+        except json.JSONDecodeError:
+            d["payload"] = {}
+        out.append(d)
+    return out
+
+
+def resolve_config_suggestion(suggestion_id: str, status: str) -> dict | None:
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE config_suggestions SET status=?, resolved_at=? WHERE id=?",
+            (status[:32], now, suggestion_id),
+        )
+        conn.commit()
+    return get_config_suggestion(suggestion_id)
+
+
+def count_recent_jobs_with_status_prefix(prefix: str, *, limit: int = 200) -> int:
+    """Compte les jobs récents dont le statut commence par prefix (ex. error)."""
+    lim = max(1, min(int(limit), 500))
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM ("
+            "SELECT status FROM jobs WHERE status LIKE ? ORDER BY updated_at DESC LIMIT ?"
+            ") t",
+            (f"{(prefix or '')[:24]}%", lim),
+        ).fetchone()
+    return int(row["c"] if row else 0)
+
+
 REPRISE_ACTIONS_ALLOWED = frozenset({
     "validated", "noted", "deferred", "ignored", "mission_pending", "agent_launched",
 })
@@ -3448,14 +3763,18 @@ def delete_reprise_checklist_action(domain_id: str, item_text: str) -> bool:
 
 
 def list_playbooks(*, category: str | None = None) -> list[dict]:
+    wid = _ws()
     with get_conn() as conn:
         if category:
             rows = conn.execute(
-                "SELECT * FROM playbooks WHERE category=? ORDER BY updated_at DESC",
-                (category,),
+                "SELECT * FROM playbooks WHERE workspace_id=? AND category=? ORDER BY updated_at DESC",
+                (wid, category),
             ).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM playbooks ORDER BY updated_at DESC").fetchall()
+            rows = conn.execute(
+                "SELECT * FROM playbooks WHERE workspace_id=? ORDER BY updated_at DESC",
+                (wid,),
+            ).fetchall()
     out: list[dict] = []
     for row in rows or []:
         d = dict(row)
@@ -3469,7 +3788,10 @@ def list_playbooks(*, category: str | None = None) -> list[dict]:
 
 def get_playbook(playbook_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM playbooks WHERE id=?", (playbook_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM playbooks WHERE id=? AND workspace_id=?",
+            (playbook_id, _ws()),
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -3491,18 +3813,23 @@ def upsert_playbook(
 ) -> dict:
     now = datetime.utcnow().isoformat()
     steps_blob = json.dumps(steps or {}, ensure_ascii=False)
+    wid = _ws()
     with get_conn() as conn:
-        existing = conn.execute("SELECT id FROM playbooks WHERE id=?", (playbook_id,)).fetchone()
+        existing = conn.execute(
+            "SELECT id FROM playbooks WHERE id=? AND workspace_id=?",
+            (playbook_id, wid),
+        ).fetchone()
         if existing:
             conn.execute(
-                "UPDATE playbooks SET name=?, description=?, category=?, steps_json=?, template_id=?, updated_at=? WHERE id=?",
-                (name[:200], description[:2000], category[:32], steps_blob, template_id, now, playbook_id),
+                "UPDATE playbooks SET name=?, description=?, category=?, steps_json=?, template_id=?, updated_at=? "
+                "WHERE id=? AND workspace_id=?",
+                (name[:200], description[:2000], category[:32], steps_blob, template_id, now, playbook_id, wid),
             )
         else:
             conn.execute(
-                "INSERT INTO playbooks (id, name, description, category, steps_json, template_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (playbook_id, name[:200], description[:2000], category[:32], steps_blob, template_id, now, now),
+                "INSERT INTO playbooks (id, name, description, category, steps_json, template_id, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (playbook_id, name[:200], description[:2000], category[:32], steps_blob, template_id, wid, now, now),
             )
         conn.commit()
     return get_playbook(playbook_id) or {"id": playbook_id}

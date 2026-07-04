@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     get_job as db_get_job,
     create_mission_session,
@@ -87,7 +87,7 @@ class EstimateCostBody(BaseModel):
     tools: list[str] = Field(default_factory=list)
 
 
-@router.post("/missions/estimate-cost", dependencies=[Depends(verify_secret)])
+@router.post("/missions/estimate-cost", dependencies=[Depends(resolve_tenant)])
 def missions_estimate_cost(body: EstimateCostBody):
     from services.cost_estimate import estimate_mission_cost
 
@@ -102,7 +102,7 @@ def missions_estimate_cost(body: EstimateCostBody):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@router.post("/run", response_model=MissionResponse, dependencies=[Depends(verify_secret)])
+@router.post("/run", response_model=MissionResponse, dependencies=[Depends(resolve_tenant)])
 async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks, http_request: Request):
     idem_key = (http_request.headers.get("Idempotency-Key") or "").strip()
     if idem_key:
@@ -157,7 +157,7 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
     return MissionResponse(status="accepted", job_id=job_id, agent=agent_key)
 
 
-@router.post("/mission-sessions", dependencies=[Depends(verify_secret)])
+@router.post("/mission-sessions", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_create(body: MissionSessionCreate):
     agent_key = body.agent if body.agent in agents_def() else "coordinateur"
     sid = str(uuid.uuid4()).replace("-", "")[:12]
@@ -175,12 +175,12 @@ def mission_sessions_create(body: MissionSessionCreate):
     return row
 
 
-@router.get("/mission-sessions", dependencies=[Depends(verify_secret)])
+@router.get("/mission-sessions", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_list(limit: int = 40):
     return {"sessions": list_mission_sessions(limit)}
 
 
-@router.get("/mission-sessions/{session_id}", dependencies=[Depends(verify_secret)])
+@router.get("/mission-sessions/{session_id}", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_get(session_id: str):
     row = get_mission_session(session_id)
     if not row:
@@ -188,14 +188,14 @@ def mission_sessions_get(session_id: str):
     return row
 
 
-@router.delete("/mission-sessions/{session_id}", dependencies=[Depends(verify_secret)])
+@router.delete("/mission-sessions/{session_id}", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_delete(session_id: str):
     if not delete_mission_session(session_id):
         raise HTTPException(status_code=404, detail="Session introuvable.")
     return {"deleted": True, "session_id": session_id}
 
 
-@router.post("/mission-sessions/{session_id}/remove", dependencies=[Depends(verify_secret)])
+@router.post("/mission-sessions/{session_id}/remove", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_remove(session_id: str):
     """Fallback si un proxy bloque DELETE."""
     if not delete_mission_session(session_id):
@@ -203,7 +203,7 @@ def mission_sessions_remove(session_id: str):
     return {"deleted": True, "session_id": session_id}
 
 
-@router.post("/mission-sessions/{session_id}/message", dependencies=[Depends(verify_secret)])
+@router.post("/mission-sessions/{session_id}/message", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_message(session_id: str, body: MissionSessionMessageBody):
     s = get_mission_session(session_id)
     if not s:
@@ -223,7 +223,7 @@ def mission_sessions_message(session_id: str, body: MissionSessionMessageBody):
     return get_mission_session(session_id)
 
 
-@router.post("/mission-sessions/{session_id}/validate", dependencies=[Depends(verify_secret)])
+@router.post("/mission-sessions/{session_id}/validate", dependencies=[Depends(resolve_tenant)])
 def mission_sessions_validate(
     session_id: str,
     body: MissionSessionValidateBody,

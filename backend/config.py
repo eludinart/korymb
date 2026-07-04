@@ -38,10 +38,29 @@ class Settings(BaseSettings):
 
     # ── Auth interne Korymb ─────────────────────────────────────────────────
     agent_api_secret: str
+    jwt_secret: str = ""
+    jwt_expire_hours: int = 168
+    bootstrap_admin_email: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_EMAIL")
+    bootstrap_admin_password: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_PASSWORD")
+    bootstrap_admin_display_name: str = Field(default="Éric", validation_alias="KORYMB_BOOTSTRAP_ADMIN_DISPLAY_NAME")
+    bootstrap_workspace_name: str = Field(
+        default="Korymb — Élude In Art",
+        validation_alias="KORYMB_BOOTSTRAP_WORKSPACE_NAME",
+    )
 
     @field_validator("agent_api_secret", mode="before")
     @classmethod
     def strip_agent_secret(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("jwt_secret", mode="before")
+    @classmethod
+    def strip_jwt_secret(cls, v):
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("bootstrap_admin_email", "bootstrap_admin_password", "bootstrap_admin_display_name", "bootstrap_workspace_name", mode="before")
+    @classmethod
+    def strip_bootstrap_fields(cls, v):
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("llm_provider", mode="before")
@@ -82,6 +101,7 @@ class Settings(BaseSettings):
     llm_price_output_per_million_usd: float = 15.0
 
     env: str = "development"
+    cors_origins: str = Field(default="", validation_alias="KORYMB_CORS_ORIGINS")
     max_tokens_per_job: int = 40000
     token_alert_threshold: int = 30000
     fleur_db_host: str = "localhost"

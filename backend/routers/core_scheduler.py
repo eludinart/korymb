@@ -22,7 +22,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     create_scheduled_task,
     get_scheduled_task,
@@ -90,13 +90,13 @@ class GenerateProposalsPayload(BaseModel):
 
 # ── Task routes ────────────────────────────────────────────────────────────────
 
-@router.get("/scheduler/tasks", dependencies=[Depends(verify_secret)])
+@router.get("/scheduler/tasks", dependencies=[Depends(require_admin)])
 async def scheduler_list_tasks():
     tasks = list_scheduled_tasks()
     return {"tasks": tasks, "total": len(tasks)}
 
 
-@router.get("/scheduler/tasks/{task_id}", dependencies=[Depends(verify_secret)])
+@router.get("/scheduler/tasks/{task_id}", dependencies=[Depends(require_admin)])
 async def scheduler_get_task(task_id: str):
     task = get_scheduled_task(task_id)
     if not task:
@@ -104,7 +104,7 @@ async def scheduler_get_task(task_id: str):
     return task
 
 
-@router.post("/scheduler/tasks", dependencies=[Depends(verify_secret)])
+@router.post("/scheduler/tasks", dependencies=[Depends(require_admin)])
 async def scheduler_create_task(body: ScheduledTaskCreate):
     if body.task_type not in ALLOWED_TASK_TYPES:
         raise HTTPException(
@@ -135,7 +135,7 @@ async def scheduler_create_task(body: ScheduledTaskCreate):
     return task
 
 
-@router.put("/scheduler/tasks/{task_id}", dependencies=[Depends(verify_secret)])
+@router.put("/scheduler/tasks/{task_id}", dependencies=[Depends(require_admin)])
 async def scheduler_update_task(task_id: str, body: ScheduledTaskUpdate):
     existing = get_scheduled_task(task_id)
     if not existing:
@@ -163,7 +163,7 @@ async def scheduler_update_task(task_id: str, body: ScheduledTaskUpdate):
     return updated
 
 
-@router.delete("/scheduler/tasks/{task_id}", dependencies=[Depends(verify_secret)])
+@router.delete("/scheduler/tasks/{task_id}", dependencies=[Depends(require_admin)])
 async def scheduler_delete_task(task_id: str):
     existing = get_scheduled_task(task_id)
     if not existing:
@@ -174,7 +174,7 @@ async def scheduler_delete_task(task_id: str):
     return {"deleted": task_id}
 
 
-@router.post("/scheduler/tasks/{task_id}/run-now", dependencies=[Depends(verify_secret)])
+@router.post("/scheduler/tasks/{task_id}/run-now", dependencies=[Depends(require_admin)])
 async def scheduler_run_now(task_id: str):
     """Déclenche immédiatement une tâche, indépendamment de son planning."""
     from scheduler import run_task_by_id
@@ -183,7 +183,7 @@ async def scheduler_run_now(task_id: str):
     return {"triggered": task_id}
 
 
-@router.post("/scheduler/proposals/generate", dependencies=[Depends(verify_secret)])
+@router.post("/scheduler/proposals/generate", dependencies=[Depends(require_admin)])
 async def scheduler_generate_proposals(body: GenerateProposalsPayload):
     """Génère des propositions de mission à la demande (file d'approbation)."""
     from services.veille import generate_mission_proposals_now
@@ -199,7 +199,7 @@ async def scheduler_generate_proposals(body: GenerateProposalsPayload):
 
 # ── Output / approval routes ───────────────────────────────────────────────────
 
-@router.get("/scheduler/outputs", dependencies=[Depends(verify_secret)])
+@router.get("/scheduler/outputs", dependencies=[Depends(require_admin)])
 async def scheduler_list_outputs(
     status: str | None = None,
     task_id: str | None = None,
@@ -215,7 +215,7 @@ async def scheduler_list_outputs(
     return {"outputs": outputs, "total": len(outputs)}
 
 
-@router.get("/scheduler/outputs/{output_id}", dependencies=[Depends(verify_secret)])
+@router.get("/scheduler/outputs/{output_id}", dependencies=[Depends(require_admin)])
 async def scheduler_get_output(output_id: str):
     output = get_autonomous_output(output_id)
     if not output:
@@ -223,7 +223,7 @@ async def scheduler_get_output(output_id: str):
     return output
 
 
-@router.post("/scheduler/outputs/{output_id}/approve", dependencies=[Depends(verify_secret)])
+@router.post("/scheduler/outputs/{output_id}/approve", dependencies=[Depends(require_admin)])
 async def scheduler_approve_output(output_id: str, body: ApproveOutputPayload):
     output = get_autonomous_output(output_id)
     if not output:
@@ -274,7 +274,7 @@ async def scheduler_approve_output(output_id: str, body: ApproveOutputPayload):
     return updated
 
 
-@router.post("/scheduler/outputs/{output_id}/reject", dependencies=[Depends(verify_secret)])
+@router.post("/scheduler/outputs/{output_id}/reject", dependencies=[Depends(require_admin)])
 async def scheduler_reject_output(output_id: str, body: RejectOutputPayload):
     output = get_autonomous_output(output_id)
     if not output:

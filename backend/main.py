@@ -62,6 +62,7 @@ from routers.agents import router as agents_router_phase1
 from routers.memory import router as memory_router_phase1
 from routers.core_memory import router as core_memory_router
 from routers.core_config import router as core_config_router
+from routers.core_integrations import router as core_integrations_router
 from routers.core_agents import router as core_agents_router
 from routers.core_health import router as core_health_router
 from routers.core_jobs import router as core_jobs_router
@@ -75,6 +76,7 @@ from routers.core_behavior_settings import router as core_behavior_settings_rout
 from routers.core_admin import router as core_admin_router
 from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
+from routers.core_auth import router as core_auth_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -104,13 +106,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Korymb — Moteur Agentique", version=BACKEND_VERSION, lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if settings.env == "development" else [
+
+def _cors_allow_origins() -> list[str]:
+    if settings.env == "development":
+        return ["*"]
+    base = [
         "https://korymb.eludein.art",
         "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
-    ],
+    ]
+    extra = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    return list(dict.fromkeys(base + extra))
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allow_origins(),
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["X-Korymb-Version"],
@@ -123,6 +134,7 @@ app.include_router(agents_router_phase1)
 app.include_router(memory_router_phase1)
 app.include_router(core_memory_router)
 app.include_router(core_config_router)
+app.include_router(core_integrations_router)
 app.include_router(core_agents_router)
 app.include_router(core_health_router)
 app.include_router(core_jobs_router)
@@ -136,6 +148,17 @@ app.include_router(core_behavior_settings_router)
 app.include_router(core_admin_router)
 app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
+app.include_router(core_auth_router)
+
+
+@app.middleware("http")
+async def tenant_context_cleanup_middleware(request, call_next):
+    from tenant_context import clear_tenant_context
+
+    try:
+        return await call_next(request)
+    finally:
+        clear_tenant_context()
 
 
 @app.middleware("http")

@@ -3,8 +3,10 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
+    _memory_user_deletable_keys,
+    delete_enterprise_context_keys,
     get_enterprise_memory,
     merge_enterprise_contexts,
     snapshot_memory_history,
@@ -21,6 +23,10 @@ class EnterpriseMemoryPut(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     contexts: dict[str, str] | None = None
+    delete_keys: list[str] | None = Field(
+        default=None,
+        description="Volets à retirer du JSON persisté (distinct d'une chaîne vide qui efface le texte).",
+    )
 
 
 class MemorySnapshotBody(BaseModel):
@@ -28,39 +34,60 @@ class MemorySnapshotBody(BaseModel):
     comment: str = Field("", max_length=500)
 
 
-@router.get("/memory", dependencies=[Depends(verify_secret)])
+@router.get("/memory", dependencies=[Depends(resolve_tenant)])
 def enterprise_memory_get():
     """Contexte entreprise + fil des missions récentes (SQLite)."""
     return get_enterprise_memory()
 
 
-@router.put("/memory", dependencies=[Depends(verify_secret)])
+@router.put("/memory", dependencies=[Depends(resolve_tenant)])
 def enterprise_memory_put(body: EnterpriseMemoryPut):
     """Fusionne les champs texte fournis ; crée un snapshot automatique avant écrasement."""
+    if not body.contexts and not body.delete_keys:
+        return get_enterprise_memory()
+    snapshot_warning: str | None = None
+    try:
+        snapshot_memory_history(comment="auto — avant PUT /memory")
+    except Exception as exc:
+        snapshot_warning = f"snapshot_auto_failed: {exc}"
+    mem = get_enterprise_memory()
     if body.contexts:
-        snapshot_warning: str | None = None
-        try:
-            snapshot_memory_history(comment="auto — avant PUT /memory")
-        except Exception as exc:
-            # Le snapshot est un garde-fou, mais ne doit pas bloquer la sauvegarde principale.
-            snapshot_warning = f"snapshot_auto_failed: {exc}"
         mem = merge_enterprise_contexts(dict(body.contexts))
-        if snapshot_warning:
-            out = dict(mem)
-            out["warning"] = snapshot_warning
-            return out
-        return mem
-    return get_enterprise_memory()
+    if body.delete_keys:
+        mem = delete_enterprise_context_keys(list(body.delete_keys))
+    if snapshot_warning:
+        out = dict(mem)
+        out["warning"] = snapshot_warning
+        return out
+    return mem
+
+
+@router.delete("/memory/contexts/{context_key}", dependencies=[Depends(resolve_tenant)])
+def enterprise_memory_delete_context(context_key: str):
+    """Supprime un volet mémoire éditable du stockage (le GET le réexpose vide si autorisé)."""
+    key = (context_key or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="Clé manquante.")
+    if key not in _memory_user_deletable_keys():
+        raise HTTPException(
+            status_code=400,
+            detail="Cette clé est réservée au système ou non supprimable.",
+        )
+    try:
+        snapshot_memory_history(comment=f"auto — avant DELETE /memory/contexts/{key}")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"snapshot_failed: {exc}") from exc
+    return delete_enterprise_context_keys([key])
 
 
 # ── Memory history ────────────────────────────────────────────────────────────
 
-@router.get("/memory/history", dependencies=[Depends(verify_secret)])
+@router.get("/memory/history", dependencies=[Depends(resolve_tenant)])
 def memory_history_list(limit: int = Query(default=20, ge=1, le=100)):
     return {"history": list_memory_history(limit)}
 
 
-@router.get("/memory/history/{snapshot_id}", dependencies=[Depends(verify_secret)])
+@router.get("/memory/history/{snapshot_id}", dependencies=[Depends(resolve_tenant)])
 def memory_history_get(snapshot_id: int):
     snap = get_memory_history_snapshot(snapshot_id)
     if not snap:
@@ -68,7 +95,7 @@ def memory_history_get(snapshot_id: int):
     return {"snapshot": snap}
 
 
-@router.post("/memory/snapshot", dependencies=[Depends(verify_secret)])
+@router.post("/memory/snapshot", dependencies=[Depends(resolve_tenant)])
 def memory_snapshot_manual(body: MemorySnapshotBody):
     try:
         sid = snapshot_memory_history(comment=body.comment or "snapshot manuel")
@@ -78,7 +105,7 @@ def memory_snapshot_manual(body: MemorySnapshotBody):
     return {"snapshot": snap}
 
 
-@router.post("/memory/restore/{snapshot_id}", dependencies=[Depends(verify_secret)])
+@router.post("/memory/restore/{snapshot_id}", dependencies=[Depends(resolve_tenant)])
 def memory_restore(snapshot_id: int):
     try:
         mem = restore_memory_history_snapshot(snapshot_id)
@@ -89,7 +116,7 @@ def memory_restore(snapshot_id: int):
     return {"restored": True, "memory": mem}
 
 
-@router.get("/memory/preview", dependencies=[Depends(verify_secret)])
+@router.get("/memory/preview", dependencies=[Depends(resolve_tenant)])
 def memory_preview(
     agent_key: str = Query(default="coordinateur"),
     agents: str | None = Query(default=None, description="Liste CSV d'agents (ex. coordinateur,commercial)"),

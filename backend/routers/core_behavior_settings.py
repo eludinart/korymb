@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     get_behavior_setting,
     list_behavior_settings,
@@ -28,13 +28,13 @@ class BehaviorPutBody(BaseModel):
     value: object
 
 
-@router.get("/admin/behavior-settings", dependencies=[Depends(verify_secret)])
+@router.get("/admin/behavior-settings", dependencies=[Depends(require_admin)])
 def behavior_settings_list():
     seed_behavior_defaults()
     return {"settings": list_behavior_settings()}
 
 
-@router.get("/admin/behavior-settings/{setting_key}", dependencies=[Depends(verify_secret)])
+@router.get("/admin/behavior-settings/{setting_key}", dependencies=[Depends(require_admin)])
 def behavior_settings_get(setting_key: str):
     key = (setting_key or "").strip()
     if key not in BEHAVIOR_DEFAULTS:
@@ -55,7 +55,7 @@ def behavior_settings_get(setting_key: str):
     }
 
 
-@router.put("/admin/behavior-settings/{setting_key}", dependencies=[Depends(verify_secret)])
+@router.put("/admin/behavior-settings/{setting_key}", dependencies=[Depends(require_admin)])
 def behavior_settings_put(setting_key: str, body: BehaviorPutBody):
     key = (setting_key or "").strip()
     if key not in BEHAVIOR_DEFAULTS:
@@ -63,7 +63,7 @@ def behavior_settings_put(setting_key: str, body: BehaviorPutBody):
     return upsert_behavior_setting(key, body.value)
 
 
-@router.post("/admin/behavior-settings/{setting_key}/reset", dependencies=[Depends(verify_secret)])
+@router.post("/admin/behavior-settings/{setting_key}/reset", dependencies=[Depends(require_admin)])
 def behavior_settings_reset(setting_key: str):
     key = (setting_key or "").strip()
     if key not in BEHAVIOR_DEFAULTS:

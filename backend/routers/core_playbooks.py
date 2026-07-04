@@ -7,7 +7,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import get_playbook, list_playbooks, upsert_playbook
 from services.agents import agents_def
 from services.mission import _mission_config_from_payload, _schedule_mission_execution
@@ -31,12 +31,12 @@ class PlaybookLaunchBody(BaseModel):
     require_user_validation: bool | None = None
 
 
-@router.get("/playbooks", dependencies=[Depends(verify_secret)])
+@router.get("/playbooks", dependencies=[Depends(resolve_tenant)])
 def playbooks_list(category: str | None = None):
     return {"playbooks": list_playbooks(category=category)}
 
 
-@router.post("/playbooks", dependencies=[Depends(verify_secret)])
+@router.post("/playbooks", dependencies=[Depends(resolve_tenant)])
 def playbooks_upsert(body: PlaybookBody, playbook_id: str | None = None):
     pid = (playbook_id or uuid.uuid4().hex[:12]).strip()[:32]
     row = upsert_playbook(
@@ -50,7 +50,7 @@ def playbooks_upsert(body: PlaybookBody, playbook_id: str | None = None):
     return row
 
 
-@router.get("/playbooks/{playbook_id}", dependencies=[Depends(verify_secret)])
+@router.get("/playbooks/{playbook_id}", dependencies=[Depends(resolve_tenant)])
 def playbooks_get(playbook_id: str):
     row = get_playbook(playbook_id)
     if not row:
@@ -58,7 +58,7 @@ def playbooks_get(playbook_id: str):
     return row
 
 
-@router.post("/playbooks/{playbook_id}/launch", dependencies=[Depends(verify_secret)])
+@router.post("/playbooks/{playbook_id}/launch", dependencies=[Depends(resolve_tenant)])
 def playbooks_launch(playbook_id: str, body: PlaybookLaunchBody, background_tasks: BackgroundTasks):
     pb = get_playbook(playbook_id)
     if not pb:

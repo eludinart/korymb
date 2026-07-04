@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import {
@@ -30,8 +31,10 @@ function isMariaDbTunnelError(message: string) {
   return /mariadb_tunnel_required/i.test(message);
 }
 
-export default function BriefingPage() {
+function BriefingPageContent() {
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
+  const showWelcome = searchParams.get("welcome") === "1";
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
 
@@ -75,6 +78,23 @@ export default function BriefingPage() {
 
   return (
     <PageShell size="wide">
+      {showWelcome ? (
+        <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
+          <p className="text-sm font-bold text-emerald-900">Bienvenue dans votre Korymb</p>
+          <p className="mt-1 text-sm text-emerald-800">
+            Votre espace est prêt : playbooks de démarrage, moteur IA et briefing opérationnels. Lancez une mission
+            depuis{" "}
+            <Link href="/missions" className="font-bold underline">
+              Missions
+            </Link>{" "}
+            ou le{" "}
+            <Link href="/chat" className="font-bold underline">
+              Chat
+            </Link>
+            .
+          </p>
+        </div>
+      ) : null}
       <PageHeader
         accent="violet"
         badge="Cockpit dirigeant"
@@ -203,5 +223,13 @@ export default function BriefingPage() {
       ) : null}
       </div>
     </PageShell>
+  );
+}
+
+export default function BriefingPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Chargement du briefing…</div>}>
+      <BriefingPageContent />
+    </Suspense>
   );
 }

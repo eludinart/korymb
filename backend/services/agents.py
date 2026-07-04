@@ -80,7 +80,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "commercial": {
         "label": "Commercial",
         "role": "Prospection & emails",
-        "tools": ["web", "linkedin", "email", "drive"],
+        "tools": ["web", "linkedin", "email", "drive", "google", "crm", "whatsapp"],
         "system": (
             "Tu es le Commercial d'Élude In Art. Tu es expert en prospection et développement commercial "
             "pour le Tarot Fleur d'ÅmÔurs. Tu privilégies l'approche maïeutique : tu ouvres des espaces "
@@ -97,10 +97,12 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "community_manager": {
         "label": "Community Manager",
         "role": "Instagram & Facebook",
-        "tools": ["web", "instagram", "facebook", "drive"],
+        "tools": ["web", "instagram", "facebook", "drive", "media", "youtube", "pinterest", "canva", "social_auto", "messaging"],
         "system": (
             "Tu es le Community Manager d'Élude In Art. Tu crées du contenu engageant et authentique "
-            "pour Instagram et Facebook autour du Tarot Fleur d'ÅmÔurs. Tu ne survends pas — tu invites.\n\n"
+            "pour Instagram et Facebook autour du Tarot Fleur d'ÅmÔurs. Tu ne survends pas — tu invites.\n"
+            "Tu disposes d'outils : insights Instagram/Facebook, planification de posts, génération d'images, "
+            "analyse de visuels, veille RSS, traduction multilingue, publication et lecture des médias.\n\n"
         ),
     },
     "developpeur": {
@@ -116,7 +118,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "comptable": {
         "label": "Comptable",
         "role": "Finances & facturation",
-        "tools": ["db"],
+        "tools": ["db", "payments", "google"],
         "system": (
             "Tu es le Comptable d'Élude In Art (micro-entreprise d'Éric, Tourves, Var). "
             "Tu suis les finances, prépares devis et factures, analyses les revenus.\n\n"
@@ -125,7 +127,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "coordinateur": {
         "label": "CIO — Orchestrateur",
         "role": "Stratégie & délégation",
-        "tools": ["web", "linkedin", "drive", "db"],
+        "tools": ["web", "linkedin", "drive", "db", "google", "messaging", "social_auto"],
         "is_manager": True,
         "system": (
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "

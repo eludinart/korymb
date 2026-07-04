@@ -9,9 +9,10 @@ COPY . .
 
 RUN mkdir -p /app/data
 
-EXPOSE 3000
+ENV UVICORN_PORT=8020
+EXPOSE 8020
 
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/health')"
+    CMD python -c "import os,urllib.request; p=os.getenv('UVICORN_PORT','8020'); urllib.request.urlopen(f'http://127.0.0.1:{p}/health/live')"
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${UVICORN_PORT:-8020}"]

@@ -8,7 +8,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from services.orchestrator import build_peer_review_plan, prepare_hitl_gate
 from services.hitl_unified import resolve_hitl
 
@@ -40,7 +40,7 @@ class HitlValidateRequest(BaseModel):
     feedback: str = Field(default="", max_length=4000)
 
 
-@router.post("/plan-peer-review", dependencies=[Depends(verify_secret)])
+@router.post("/plan-peer-review", dependencies=[Depends(resolve_tenant)])
 def mission_plan_peer_review(body: PeerReviewPlanRequest):
     plan = build_peer_review_plan(
         mission=body.mission,
@@ -50,7 +50,7 @@ def mission_plan_peer_review(body: PeerReviewPlanRequest):
     return plan.model_dump()
 
 
-@router.post("/hitl-gate", dependencies=[Depends(verify_secret)])
+@router.post("/hitl-gate", dependencies=[Depends(resolve_tenant)])
 def mission_hitl_gate(body: HitlGateRequest):
     """
     Suspend manuellement un job en attente de validation HITL.
@@ -64,7 +64,7 @@ def mission_hitl_gate(body: HitlGateRequest):
     )
 
 
-@router.post("/jobs/{job_id}/hitl-gate", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/hitl-gate", dependencies=[Depends(resolve_tenant)])
 def job_hitl_gate(job_id: str, body: HitlGateRequest):
     """
     Alias REST : suspend le job spécifié dans l'URL path.
@@ -80,7 +80,7 @@ def job_hitl_gate(job_id: str, body: HitlGateRequest):
     )
 
 
-@router.post("/jobs/{job_id}/validate", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/validate", dependencies=[Depends(resolve_tenant)])
 def job_hitl_validate(job_id: str, body: HitlValidateRequest):
     """
     Valide ou rejette un job en attente de validation HITL.
@@ -103,7 +103,7 @@ def job_hitl_validate(job_id: str, body: HitlValidateRequest):
     return result
 
 
-@router.get("/jobs/{job_id}/hitl-status", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}/hitl-status", dependencies=[Depends(resolve_tenant)])
 def job_hitl_status(job_id: str):
     """Retourne l'état HITL courant d'un job (gate payload, resolved_at, comment)."""
     try:

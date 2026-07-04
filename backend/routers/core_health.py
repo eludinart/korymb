@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import platform
+import shutil
 import socket
 import sys
 import time
@@ -17,7 +18,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from config import settings
 from database import (
     DB_ENGINE,
@@ -46,7 +47,9 @@ _PROCESS_STARTED_AT = time.time()
 # ── Helpers internes ──────────────────────────────────────────────────────────
 
 def _env_is_set(name: str) -> bool:
-    return bool(str(os.getenv(name, "")).strip())
+    from integration_settings import is_set
+
+    return is_set(name)
 
 
 def _probe_jina_reachable() -> bool:
@@ -72,6 +75,41 @@ def _probe_tcp(host: str, port: int, timeout_s: float = 2.5) -> tuple[bool, str]
         return False, str(e)
 
 
+def _disk_root() -> str:
+    if sys.platform == "win32":
+        drive = str(os.environ.get("SystemDrive") or "C:").strip()
+        return drive if drive.endswith(("\\", "/")) else f"{drive}\\"
+    return "/"
+
+
+def _disk_metrics() -> dict | None:
+    root = _disk_root()
+    try:
+        import psutil  # type: ignore
+
+        du = psutil.disk_usage(root)
+        return {
+            "path": root,
+            "total_bytes": int(du.total),
+            "free_bytes": int(du.free),
+            "used_percent": float(du.percent),
+        }
+    except Exception:
+        pass
+    try:
+        du = shutil.disk_usage(root)
+        used = max(0, int(du.total) - int(du.free))
+        total = int(du.total)
+        return {
+            "path": root,
+            "total_bytes": total,
+            "free_bytes": int(du.free),
+            "used_percent": round(100.0 * used / total, 1) if total else 0.0,
+        }
+    except Exception:
+        return None
+
+
 def _system_metrics_snapshot() -> dict:
     now = time.time()
     out: dict = {
@@ -80,8 +118,12 @@ def _system_metrics_snapshot() -> dict:
         "platform": platform.platform(),
         "cpu_count": os.cpu_count() or 1,
     }
+    disk = _disk_metrics()
+    if disk:
+        out["disk"] = disk
     try:
         import psutil  # type: ignore
+
         vm = psutil.virtual_memory()
         out["memory"] = {
             "total_bytes": int(vm.total),
@@ -94,10 +136,41 @@ def _system_metrics_snapshot() -> dict:
     return out
 
 
+def _probe_google_drive_token() -> tuple[bool, str]:
+    """Vérifie qu'un token Drive est obtenu (refresh OAuth ou token statique)."""
+    try:
+        import httpx as _httpx
+        from tools import _get_google_drive_token
+
+        token = _get_google_drive_token()
+        if not token:
+            return False, "Aucun token Drive disponible."
+        r = _httpx.get(
+            "https://www.googleapis.com/drive/v3/about",
+            params={"fields": "user(displayName)"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=12,
+        )
+        if r.status_code == 200:
+            name = (r.json().get("user") or {}).get("displayName") or "OK"
+            return True, f"Token valide ({name})"
+        return False, f"HTTP {r.status_code}"
+    except Exception as e:
+        return False, str(e)[:160]
+
+
 def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     from tools_health import probe_tools_health
     tools_probe = probe_tools_health(force=bool(refresh_tools))
     cfg = merge_with_env()
+    has_google_oauth = (
+        _env_is_set("GOOGLE_API_ACCESS_TOKEN")
+        or (
+            _env_is_set("GOOGLE_OAUTH_REFRESH_TOKEN")
+            and _env_is_set("GOOGLE_OAUTH_CLIENT_ID")
+            and _env_is_set("GOOGLE_OAUTH_CLIENT_SECRET")
+        )
+    )
 
     status: dict[str, dict] = {
         "llm_mistral": {
@@ -149,6 +222,71 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
             "ok": _probe_jina_reachable(),
             "note": "Lecture JS gratuite (r.jina.ai) — sans clé API",
         },
+        "brevo": {
+            "configured": _env_is_set("BREVO_API_KEY"),
+            "note": "Newsletter / campagnes email — brevo.com",
+        },
+        "deepl": {
+            "configured": _env_is_set("DEEPL_API_KEY"),
+            "note": "Traduction multilingue — deepl.com",
+        },
+        "image_gen": {
+            "configured": _env_is_set("IMAGE_GEN_MODEL")
+            and (_env_is_set("IMAGE_GEN_API_KEY") or _env_is_set("OPENROUTER_API_KEY")),
+            "note": "IMAGE_GEN_MODEL + clé API (IMAGE_GEN_API_KEY ou OPENROUTER_API_KEY)",
+        },
+        "gmail": {
+            "configured": _env_is_set("GOOGLE_GMAIL_ACCESS_TOKEN") or has_google_oauth,
+            "note": "Gmail API — envoi et lecture emails.",
+        },
+        "google_calendar": {
+            "configured": _env_is_set("GOOGLE_CALENDAR_ACCESS_TOKEN") or has_google_oauth,
+            "note": "Google Calendar — RDV et agenda.",
+        },
+        "google_sheets": {
+            "configured": _env_is_set("GOOGLE_SHEETS_ACCESS_TOKEN") or has_google_oauth,
+            "note": "Google Sheets — exports leads et tableaux.",
+        },
+        "google_analytics": {
+            "configured": _env_is_set("GA_PROPERTY_ID"),
+            "note": "GA4 — trafic site (GA_PROPERTY_ID).",
+        },
+        "meta_webhooks": {
+            "configured": _env_is_set("META_WEBHOOK_VERIFY_TOKEN"),
+            "note": "Webhooks commentaires Meta — GET/POST /webhooks/meta",
+        },
+        "youtube": {"configured": _env_is_set("YOUTUBE_API_KEY"), "note": "YouTube Data API v3"},
+        "whatsapp": {
+            "configured": _env_is_set("WHATSAPP_ACCESS_TOKEN") and _env_is_set("WHATSAPP_PHONE_NUMBER_ID"),
+            "note": "WhatsApp Business Cloud API",
+        },
+        "crm": {
+            "configured": _env_is_set("CRM_PROVIDER"),
+            "note": "CRM_PROVIDER=notion|hubspot",
+        },
+        "stripe": {"configured": _env_is_set("STRIPE_SECRET_KEY"), "note": "Revenus Stripe"},
+        "paypal": {
+            "configured": _env_is_set("PAYPAL_CLIENT_ID") and _env_is_set("PAYPAL_CLIENT_SECRET"),
+            "note": "Solde PayPal",
+        },
+        "canva": {"configured": _env_is_set("CANVA_API_KEY"), "note": "Visuels Canva Autofill"},
+        "pinterest": {"configured": _env_is_set("PINTEREST_ACCESS_TOKEN"), "note": "Épingles Pinterest"},
+        "discord": {
+            "configured": _env_is_set("DISCORD_WEBHOOK_URL") or _env_is_set("DISCORD_BOT_TOKEN"),
+            "note": "Notifications Discord",
+        },
+        "telegram": {
+            "configured": _env_is_set("TELEGRAM_BOT_TOKEN") and _env_is_set("TELEGRAM_CHAT_ID"),
+            "note": "Bot Telegram",
+        },
+        "korymb_webhook": {
+            "configured": _env_is_set("KORYMB_WEBHOOK_URL") or _env_is_set("NOTIFICATION_WEBHOOK_URL"),
+            "note": "Webhook sortant n8n/Zapier/Make",
+        },
+        "text_to_speech": {
+            "configured": _env_is_set("ELEVENLABS_API_KEY") or _env_is_set("TTS_API_KEY") or _env_is_set("OPENAI_API_KEY"),
+            "note": "Synthèse vocale MP3",
+        },
         "web_tools": {
             "configured": True,
             "ok": bool(tools_probe.get("web_search", {}).get("ok")),
@@ -177,6 +315,68 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     except Exception as e:
         status["fleur_db"]["reachable"] = False
         status["fleur_db"]["probe_detail"] = str(e)[:180]
+
+    if status.get("google_drive", {}).get("configured"):
+        ok, detail = _probe_google_drive_token()
+        status["google_drive"]["reachable"] = ok
+        if not ok:
+            status["google_drive"]["probe_detail"] = detail
+
+    _probe_ok_map = {
+        "instagram": "instagram",
+        "facebook": "facebook",
+        "brevo": "send_newsletter",
+        "deepl": "translate_text",
+        "image_gen": "generate_image",
+        "gmail": "gmail",
+        "google_calendar": "google_calendar",
+        "google_sheets": "google_sheets",
+        "google_analytics": "google_analytics",
+        "meta_webhooks": "meta_webhooks",
+        "youtube": "youtube",
+        "whatsapp": "whatsapp",
+        "crm": "crm",
+        "stripe": "stripe",
+        "paypal": "paypal",
+        "canva": "canva",
+        "pinterest": "pinterest",
+        "discord": "discord",
+        "telegram": "telegram",
+        "korymb_webhook": "webhook",
+        "text_to_speech": "text_to_speech",
+    }
+    for integ_id, probe_key in _probe_ok_map.items():
+        probe_row = tools_probe.get(probe_key) or {}
+        if "ok" in probe_row:
+            status[integ_id]["ok"] = bool(probe_row.get("ok"))
+
+    for key_only in ("tavily", "brave_search"):
+        if status.get(key_only, {}).get("configured"):
+            status[key_only]["ok"] = True
+
+    if status["smtp"].get("configured"):
+        status["smtp"]["ok"] = status["smtp"].get("reachable") is True
+
+    if status["fleur_db"].get("configured"):
+        status["fleur_db"]["ok"] = status["fleur_db"].get("reachable") is True
+
+    if status["google_drive"].get("configured"):
+        drive_ok = status["google_drive"].get("reachable") is True
+        status["google_drive"]["ok"] = drive_ok and bool(status["google_drive"].get("folder_id_set"))
+
+    if status["google_oauth"].get("configured"):
+        drive_row = status.get("google_drive", {})
+        if drive_row.get("reachable") is False:
+            status["google_oauth"]["ok"] = False
+        elif drive_row.get("reachable") is True:
+            status["google_oauth"]["ok"] = True
+        else:
+            status["google_oauth"]["ok"] = True
+
+    for llm_id in ("llm_mistral", "llm_openrouter", "llm_anthropic"):
+        row = status[llm_id]
+        if row.get("provider_selected"):
+            row["ok"] = bool(row.get("configured"))
 
     configured = sum(1 for v in status.values() if bool(v.get("configured")))
     reachable = sum(1 for v in status.values() if bool(v.get("ok")) or bool(v.get("reachable")))
@@ -377,7 +577,7 @@ def health(
     )
 
 
-@router.get("/admin/system-health", dependencies=[Depends(verify_secret)])
+@router.get("/admin/system-health", dependencies=[Depends(require_admin)])
 def admin_system_health(refresh_tools: bool = False):
     payload = {
         "status": "ok",
@@ -434,13 +634,13 @@ def get_tokens():
     )
 
 
-@router.get("/tokens/daily", dependencies=[Depends(verify_secret)])
+@router.get("/tokens/daily", dependencies=[Depends(resolve_tenant)])
 def get_tokens_daily(days: int = Query(default=7, ge=1, le=30)):
     """Coût et tokens par jour sur les `days` derniers jours (pour graphique)."""
     return {"daily": usage_daily_breakdown(days)}
 
 
-@router.get("/events/stream", dependencies=[Depends(verify_secret)])
+@router.get("/events/stream", dependencies=[Depends(resolve_tenant)])
 async def events_stream(request: Request):
     async def gen():
         last_payload = ""

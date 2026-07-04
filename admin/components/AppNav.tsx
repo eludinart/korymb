@@ -29,8 +29,8 @@ function isNavActive(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function isMoreSectionActive(pathname: string) {
-  return NAV_MORE.some((item) => isNavActive(pathname, item.href));
+function isMoreSectionActive(pathname: string, items: readonly { href: string }[]) {
+  return items.some((item) => isNavActive(pathname, item.href));
 }
 
 function drawerLinkClass(active: boolean, priority?: boolean) {
@@ -61,12 +61,30 @@ function adminHref(href: string) {
 export default function AppNav() {
   const pathname = usePathname() || "";
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
-  const moreActive = isMoreSectionActive(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [canAdmin, setCanAdmin] = useState(true);
   const moreRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
+
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!d?.user) {
+          setCanAdmin(true);
+          return;
+        }
+        setCanAdmin(d.role === "admin");
+      })
+      .catch(() => setCanAdmin(true));
+  }, []);
+
+  const navMore = NAV_MORE.filter(
+    (item) => canAdmin || (item.href !== "/administration" && item.href !== "/configuration"),
+  );
+  const moreActive = isMoreSectionActive(pathname, navMore);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeMore = useCallback(() => setMoreOpen(false), []);
@@ -103,7 +121,7 @@ export default function AppNav() {
 
   const moreLinks = (
     <>
-      {NAV_MORE.map((item) => {
+      {navMore.map((item) => {
         const active = isNavActive(pathname, item.href);
         const showRepriseBadge = item.href === "/administration" && repriseGapCount > 0;
         return (
@@ -203,7 +221,7 @@ export default function AppNav() {
                 role="menu"
                 className="absolute right-0 z-50 mt-2 min-w-[12rem] rounded-2xl border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-slate-100"
               >
-                {NAV_MORE.map((item) => {
+                {navMore.map((item) => {
                   const active = isNavActive(pathname, item.href);
                   const showRepriseBadge = item.href === "/administration" && repriseGapCount > 0;
                   return (

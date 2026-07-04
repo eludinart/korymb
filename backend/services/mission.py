@@ -2910,6 +2910,12 @@ def _schedule_mission_execution(
                 )
             except Exception:
                 logger.exception("append_recent_mission")
+            try:
+                from services.memory import maybe_refresh_mission_summary
+
+                maybe_refresh_mission_summary()
+            except Exception:
+                logger.exception("maybe_refresh_mission_summary")
             if not cfg.get("require_user_validation", True):
                 job_set_user_validated(job_id)
                 row_uv = db_get_job(job_id)

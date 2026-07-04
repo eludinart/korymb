@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     save_job,
     update_job,
@@ -22,7 +22,7 @@ from database import (
 from services.agents import agents_def, FLEUR_CONTEXT, SUB_AGENT_COORDINATION_FR
 from services.chat_surface import surface_chat_result
 from services.chat_mirror import generate_mirror_ack
-from services.memory import compress_chat_session
+from services.memory import compress_chat_session, maybe_refresh_mission_summary
 from services.mission import (
     orchestrate_coordinateur_mission,
     _mission_followup_context_from_parent,
@@ -98,7 +98,7 @@ def _build_chat_mission_txt(
     )
 
 
-@router.post("/chat", dependencies=[Depends(verify_secret)])
+@router.post("/chat", dependencies=[Depends(resolve_tenant)])
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
     agent_cfg = agents_def().get(request.agent, agents_def()["coordinateur"])
 
@@ -152,6 +152,45 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
             def execute_chat_cio():
                 try:
+                    from services.memory_directives import apply_user_memory_directive
+
+                    directive = apply_user_memory_directive(msg_snap)
+                    if directive:
+                        action = directive.get("action")
+                        key = directive.get("key", "global")
+                        if action == "remember":
+                            text = (
+                                f"**Mémorisé** dans le contexte `{key}` :\n\n"
+                                f"{directive.get('detail', '')}"
+                            )
+                        elif action == "forget_all":
+                            text = f"**Contexte effacé** — volet `{key}` réinitialisé."
+                        else:
+                            removed = directive.get("removed")
+                            text = (
+                                f"**Suppression** dans `{key}` : "
+                                f"{'phrase retirée' if removed else 'aucune occurrence trouvée'}."
+                            )
+                        surface = surface_chat_result(text)
+                        _add_daily_svc(0, 0)
+                        if job_id in active_jobs:
+                            active_jobs[job_id].update({
+                                "status": "completed",
+                                "result": text,
+                                "result_surface": surface,
+                            })
+                        update_job(
+                            job_id,
+                            "completed",
+                            text,
+                            job_logs_ref,
+                            0,
+                            0,
+                            source="chat",
+                            result_surface=surface,
+                        )
+                        return
+
                     _emit_job_event(
                         job_id,
                         "mission_start",
@@ -210,6 +249,10 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         append_recent_mission(job_id, msg_snap, surface or text or "")
                     except Exception:
                         logger.exception("append_recent_mission (chat)")
+                    try:
+                        maybe_refresh_mission_summary()
+                    except Exception:
+                        logger.exception("maybe_refresh_mission_summary (chat)")
                     if linked_parent_id and linked_parent_id != job_id:
                         try:
                             append_job_mission_thread(
@@ -331,6 +374,26 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             + SUB_AGENT_COORDINATION_FR
             + "\nRéponds de façon concise et directe."
         )
+        from services.memory_directives import apply_user_memory_directive
+
+        directive = apply_user_memory_directive(request.message)
+        if directive:
+            action = directive.get("action")
+            key = directive.get("key", "global")
+            if action == "remember":
+                reply = (
+                    f"Mémorisé dans le contexte `{key}` : {directive.get('detail', '')}"
+                )
+            elif action == "forget_all":
+                reply = f"Contexte `{key}` effacé."
+            else:
+                removed = directive.get("removed")
+                reply = (
+                    f"Suppression dans `{key}` : "
+                    f"{'effectuée' if removed else 'aucune occurrence trouvée'}."
+                )
+            return {"response": reply, "agent": request.agent}
+
         messages = []
         for h in request.history[-10:]:
             if h.get("role") in ("user", "assistant"):

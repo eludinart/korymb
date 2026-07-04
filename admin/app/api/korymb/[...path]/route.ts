@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PROXY_UNPROTECTED, resolveProxySecret } from "../../../../lib/proxySecret";
+import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 
 const base = (process.env.KORYMB_API_URL || process.env.NEXT_PUBLIC_KORYMB_API_URL || "http://127.0.0.1:8020").replace(/\/$/, "");
 
@@ -21,7 +22,12 @@ function withSecretHeaders(request: NextRequest, joinedPath: string, secret: str
   const headers = new Headers(request.headers);
   headers.set("Content-Type", "application/json");
   headers.delete("host");
-  if (!PROXY_UNPROTECTED.has(joinedPath) && secret) {
+  const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
+  const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+    if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
+  } else if (!PROXY_UNPROTECTED.has(joinedPath) && secret) {
     headers.set("X-Agent-Secret", secret);
   }
   return headers;
@@ -33,11 +39,17 @@ async function proxy(request: NextRequest, path: string[]) {
   if (!joinedPath) {
     return NextResponse.json({ error: "Path manquant" }, { status: 400 });
   }
-  if (!PROXY_UNPROTECTED.has(joinedPath) && !secret) {
-    return NextResponse.json(
-      { error: "KORYMB_AGENT_SECRET manquant côté serveur Next (production : secret serveur uniquement)" },
-      { status: 500 },
-    );
+  if (!PROXY_UNPROTECTED.has(joinedPath)) {
+    const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
+    if (!token && !secret) {
+      return NextResponse.json(
+        {
+          error:
+            "Authentification requise — connectez-vous ou configurez KORYMB_AGENT_SECRET côté serveur Next.",
+        },
+        { status: 401 },
+      );
+    }
   }
   const upstream = new URL(`${base}${targetPath(path)}`);
   request.nextUrl.searchParams.forEach((value, key) => upstream.searchParams.set(key, value));

@@ -11,7 +11,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     list_mission_templates,
     get_mission_template,
@@ -76,12 +76,12 @@ class TemplateLaunchBody(BaseModel):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@router.get("/templates", dependencies=[Depends(verify_secret)])
+@router.get("/templates", dependencies=[Depends(resolve_tenant)])
 def templates_list():
     return {"templates": list_mission_templates()}
 
 
-@router.post("/templates", dependencies=[Depends(verify_secret)])
+@router.post("/templates", dependencies=[Depends(resolve_tenant)])
 def templates_create(body: TemplateCreateBody):
     ad = agents_def()
     agent_key = body.agent if body.agent in ad else "coordinateur"
@@ -100,7 +100,7 @@ def templates_create(body: TemplateCreateBody):
     return {"template": tmpl}
 
 
-@router.get("/templates/{template_id}", dependencies=[Depends(verify_secret)])
+@router.get("/templates/{template_id}", dependencies=[Depends(resolve_tenant)])
 def templates_get(template_id: str):
     tmpl = get_mission_template(template_id)
     if not tmpl:
@@ -108,7 +108,7 @@ def templates_get(template_id: str):
     return {"template": tmpl}
 
 
-@router.put("/templates/{template_id}", dependencies=[Depends(verify_secret)])
+@router.put("/templates/{template_id}", dependencies=[Depends(resolve_tenant)])
 def templates_update(template_id: str, body: TemplateUpdateBody):
     existing = get_mission_template(template_id)
     if not existing:
@@ -136,7 +136,7 @@ def templates_update(template_id: str, body: TemplateUpdateBody):
     return {"template": tmpl}
 
 
-@router.delete("/templates/{template_id}", dependencies=[Depends(verify_secret)])
+@router.delete("/templates/{template_id}", dependencies=[Depends(resolve_tenant)])
 def templates_delete(template_id: str):
     deleted = delete_mission_template(template_id)
     if not deleted:
@@ -144,7 +144,7 @@ def templates_delete(template_id: str):
     return {"deleted": True, "id": template_id}
 
 
-@router.post("/templates/{template_id}/launch", dependencies=[Depends(verify_secret)])
+@router.post("/templates/{template_id}/launch", dependencies=[Depends(resolve_tenant)])
 async def templates_launch(template_id: str, body: TemplateLaunchBody, background_tasks: BackgroundTasks):
     tmpl = get_mission_template(template_id)
     if not tmpl:

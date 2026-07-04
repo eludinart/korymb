@@ -1,5 +1,5 @@
 """
-tools/__init__.py — Outils disponibles pour les agents Korymb v3.1
+tools/__init__.py — Outils disponibles pour les agents Korymb v3.2
 
 Chaîne de recherche web (priorité décroissante) :
   1. Tavily AI        — TAVILY_API_KEY        (1 000 req/mois gratuits, optimal agents IA)
@@ -36,24 +36,35 @@ try:
 except ImportError:
     _DDG_AVAILABLE = False
 
-# ── Clés API ─────────────────────────────────────────────────────────────────
-_TAVILY_KEY        = os.getenv("TAVILY_API_KEY", "").strip()
-_BRAVE_KEY         = os.getenv("BRAVE_SEARCH_API_KEY", "").strip()
-_ANTHROPIC_KEY     = os.getenv("ANTHROPIC_API_KEY", "").strip()
-_IG_TOKEN          = os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()
-_IG_ACCOUNT_ID     = os.getenv("INSTAGRAM_ACCOUNT_ID", "").strip()
-_FB_TOKEN          = os.getenv("FACEBOOK_ACCESS_TOKEN", "").strip()
-_FB_PAGE_ID        = os.getenv("FACEBOOK_PAGE_ID", "").strip()
-_SMTP_HOST         = os.getenv("SMTP_HOST", "")
-_SMTP_USER         = os.getenv("SMTP_USER", "")
-_SMTP_PASS         = os.getenv("SMTP_PASS", "")
-_GDRIVE_TOKEN      = (os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN", "") or os.getenv("GOOGLE_API_ACCESS_TOKEN", "")).strip()
-_GDRIVE_FOLDER_ID  = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
-_GOOGLE_REFRESH_TOKEN   = os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip()
-_GOOGLE_CLIENT_ID       = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-_GOOGLE_CLIENT_SECRET   = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
-_GOOGLE_TOKEN_ENDPOINT  = (os.getenv("GOOGLE_OAUTH_TOKEN_ENDPOINT") or "https://oauth2.googleapis.com/token").strip()
+from integration_settings import getenv
+
+# Variables lues à l'exécution via getenv() — surcharges admin > .env
 _GOOGLE_TOKEN_CACHE: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
+
+
+def _anthropic_key() -> str:
+    k = getenv("ANTHROPIC_API_KEY")
+    if k:
+        return k
+    try:
+        from runtime_settings import merge_with_env
+
+        return str(merge_with_env().get("anthropic_api_key") or "").strip()
+    except Exception:
+        return ""
+
+
+def _google_oauth_bundle() -> tuple[str, str, str, str]:
+    return (
+        getenv("GOOGLE_OAUTH_REFRESH_TOKEN"),
+        getenv("GOOGLE_OAUTH_CLIENT_ID"),
+        getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
+        getenv("GOOGLE_OAUTH_TOKEN_ENDPOINT") or "https://oauth2.googleapis.com/token",
+    )
+
+
+def _gdrive_token_static() -> str:
+    return (getenv("GOOGLE_DRIVE_ACCESS_TOKEN") or getenv("GOOGLE_API_ACCESS_TOKEN")).strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -73,13 +84,13 @@ def _format_results(results: list[dict], provider: str) -> str:
 
 
 def _search_tavily(query: str, max_results: int = 10) -> list[dict] | None:
-    if not _TAVILY_KEY:
+    if not getenv("TAVILY_API_KEY"):
         return None
     try:
         resp = httpx.post(
             "https://api.tavily.com/search",
             json={
-                "api_key": _TAVILY_KEY,
+                "api_key": getenv("TAVILY_API_KEY"),
                 "query": query,
                 "search_depth": "basic",
                 "max_results": max_results,
@@ -97,13 +108,13 @@ def _search_tavily(query: str, max_results: int = 10) -> list[dict] | None:
 
 
 def _search_brave(query: str, max_results: int = 10) -> list[dict] | None:
-    if not _BRAVE_KEY:
+    if not getenv("BRAVE_SEARCH_API_KEY"):
         return None
     try:
         resp = httpx.get(
             "https://api.search.brave.com/res/v1/web/search",
             params={"q": query, "count": min(max_results, 20), "country": "fr", "search_lang": "fr"},
-            headers={"Accept": "application/json", "X-Subscription-Token": _BRAVE_KEY},
+            headers={"Accept": "application/json", "X-Subscription-Token": getenv("BRAVE_SEARCH_API_KEY")},
             timeout=20,
         )
         if resp.status_code == 200:
@@ -286,12 +297,12 @@ def run_describe_image(image_url: str, context: str = "") -> str:
     if not url.lower().startswith(("http://", "https://")):
         return "URL image invalide (doit commencer par http:// ou https://)."
 
-    if not _ANTHROPIC_KEY:
+    if not _anthropic_key():
         return "ANTHROPIC_API_KEY non configuré — impossible d'analyser l'image."
 
     try:
         import anthropic
-        client = anthropic.Anthropic(api_key=_ANTHROPIC_KEY)
+        client = anthropic.Anthropic(api_key=_anthropic_key())
         prompt = (
             "Décris précisément le contenu de cette image en français : "
             "personnes, textes visibles, couleurs, ambiance, contexte, émotions, "
@@ -327,29 +338,31 @@ def run_describe_image(image_url: str, context: str = "") -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_post_instagram(caption: str, image_url: str = "") -> str:
-    if not _IG_TOKEN or not _IG_ACCOUNT_ID:
+    ig_token = getenv("INSTAGRAM_ACCESS_TOKEN")
+    ig_account = getenv("INSTAGRAM_ACCOUNT_ID")
+    if not ig_token or not ig_account:
         return (
             "[SIMULATION] Post Instagram prêt à publier :\n"
             f"Caption : {caption}\n"
             "⚠️ Configure INSTAGRAM_ACCESS_TOKEN et INSTAGRAM_ACCOUNT_ID dans .env pour publier réellement."
         )
     try:
-        payload: dict = {"caption": caption, "access_token": _IG_TOKEN}
+        payload: dict = {"caption": caption, "access_token": ig_token}
         if image_url:
             payload["image_url"] = image_url
             payload["media_type"] = "IMAGE"
         else:
             payload["media_type"] = "REELS"
         r = httpx.post(
-            f"https://graph.facebook.com/v19.0/{_IG_ACCOUNT_ID}/media",
+            f"https://graph.facebook.com/v19.0/{ig_account}/media",
             data=payload,
             timeout=20,
         )
         r.raise_for_status()
         container_id = r.json().get("id")
         r2 = httpx.post(
-            f"https://graph.facebook.com/v19.0/{_IG_ACCOUNT_ID}/media_publish",
-            data={"creation_id": container_id, "access_token": _IG_TOKEN},
+            f"https://graph.facebook.com/v19.0/{ig_account}/media_publish",
+            data={"creation_id": container_id, "access_token": ig_token},
             timeout=20,
         )
         r2.raise_for_status()
@@ -360,13 +373,15 @@ def run_post_instagram(caption: str, image_url: str = "") -> str:
 
 def run_read_instagram_media(limit: int = 10) -> str:
     """Lit les derniers médias publiés sur le compte Instagram configuré."""
-    if not _IG_TOKEN or not _IG_ACCOUNT_ID:
+    ig_token = getenv("INSTAGRAM_ACCESS_TOKEN")
+    ig_account = getenv("INSTAGRAM_ACCOUNT_ID")
+    if not ig_token or not ig_account:
         return "INSTAGRAM_ACCESS_TOKEN ou INSTAGRAM_ACCOUNT_ID non configuré."
     try:
         resp = httpx.get(
-            f"https://graph.facebook.com/v19.0/{_IG_ACCOUNT_ID}/media",
+            f"https://graph.facebook.com/v19.0/{ig_account}/media",
             params={
-                "access_token": _IG_TOKEN,
+                "access_token": ig_token,
                 "fields": "id,caption,media_type,timestamp,permalink,thumbnail_url,media_url",
                 "limit": min(limit, 20),
             },
@@ -398,7 +413,9 @@ def run_read_instagram_media(limit: int = 10) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_post_facebook(message: str) -> str:
-    if not _FB_TOKEN or not _FB_PAGE_ID:
+    fb_token = getenv("FACEBOOK_ACCESS_TOKEN")
+    fb_page = getenv("FACEBOOK_PAGE_ID")
+    if not fb_token or not fb_page:
         return (
             "[SIMULATION] Post Facebook prêt :\n"
             f"{message}\n"
@@ -406,8 +423,8 @@ def run_post_facebook(message: str) -> str:
         )
     try:
         r = httpx.post(
-            f"https://graph.facebook.com/v19.0/{_FB_PAGE_ID}/feed",
-            data={"message": message, "access_token": _FB_TOKEN},
+            f"https://graph.facebook.com/v19.0/{fb_page}/feed",
+            data={"message": message, "access_token": fb_token},
             timeout=20,
         )
         r.raise_for_status()
@@ -418,15 +435,17 @@ def run_post_facebook(message: str) -> str:
 
 def run_read_facebook_posts(limit: int = 10) -> str:
     """Lit les derniers posts de la page Facebook configurée."""
-    if not _FB_TOKEN:
+    fb_token = getenv("FACEBOOK_ACCESS_TOKEN")
+    fb_page = getenv("FACEBOOK_PAGE_ID")
+    if not fb_token:
         return "FACEBOOK_ACCESS_TOKEN non configuré."
-    if not _FB_PAGE_ID:
+    if not fb_page:
         return "FACEBOOK_PAGE_ID non configuré."
     try:
         resp = httpx.get(
-            f"https://graph.facebook.com/v19.0/{_FB_PAGE_ID}/posts",
+            f"https://graph.facebook.com/v19.0/{fb_page}/posts",
             params={
-                "access_token": _FB_TOKEN,
+                "access_token": fb_token,
                 "fields": "message,story,created_time,permalink_url,full_picture",
                 "limit": min(limit, 25),
             },
@@ -457,7 +476,10 @@ def run_read_facebook_posts(limit: int = 10) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_send_email(to: str, subject: str, body: str) -> str:
-    if not _SMTP_HOST:
+    smtp_host = getenv("SMTP_HOST")
+    smtp_user = getenv("SMTP_USER")
+    smtp_pass = getenv("SMTP_PASS")
+    if not smtp_host:
         return (
             f"[SIMULATION] Email prêt :\n"
             f"À : {to}\nObjet : {subject}\n\n{body}\n\n"
@@ -469,10 +491,10 @@ def run_send_email(to: str, subject: str, body: str) -> str:
 
         msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
-        msg["From"] = _SMTP_USER
+        msg["From"] = smtp_user
         msg["To"] = to
-        with smtplib.SMTP_SSL(_SMTP_HOST, 465) as s:
-            s.login(_SMTP_USER, _SMTP_PASS)
+        with smtplib.SMTP_SSL(smtp_host, 465) as s:
+            s.login(smtp_user, smtp_pass)
             s.send_message(msg)
         return f"✅ Email envoyé à {to}"
     except Exception as e:
@@ -484,7 +506,8 @@ def run_send_email(to: str, subject: str, body: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _refresh_google_access_token(force: bool = False) -> str:
-    if not (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
+    refresh, client_id, client_secret, token_endpoint = _google_oauth_bundle()
+    if not (refresh and client_id and client_secret):
         return ""
     now = time.time()
     cached = str(_GOOGLE_TOKEN_CACHE.get("access_token") or "")
@@ -493,12 +516,12 @@ def _refresh_google_access_token(force: bool = False) -> str:
         return cached
     try:
         r = httpx.post(
-            _GOOGLE_TOKEN_ENDPOINT,
+            token_endpoint,
             data={
                 "grant_type": "refresh_token",
-                "refresh_token": _GOOGLE_REFRESH_TOKEN,
-                "client_id": _GOOGLE_CLIENT_ID,
-                "client_secret": _GOOGLE_CLIENT_SECRET,
+                "refresh_token": refresh,
+                "client_id": client_id,
+                "client_secret": client_secret,
             },
             timeout=12,
         )
@@ -517,14 +540,14 @@ def _refresh_google_access_token(force: bool = False) -> str:
 
 
 def _get_google_drive_token() -> str:
-    # Le refresh token (auto-renouvelé) prime quand il est configuré : le token statique
-    # GOOGLE_DRIVE_ACCESS_TOKEN expire en ~1 h et masquerait sinon un OAuth réparé.
-    if _GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET:
+    refresh, client_id, client_secret, _ = _google_oauth_bundle()
+    if refresh and client_id and client_secret:
         refreshed = _refresh_google_access_token(force=False)
         if refreshed:
             return refreshed
-    if _GDRIVE_TOKEN:
-        return _GDRIVE_TOKEN
+    static = _gdrive_token_static()
+    if static:
+        return static
     return _refresh_google_access_token(force=False) or ""
 
 
@@ -546,7 +569,7 @@ def _drive_multipart_upload(
     fn = (filename or "").strip()[:220]
     if not fn:
         raise ValueError("Nom de fichier vide.")
-    effective_folder = (folder_id or _GDRIVE_FOLDER_ID or "").strip()
+    effective_folder = (folder_id or getenv("GOOGLE_DRIVE_FOLDER_ID") or "").strip()
     parent_json = f', "parents": ["{effective_folder}"]' if effective_folder else ""
     meta_mime = (target_mime or source_mime or "text/plain").strip()
     metadata = f'{{"name":{json.dumps(fn)}{parent_json}, "mimeType":{json.dumps(meta_mime)}}}'
@@ -570,11 +593,13 @@ def _drive_multipart_upload(
     if convert:
         url += "&convert=true"
     r = httpx.post(url, headers=headers, content=body.encode("utf-8"), timeout=45)
-    if r.status_code == 401 and (_GOOGLE_REFRESH_TOKEN and _GOOGLE_CLIENT_ID and _GOOGLE_CLIENT_SECRET):
-        refreshed = _refresh_google_access_token(force=True)
-        if refreshed:
-            headers["Authorization"] = f"Bearer {refreshed}"
-            r = httpx.post(url, headers=headers, content=body.encode("utf-8"), timeout=45)
+    if r.status_code == 401:
+        refresh, client_id, client_secret, _ = _google_oauth_bundle()
+        if refresh and client_id and client_secret:
+            refreshed = _refresh_google_access_token(force=True)
+            if refreshed:
+                headers["Authorization"] = f"Bearer {refreshed}"
+                r = httpx.post(url, headers=headers, content=body.encode("utf-8"), timeout=45)
     r.raise_for_status()
     data = r.json() if r.content else {}
     return {

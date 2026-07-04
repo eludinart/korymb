@@ -108,9 +108,9 @@ def summarize_mission_history(job_limit: int = 10) -> str:
     mem = get_enterprise_memory()
     contexts = mem.get("contexts") or {}
     cached_summary = contexts.get("auto_summary", "")
-    updated_at = mem.get("updated_at")
+    summary_updated_at = contexts.get("auto_summary_updated_at", "")
 
-    if cached_summary and not _summary_is_stale(updated_at):
+    if cached_summary and not _summary_is_stale(summary_updated_at):
         return cached_summary
 
     jobs = list_jobs_prompt_digest(limit=job_limit)
@@ -154,13 +154,34 @@ def summarize_mission_history(job_limit: int = 10) -> str:
             f"- {j.get('agent')}: {j.get('mission', '')[:100]}" for j in jobs
         )
 
-    # Persister avec timestamp de maintenant
+    # Persister avec horodatage dédié (indépendant de updated_at / recent_missions).
     try:
-        merge_enterprise_contexts({"auto_summary": summary_text})
+        merge_enterprise_contexts(
+            {
+                "auto_summary": summary_text,
+                "auto_summary_updated_at": datetime.utcnow().isoformat(),
+            },
+        )
     except Exception:
         logger.exception("summarize_mission_history: failed to persist summary")
 
     return summary_text
+
+
+def maybe_refresh_mission_summary() -> None:
+    """Régénère auto_summary si absent ou TTL expiré (best-effort)."""
+    try:
+        mem = get_enterprise_memory()
+        contexts = mem.get("contexts") or {}
+        if not isinstance(contexts, dict):
+            contexts = {}
+        cached = contexts.get("auto_summary", "")
+        summary_at = contexts.get("auto_summary_updated_at", "")
+        if isinstance(cached, str) and cached.strip() and not _summary_is_stale(summary_at):
+            return
+        summarize_mission_history()
+    except Exception:
+        logger.exception("maybe_refresh_mission_summary")
 
 
 # ── Snapshot & prompt ─────────────────────────────────────────────────────────
@@ -215,6 +236,9 @@ def active_memory_prompt(
     exclude_job_id: str | None = None,
     use_summary: bool = True,
 ) -> str:
+    if use_summary:
+        maybe_refresh_mission_summary()
+
     snap = read_active_memory(
         proposal_limit=proposal_limit,
         digest_limit=digest_limit,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from database import (
     ALLOWED_AGENT_TOOL_TAGS,
     delete_custom_agent,
@@ -53,7 +53,7 @@ def list_agents():
     }
 
 
-@router.get("/admin/agents", dependencies=[Depends(verify_secret)])
+@router.get("/admin/agents", dependencies=[Depends(require_admin)])
 def admin_agents_definitions():
     """Définitions complètes (y compris prompts) + liste des tags d'outils autorisés."""
     ad = agents_def()
@@ -74,7 +74,7 @@ def admin_agents_definitions():
     }
 
 
-@router.put("/admin/agents/custom/{agent_key}", dependencies=[Depends(verify_secret)])
+@router.put("/admin/agents/custom/{agent_key}", dependencies=[Depends(require_admin)])
 def admin_upsert_custom_agent(agent_key: str, body: AdminAgentUpsertBody):
     raw = (agent_key or "").strip()
     canon, err = validate_custom_agent_key(raw)
@@ -102,14 +102,14 @@ def admin_upsert_custom_agent(agent_key: str, body: AdminAgentUpsertBody):
     return {"ok": True, "key": canon}
 
 
-@router.get("/admin/agents/custom/{agent_key}/history", dependencies=[Depends(verify_secret)])
+@router.get("/admin/agents/custom/{agent_key}/history", dependencies=[Depends(require_admin)])
 def admin_agent_history(agent_key: str, limit: int = 20):
     from database import list_agent_definition_history
 
     return {"history": list_agent_definition_history((agent_key or "").strip(), limit=limit)}
 
 
-@router.delete("/admin/agents/custom/{agent_key}", dependencies=[Depends(verify_secret)])
+@router.delete("/admin/agents/custom/{agent_key}", dependencies=[Depends(require_admin)])
 def admin_delete_custom_agent(agent_key: str):
     try:
         deleted = delete_custom_agent((agent_key or "").strip())

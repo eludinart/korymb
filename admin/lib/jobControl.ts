@@ -72,6 +72,13 @@ export async function cleanupOrphanJobs() {
 }
 
 export function jobControlErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  return "Action impossible pour ce processus.";
+  if (err instanceof Error) {
+    const msg = err.message.trim();
+    if (msg && msg !== "HTTP 500" && msg !== "HTTP 503") return msg;
+  }
+  if (err && typeof err === "object" && "message" in err) {
+    const msg = String((err as { message: unknown }).message || "").trim();
+    if (msg && msg !== "HTTP 500" && msg !== "HTTP 503") return msg;
+  }
+  return "Action impossible pour ce processus (erreur serveur).";
 }

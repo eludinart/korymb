@@ -10,9 +10,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from auth import verify_secret
+from auth import resolve_tenant, require_admin
 from config import settings
 from database import (
+    _norm_job_id,
     append_job_mission_thread,
     get_conn,
     get_job as db_get_job,
@@ -229,7 +230,7 @@ def close_mission_by_user_impl(job_id: str) -> dict:
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
-@router.get("/jobs", dependencies=[Depends(verify_secret)])
+@router.get("/jobs", dependencies=[Depends(resolve_tenant)])
 def list_jobs(limit: int = 50):
     db_jobs = {j["id"]: j for j in db_list_jobs(limit)}
     for jid, job in active_jobs.items():
@@ -294,17 +295,17 @@ def list_jobs(limit: int = 50):
     return {"jobs": out}
 
 
-@router.post("/jobs/clear", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/clear", dependencies=[Depends(resolve_tenant)])
 def clear_jobs_post():
     return clear_jobs_impl()
 
 
-@router.delete("/jobs", dependencies=[Depends(verify_secret)])
+@router.delete("/jobs", dependencies=[Depends(resolve_tenant)])
 def clear_jobs():
     return clear_jobs_impl()
 
 
-@router.post("/jobs/validate-mission", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/validate-mission", dependencies=[Depends(resolve_tenant)])
 def validate_mission_by_user_body(payload: ValidateMissionPayload):
     jid = str(payload.job_id or "").strip()
     if not jid:
@@ -312,7 +313,7 @@ def validate_mission_by_user_body(payload: ValidateMissionPayload):
     return validate_mission_by_user_impl(jid)
 
 
-@router.post("/jobs/close-mission", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/close-mission", dependencies=[Depends(resolve_tenant)])
 def close_mission_by_user_body(payload: ValidateMissionPayload):
     jid = str(payload.job_id or "").strip()
     if not jid:
@@ -320,14 +321,14 @@ def close_mission_by_user_body(payload: ValidateMissionPayload):
     return close_mission_by_user_impl(jid)
 
 
-@router.get("/jobs/summary", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/summary", dependencies=[Depends(resolve_tenant)])
 def list_jobs_summary_route(limit: int = 80):
     from database import list_jobs_summary as db_list_jobs_summary
     rows = db_list_jobs_summary(limit=limit)
     return {"jobs": rows}
 
 
-@router.get("/jobs/cards", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/cards", dependencies=[Depends(resolve_tenant)])
 def list_jobs_cards_route(limit: int = 80):
     """Liste légère pour cartes missions / historique (résultat tronqué, pas de thread/events/plan)."""
     from database import list_jobs_cards_light
@@ -413,7 +414,7 @@ def _active_job_payload(job_id: str, mem: dict | None, row: dict | None) -> dict
     }
 
 
-@router.get("/jobs/active", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/active", dependencies=[Depends(resolve_tenant)])
 def list_active_jobs_route():
     """Jobs en cours (mémoire vive + base) pour le bandeau d'activité global."""
     from database import list_jobs_active_rows
@@ -453,7 +454,7 @@ def list_active_jobs_route():
     }
 
 
-@router.post("/jobs/cleanup-orphans", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/cleanup-orphans", dependencies=[Depends(resolve_tenant)])
 def cleanup_orphan_jobs_route():
     """Annule en base les jobs « running » sans thread actif (fantômes après redémarrage)."""
     from database import list_orphan_active_job_rows
@@ -484,7 +485,7 @@ def cleanup_orphan_jobs_route():
     return {"ok": True, "cleaned": cleaned, "count": len(cleaned)}
 
 
-@router.get("/jobs/light", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/light", dependencies=[Depends(resolve_tenant)])
 def list_jobs_light_route(limit: int = 50):
     """Liste minimale pour compteurs UI (évite mission_thread / events / plan)."""
     from database import list_jobs_list_light, probe_database_connection
@@ -523,7 +524,7 @@ def list_jobs_light_route(limit: int = 50):
     return {"jobs": out}
 
 
-@router.get("/jobs/{job_id}", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}", dependencies=[Depends(resolve_tenant)])
 def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     cfg = merge_with_env()
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
@@ -625,17 +626,17 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
     return out
 
 
-@router.post("/jobs/{job_id}/validate-mission", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/validate-mission", dependencies=[Depends(resolve_tenant)])
 def validate_mission_by_user(job_id: str):
     return validate_mission_by_user_impl(job_id)
 
 
-@router.post("/jobs/{job_id}/close-mission", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/close-mission", dependencies=[Depends(resolve_tenant)])
 def close_mission_by_user_route(job_id: str):
     return close_mission_by_user_impl(job_id)
 
 
-@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(resolve_tenant)])
 def cancel_running_job(job_id: str):
     jid = (job_id or "").strip()
     if not jid:
@@ -676,7 +677,7 @@ def cancel_running_job(job_id: str):
     }
 
 
-@router.post("/jobs/{job_id}/pause", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/pause", dependencies=[Depends(resolve_tenant)])
 def pause_running_job(job_id: str):
     jid = (job_id or "").strip()
     if not jid:
@@ -713,7 +714,7 @@ def pause_running_job(job_id: str):
     }
 
 
-@router.post("/jobs/{job_id}/resume-work", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/resume-work", dependencies=[Depends(resolve_tenant)])
 def resume_paused_job(job_id: str):
     jid = (job_id or "").strip()
     if not jid:
@@ -733,7 +734,7 @@ def resume_paused_job(job_id: str):
     return {"ok": True, "job_id": jid, "status": "running", "execution_live": True, "message": "Mission reprise."}
 
 
-@router.put("/jobs/{job_id}/deliverables-ui", dependencies=[Depends(verify_secret)])
+@router.put("/jobs/{job_id}/deliverables-ui", dependencies=[Depends(resolve_tenant)])
 def put_deliverables_ui(job_id: str, body: DeliverablesUiPut):
     """Notes dirigeant et acceptations par livrable (clé = agent, ex. commercial)."""
     jid = _norm_job_id(job_id)
@@ -745,7 +746,7 @@ def put_deliverables_ui(job_id: str, body: DeliverablesUiPut):
     return {"ok": True, "deliverables_ui": out.get("deliverables_ui") or {"agents": {}}}
 
 
-@router.post("/jobs/{job_id}/cio-answer", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/cio-answer", dependencies=[Depends(resolve_tenant)])
 def cio_answer(job_id: str, payload: dict):
     """
     Stocke la réponse du dirigeant aux questions CIO dans le fil de la mission.
@@ -827,7 +828,7 @@ class HitlResolveBody(BaseModel):
     feedback: str = ""
 
 
-@router.get("/jobs/{job_id}/hitl", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}/hitl", dependencies=[Depends(resolve_tenant)])
 def job_hitl_state(job_id: str):
     from database import get_hitl_gate, get_job
 
@@ -843,7 +844,7 @@ def job_hitl_state(job_id: str):
     }
 
 
-@router.post("/jobs/{job_id}/hitl/resolve", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/hitl/resolve", dependencies=[Depends(resolve_tenant)])
 def job_hitl_resolve(job_id: str, body: HitlResolveBody):
     from services.hitl_unified import resolve_hitl
 
@@ -862,7 +863,7 @@ def job_hitl_resolve(job_id: str, body: HitlResolveBody):
     return result
 
 
-@router.post("/jobs/{job_id}/resume", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/resume", dependencies=[Depends(resolve_tenant)])
 def job_resume_graph(job_id: str):
     from graph.runner import get_graph_state, resume_mission_graph
 
@@ -873,23 +874,23 @@ def job_resume_graph(job_id: str):
     return {"ok": True, "job_id": job_id, "graph_state": out}
 
 
-@router.post("/jobs/{job_id}/remove", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/remove", dependencies=[Depends(resolve_tenant)])
 def delete_job_post(job_id: str):
     return delete_job_impl(job_id)
 
 
-@router.delete("/jobs/{job_id}", dependencies=[Depends(verify_secret)])
+@router.delete("/jobs/{job_id}", dependencies=[Depends(resolve_tenant)])
 def delete_job(job_id: str):
     return delete_job_impl(job_id)
 
 
-@router.get("/jobs/{job_id}/traces", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}/traces", dependencies=[Depends(resolve_tenant)])
 def job_traces(job_id: str, limit: int = 200):
     from database import list_mission_traces
     return {"job_id": job_id, "traces": list_mission_traces(job_id, limit=limit)}
 
 
-@router.get("/jobs/{job_id}/audit-bundle", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}/audit-bundle", dependencies=[Depends(resolve_tenant)])
 def job_audit_bundle(job_id: str):
     from database import get_job, get_hitl_gate, list_hitl_plan_snapshots, list_mission_traces, list_quality_verdicts
     job = get_job(job_id)
@@ -904,7 +905,7 @@ def job_audit_bundle(job_id: str):
     }
 
 
-@router.get("/jobs/{job_id}/hitl/plan-diff", dependencies=[Depends(verify_secret)])
+@router.get("/jobs/{job_id}/hitl/plan-diff", dependencies=[Depends(resolve_tenant)])
 def job_hitl_plan_diff(job_id: str, from_version: int = 1, to_version: int | None = None):
     from database import list_hitl_plan_snapshots
     from services.director_platform import plan_diff
@@ -922,7 +923,7 @@ def job_hitl_plan_diff(job_id: str, from_version: int = 1, to_version: int | Non
     return {"job_id": job_id, "from_version": from_version, "to_version": to_version or max(by_v.keys()), "diff": plan_diff(fv, tv)}
 
 
-@router.post("/jobs/{job_id}/clone", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/clone", dependencies=[Depends(resolve_tenant)])
 def job_clone(job_id: str, background_tasks: BackgroundTasks):
     from database import get_job
     from services.mission import MissionRunConfig, _mission_config_from_payload, _schedule_mission_execution
@@ -946,7 +947,7 @@ def job_clone(job_id: str, background_tasks: BackgroundTasks):
     return {"ok": True, "source_job_id": job_id, "job_id": new_id}
 
 
-@router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(verify_secret)])
+@router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(resolve_tenant)])
 def job_quality_override(job_id: str, payload: dict):
     from database import get_job, insert_quality_verdict
     if not get_job(job_id):
@@ -966,12 +967,12 @@ def _deprecated_json(content: dict, *, status_code: int = 200) -> JSONResponse:
     )
 
 
-@router.post("/run/remove-job", dependencies=[Depends(verify_secret)])
+@router.post("/run/remove-job", dependencies=[Depends(resolve_tenant)])
 def run_remove_job(payload: RemoveJobPayload):
     return _deprecated_json(delete_job_impl(payload.job_id))
 
 
-@router.post("/run/remove-mission-session", dependencies=[Depends(verify_secret)])
+@router.post("/run/remove-mission-session", dependencies=[Depends(resolve_tenant)])
 def run_remove_mission_session(payload: RemoveMissionSessionPayload):
     sid = str(payload.session_id or "").strip()
     if not sid:
@@ -981,7 +982,7 @@ def run_remove_mission_session(payload: RemoveMissionSessionPayload):
     return _deprecated_json({"deleted": True, "session_id": sid})
 
 
-@router.post("/run/validate-mission", dependencies=[Depends(verify_secret)])
+@router.post("/run/validate-mission", dependencies=[Depends(resolve_tenant)])
 def run_validate_mission(payload: ValidateMissionPayload):
     jid = str(payload.job_id or "").strip()
     if not jid:
@@ -989,7 +990,7 @@ def run_validate_mission(payload: ValidateMissionPayload):
     return _deprecated_json(validate_mission_by_user_impl(jid))
 
 
-@router.post("/run/close-mission", dependencies=[Depends(verify_secret)])
+@router.post("/run/close-mission", dependencies=[Depends(resolve_tenant)])
 def run_close_mission(payload: ValidateMissionPayload):
     jid = str(payload.job_id or "").strip()
     if not jid:
@@ -997,6 +998,6 @@ def run_close_mission(payload: ValidateMissionPayload):
     return _deprecated_json(close_mission_by_user_impl(jid))
 
 
-@router.post("/run/clear-jobs", dependencies=[Depends(verify_secret)])
+@router.post("/run/clear-jobs", dependencies=[Depends(resolve_tenant)])
 def run_clear_jobs():
     return _deprecated_json(clear_jobs_impl())

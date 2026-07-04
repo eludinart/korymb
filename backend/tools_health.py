@@ -1,7 +1,6 @@
 """
-Sondes d'accessibilité des outils Korymb v3.1 — résultat mis en cache 2 min.
-Vérifie : web_search (Tavily/Brave/DDG), read_webpage (Jina/httpx),
-          describe_image (ANTHROPIC_API_KEY), Instagram, Facebook, Google Drive.
+Sondes d'accessibilité des outils Korymb v3.2 — résultat mis en cache 2 min.
+Vérifie : web_search, read_webpage, describe_image, réseaux, Drive, email, PDF, RSS, image gen, newsletter, traduction.
 """
 from __future__ import annotations
 
@@ -67,7 +66,7 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     ws_provider = _detect_web_provider(ws_raw) if ws_ok else "none"
 
     # ── Lecture de page ────────────────────────────────────────────────────
-    test_url = "https://httpbin.org/html"
+    test_url = "https://example.com"
     rw_raw = run_read_webpage(test_url)
     rw_ok = not _read_webpage_failed(rw_raw)
     rw_provider = _detect_read_provider(rw_raw) if rw_ok else "none"
@@ -81,6 +80,13 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     has_drive     = bool(
         str(os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN", "") or os.getenv("GOOGLE_API_ACCESS_TOKEN", "")).strip()
         or (os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip() and os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip())
+    )
+    has_smtp      = bool(os.getenv("SMTP_HOST", "").strip() and os.getenv("SMTP_USER", "").strip())
+    has_brevo     = bool(os.getenv("BREVO_API_KEY", "").strip())
+    has_deepl     = bool(os.getenv("DEEPL_API_KEY", "").strip())
+    has_image_gen = bool(
+        os.getenv("IMAGE_GEN_MODEL", "").strip()
+        and (os.getenv("IMAGE_GEN_API_KEY", "").strip() or os.getenv("OPENROUTER_API_KEY", "").strip())
     )
 
     payload = {
@@ -103,7 +109,7 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
             "provider": rw_provider,
             "jina_available": True,
             "probe_url": test_url,
-            "probe_url_note": "httpbin.org/html — page HTML simple avec contenu garanti",
+            "probe_url_note": "example.com — page HTML stable (httpbin.org souvent inaccessible)",
             "message": None if rw_ok else (rw_raw[:400] + ("…" if len(rw_raw) > 400 else "")),
         },
         "search_linkedin": {
@@ -128,7 +134,139 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         "google_drive": {
             "ok": has_drive,
             "configured": has_drive,
-            "note": "Nécessite GOOGLE_API_ACCESS_TOKEN ou GOOGLE_OAUTH_REFRESH_TOKEN+CLIENT_ID+CLIENT_SECRET.",
+            "folder_id_set": bool(os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()),
+            "note": "GOOGLE_API_ACCESS_TOKEN ou OAuth refresh + client id/secret.",
+        },
+        "send_email": {
+            "ok": has_smtp,
+            "configured": has_smtp,
+            "note": "SMTP_HOST + SMTP_USER + SMTP_PASS — brouillon si non configuré.",
+        },
+        "send_newsletter": {
+            "ok": has_brevo,
+            "configured": has_brevo,
+            "note": "BREVO_API_KEY — campagnes email marketing.",
+        },
+        "generate_image": {
+            "ok": has_image_gen,
+            "configured": has_image_gen,
+            "note": "IMAGE_GEN_MODEL + clé API (IMAGE_GEN_API_KEY ou OPENROUTER_API_KEY).",
+        },
+        "read_pdf": {
+            "ok": True,
+            "note": "Extraction texte PDF via pypdf (URL publique http/https).",
+        },
+        "monitor_rss": {
+            "ok": True,
+            "note": "Veille RSS/Atom via feedparser — sans clé API.",
+        },
+        "translate_text": {
+            "ok": has_deepl,
+            "configured": has_deepl,
+            "note": "DeepL API — DEEPL_API_KEY.",
+        },
+        "get_instagram_insights": {
+            "ok": has_ig,
+            "configured": has_ig,
+            "note": "Métriques Instagram Business via Graph API.",
+        },
+        "get_facebook_insights": {
+            "ok": has_fb,
+            "configured": has_fb,
+            "note": "Métriques page Facebook via Graph API.",
+        },
+        "schedule_social": {
+            "ok": has_ig or has_fb,
+            "configured": has_ig or has_fb,
+            "note": "Planification posts IG/FB — tokens Meta requis.",
+        },
+        # ── Google Workspace ─────────────────────────────────────────────────
+        "gmail": {
+            "ok": bool(os.getenv("GOOGLE_GMAIL_ACCESS_TOKEN", "").strip() or has_drive),
+            "configured": bool(os.getenv("GOOGLE_GMAIL_ACCESS_TOKEN", "").strip() or has_drive),
+            "note": "GOOGLE_GMAIL_ACCESS_TOKEN ou OAuth Google partagé.",
+        },
+        "google_calendar": {
+            "ok": bool(os.getenv("GOOGLE_CALENDAR_ACCESS_TOKEN", "").strip() or has_drive),
+            "configured": bool(os.getenv("GOOGLE_CALENDAR_ACCESS_TOKEN", "").strip() or has_drive),
+            "note": "GOOGLE_CALENDAR_ACCESS_TOKEN ou OAuth Google partagé.",
+        },
+        "google_sheets": {
+            "ok": bool(os.getenv("GOOGLE_SHEETS_ACCESS_TOKEN", "").strip() or has_drive),
+            "configured": bool(os.getenv("GOOGLE_SHEETS_ACCESS_TOKEN", "").strip() or has_drive),
+            "note": "GOOGLE_SHEETS_ACCESS_TOKEN ou OAuth Google partagé.",
+        },
+        "google_analytics": {
+            "ok": bool(os.getenv("GA_PROPERTY_ID", "").strip()),
+            "configured": bool(os.getenv("GA_PROPERTY_ID", "").strip()),
+            "note": "GA_PROPERTY_ID + token Analytics ou OAuth.",
+        },
+        "meta_webhooks": {
+            "ok": bool(os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip() and os.getenv("META_PAGE_ACCESS_TOKEN", "").strip()),
+            "configured": bool(os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip()),
+            "note": "Webhooks commentaires FB/IG — META_WEBHOOK_VERIFY_TOKEN + META_PAGE_ACCESS_TOKEN.",
+        },
+        "youtube": {
+            "ok": bool(os.getenv("YOUTUBE_API_KEY", "").strip()),
+            "configured": bool(os.getenv("YOUTUBE_API_KEY", "").strip()),
+            "note": "YOUTUBE_API_KEY — Data API v3.",
+        },
+        "whatsapp": {
+            "ok": bool(os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip() and os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()),
+            "configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()),
+            "note": "WhatsApp Business Cloud API.",
+        },
+        "crm": {
+            "ok": bool(
+                (os.getenv("CRM_PROVIDER", "").strip() == "notion" and os.getenv("NOTION_API_KEY", "").strip())
+                or (os.getenv("CRM_PROVIDER", "").strip() == "hubspot" and os.getenv("HUBSPOT_API_KEY", "").strip())
+            ),
+            "configured": bool(os.getenv("CRM_PROVIDER", "").strip()),
+            "note": "CRM_PROVIDER=notion|hubspot + clés associées.",
+        },
+        "stripe": {
+            "ok": bool(os.getenv("STRIPE_SECRET_KEY", "").strip()),
+            "configured": bool(os.getenv("STRIPE_SECRET_KEY", "").strip()),
+            "note": "STRIPE_SECRET_KEY — revenus.",
+        },
+        "paypal": {
+            "ok": bool(os.getenv("PAYPAL_CLIENT_ID", "").strip() and os.getenv("PAYPAL_CLIENT_SECRET", "").strip()),
+            "configured": bool(os.getenv("PAYPAL_CLIENT_ID", "").strip()),
+            "note": "PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET.",
+        },
+        "canva": {
+            "ok": bool(os.getenv("CANVA_API_KEY", "").strip()),
+            "configured": bool(os.getenv("CANVA_API_KEY", "").strip()),
+            "note": "CANVA_API_KEY — visuels brandés.",
+        },
+        "pinterest": {
+            "ok": bool(os.getenv("PINTEREST_ACCESS_TOKEN", "").strip()),
+            "configured": bool(os.getenv("PINTEREST_ACCESS_TOKEN", "").strip()),
+            "note": "PINTEREST_ACCESS_TOKEN + PINTEREST_BOARD_ID.",
+        },
+        "discord": {
+            "ok": bool(os.getenv("DISCORD_WEBHOOK_URL", "").strip() or os.getenv("DISCORD_BOT_TOKEN", "").strip()),
+            "configured": bool(os.getenv("DISCORD_WEBHOOK_URL", "").strip() or os.getenv("DISCORD_BOT_TOKEN", "").strip()),
+            "note": "DISCORD_WEBHOOK_URL ou DISCORD_BOT_TOKEN + CHANNEL_ID.",
+        },
+        "telegram": {
+            "ok": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip() and os.getenv("TELEGRAM_CHAT_ID", "").strip()),
+            "configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip()),
+            "note": "TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.",
+        },
+        "webhook": {
+            "ok": bool(os.getenv("KORYMB_WEBHOOK_URL", "").strip() or os.getenv("NOTIFICATION_WEBHOOK_URL", "").strip()),
+            "configured": bool(os.getenv("KORYMB_WEBHOOK_URL", "").strip() or os.getenv("NOTIFICATION_WEBHOOK_URL", "").strip()),
+            "note": "KORYMB_WEBHOOK_URL ou NOTIFICATION_WEBHOOK_URL — n8n/Zapier.",
+        },
+        "text_to_speech": {
+            "ok": bool(
+                os.getenv("ELEVENLABS_API_KEY", "").strip()
+                or os.getenv("TTS_API_KEY", "").strip()
+                or os.getenv("OPENAI_API_KEY", "").strip()
+            ),
+            "configured": bool(os.getenv("TTS_PROVIDER", "").strip() or os.getenv("ELEVENLABS_API_KEY", "").strip()),
+            "note": "TTS_PROVIDER + clé (OpenAI ou ElevenLabs).",
         },
     }
     _CACHE["t"] = now

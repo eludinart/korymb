@@ -1,15 +1,26 @@
+"""Compatibilité auth — délègue à services.workspace_auth."""
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException
-from fastapi.security import APIKeyHeader
+from services.workspace_auth import (
+    create_access_token,
+    decode_access_token,
+    hash_password,
+    login_user,
+    register_user,
+    require_admin,
+    resolve_tenant,
+    verify_password,
+    verify_secret,
+)
 
-from config import settings
-
-api_key_header = APIKeyHeader(name="X-Agent-Secret", auto_error=True)
-
-
-def verify_secret(key: str = Depends(api_key_header)) -> str:
-    if key != settings.agent_api_secret:
-        raise HTTPException(status_code=403, detail="Secret invalide.")
-    return key
-
+__all__ = [
+    "create_access_token",
+    "decode_access_token",
+    "hash_password",
+    "login_user",
+    "register_user",
+    "require_admin",
+    "resolve_tenant",
+    "verify_password",
+    "verify_secret",
+]

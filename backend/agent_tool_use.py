@@ -45,7 +45,24 @@ from db_fleur import (
     run_db_list_tables,
     run_db_query,
 )
+from tools.extras import (
+    run_generate_image,
+    run_get_facebook_insights,
+    run_get_instagram_insights,
+    run_monitor_rss,
+    run_read_pdf,
+    run_schedule_facebook_post,
+    run_schedule_instagram_post,
+    run_send_newsletter,
+    run_translate_text,
+)
 from tools.agent_tools import get_fleet_status, search_core_notes, validate_syntax
+from tools.registry_extended import (
+    EXTENDED_EXECUTE_GATED,
+    EXTENDED_TAG_TO_TOOLS,
+    EXTENDED_TOOL_SCHEMAS,
+    dispatch_extended_tool,
+)
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
@@ -93,17 +110,20 @@ def _openrouter_extract_visible_text(msg: dict[str, Any]) -> str:
 
 # Clés AGENTS_DEF["tools"] → noms d'outils LLM
 _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
-    "web": ("web_search", "read_webpage", "describe_image"),
+    "web": ("web_search", "read_webpage", "describe_image", "read_pdf", "monitor_rss", "translate_text"),
     "linkedin": ("search_linkedin",),
-    "email": ("send_email",),
-    "instagram": ("post_instagram", "read_instagram_media"),
-    "facebook": ("post_facebook", "read_facebook_posts"),
+    "email": ("send_email", "send_newsletter"),
+    "instagram": ("post_instagram", "read_instagram_media", "get_instagram_insights", "schedule_instagram_post"),
+    "facebook": ("post_facebook", "read_facebook_posts", "get_facebook_insights", "schedule_facebook_post"),
     "drive": ("upload_google_drive",),
+    "media": ("generate_image", "text_to_speech"),
     "db": ("db_list_tables", "db_describe_table", "db_query", "db_analyze_users"),
     # Outils augmentés KORYMB v3 (agentic OS)
     "knowledge": ("search_core_notes", "get_fleet_status"),
     "validate": ("validate_syntax",),
 }
+for _tag, _names in EXTENDED_TAG_TO_TOOLS.items():
+    _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
@@ -340,7 +360,146 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
             "required": ["question"],
         },
     },
+    {
+        "name": "get_instagram_insights",
+        "description": (
+            "Métriques Instagram Business : impressions, reach, vues profil, engagement. "
+            "Utilise pour auditer la performance des contenus et piloter la stratégie CM."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "description": "day | week | days_28 (défaut: week)"},
+                "metric": {"type": "string", "description": "Métriques séparées par virgule (optionnel)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "get_facebook_insights",
+        "description": (
+            "Métriques page Facebook : impressions, engagement, fans. "
+            "Utilise pour analyser la performance de la page Élude In Art."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {"type": "string", "description": "day | week | days_28 (défaut: week)"},
+                "metric": {"type": "string", "description": "Métriques séparées par virgule (optionnel)"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "schedule_instagram_post",
+        "description": (
+            "Planifie un post Instagram pour une date/heure future (ISO 8601 UTC ou timestamp Unix). "
+            "Minimum 10 minutes dans le futur."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "caption": {"type": "string", "description": "Texte du post avec hashtags"},
+                "publish_at": {"type": "string", "description": "Date/heure UTC (ex: 2026-07-10T09:00:00Z)"},
+                "image_url": {"type": "string", "description": "URL publique de l'image (recommandé)"},
+            },
+            "required": ["caption", "publish_at"],
+        },
+    },
+    {
+        "name": "schedule_facebook_post",
+        "description": (
+            "Planifie un post Facebook pour une date/heure future (ISO 8601 UTC ou timestamp Unix). "
+            "Minimum 10 minutes dans le futur."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Texte du post"},
+                "publish_at": {"type": "string", "description": "Date/heure UTC (ex: 2026-07-10T09:00:00Z)"},
+            },
+            "required": ["message", "publish_at"],
+        },
+    },
+    {
+        "name": "generate_image",
+        "description": (
+            "Génère une image à partir d'une description textuelle (visuels réseaux, cartes tarot, affiches). "
+            "Retourne une URL d'image si IMAGE_GEN_MODEL est configuré."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Description détaillée de l'image souhaitée"},
+                "size": {"type": "string", "description": "Taille ex: 1024x1024 (optionnel)"},
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "read_pdf",
+        "description": (
+            "Extrait le texte d'un document PDF accessible par URL publique. "
+            "Utilise pour : plaquettes, devis, factures, livres blancs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "URL du PDF (http:// ou https://)"}},
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "monitor_rss",
+        "description": (
+            "Lit un flux RSS/Atom et retourne les derniers articles. "
+            "Utilise pour la veille concurrentielle, actualités secteur, blogs."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "feed_url": {"type": "string", "description": "URL du flux RSS ou Atom"},
+                "limit": {"type": "integer", "description": "Nombre d'entrées (max 25, défaut 10)"},
+            },
+            "required": ["feed_url"],
+        },
+    },
+    {
+        "name": "send_newsletter",
+        "description": (
+            "Crée une campagne email marketing via Brevo (listes d'abonnés). "
+            "Sans BREVO_API_KEY : génère le brouillon HTML."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "subject": {"type": "string", "description": "Objet de la campagne"},
+                "html_body": {"type": "string", "description": "Corps HTML de la newsletter"},
+                "list_id": {"type": "string", "description": "ID liste Brevo (optionnel si BREVO_DEFAULT_LIST_ID)"},
+                "sender_email": {"type": "string", "description": "Email expéditeur (optionnel)"},
+                "sender_name": {"type": "string", "description": "Nom expéditeur (optionnel)"},
+            },
+            "required": ["subject", "html_body"],
+        },
+    },
+    {
+        "name": "translate_text",
+        "description": (
+            "Traduit un texte via DeepL (FR, EN, DE, ES…). "
+            "Utilise pour adapter contenus réseaux ou emails à un public international."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Texte à traduire"},
+                "target_lang": {"type": "string", "description": "Code langue cible (ex: EN, FR, DE)"},
+                "source_lang": {"type": "string", "description": "Langue source (optionnel, auto-détection)"},
+            },
+            "required": ["text", "target_lang"],
+        },
+    },
 ]
+
+_ALL_ANTHROPIC_TOOLS.extend(EXTENDED_TOOL_SCHEMAS)
 
 
 def tool_names_for_tags(tags: list[str]) -> list[str]:
@@ -376,8 +535,15 @@ def _filter_openai_tools(allowed: set[str]) -> list[dict[str, Any]]:
 
 def _execute_tool(name: str, inp: Any) -> str:
     _EXECUTE_GATED = frozenset({
-        "send_email", "post_instagram", "post_facebook", "post_linkedin", "publish_scheduler_output",
-    })
+        "send_email",
+        "send_newsletter",
+        "post_instagram",
+        "post_facebook",
+        "schedule_instagram_post",
+        "schedule_facebook_post",
+        "post_linkedin",
+        "publish_scheduler_output",
+    }) | EXTENDED_EXECUTE_GATED
     if name in _EXECUTE_GATED:
         try:
             from database import get_behavior_setting
@@ -456,6 +622,56 @@ def _execute_tool(name: str, inp: Any) -> str:
             return run_db_query(str(inp.get("sql", "")))
         if name == "db_analyze_users":
             return run_db_analyze_users(str(inp.get("question", "")))
+        if name == "get_instagram_insights":
+            return run_get_instagram_insights(
+                str(inp.get("period", "week") or "week"),
+                str(inp.get("metric", "") or ""),
+            )
+        if name == "get_facebook_insights":
+            return run_get_facebook_insights(
+                str(inp.get("period", "week") or "week"),
+                str(inp.get("metric", "") or ""),
+            )
+        if name == "schedule_instagram_post":
+            return run_schedule_instagram_post(
+                str(inp.get("caption", "")),
+                str(inp.get("publish_at", "")),
+                str(inp.get("image_url", "") or ""),
+            )
+        if name == "schedule_facebook_post":
+            return run_schedule_facebook_post(
+                str(inp.get("message", "")),
+                str(inp.get("publish_at", "")),
+            )
+        if name == "generate_image":
+            return run_generate_image(
+                str(inp.get("prompt", "")),
+                str(inp.get("size", "") or "1024x1024"),
+            )
+        if name == "read_pdf":
+            return run_read_pdf(str(inp.get("url", "")))
+        if name == "monitor_rss":
+            return run_monitor_rss(
+                str(inp.get("feed_url", "")),
+                int(inp.get("limit") or 10),
+            )
+        if name == "send_newsletter":
+            return run_send_newsletter(
+                str(inp.get("subject", "")),
+                str(inp.get("html_body", "")),
+                str(inp.get("list_id", "") or ""),
+                str(inp.get("sender_email", "") or ""),
+                str(inp.get("sender_name", "") or ""),
+            )
+        if name == "translate_text":
+            return run_translate_text(
+                str(inp.get("text", "")),
+                str(inp.get("target_lang", "EN")),
+                str(inp.get("source_lang", "") or ""),
+            )
+        ext = dispatch_extended_tool(name, inp)
+        if ext is not None:
+            return ext
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
@@ -598,9 +814,12 @@ def llm_turn_with_tools(
     allowed = set(tool_names)
     extra = (
         "\n\nTu disposes d'outils puissants : recherche web multi-provider (Tavily/Brave/DuckDuckGo), "
-        "lecture de pages avec rendu JS (Jina Reader), recherche LinkedIn publique (profils + entreprises), "
-        "analyse d'images via Claude Vision (describe_image), lecture des posts Facebook/Instagram, "
-        "brouillon d'email, création de fichier Google Drive. "
+        "lecture de pages avec rendu JS (Jina Reader), lecture PDF, veille RSS, traduction DeepL, "
+        "recherche LinkedIn publique (profils + entreprises), "
+        "analyse d'images via Claude Vision (describe_image), génération d'images et synthèse vocale, "
+        "Gmail/Calendar/Sheets/Analytics Google, insights et planification Instagram/Facebook, "
+        "YouTube, WhatsApp, CRM, Canva, Pinterest, Discord/Telegram, webhooks, "
+        "brouillon d'email et newsletter Brevo, création de fichier Google Drive. "
         "Appelle SYSTÉMATIQUEMENT les outils pour tout fait, contact ou contenu visuel à l'instant T. "
         "Ne jamais inventer d'URLs — utilise web_search puis read_webpage pour les obtenir."
     )
@@ -1017,9 +1236,9 @@ def llm_chat_with_tools(
 ) -> tuple[str, int, int]:
     allowed = set(tool_names)
     extra = (
-        "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), "
-        "recherche LinkedIn, analyse d'images (describe_image), lecture posts Facebook/Instagram, "
-        "brouillon email, création fichier Drive. "
+        "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), PDF, RSS, "
+        "recherche LinkedIn, analyse d'images (describe_image), génération d'images, insights/planification réseaux, "
+        "brouillon email, newsletter, traduction, création fichier Drive. "
         "Utilise-les si la question exige des données à jour, des sources ou des visuels."
     )
     system_use = system + extra
