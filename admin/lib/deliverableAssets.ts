@@ -1,4 +1,5 @@
 import { deliverablesForMissionPanel } from "./extractTeamDeliverables";
+import { openEmailDraft } from "./mailtoDraft";
 import type { DriveArtifact } from "./types";
 
 /** Canal de diffusion — extensible (email, réseaux sociaux, etc.). */
@@ -204,9 +205,7 @@ export function openDeliverableAsset(asset: DeliverableAsset) {
     return;
   }
   if (asset.channel === "email_draft" && asset.markdownBody) {
-    const sub = encodeURIComponent(`Korymb — ${asset.title}`);
-    const body = encodeURIComponent(asset.markdownBody.slice(0, 6000));
-    window.open(`mailto:?subject=${sub}&body=${body}`, "_blank");
+    openEmailDraft(asset.title, asset.markdownBody);
     return;
   }
   if (meta.external && asset.href) {

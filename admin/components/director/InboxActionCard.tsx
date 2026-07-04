@@ -259,7 +259,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               {item.hitl_kind === "cio_plan" && hitlQuery.data ? (
                 <>
                   <PlanDiffPanel jobId={jobId} compact />
-                  <CioPlanHitlPanel jobId={jobId} hitl={hitlQuery.data} />
+                  <CioPlanHitlPanel jobId={jobId} hitl={hitlQuery.data?.hitl ?? hitlQuery.data} />
                 </>
               ) : hitlQuery.data ? (
                 <MissionHitlResolver jobId={jobId} hitl={hitlQuery.data} />

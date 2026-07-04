@@ -1,9 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../lib/api";
+import { extractPlanPublicFromHitl, normalizeHitlBlock } from "../lib/normalizeHitlBlock";
 import { QK } from "../lib/queryClient";
+import CioPlanReadableSummary from "./missions/CioPlanReadableSummary";
+import PlanDiffPanel from "./PlanDiffPanel";
 
 type HitlBlock = {
   gate?: Record<string, unknown>;
@@ -14,17 +17,39 @@ type HitlBlock = {
 
 type Props = {
   jobId: string;
-  hitl: HitlBlock | null | undefined;
+  hitl: HitlBlock | Record<string, unknown> | null | undefined;
 };
 
 export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
   const qc = useQueryClient();
-  const gate = (hitl?.gate || {}) as Record<string, unknown>;
-  const planPublic = (gate.plan_public || {}) as Record<string, unknown>;
+  const normalized = useMemo(() => normalizeHitlBlock(hitl), [hitl]);
+  const gate = (normalized?.gate || {}) as Record<string, unknown>;
+
+  const jobPlanQuery = useQuery({
+    queryKey: ["cio-plan-hitl-job-plan", jobId],
+    enabled: Boolean(jobId),
+    queryFn: async () => {
+      const { data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}`, { headers: agentHeaders() });
+      return (data?.plan || {}) as Record<string, unknown>;
+    },
+    staleTime: 15_000,
+  });
+
+  const planPublic = useMemo(() => {
+    const fromHitl = extractPlanPublicFromHitl(hitl);
+    if (Object.keys(fromHitl).length) return fromHitl;
+    const fromJob = jobPlanQuery.data;
+    if (fromJob && typeof fromJob === "object" && Object.keys(fromJob).length) {
+      return fromJob;
+    }
+    return {};
+  }, [hitl, jobPlanQuery.data]);
+
   const planKey = JSON.stringify(planPublic);
   const [draft, setDraft] = useState(() => JSON.stringify(planPublic, null, 2));
   const [feedback, setFeedback] = useState("");
   const [parseErr, setParseErr] = useState("");
+  const [showJson, setShowJson] = useState(false);
 
   useEffect(() => {
     try {
@@ -39,12 +64,13 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["job-live", jobId] });
     void qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
+    void qc.invalidateQueries({ queryKey: ["inbox-hitl", jobId] });
     void qc.invalidateQueries({ queryKey: QK.jobsCards });
   };
 
   const mut = useMutation({
     mutationFn: async (body: Record<string, unknown>) => {
-      const { res, data } = await requestJson(`/missions/jobs/${encodeURIComponent(jobId)}/validate`, {
+      const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/hitl/resolve`, {
         method: "POST",
         headers: agentHeaders(),
         body: JSON.stringify(body),
@@ -62,14 +88,15 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
   });
 
   const busy = mut.isPending;
+  const missionLabel = String(gate.mission || "").trim();
 
   const onApprove = () => {
     setParseErr("");
-    mut.mutate({ decision: "approve", feedback });
+    mut.mutate({ decision: "approve", comment: feedback, feedback });
   };
   const onReject = () => {
     setParseErr("");
-    mut.mutate({ decision: "reject", feedback });
+    mut.mutate({ decision: "reject", comment: feedback, feedback });
   };
   const onAmend = () => {
     setParseErr("");
@@ -84,23 +111,51 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
       setParseErr("Plan vide.");
       return;
     }
-    mut.mutate({ decision: "amend", amended_plan: amended, feedback });
+    mut.mutate({ decision: "amend", amended_plan: amended, comment: feedback, feedback });
   };
 
   return (
-    <div className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
-      <p className="text-sm font-semibold text-violet-950">Validation du plan CIO (avant délégation)</p>
-      <p className="text-xs leading-relaxed text-violet-900/90">
-        Le CIO a proposé un plan de délégation. Approuvez pour lancer les sous-agents, modifiez le JSON (synthèse
-        attendue, sous-tâches par clé de rôle), ou rejetez pour arrêter la mission.
-      </p>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={12}
-        className="w-full rounded-lg border border-violet-200 bg-white p-2 font-mono text-xs text-slate-800"
-        spellCheck={false}
-      />
+    <div className="space-y-3 rounded-xl border-2 border-violet-200 bg-gradient-to-b from-violet-50/80 to-white p-4 shadow-sm">
+      <div>
+        <p className="text-sm font-semibold text-violet-950">Validation du plan CIO (avant délégation)</p>
+        <p className="mt-1 text-xs leading-relaxed text-violet-900/90">
+          Le CIO a proposé un plan de délégation. Lisez la synthèse et les sous-tâches ci-dessous, puis approuvez pour
+          lancer les sous-agents, modifiez le plan (JSON), ou rejetez pour arrêter la mission.
+        </p>
+        {missionLabel ? (
+          <p className="mt-2 rounded-lg border border-violet-100 bg-white/80 px-2.5 py-1.5 text-xs text-slate-700">
+            <span className="font-semibold text-violet-900">Mission :</span> {missionLabel}
+          </p>
+        ) : null}
+      </div>
+
+      <PlanDiffPanel jobId={jobId} compact />
+
+      <section aria-label="Plan CIO lisible">
+        <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-violet-800">Plan proposé — lecture</p>
+        <CioPlanReadableSummary plan={planPublic} />
+      </section>
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowJson((v) => !v)}
+          className="text-[11px] font-semibold text-violet-800 underline decoration-violet-300 hover:text-violet-950"
+        >
+          {showJson ? "Masquer le JSON éditable" : "Modifier le plan (JSON avancé)"}
+        </button>
+        {showJson ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={12}
+            className="mt-2 w-full rounded-lg border border-violet-200 bg-white p-2 font-mono text-xs text-slate-800"
+            spellCheck={false}
+            aria-label="Plan CIO JSON"
+          />
+        ) : null}
+      </div>
+
       <label className="block text-xs font-medium text-violet-900">
         Note (optionnel)
         <input

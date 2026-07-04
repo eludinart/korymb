@@ -13,6 +13,7 @@ import {
   type ParsedDeliverable,
 } from "../lib/extractTeamDeliverables";
 import { livrableAnchorId } from "../lib/deliverableAssets";
+import { openEmailDraft } from "../lib/mailtoDraft";
 
 function slugKeyFn(title: string): string {
   return (
@@ -143,10 +144,7 @@ export default function MissionDeliverablesPanel({
   };
 
   const mailtoSend = (title: string, body: string) => {
-    const sub = encodeURIComponent(`Korymb — livrable : ${title} (#${jobId})`);
-    const lines = body.length > 6000 ? `${body.slice(0, 6000)}\n\n[… texte tronqué pour l’email — copiez le .md exporté pour le contenu complet]` : body;
-    const bodyEnc = encodeURIComponent(lines);
-    window.open(`mailto:?subject=${sub}&body=${bodyEnc}`, "_blank");
+    openEmailDraft(`livrable : ${title} (#${jobId})`, body, 1800);
   };
 
   if (!items.length) return null;

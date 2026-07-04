@@ -1836,6 +1836,9 @@ def job_close_mission_by_user(job_id: str) -> bool:
 
 def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
     """Suspend le job en attente de validation HITL humaine."""
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid:
+        return False
     now = datetime.utcnow().isoformat()
     gate_json = json.dumps(gate_payload, ensure_ascii=False)
     with get_conn() as conn:
@@ -1843,8 +1846,8 @@ def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
         cur = conn.execute(
             "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, hitl_resolved_at = NULL, "
             "hitl_comment = '', hitl_resolution_json = NULL, updated_at = ? "
-            "WHERE id = ? AND workspace_id = ? AND status = 'running'",
-            (gate_json, now, job_id, _ws()),
+            "WHERE id = ? AND workspace_id = ? AND status IN ('running', 'pending')",
+            (gate_json, now, jid, _ws()),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
@@ -1863,6 +1866,9 @@ def job_resume_after_hitl(
     decision : approve | reject | amend (prioritaire sur approved legacy).
     resolution : pour amend — ex. {"amended_plan": {...}, "feedback": "..."}.
     """
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid:
+        return False
     dec = (decision or "").strip().lower()
     if dec not in ("approve", "reject", "amend"):
         if approved is False:
@@ -1885,7 +1891,29 @@ def job_resume_after_hitl(
         cur = conn.execute(
             "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
             "updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'awaiting_validation'",
-            (new_status, now, comment_s, res_blob, now, job_id, _ws()),
+            (new_status, now, comment_s, res_blob, now, jid, _ws()),
+        )
+        if int(getattr(cur, "rowcount", 0) or 0) > 0:
+            conn.commit()
+            return True
+        # Reprise si gate ouverte mais statut désynchronisé (cache mémoire / reprise serveur).
+        row = conn.execute(
+            "SELECT status, hitl_gate_json, hitl_resolved_at FROM jobs WHERE id = ? AND workspace_id = ?",
+            (jid, _ws()),
+        ).fetchone()
+        if not row:
+            conn.commit()
+            return False
+        d = dict(row)
+        gate_raw = (d.get("hitl_gate_json") or "").strip()
+        resolved = (d.get("hitl_resolved_at") or "").strip()
+        if not gate_raw or resolved:
+            conn.commit()
+            return False
+        cur = conn.execute(
+            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
+            "updated_at = ? WHERE id = ? AND workspace_id = ?",
+            (new_status, now, comment_s, res_blob, now, jid, _ws()),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0

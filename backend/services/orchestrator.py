@@ -82,14 +82,15 @@ def prepare_hitl_gate(
     except Exception:
         logger.exception("HITL gate : erreur DB pour job %s", job_id)
 
-    # Mise à jour du cache in-memory (non bloquant)
-    try:
-        from state import active_jobs
-        if job_id in active_jobs:
-            active_jobs[job_id]["status"] = "awaiting_validation"
-            active_jobs[job_id]["hitl_gate"] = gate_payload
-    except Exception:
-        pass
+    # Mise à jour du cache in-memory (non bloquant) — uniquement si la gate est persistée en base.
+    if gate_persisted:
+        try:
+            from state import active_jobs
+            if job_id in active_jobs:
+                active_jobs[job_id]["status"] = "awaiting_validation"
+                active_jobs[job_id]["hitl_gate"] = gate_payload
+        except Exception:
+            pass
 
     notification = queue_hitl_validation(gate_payload)
 
@@ -146,7 +147,16 @@ def resume_hitl_gate(
         Résultat de la reprise avec nouveau statut.
     """
     try:
-        from database import job_resume_after_hitl
+        from database import job_resume_after_hitl, resolve_job_id
+
+        jid = resolve_job_id(job_id) or (job_id or "").strip()
+        if not jid:
+            return {
+                "job_id": job_id,
+                "success": False,
+                "error": "Job introuvable ou n'était pas en attente de validation.",
+                "new_status": None,
+            }
 
         dec = (decision or "").strip().lower()
         if dec not in ("approve", "reject", "amend"):
@@ -172,7 +182,7 @@ def resume_hitl_gate(
             }
 
         resumed = job_resume_after_hitl(
-            job_id,
+            jid,
             approved=(dec != "reject"),
             comment=comment_merged,
             decision=dec,
@@ -180,7 +190,7 @@ def resume_hitl_gate(
         )
         if not resumed:
             return {
-                "job_id": job_id,
+                "job_id": jid,
                 "success": False,
                 "error": "Job introuvable ou n'était pas en attente de validation.",
                 "new_status": None,
@@ -189,21 +199,22 @@ def resume_hitl_gate(
         # Mise à jour du cache in-memory
         try:
             from state import active_jobs
-            if job_id in active_jobs:
-                active_jobs[job_id]["status"] = new_status
-                if dec == "amend" and resolution:
-                    active_jobs[job_id]["hitl_resolution"] = resolution
+            for mem_key in (jid, job_id):
+                if mem_key in active_jobs:
+                    active_jobs[mem_key]["status"] = new_status
+                    if dec == "amend" and resolution:
+                        active_jobs[mem_key]["hitl_resolution"] = resolution
         except Exception:
             pass
 
         logger.info(
             "HITL gate résolue pour job %s : %s — '%s'",
-            job_id,
+            jid,
             dec,
             (comment or feedback or "")[:80],
         )
         return {
-            "job_id": job_id,
+            "job_id": jid,
             "success": True,
             "approved": dec != "reject",
             "decision": dec,

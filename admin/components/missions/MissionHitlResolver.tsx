@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
+import { normalizeHitlBlock } from "../../lib/normalizeHitlBlock";
 import { QK } from "../../lib/queryClient";
 
 type HitlGate = { gate?: { kind?: string; result_preview?: string } } | null;
@@ -47,6 +48,8 @@ export default function MissionHitlResolver({ jobId, hitl, onResolved }: Props) 
   }
 
   const kind = String(hitl?.gate?.kind || "generic");
+  const normalized = normalizeHitlBlock(hitl);
+  const preview = String(normalized?.gate?.result_preview || hitl?.gate?.result_preview || "").trim();
 
   return (
     <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -54,9 +57,9 @@ export default function MissionHitlResolver({ jobId, hitl, onResolved }: Props) 
       <p className="mt-1 text-xs text-amber-800">
         Type : <span className="font-mono">{kind}</span> — décidez sans quitter Missions.
       </p>
-      {hitl?.gate?.result_preview ? (
+      {preview ? (
         <pre className="mt-2 max-h-40 overflow-auto rounded-lg bg-white/80 p-2 text-xs text-amber-950 whitespace-pre-wrap">
-          {String(hitl.gate.result_preview).slice(0, 2000)}
+          {preview.slice(0, 2000)}
         </pre>
       ) : null}
       <textarea
