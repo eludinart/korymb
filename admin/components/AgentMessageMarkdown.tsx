@@ -2,6 +2,7 @@
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
+import remarkGfm from "remark-gfm";
 import { normalizeLooseMarkdown } from "../lib/normalizeLooseMarkdown";
 
 function safeMarkdownUrl(rawUrl: string): string {
@@ -130,6 +131,38 @@ const bubbleComponents: Components = {
     );
   },
   br: (props) => <br className="block" {...markdownDomProps(props as Record<string, unknown>)} />,
+  table: ({ children, ...props }) => (
+    <div className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-full border-collapse text-left text-xs" {...markdownDomProps(props as Record<string, unknown>)}>
+        {children}
+      </table>
+    </div>
+  ),
+  thead: ({ children, ...props }) => (
+    <thead className="border-b border-slate-200 bg-slate-100/90" {...markdownDomProps(props as Record<string, unknown>)}>
+      {children}
+    </thead>
+  ),
+  tbody: ({ children, ...props }) => (
+    <tbody className="divide-y divide-slate-100" {...markdownDomProps(props as Record<string, unknown>)}>
+      {children}
+    </tbody>
+  ),
+  tr: ({ children, ...props }) => (
+    <tr className="hover:bg-slate-50/80" {...markdownDomProps(props as Record<string, unknown>)}>
+      {children}
+    </tr>
+  ),
+  th: ({ children, ...props }) => (
+    <th className="whitespace-nowrap px-3 py-2 font-semibold text-slate-800" {...markdownDomProps(props as Record<string, unknown>)}>
+      {children}
+    </th>
+  ),
+  td: ({ children, ...props }) => (
+    <td className="px-3 py-2 align-top text-slate-700" {...markdownDomProps(props as Record<string, unknown>)}>
+      {children}
+    </td>
+  ),
 };
 
 type Props = {
@@ -143,7 +176,7 @@ export default function AgentMessageMarkdown({ source, className = "" }: Props) 
   if (!text.trim()) return null;
   return (
     <div className={`agent-message-md max-w-none break-words [overflow-wrap:anywhere] ${className}`}>
-      <ReactMarkdown remarkPlugins={[remarkBreaks]} components={bubbleComponents} urlTransform={safeMarkdownUrl}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={bubbleComponents} urlTransform={safeMarkdownUrl}>
         {text}
       </ReactMarkdown>
     </div>

@@ -157,7 +157,8 @@ export function buildDeliverableAssets(opts: {
     });
   }
 
-  for (const [idx, item] of deliverablesForMissionPanel(opts.deliverablesMarkdown || "").entries()) {
+  const combinedForInApp = `${opts.deliverablesMarkdown || ""}\n${opts.result || ""}`.trim();
+  for (const [idx, item] of deliverablesForMissionPanel(combinedForInApp).entries()) {
     const anchorId = livrableAnchorId(item.title);
     const titleLower = item.title.toLowerCase();
     const hasDrive = assets.some(

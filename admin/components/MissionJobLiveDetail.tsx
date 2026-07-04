@@ -149,6 +149,8 @@ export default function MissionJobLiveDetail({
           <CioResultPanel
             result={d.result}
             missionTitle={d.mission}
+            jobId={String(d.job_id || jobId)}
+            driveArtifacts={d.drive_artifacts}
             jobLine={missionJobLine({
               jobId: String(d.job_id || jobId),
               mission: d.mission,

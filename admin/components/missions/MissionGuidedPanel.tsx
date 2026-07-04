@@ -454,6 +454,8 @@ function MissionGuidedPanelInner() {
                   <CioResultPanel
                     result={jobLive.data.result}
                     missionTitle={jobLive.data.mission}
+                    jobId={String(jobLive.data.job_id || "")}
+                    driveArtifacts={jobLive.data.drive_artifacts}
                     jobLine={missionJobLine({
                       jobId: String(jobLive.data.job_id || ""),
                       mission: jobLive.data.mission,

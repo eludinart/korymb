@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
 import DeliverableAccessHub from "./deliverables/DeliverableAccessHub";
+import InAppDeliverableModal from "./deliverables/InAppDeliverableModal";
 import { agentHeaders, requestJson } from "../lib/api";
 import { normalizeTeamRows } from "../lib/jobTeam";
 import type { DriveArtifact } from "../lib/types";
@@ -73,6 +74,7 @@ export default function MissionDeliverablesPanel({
   const [localNotes, setLocalNotes] = useState<Record<string, string>>({});
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
+  const [fullscreen, setFullscreen] = useState<ParsedDeliverable | null>(null);
 
   const agentsUi = deliverablesUi?.agents && typeof deliverablesUi.agents === "object" ? deliverablesUi.agents : {};
 
@@ -172,6 +174,7 @@ export default function MissionDeliverablesPanel({
         jobId={jobId}
         deliverablesMarkdown={resultMarkdown}
         driveArtifacts={driveArtifacts}
+        result={resultMarkdown}
         compact
         className="mb-1"
       />
@@ -191,6 +194,13 @@ export default function MissionDeliverablesPanel({
               <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-2">
                 <h3 className="text-sm font-semibold text-slate-900">{it.title}</h3>
                 <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setFullscreen(it)}
+                    className="rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] font-semibold text-violet-900 hover:bg-violet-100"
+                  >
+                    Agrandir
+                  </button>
                   <button
                     type="button"
                     onClick={() => void copyBody(it.body)}
@@ -282,6 +292,12 @@ export default function MissionDeliverablesPanel({
           </p>
         </footer>
       ) : null}
+      <InAppDeliverableModal
+        open={Boolean(fullscreen)}
+        title={fullscreen?.title || ""}
+        body={fullscreen?.body || ""}
+        onClose={() => setFullscreen(null)}
+      />
     </section>
   );
 }

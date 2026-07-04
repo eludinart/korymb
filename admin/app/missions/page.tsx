@@ -910,6 +910,8 @@ function MissionsContent() {
                       embedded
                       result={detail.data.result}
                       missionTitle={detail.data.mission}
+                      jobId={selected || undefined}
+                      driveArtifacts={detail.data.drive_artifacts}
                       jobLine={missionJobLine({
                         jobId: String(detail.data.job_id || ""),
                         mission: detail.data.mission,
