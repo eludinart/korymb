@@ -110,6 +110,10 @@ class _MariaCursorAdapter:
         self._cur = cur
         self.rowcount = int(getattr(cur, "rowcount", 0) or 0)
 
+    @property
+    def lastrowid(self) -> int:
+        return int(getattr(self._cur, "lastrowid", 0) or 0)
+
     def _row_to_adapter(self, row: dict[str, Any] | None):
         if row is None:
             return None
