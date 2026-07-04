@@ -20,15 +20,22 @@ export default function CioArbitrageQuestionRow({
 }: Props) {
   const [draft, setDraft] = useState(savedAnswer || "");
   const [editing, setEditing] = useState(!savedAnswer);
+  const [submitError, setSubmitError] = useState("");
 
   const answered = Boolean(savedAnswer?.trim());
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const text = draft.trim();
     if (!text || busy) return;
-    await onSubmit(text);
-    setEditing(false);
+    setSubmitError("");
+    try {
+      await onSubmit(text);
+      setEditing(false);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -76,8 +83,13 @@ export default function CioArbitrageQuestionRow({
               />
               <div className="flex flex-wrap gap-2">
                 <button type="submit" disabled={busy || !draft.trim()} className="btn-amber px-3 py-1.5 text-xs">
-                  {busy ? "Envoi…" : answered ? "Mettre à jour" : "Répondre"}
+                  {busy ? "Lancement…" : answered ? "Mettre à jour et relancer" : "Répondre et lancer"}
                 </button>
+                {submitError ? (
+                  <p className="w-full text-xs font-medium text-red-700" role="alert">
+                    {submitError}
+                  </p>
+                ) : null}
                 {answered ? (
                   <button
                     type="button"

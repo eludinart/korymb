@@ -33,6 +33,7 @@ import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../.
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { cioAnswerAndResume } from "../../lib/missionActions";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
@@ -305,13 +306,13 @@ function MissionsContent() {
     setCioQuestionBusy(true);
     setError("");
     try {
-      await requestJson(`/jobs/${encodeURIComponent(selected)}/cio-answer`, {
-        method: "POST",
-        headers: agentHeaders(),
-        timeoutMs: 10000,
-        body: JSON.stringify({ answer, ...(question ? { question } : {}) }),
-      });
+      const result = await cioAnswerAndResume(selected, answer, question, { cioQuestionsEnabled });
       void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
+      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      if (result.resume_job_id) {
+        setCioResumeLiveId(String(result.resume_job_id));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       throw err;

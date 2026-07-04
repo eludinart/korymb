@@ -30,6 +30,55 @@ export async function cioAnswer(jobId: string, answer: string, question?: string
   return data as { question_answers?: Record<string, string> };
 }
 
+function buildArbitrageResumeMessage(answer: string, question?: string): string {
+  const trimmed = answer.trim();
+  if (question?.trim()) {
+    return (
+      `Arbitrage dirigeant reçu.\n` +
+      `Question : ${question.trim()}\n` +
+      `Réponse : ${trimmed}\n` +
+      `Intègre cette décision dans la synthèse et les livrables de la mission.`
+    );
+  }
+  return `Arbitrage dirigeant : ${trimmed}\nIntègre cette décision dans la synthèse et les livrables.`;
+}
+
+export async function resumeMissionCio(
+  parentJobId: string,
+  message: string,
+  opts?: { cioQuestionsEnabled?: boolean },
+) {
+  const { res, data } = await requestJson("/chat", {
+    method: "POST",
+    headers: agentHeaders(),
+    timeoutMs: 20_000,
+    body: JSON.stringify({
+      message,
+      agent: "coordinateur",
+      history: [],
+      linked_job_id: parentJobId,
+      mission_config: { cio_questions_enabled: opts?.cioQuestionsEnabled ?? true },
+    }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { job_id?: string; status?: string };
+}
+
+export async function cioAnswerAndResume(
+  jobId: string,
+  answer: string,
+  question?: string,
+  opts?: { cioQuestionsEnabled?: boolean },
+) {
+  const answerRes = await cioAnswer(jobId, answer, question);
+  const resume = await resumeMissionCio(jobId, buildArbitrageResumeMessage(answer, question), opts);
+  if (resume.status !== "accepted" || !resume.job_id) {
+    throw new Error("Reprise mission CIO impossible (pas de job_id).");
+  }
+  return { ...answerRes, resume_job_id: resume.job_id };
+}
+
 export async function validateMission(jobId: string) {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, {
     method: "POST",
@@ -148,6 +197,21 @@ export function useCioAnswer(jobId: string, onSuccess?: () => void) {
     onSuccess: () => {
       invalidateMissionQueries(qc, jobId);
       onSuccess?.();
+    },
+  });
+}
+
+export function useCioAnswerAndResume(
+  jobId: string,
+  opts?: { cioQuestionsEnabled?: boolean; onSuccess?: (resumeJobId: string) => void },
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ answer, question }: { answer: string; question?: string }) =>
+      cioAnswerAndResume(jobId, answer, question, { cioQuestionsEnabled: opts?.cioQuestionsEnabled }),
+    onSuccess: (data) => {
+      invalidateMissionQueries(qc, jobId);
+      if (data.resume_job_id) opts?.onSuccess?.(data.resume_job_id);
     },
   });
 }

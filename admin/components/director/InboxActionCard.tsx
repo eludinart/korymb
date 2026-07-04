@@ -10,7 +10,7 @@ import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import {
-  useCioAnswer,
+  useCioAnswerAndResume,
   useHitlResolve,
   useInboxDismiss,
   useLearningResolve,
@@ -87,9 +87,14 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     queryFn: async () => (await requestJson(`/jobs/${encodeURIComponent(jobId)}/hitl`, { headers: agentHeaders() })).data,
   });
 
+  const [cioResumeJobId, setCioResumeJobId] = useState<string | null>(null);
+
   const hitlResolve = useHitlResolve(jobId);
-  const cioAnswerMut = useCioAnswer(jobId, () => {
-    void jobAnswersQuery.refetch();
+  const cioAnswerMut = useCioAnswerAndResume(jobId, {
+    onSuccess: (resumeJobId) => {
+      setCioResumeJobId(resumeJobId);
+      void jobAnswersQuery.refetch();
+    },
   });
   const validateMut = useValidateMission(jobId);
   const schedApprove = useSchedulerApprove();
@@ -284,6 +289,12 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                     />
                   ))}
                 </ol>
+              ) : null}
+              {cioResumeJobId ? (
+                <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+                  <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-violet-500 align-middle" />
+                  Mission relancée avec votre arbitrage.
+                </p>
               ) : null}
               <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
                 Voir dans le fil de la mission →
