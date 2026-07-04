@@ -11,7 +11,7 @@
 2. Frontend calls FastAPI endpoints.
 3. Backend resolves effective settings through:
    - `backend/.env` defaults,
-   - runtime overrides (`backend/data/runtime_settings.json`).
+   - runtime overrides persisted in DB (`llm_runtime_settings`, UI `/configuration`).
 4. Backend routes the call to the selected LLM provider/model.
 5. Usage, cost, and mission state are persisted and returned to UI.
 

@@ -566,6 +566,13 @@ def init_db():
                 updated_at    TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS llm_runtime_settings (
+                store_key     """ + text_pk + """ PRIMARY KEY,
+                value_json    TEXT NOT NULL,
+                updated_at    TEXT NOT NULL
+            )
+        """)
         _ensure_memory_columns(conn)
         _ensure_platform_tables(conn)
         conn.commit()
@@ -801,6 +808,46 @@ def upsert_behavior_setting(setting_key: str, value: Any) -> dict:
             )
         conn.commit()
     return {"setting_key": key, "value": value, "updated_at": now}
+
+
+_LLM_RUNTIME_STORE_KEY = "default"
+
+
+def load_llm_runtime_settings_raw() -> dict[str, Any]:
+    """Charge les surcharges LLM persistées (table llm_runtime_settings)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT value_json FROM llm_runtime_settings WHERE store_key = ?",
+            (_LLM_RUNTIME_STORE_KEY,),
+        ).fetchone()
+    if not row:
+        return {}
+    raw = dict(row).get("value_json") if isinstance(row, dict) else row[0]
+    try:
+        data = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def save_llm_runtime_settings_raw(data: dict[str, Any]) -> None:
+    """Persiste les surcharges LLM (dev sqlite / prod MariaDB)."""
+    now = datetime.utcnow().isoformat()
+    payload = json.dumps(data, ensure_ascii=False)
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE value_json = VALUES(value_json), updated_at = VALUES(updated_at)",
+                (_LLM_RUNTIME_STORE_KEY, payload, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO llm_runtime_settings (store_key, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(store_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+                (_LLM_RUNTIME_STORE_KEY, payload, now),
+            )
+        conn.commit()
 
 
 def list_behavior_settings() -> list[dict]:

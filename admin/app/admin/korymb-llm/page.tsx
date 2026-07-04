@@ -387,8 +387,9 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
           </p>
         ) : null}
         <p className="max-w-2xl text-sm text-slate-600">
-          Fusion <code className="rounded bg-slate-100 px-1 font-mono text-xs">.env</code> +{" "}
-          <code className="rounded bg-slate-100 px-1 font-mono text-xs">runtime_settings.json</code>. Laisse les champs de clé vides pour ne pas les remplacer.
+          Les réglages enregistrés ici sont persistés en base (dev et prod) et remplacent le{" "}
+          <code className="rounded bg-slate-100 px-1 font-mono text-xs">.env</code> pour le fournisseur, les modèles et les paliers.
+          Laisse les champs de clé vides pour ne pas les remplacer.
         </p>
       </header>
 

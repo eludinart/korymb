@@ -70,7 +70,7 @@ def budget_get():
 
 @router.put("/config/budget", dependencies=[Depends(verify_secret)])
 def budget_put(body: BudgetSettingsPut):
-    """Mise à jour des paramètres budget & coût (persistés dans runtime_settings.json)."""
+    """Mise à jour des paramètres budget & coût (persistés en base)."""
     data = body.model_dump(exclude_unset=True, exclude_none=True)
     if not data:
         return budget_get()

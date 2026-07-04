@@ -22,6 +22,16 @@ def test_admin_settings_put_persists(client):
     assert r2.json().get("openrouter_app_title") == "Korymb Test Suite"
 
 
+def test_admin_settings_persist_in_database(client):
+    from database import load_llm_runtime_settings_raw
+
+    r = client.put("/admin/settings", json={"llm_provider": "mistral", "mistral_model": "mistral-small-latest"})
+    assert r.status_code == 200
+    stored = load_llm_runtime_settings_raw()
+    assert stored.get("llm_provider") == "mistral"
+    assert stored.get("mistral_model") == "mistral-small-latest"
+
+
 def test_admin_settings_rejects_invalid_provider(client):
     r = client.put("/admin/settings", json={"llm_provider": "invalid"})
     assert r.status_code == 400
