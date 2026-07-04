@@ -6,12 +6,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
 import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
 
-const NAV_PRIMARY = [
+type NavPrimaryItem = { href: string; label: string; priority?: boolean };
+
+const NAV_PRIMARY: NavPrimaryItem[] = [
   { href: "/briefing", label: "Briefing", priority: true },
   { href: "/inbox", label: "Inbox", priority: true },
   { href: "/missions", label: "Missions", priority: true },
   { href: "/chat", label: "Chat" },
-] as const;
+];
 
 const NAV_MORE = [
   { href: "/livrables", label: "Livrables" },

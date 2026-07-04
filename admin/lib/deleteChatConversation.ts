@@ -1,7 +1,6 @@
 import type { ChatMsg } from "../components/chat/ChatShell";
-import { JOB_ID_MAX_LEN } from "./missionBossView";
-import { deleteMissionJobBundle } from "./deleteMissionBundle";
 import { JOB_ID_MAX_LEN, normalizeJobId } from "./missionBossView";
+import { deleteMissionJobBundle } from "./deleteMissionBundle";
 import { pendingJobsForConversation } from "./chatPendingJobs";
 
 function jobIdFromMessageId(id: string): string | null {

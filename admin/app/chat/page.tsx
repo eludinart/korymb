@@ -31,6 +31,7 @@ import {
   confirmDeleteChatConversation,
   deleteChatConversationJobs,
 } from "../../lib/deleteChatConversation";
+import { invalidateAfterMissionDelete } from "../../lib/deleteMissionBundle";
 import { JOB_ID_MAX_LEN } from "../../lib/missionBossView";
 import { QK } from "../../lib/queryClient";
 

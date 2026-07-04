@@ -385,8 +385,8 @@ function LivrablesContent() {
         </AlertBox>
       ) : null}
 
-      {dismissFeedback ? <AlertBox tone="success" title={dismissFeedback} /> : null}
-      {dismissError ? <AlertBox tone="error" title={dismissError} /> : null}
+      {dismissFeedback ? <AlertBox tone="success">{dismissFeedback}</AlertBox> : null}
+      {dismissError ? <AlertBox tone="error">{dismissError}</AlertBox> : null}
 
       {library.data && total === 0 ? (
         <SectionCard title="Aucun livrable pour l'instant">
