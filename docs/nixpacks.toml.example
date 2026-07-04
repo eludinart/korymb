@@ -1,0 +1,12 @@
+# Exemple Nixpacks — NE PAS utiliser en production Coolify pour Korymb.
+# Nixpacks télécharge nixpkgs (~centaines de Mo) et échoue souvent sur petits VPS (exit 255).
+# Utiliser le build pack « Dockerfile » avec /Dockerfile à la racine du repo.
+
+[phases.install]
+cmds = ["npm ci --ignore-scripts", "npm --prefix admin ci --ignore-scripts"]
+
+[phases.build]
+cmds = ["npm --prefix admin run build"]
+
+[start]
+cmd = "npm --prefix admin run start"

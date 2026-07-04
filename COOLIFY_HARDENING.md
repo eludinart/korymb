@@ -4,6 +4,9 @@ Guide de déploiement **deux services** (frontend Next.js + backend FastAPI) ave
 
 ## 1) Frontend Service (racine du repo — `Dockerfile`)
 
+> **Build pack Coolify : `Dockerfile`** (pas Nixpacks). Chemin Dockerfile : `/Dockerfile`, contexte : racine du repo.
+> Si les logs mentionnent `nixpacks plan` ou `nix-env`, le service est encore en mode Nixpacks — voir §7.
+
 Variables Coolify (runtime) :
 
 | Variable | Obligatoire | Description |
@@ -98,3 +101,29 @@ node tools/smoke-post-deploy.mjs --app-url "https://korymb.eludein.art" --backen
 - [ ] URLs frontend/backend cohérentes dans les deux services
 - [ ] `ENV=production` sur les deux services
 - [ ] Retirer `KORYMB_BOOTSTRAP_ADMIN_PASSWORD` après création du compte si politique de sécurité stricte (le compte reste en base)
+
+## 7) Dépannage — échec build Nixpacks (exit 255)
+
+Symptômes dans les logs Coolify :
+
+- `Génération de la configuration nixpacks`
+- `nix-env -if .nixpacks/nixpkgs-...` puis échec / code 255
+- `Type d'application trouvé : nœud`
+
+**Cause** : le service frontend est configuré en **Nixpacks** au lieu du **Dockerfile** du projet. Nixpacks installe Node via Nix (téléchargement lourd de nixpkgs) ; sur un VPS modeste, cette étape échoue souvent (mémoire, réseau, timeout).
+
+**Correction** (frontend `korymb.eludein.art`) :
+
+1. Coolify → application frontend → **Configuration** → **General**
+2. **Build Pack** : passer de `Nixpacks` à **`Dockerfile`**
+3. **Dockerfile location** : `/Dockerfile` (racine du dépôt)
+4. **Base directory** : `/` (racine)
+5. **Build argument** (si proposé) : `NEXT_PUBLIC_KORYMB_API_URL=https://api-korymb.eludein.art`
+6. Variables runtime : `NODE_ENV=production`, `PORT=3000`, etc. (voir §1)
+7. Redéployer
+
+Si Coolify refuse de sauvegarder après changement de build pack (bug connu v4) : recréer l’application en choisissant **Dockerfile** dès la création, puis réaffecter le domaine et les variables d’environnement.
+
+Le backend (`api-korymb.eludein.art`) utilise **`backend/Dockerfile`** avec le build pack Dockerfile et le base directory `/backend` (ou contexte `backend/` selon votre config).
+
+**Vérification post-fix** : les logs de build doivent afficher `FROM node:20-alpine`, pas `nixpacks` ni `nix-env`.

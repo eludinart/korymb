@@ -1,13 +1,17 @@
 # Unified Next.js frontend image
+# Coolify : utiliser le build pack « Dockerfile » (racine /Dockerfile), pas Nixpacks.
 FROM node:20-alpine
 WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_DIST_DIR=.next-build
+ENV PORT=3000
 
 # Build-time env for frontend runtime config.
 # Le secret agent (KORYMB_AGENT_SECRET) est fourni au runtime uniquement,
 # jamais en build ARG NEXT_PUBLIC_* : il ne doit pas entrer dans le bundle JS.
 ARG NEXT_PUBLIC_KORYMB_API_URL
 ENV NEXT_PUBLIC_KORYMB_API_URL=$NEXT_PUBLIC_KORYMB_API_URL
-ENV PORT=3000
 
 COPY package*.json ./
 COPY admin/package*.json ./admin/
