@@ -18,6 +18,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   orchestration: "Orchestration CIO",
   fallbacks: "Filets de sécurité",
   synthesis: "Synthèse",
+  learning: "Apprentissage",
+  quality: "Qualité",
   misc: "Divers",
 };
 

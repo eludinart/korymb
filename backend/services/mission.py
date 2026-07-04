@@ -2916,6 +2916,12 @@ def _schedule_mission_execution(
                 maybe_refresh_mission_summary()
             except Exception:
                 logger.exception("maybe_refresh_mission_summary")
+            try:
+                from services.config_suggestions import scan_config_suggestions
+
+                scan_config_suggestions(job_id=job_id)
+            except Exception:
+                logger.exception("scan_config_suggestions after mission")
             if not cfg.get("require_user_validation", True):
                 job_set_user_validated(job_id)
                 row_uv = db_get_job(job_id)

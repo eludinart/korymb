@@ -316,6 +316,18 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         ),
         "value": 0,
     },
+    "learning.auto_apply_mode": {
+        "category": "learning",
+        "type": "string",
+        "label": "Application automatique des apprentissages",
+        "description": (
+            "off = toutes les suggestions passent par l'inbox ; "
+            "safe (défaut) = applique automatiquement les mises à jour mémoire courtes "
+            "sur global et rôles métier (sans tweak de prompts) ; "
+            "full = même logique avec textes plus longs. Les modifications de prompts restent toujours manuelles."
+        ),
+        "value": "safe",
+    },
 }
 
 

@@ -1,4 +1,4 @@
-"""Tests mémoire entreprise — résumé auto et directives utilisateur."""
+"""Tests apprentissage auto, suppression mémoire et recommandations config."""
 from __future__ import annotations
 
 
@@ -55,3 +55,76 @@ def test_memory_directive_remember_and_forget():
     assert applied2 and applied2["action"] == "forget_phrase"
     mem2 = get_enterprise_memory()
     assert "Acme" not in mem2["contexts"]["global"]
+
+
+def test_delete_enterprise_context_keys(monkeypatch):
+    from database import merge_enterprise_contexts, delete_enterprise_context_keys, get_enterprise_memory
+
+    merge_enterprise_contexts({"commercial": "Client X important"})
+    mem = get_enterprise_memory()
+    assert "Client X" in mem["contexts"]["commercial"]
+
+    delete_enterprise_context_keys(["commercial"])
+    mem2 = get_enterprise_memory()
+    assert mem2["contexts"]["commercial"] == ""
+
+
+def test_learning_auto_apply_safe(monkeypatch):
+    from services import learning as learn
+
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    applied: list[dict] = []
+
+    def _apply(payload, **kw):
+        applied.append(payload)
+        return {"global": "ok"}
+
+    monkeypatch.setattr(learn, "apply_learning_payload_to_memory", _apply)
+    monkeypatch.setattr(
+        "database.resolve_learning_suggestion",
+        lambda sid, st: {"id": sid, "status": st},
+    )
+
+    payload = {
+        "suggested_memory_keys": {"global": "Court fait métier"},
+        "suggested_prompt_tweaks": [],
+    }
+    assert learn.try_auto_apply_learning("s1", payload) is True
+    assert applied
+
+    payload_tweaks = {
+        "suggested_memory_keys": {"global": "x"},
+        "suggested_prompt_tweaks": ["change prompt"],
+    }
+    assert learn.try_auto_apply_learning("s2", payload_tweaks) is False
+
+
+def test_config_suggestions_dedup(monkeypatch):
+    from services import config_suggestions as cs
+
+    calls: list[str] = []
+
+    def fake_insert(**kwargs):
+        calls.append(kwargs.get("target_key", ""))
+        return {"id": "c1", **kwargs}
+
+    monkeypatch.setattr(cs, "_upsert_pending", fake_insert)
+    monkeypatch.setattr(
+        "tools_health.probe_tools_health",
+        lambda force=False: {
+            "web_search": {"ok": False, "detail": "no key"},
+            "checked_at": "now",
+        },
+    )
+    monkeypatch.setattr(
+        "database.count_recent_jobs_with_status_prefix",
+        lambda prefix, limit=200: 0,
+    )
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: None,
+    )
+
+    out = cs.scan_config_suggestions()
+    assert len(out) >= 1
+    assert calls

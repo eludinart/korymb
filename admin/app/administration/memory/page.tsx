@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requestJson, agentHeaders } from "../../../lib/api";
-import { MEMORY_CONTEXT_KEYS, MEMORY_CONTEXT_TITLES } from "../../../lib/agentMemory";
+import { MEMORY_CONTEXT_KEYS, MEMORY_CONTEXT_TITLES, CIO_MEMORY_NOTE } from "../../../lib/agentMemory";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -148,6 +148,22 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
     onError: (e: Error) => showToast(e.message || "Erreur snapshot", false),
   });
 
+  const deleteKeyMutation = useMutation({
+    mutationFn: async (key: string) => {
+      await requestJson(`/memory/contexts/${encodeURIComponent(key)}`, {
+        method: "DELETE",
+        headers: agentHeaders(),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["memory"] });
+      qc.invalidateQueries({ queryKey: ["memory-history"] });
+      setDraft(null);
+      showToast("Volet supprimé du stockage (snapshot créé).");
+    },
+    onError: (e: Error) => showToast(e.message || "Erreur suppression", false),
+  });
+
   const isDirty = draft !== null;
 
   return (
@@ -182,19 +198,43 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
         </div>
       </div>
 
+      <div className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900">
+        <p className="font-semibold">CIO / coordinateur</p>
+        <p className="mt-1 text-violet-800">{CIO_MEMORY_NOTE}</p>
+      </div>
+
       {memory.isLoading && <p className="text-sm text-slate-400">Chargement…</p>}
 
       {MEMORY_CONTEXT_KEYS.map((key) => (
         <div key={key}>
-          <label className="block text-sm font-semibold text-slate-700 mb-1">
-            {MEMORY_CONTEXT_TITLES[key]}
-          </label>
+          <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+            <label className="block text-sm font-semibold text-slate-700">
+              {MEMORY_CONTEXT_TITLES[key]}
+            </label>
+            {(contexts[key] ?? "").trim() ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!window.confirm(`Supprimer le volet « ${MEMORY_CONTEXT_TITLES[key]} » du stockage ?`)) return;
+                  deleteKeyMutation.mutate(key);
+                }}
+                disabled={deleteKeyMutation.isPending}
+                className="rounded-lg border border-red-200 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Supprimer le volet
+              </button>
+            ) : null}
+          </div>
           {key === "global" ? (
             <p className="mb-2 text-xs text-slate-500">
-              Indiquez ici vos priorités des 7 prochains jours et les décisions que vous anticipez — le CIO s&apos;en
-              sert pour proposer de nouvelles missions dans la file d&apos;approbation.
+              Priorités des 7 prochains jours et décisions anticipées — utilisées par le CIO et les missions.
+              Effacer le texte puis sauvegarder vide le contenu ; « Supprimer le volet » retire l&apos;entrée du JSON.
             </p>
-          ) : null}
+          ) : (
+            <p className="mb-2 text-xs text-slate-500">
+              Contexte métier injecté pour l&apos;agent {MEMORY_CONTEXT_TITLES[key]}.
+            </p>
+          )}
           <textarea
             value={contexts[key] ?? ""}
             onChange={(e) =>
@@ -470,6 +510,9 @@ function PreviewTab() {
       <p className="text-sm text-slate-500">
         Visualise le prompt système complet tel qu&apos;il sera injecté dans le contexte de l&apos;agent avant une mission.
       </p>
+      {agentKey === "coordinateur" ? (
+        <p className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">{CIO_MEMORY_NOTE}</p>
+      ) : null}
 
       <div className="flex items-end gap-3">
         <div className="flex-1">

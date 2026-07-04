@@ -68,7 +68,9 @@ def apply_user_memory_directive(message: str, *, context_key: str = "global") ->
     if _FORGET_ALL.match(msg):
         try:
             snapshot_memory_history(comment="auto — directive utilisateur effacer contexte")
-            merge_enterprise_contexts({key: ""})
+            from database import delete_enterprise_context_keys
+
+            delete_enterprise_context_keys([key])
             return {"action": "forget_all", "key": key, "detail": ""}
         except Exception:
             logger.exception("apply_user_memory_directive forget_all")

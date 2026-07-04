@@ -233,13 +233,12 @@ def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveB
         memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
         if memory_updates:
             try:
-                from database import merge_enterprise_contexts, snapshot_memory_history
-                from services.learning import normalize_learning_memory_updates
+                from services.learning import apply_learning_payload_to_memory
 
-                snapshot_memory_history(comment="auto — learning suggestion approved")
-                normalized = normalize_learning_memory_updates(memory_updates)
-                if normalized:
-                    merge_enterprise_contexts(normalized)
+                apply_learning_payload_to_memory(
+                    payload if isinstance(payload, dict) else {},
+                    snapshot_comment="auto — learning suggestion approved",
+                )
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Impossible d'appliquer la mémoire : {exc}") from exc
         resolve_learning_suggestion(suggestion_id, "approved")
