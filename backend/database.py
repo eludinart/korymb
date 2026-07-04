@@ -443,6 +443,18 @@ def _ensure_platform_tables(conn) -> None:
             updated_at TEXT NOT NULL
         )
     """)
+    msg_col = "LONGTEXT" if _is_mariadb() else "TEXT"
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS chat_conversations (
+            id {text_pk} PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT '',
+            messages_json {msg_col} NOT NULL DEFAULT '[]',
+            linked_parent_job_id TEXT,
+            workspace_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS inbox_dismissals (
             dismiss_key {text_pk} PRIMARY KEY,
@@ -1402,6 +1414,118 @@ def upsert_chat_session_summary(session_id: str, summary: str, turn_count: int) 
                 (sid, summ, turns, now),
             )
         conn.commit()
+
+
+def list_chat_conversations(*, limit: int = 80) -> list[dict]:
+    lim = max(1, min(int(limit), 200))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "FROM chat_conversations WHERE workspace_id=? ORDER BY updated_at DESC LIMIT ?",
+            (_ws(), lim),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        d = dict(row)
+        try:
+            msgs = json.loads(d.get("messages_json") or "[]")
+        except json.JSONDecodeError:
+            msgs = []
+        if not isinstance(msgs, list):
+            msgs = []
+        out.append({
+            "id": d.get("id"),
+            "title": d.get("title") or "",
+            "messages": msgs,
+            "linked_parent_job_id": d.get("linked_parent_job_id"),
+            "created_at": d.get("created_at"),
+            "updated_at": d.get("updated_at"),
+        })
+    return out
+
+
+def get_chat_conversation(conv_id: str) -> dict | None:
+    cid = (conv_id or "").strip()[:64]
+    if not cid:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "FROM chat_conversations WHERE id=? AND workspace_id=?",
+            (cid, _ws()),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        msgs = json.loads(d.get("messages_json") or "[]")
+    except json.JSONDecodeError:
+        msgs = []
+    if not isinstance(msgs, list):
+        msgs = []
+    return {
+        "id": d.get("id"),
+        "title": d.get("title") or "",
+        "messages": msgs,
+        "linked_parent_job_id": d.get("linked_parent_job_id"),
+        "created_at": d.get("created_at"),
+        "updated_at": d.get("updated_at"),
+    }
+
+
+def upsert_chat_conversation(
+    conv_id: str,
+    *,
+    title: str = "",
+    messages: list | None = None,
+    linked_parent_job_id: str | None = None,
+) -> dict:
+    cid = (conv_id or "").strip()[:64]
+    if not cid:
+        raise ValueError("conv_id required")
+    now = datetime.utcnow().isoformat()
+    tit = (title or "")[:200]
+    msgs_json = json.dumps(messages if isinstance(messages, list) else [], ensure_ascii=False)
+    if len(msgs_json) > 2_000_000:
+        msgs_json = msgs_json[:2_000_000]
+    link = (linked_parent_job_id or "").strip()[:16] or None
+    existing = get_chat_conversation(cid)
+    created = existing.get("created_at") if existing else now
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO chat_conversations "
+                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE title=VALUES(title), messages_json=VALUES(messages_json), "
+                "linked_parent_job_id=VALUES(linked_parent_job_id), updated_at=VALUES(updated_at)",
+                (cid, tit, msgs_json, link, _ws(), created, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO chat_conversations "
+                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, "
+                "linked_parent_job_id=excluded.linked_parent_job_id, updated_at=excluded.updated_at",
+                (cid, tit, msgs_json, link, _ws(), created, now),
+            )
+        conn.commit()
+    row = get_chat_conversation(cid)
+    return row or {"id": cid, "title": tit, "messages": messages or [], "updated_at": now}
+
+
+def delete_chat_conversation(conv_id: str) -> bool:
+    cid = (conv_id or "").strip()[:64]
+    if not cid:
+        return False
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM chat_conversations WHERE id=? AND workspace_id=?",
+            (cid, _ws()),
+        )
+        conn.commit()
+    return bool(getattr(cur, "rowcount", 0))
 
 
 def update_job_orchestration_phase(job_id: str, phase: str) -> None:

@@ -1,4 +1,10 @@
 import type { ChatMsg } from "../components/chat/ChatShell";
+import {
+  deleteChatConversationOnServer,
+  fetchChatConversationsFromServer,
+  importLocalConversationsToServer,
+  persistChatConversationToServer,
+} from "./chatConversationsApi";
 
 export type ChatConversation = {
   id: string;
@@ -86,10 +92,33 @@ export function createConversation(opts?: { linkedParentJobId?: string }): ChatC
 export function upsertConversation(conversation: ChatConversation) {
   const list = loadConversations().filter((c) => c.id !== conversation.id);
   saveConversations([{ ...conversation, updatedAt: conversation.updatedAt || now() }, ...list]);
+  void persistChatConversationToServer({ ...conversation, updatedAt: conversation.updatedAt || now() }).catch(() => {
+    /* offline fallback localStorage */
+  });
 }
 
 export function deleteConversation(id: string) {
   saveConversations(loadConversations().filter((c) => c.id !== id));
+  void deleteChatConversationOnServer(id).catch(() => {});
+}
+
+/** Charge les conversations serveur ; migre le localStorage si le serveur est vide. */
+export async function hydrateConversationsFromServer(): Promise<ChatConversation[]> {
+  try {
+    let server = await fetchChatConversationsFromServer();
+    const local = loadConversations();
+    if (!server.length && local.length) {
+      await importLocalConversationsToServer(local);
+      server = await fetchChatConversationsFromServer();
+    }
+    if (server.length) {
+      saveConversations(server);
+      return server;
+    }
+    return local;
+  } catch {
+    return loadConversations();
+  }
 }
 
 export function findConversationByJobId(jobId: string): ChatConversation | undefined {

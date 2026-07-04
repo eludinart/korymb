@@ -1,0 +1,19 @@
+{
+  "name": "Korymb — Cockpit dirigeant",
+  "short_name": "Korymb",
+  "description": "Briefing, inbox et missions IA pour dirigeants",
+  "start_url": "/briefing",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6d28d9",
+  "lang": "fr",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/globe.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

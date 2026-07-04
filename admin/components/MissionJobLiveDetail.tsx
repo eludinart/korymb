@@ -13,6 +13,7 @@ import MissionMetricsRow from "./MissionMetricsRow";
 import SessionCadrageTimeline from "./SessionCadrageTimeline";
 import CioPlanHitlPanel from "./CioPlanHitlPanel";
 import CioResumePanel from "./missions/CioResumePanel";
+import MissionAgentTracePanel from "./missions/MissionAgentTracePanel";
 import { normalizeTeamRows, teamRowKey } from "../lib/jobTeam";
 import { deliverablesMarkdownFromJob } from "../lib/missionDeliverablesMarkdown";
 import { threadHasPendingCioTurn } from "../lib/missionThreadPending";
@@ -146,6 +147,12 @@ export default function MissionJobLiveDetail({
           ) : null}
           {showCioPlanHitl ? <CioPlanHitlPanel jobId={jobId} hitl={d.hitl as Record<string, unknown>} /> : null}
           <LiveAgentInteractionStrip events={d.events} agentLabelMap={agentLabelMap} />
+          <MissionAgentTracePanel
+            events={d.events}
+            agentLabelMap={agentLabelMap}
+            tokensTotal={d.tokens_total}
+            costUsd={d.cost_usd}
+          />
           <CioResultPanel
             result={d.result}
             missionTitle={d.mission}

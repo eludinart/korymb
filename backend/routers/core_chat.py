@@ -18,6 +18,10 @@ from database import (
     append_recent_mission,
     append_job_mission_thread,
     get_chat_session_summary,
+    list_chat_conversations,
+    get_chat_conversation,
+    upsert_chat_conversation,
+    delete_chat_conversation,
 )
 from services.agents import agents_def, FLEUR_CONTEXT, SUB_AGENT_COORDINATION_FR
 from services.chat_surface import surface_chat_result
@@ -434,3 +438,76 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         return {"response": reply, "agent": request.agent}
     except Exception as e:
         raise HTTPException(status_code=500, detail=_user_visible_chat_sync_failure_text(e)) from e
+
+
+class ChatConversationBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str | None = None
+    title: str = ""
+    messages: list[dict] = []
+    linked_parent_job_id: str | None = None
+
+
+class ChatConversationImportBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    conversations: list[dict] = []
+
+
+@router.get("/chat/conversations", dependencies=[Depends(resolve_tenant)])
+def chat_conversations_list(limit: int = 80):
+    return {"conversations": list_chat_conversations(limit=limit)}
+
+
+@router.get("/chat/conversations/{conv_id}", dependencies=[Depends(resolve_tenant)])
+def chat_conversations_get(conv_id: str):
+    row = get_chat_conversation(conv_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Conversation introuvable")
+    return row
+
+
+@router.put("/chat/conversations/{conv_id}", dependencies=[Depends(resolve_tenant)])
+def chat_conversations_upsert(conv_id: str, body: ChatConversationBody):
+    cid = (conv_id or body.id or "").strip()[:64]
+    if not cid:
+        raise HTTPException(status_code=400, detail="id requis")
+    row = upsert_chat_conversation(
+        cid,
+        title=(body.title or "")[:200],
+        messages=body.messages if isinstance(body.messages, list) else [],
+        linked_parent_job_id=body.linked_parent_job_id,
+    )
+    return row
+
+
+@router.delete("/chat/conversations/{conv_id}", dependencies=[Depends(resolve_tenant)])
+def chat_conversations_delete(conv_id: str):
+    ok = delete_chat_conversation(conv_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation introuvable")
+    return {"deleted": True, "id": conv_id}
+
+
+@router.post("/chat/conversations/import", dependencies=[Depends(resolve_tenant)])
+def chat_conversations_import(body: ChatConversationImportBody):
+    """Importe les conversations locales (migration navigateur → serveur)."""
+    imported = 0
+    for raw in body.conversations or []:
+        if not isinstance(raw, dict):
+            continue
+        cid = str(raw.get("id") or "").strip()[:64]
+        if not cid:
+            continue
+        existing = get_chat_conversation(cid)
+        if existing:
+            continue
+        upsert_chat_conversation(
+            cid,
+            title=str(raw.get("title") or "")[:200],
+            messages=raw.get("messages") if isinstance(raw.get("messages"), list) else [],
+            linked_parent_job_id=str(raw.get("linkedParentJobId") or raw.get("linked_parent_job_id") or "")[:16] or None,
+        )
+        imported += 1
+    return {"imported": imported, "conversations": list_chat_conversations()}

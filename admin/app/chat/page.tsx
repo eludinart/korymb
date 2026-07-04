@@ -18,6 +18,7 @@ import {
   createConversation,
   deleteConversation,
   getActiveConversationId,
+  hydrateConversationsFromServer,
   loadConversations,
   setActiveConversationId,
   upsertConversation,
@@ -123,40 +124,42 @@ function ChatPageInner() {
     if (initRef.current) return;
     initRef.current = true;
 
-    let list = loadConversations();
-    let active = urlSessionId || getActiveConversationId();
+    void (async () => {
+      let list = await hydrateConversationsFromServer();
+      let active = urlSessionId || getActiveConversationId();
 
-    if (linkedParentJobId) {
-      const linked = list.find((c) => c.linkedParentJobId === linkedParentJobId);
-      if (linked) {
-        active = linked.id;
-      } else if (!list.length) {
-        const conv = createConversation({ linkedParentJobId });
+      if (linkedParentJobId) {
+        const linked = list.find((c) => c.linkedParentJobId === linkedParentJobId);
+        if (linked) {
+          active = linked.id;
+        } else if (!list.length) {
+          const conv = createConversation({ linkedParentJobId });
+          list = [conv];
+          upsertConversation(conv);
+          active = conv.id;
+        }
+      }
+
+      if (!list.length) {
+        const conv = createConversation(linkedParentJobId ? { linkedParentJobId } : undefined);
         list = [conv];
         upsertConversation(conv);
         active = conv.id;
       }
-    }
 
-    if (!list.length) {
-      const conv = createConversation(linkedParentJobId ? { linkedParentJobId } : undefined);
-      list = [conv];
-      upsertConversation(conv);
-      active = conv.id;
-    }
+      if (!active || !list.some((c) => c.id === active)) {
+        active = list[0].id;
+      }
 
-    if (!active || !list.some((c) => c.id === active)) {
-      active = list[0].id;
-    }
-
-    const current = list.find((c) => c.id === active) || list[0];
-    setConversations(list);
-    setActiveId(current.id);
-    setActiveConversationId(current.id);
-    setMessages(current.messages);
-    setBackgroundJobs(loadPendingChatJobs());
-    setHydrated(true);
-    void requestBrowserNotificationPermission();
+      const current = list.find((c) => c.id === active) || list[0];
+      setConversations(list);
+      setActiveId(current.id);
+      setActiveConversationId(current.id);
+      setMessages(current.messages);
+      setBackgroundJobs(loadPendingChatJobs());
+      setHydrated(true);
+      void requestBrowserNotificationPermission();
+    })();
   }, [linkedParentJobId, urlSessionId]);
 
   const selectConversation = useCallback(

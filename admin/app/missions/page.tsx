@@ -25,6 +25,7 @@ import MissionCreatePanel from "../../components/missions/MissionCreatePanel";
 import MissionsArchivesList from "../../components/missions/MissionsArchivesList";
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
+import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
@@ -118,7 +119,8 @@ function MissionsContent() {
         : "active";
 
   useEffect(() => {
-    if (searchParams.get("create") === "quick") setShowCreatePanel(true);
+    const c = searchParams.get("create");
+    if (c === "quick" || c === "1") setShowCreatePanel(true);
   }, [searchParams]);
 
   const archiveEntries = useMemo(() => buildHistoryEntries(rows), [rows]);
@@ -478,6 +480,7 @@ function MissionsContent() {
           activeCount={sortedRows.length}
           archivesCount={archiveEntries.length}
         />
+        {!selected && hubView === "active" ? <MissionQuickLaunch /> : null}
         {hubView === "guided" ? (
           <MissionGuidedPanel />
         ) : (

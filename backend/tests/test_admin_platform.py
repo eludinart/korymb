@@ -86,6 +86,35 @@ def test_admin_briefing(client):
     assert body["period"] == "today"
     assert "decisions_today" in body
     assert "budget" in body
+    assert "executive_summary" in body
+    assert isinstance(body["executive_summary"], str)
+    assert "top_priorities" in body
+    assert isinstance(body["top_priorities"], list)
+    assert "memory_highlights" in body
+    assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert")
+
+
+def test_chat_conversations_crud(client):
+    cid = "conv-test-01"
+    put = client.put(
+        f"/chat/conversations/{cid}",
+        json={
+            "id": cid,
+            "title": "Test conv",
+            "messages": [{"id": "m1", "role": "user", "content": "Bonjour"}],
+        },
+    )
+    assert put.status_code == 200
+    assert put.json()["id"] == cid
+    lst = client.get("/chat/conversations")
+    assert lst.status_code == 200
+    assert any(c["id"] == cid for c in lst.json()["conversations"])
+    get = client.get(f"/chat/conversations/{cid}")
+    assert get.status_code == 200
+    assert get.json()["messages"][0]["content"] == "Bonjour"
+    delete = client.delete(f"/chat/conversations/{cid}")
+    assert delete.status_code == 200
+    assert client.get(f"/chat/conversations/{cid}").status_code == 404
 
 
 def test_admin_notifications_crud(client):

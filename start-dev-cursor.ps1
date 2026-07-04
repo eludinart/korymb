@@ -298,6 +298,13 @@ function Stop-FrontendDevProcess {
 
 function Start-FrontendDevProcess {
   $adminDir = Join-Path $rootDir "admin"
+  $nextDir = Join-Path $adminDir ".next"
+  $buildIdFile = Join-Path $nextDir "BUILD_ID"
+  # Build prod (`next build`) dans .next casse le CSS de `next dev` — purger avant dev.
+  if (Test-Path -LiteralPath $buildIdFile) {
+    Write-Host "(dev) Cache .next de build prod detecte — nettoyage pour next dev..." -ForegroundColor Yellow
+    Remove-Item -LiteralPath $nextDir -Recurse -Force -ErrorAction SilentlyContinue
+  }
   $nextScript = Join-Path $adminDir "node_modules\next\dist\bin\next"
   if (-not (Test-Path -LiteralPath $nextScript)) {
     throw "Next.js introuvable: $nextScript (lancez npm install dans admin/)"

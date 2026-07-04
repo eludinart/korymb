@@ -5,14 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
+import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
+import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import {
   AlertBox,
   LoadingLine,
-  PageHeader,
-  PageLink,
   PageShell,
   SectionCard,
-  StatCard,
 } from "../../components/ui/PageChrome";
 import {
   BTN_DELETE,
@@ -38,6 +37,16 @@ function BriefingPageContent() {
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
 
+  const me = useQuery({
+    queryKey: ["auth-me-briefing"],
+    queryFn: async () => {
+      const r = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!r.ok) return null;
+      return r.json() as Promise<{ user?: { name?: string; email?: string } }>;
+    },
+    staleTime: 300_000,
+  });
+
   const briefing = useQuery({
     queryKey: ["admin-briefing"],
     queryFn: async () =>
@@ -57,9 +66,8 @@ function BriefingPageContent() {
   });
 
   const b = briefing.data;
-  const hitlCount = Number(b?.hitl_pending_count ?? 0);
-  const inboxTotal = Number(b?.inbox_total ?? 0);
   const jobRows = jobs.data || [];
+  const userName = me.data?.user?.name || me.data?.user?.email?.split("@")[0];
 
   const deleteMission = async (jobId: string, mission?: string) => {
     if (!confirmDeleteMission(jobId, mission)) return;
@@ -82,33 +90,11 @@ function BriefingPageContent() {
         <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
           <p className="text-sm font-bold text-emerald-900">Bienvenue dans votre Korymb</p>
           <p className="mt-1 text-sm text-emerald-800">
-            Votre espace est prêt : playbooks de démarrage, moteur IA et briefing opérationnels. Lancez une mission
-            depuis{" "}
-            <Link href="/missions" className="font-bold underline">
-              Missions
-            </Link>{" "}
-            ou le{" "}
-            <Link href="/chat" className="font-bold underline">
-              Chat
-            </Link>
-            .
+            Votre rituel quotidien commence ici : briefing, inbox en 2 minutes, missions en un clic. Utilisez{" "}
+            <kbd className="rounded bg-emerald-100 px-1 font-mono text-xs">Ctrl+K</kbd> pour naviguer vite.
           </p>
         </div>
       ) : null}
-      <PageHeader
-        accent="violet"
-        badge="Cockpit dirigeant"
-        title="Briefing du jour"
-        description="Votre journée en un coup d'œil : décisions en attente, budget et missions actives."
-        actions={
-          <>
-            <PageLink href="/inbox">Inbox {inboxTotal > 0 ? `(${inboxTotal})` : ""}</PageLink>
-            <PageLink href="/missions" variant="secondary">
-              Missions
-            </PageLink>
-          </>
-        }
-      />
 
       {deleteError ? (
         <AlertBox tone="error" title="Suppression impossible">
@@ -122,8 +108,7 @@ function BriefingPageContent() {
           {isMariaDbTunnelError(briefing.error?.message || "") ? (
             <>
               Le tunnel MariaDB est coupé (port 3307). Relancez{" "}
-              <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> ou le script{" "}
-              <span className="font-mono">.\scripts\mariadb-vps-tunnel.ps1</span>, puis rechargez cette page.
+              <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span>, puis rechargez.
             </>
           ) : (
             <>Vérifiez que le backend tourne, puis réessayez.</>
@@ -134,93 +119,42 @@ function BriefingPageContent() {
       <div className="space-y-6">
         <RepriseBriefingSection />
 
-      {b ? (
-        <>
-          <section className="grid gap-3 sm:grid-cols-3">
-            <StatCard label="Actions inbox" value={inboxTotal} tone={inboxTotal > 0 ? "urgent" : "default"} />
-            <StatCard
-              label="Validations requises"
-              value={hitlCount}
-              tone={hitlCount > 0 ? "warn" : "ok"}
-              hint={hitlCount > 0 ? "Décision requise" : undefined}
-            />
-            <StatCard
-              label="Missions en cours"
-              value={(b.missions_running || []).length}
-              tone="info"
-            />
-          </section>
+        {b ? (
+          <>
+            <ExecutiveBriefHero data={b} userName={userName} />
+            <MissionQuickLaunch compact />
 
-          <SectionCard title="Budget IA" tone={b.budget?.budget_exceeded || b.budget?.alert ? "alert" : "budget"}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-sm font-bold text-slate-700">Aujourd&apos;hui</p>
-                <p className="stat-value text-2xl">${Number(b.budget?.cost_today_usd || 0).toFixed(2)}</p>
-              </div>
-              <div>
-                <p className="text-sm font-bold text-slate-700">Cette semaine</p>
-                <p className="stat-value text-2xl">${Number(b.budget?.cost_week_usd || 0).toFixed(2)}</p>
-              </div>
-            </div>
-            {b.budget?.budget_exceeded || b.budget?.alert ? (
-              <p className="mt-3 rounded-xl bg-amber-100 px-3 py-2 text-sm font-extrabold text-amber-950 ring-2 ring-amber-300">
-                Alerte budget — vérifiez la consommation avant de lancer de nouvelles missions.
-              </p>
+            {(b.missions_running || []).length > 0 ? (
+              <SectionCard title="Missions en cours">
+                <ul className="space-y-3">
+                  {(b.missions_running || []).map((m: { job_id: string; mission?: string }) => (
+                    <li
+                      key={m.job_id}
+                      className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span className="min-w-0 text-base font-bold text-slate-900">
+                        {missionTitleLabel(m.mission, 100) || m.job_id}
+                      </span>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary">
+                          Suivre
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={deleteBusyId === m.job_id}
+                          onClick={() => void deleteMission(m.job_id, m.mission)}
+                          className={BTN_DELETE}
+                        >
+                          {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
             ) : null}
-          </SectionCard>
-
-          <SectionCard title="Missions actives">
-            <ul className="space-y-3">
-              {(b.missions_running || []).length === 0 ? (
-                <li className="text-muted-strong">Aucune mission en cours.</li>
-              ) : (
-                (b.missions_running || []).map((m: { job_id: string; mission?: string }) => (
-                  <li
-                    key={m.job_id}
-                    className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <span className="min-w-0 text-base font-bold text-slate-900">
-                      {missionTitleLabel(m.mission, 100) || m.job_id}
-                    </span>
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary">
-                        Ouvrir
-                      </Link>
-                      <button
-                        type="button"
-                        disabled={deleteBusyId === m.job_id}
-                        onClick={() => void deleteMission(m.job_id, m.mission)}
-                        className={BTN_DELETE}
-                      >
-                        {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
-                      </button>
-                    </div>
-                  </li>
-                ))
-              )}
-            </ul>
-          </SectionCard>
-
-          <SectionCard
-            title={inboxTotal > 0 ? "Décisions en attente" : "Inbox dirigeant"}
-            tone={inboxTotal > 0 ? "alert" : "default"}
-          >
-            {inboxTotal > 0 ? (
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-slate-800">
-                  {inboxTotal} action{inboxTotal > 1 ? "s" : ""} nécessite{inboxTotal > 1 ? "nt" : ""} votre arbitrage
-                  {hitlCount > 0 ? ` (${hitlCount} validation${hitlCount > 1 ? "s" : ""} HITL)` : ""}.
-                </p>
-                <Link href="/inbox" className="btn-primary inline-flex">
-                  Ouvrir l&apos;inbox →
-                </Link>
-              </div>
-            ) : (
-              <p className="text-muted-strong">Rien en attente — bonne journée.</p>
-            )}
-          </SectionCard>
-        </>
-      ) : null}
+          </>
+        ) : null}
       </div>
     </PageShell>
   );

@@ -278,6 +278,136 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
     return {"items": visible[:limit], "total": len(visible)}
 
 
+def _priority_label(item: dict) -> str:
+    kind = str(item.get("kind") or "")
+    title = str(item.get("title") or item.get("mission") or "").strip()
+    if kind == "hitl":
+        hk = str(item.get("hitl_kind") or "")
+        if hk == "cio_plan":
+            return f"Valider le plan CIO — {title[:80]}" if title else "Valider le plan CIO"
+        return f"Validation requise — {title[:80]}" if title else "Validation dirigeant requise"
+    if kind == "cio_question":
+        return title[:120] if title else "Répondre au CIO"
+    if kind == "closure":
+        return f"Clôturer la mission — {title[:80]}" if title else "Clôturer une mission terminée"
+    if kind == "scheduler_output":
+        return f"Approuver — {title[:80]}" if title else "Approuver une proposition autonome"
+    if kind == "learning_suggestion":
+        return title[:120] if title else "Arbitrer une suggestion d'apprentissage"
+    if kind == "quality":
+        return f"Débloquer la qualité — {title[:80]}" if title else "Contrôle qualité bloquant"
+    return title[:120] if title else "Action requise"
+
+
+def _priority_href(item: dict) -> str:
+    kind = str(item.get("kind") or "")
+    jid = str(item.get("job_id") or "").strip()
+    oid = str(item.get("output_id") or "").strip()
+    sid = str(item.get("suggestion_id") or "").strip()
+    focus = jid or oid or sid
+    if focus:
+        return f"/inbox?triage=1&focus={focus}"
+    return "/inbox?triage=1"
+
+
+def _build_top_priorities(inbox_items: list[dict], *, limit: int = 3) -> list[dict]:
+    out: list[dict] = []
+    for item in inbox_items[:limit]:
+        out.append({
+            "id": str(item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
+            "label": _priority_label(item),
+            "href": _priority_href(item),
+            "kind": item.get("kind"),
+            "urgency": item.get("urgency"),
+            "job_id": item.get("job_id"),
+        })
+    return out
+
+
+def _memory_highlights(limit: int = 3) -> list[dict]:
+    try:
+        from database import get_enterprise_memory
+
+        mem = get_enterprise_memory()
+        contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
+        keys_order = ["global", "commercial", "community_manager", "developpeur", "comptable", "coordinateur"]
+        labels = {
+            "global": "Contexte global",
+            "commercial": "Commercial",
+            "community_manager": "Community",
+            "developpeur": "Développeur",
+            "comptable": "Comptable",
+            "coordinateur": "CIO",
+        }
+        highlights: list[dict] = []
+        for key in keys_order:
+            text = str(contexts.get(key) or "").strip()
+            if not text:
+                continue
+            snippet = text.replace("\n", " ").strip()
+            if len(snippet) > 140:
+                snippet = snippet[:137] + "…"
+            highlights.append({
+                "key": key,
+                "label": labels.get(key, key),
+                "snippet": snippet,
+            })
+            if len(highlights) >= limit:
+                break
+        return highlights
+    except Exception:
+        return []
+
+
+def _build_executive_summary(
+    *,
+    inbox_total: int,
+    hitl_count: int,
+    running_count: int,
+    budget: dict,
+    analytics: dict,
+) -> str:
+    parts: list[str] = []
+    if inbox_total > 0:
+        dec = f"{inbox_total} décision{'s' if inbox_total > 1 else ''} en attente"
+        if hitl_count > 0:
+            dec += f" ({hitl_count} validation{'s' if hitl_count > 1 else ''} HITL)"
+        parts.append(dec + " bloquent l'avancement")
+    elif running_count > 0:
+        parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
+    else:
+        parts.append("Aucune action urgente — votre file est vide")
+
+    if budget.get("budget_exceeded"):
+        parts.append("budget journalier dépassé")
+    elif budget.get("alert"):
+        parts.append("alerte budget — prudence avant de lancer")
+
+    failed = int(analytics.get("missions_failed") or 0)
+    if failed > 0:
+        parts.append(f"{failed} mission{'s' if failed > 1 else ''} en échec sur la période")
+
+    if len(parts) == 1 and not budget.get("budget_exceeded") and not budget.get("alert"):
+        cost_week = float(budget.get("cost_week_usd") or 0)
+        if cost_week > 0:
+            parts.append(f"budget semaine à ${cost_week:.2f}")
+
+    if not parts:
+        return "Votre cockpit est prêt."
+    first = parts[0]
+    if len(parts) == 1:
+        return first[0].upper() + first[1:] + "."
+    return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
+
+
+def _ritual_status(inbox_total: int, budget: dict) -> str:
+    if budget.get("budget_exceeded"):
+        return "budget_alert"
+    if inbox_total > 0:
+        return "decisions_needed"
+    return "clear"
+
+
 def build_briefing(*, period: str = "today") -> dict[str, Any]:
     jobs = list_jobs_summary(limit=100)
     inbox = build_enriched_inbox(limit=50, jobs=jobs)
@@ -311,9 +441,27 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     except Exception:
         pass
 
+    budget_block = {
+        "cost_today_usd": tokens_summary.get("cost_today_usd") or tokens_summary.get("cost_usd") or 0,
+        "cost_week_usd": tokens_summary.get("cost_week_usd") or 0,
+        "budget_exceeded": bool(tokens_summary.get("budget_exceeded")),
+        "alert": bool(tokens_summary.get("alert")),
+    }
+    executive_summary = _build_executive_summary(
+        inbox_total=inbox["total"],
+        hitl_count=len(hitl_pending),
+        running_count=len(running),
+        budget=budget_block,
+        analytics=analytics,
+    )
+
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
+        "executive_summary": executive_summary,
+        "top_priorities": _build_top_priorities(inbox["items"]),
+        "memory_highlights": _memory_highlights(),
+        "ritual_status": _ritual_status(inbox["total"], budget_block),
         "decisions_today": inbox["items"][:5],
         "inbox_total": inbox["total"],
         "missions_running": [
@@ -323,12 +471,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "hitl_pending_count": len(hitl_pending),
         "closures_pending_count": len(closures),
         "scheduler_pending_count": len(scheduler_pending),
-        "budget": {
-            "cost_today_usd": tokens_summary.get("cost_today_usd") or tokens_summary.get("cost_usd") or 0,
-            "cost_week_usd": tokens_summary.get("cost_week_usd") or 0,
-            "budget_exceeded": bool(tokens_summary.get("budget_exceeded")),
-            "alert": bool(tokens_summary.get("alert")),
-        },
+        "budget": budget_block,
         "analytics_24h": analytics,
         "notifications_unread": len(list_director_notifications(unread_only=True, limit=100)),
     }

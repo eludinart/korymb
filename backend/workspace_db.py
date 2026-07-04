@@ -40,6 +40,7 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "playbooks",
     "reprise_checklist_actions",
     "chat_sessions",
+    "chat_conversations",
     "inbox_dismissals",
     "library_dismissals",
     "scheduled_tasks",

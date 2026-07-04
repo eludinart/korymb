@@ -17,6 +17,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Korymb — Cockpit agentique",
   description: "Pilotez votre activité avec missions IA, briefing et livrables.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Korymb",
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport = {
