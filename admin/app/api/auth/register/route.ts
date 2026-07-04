@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
-
-const base = (process.env.KORYMB_API_URL || process.env.NEXT_PUBLIC_KORYMB_API_URL || "http://127.0.0.1:8020").replace(/\/$/, "");
+import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
+import { formatHttpApiErrorPayload } from "../../../../lib/api";
 
 function cookieOpts(maxAgeSec: number) {
   return {
@@ -14,16 +14,33 @@ function cookieOpts(maxAgeSec: number) {
 }
 
 export async function POST(request: NextRequest) {
+  let base: string;
+  try {
+    base = serverKorymbApiBase();
+  } catch (err) {
+    return NextResponse.json(
+      { detail: err instanceof Error ? err.message : "Configuration API manquante." },
+      { status: 503 },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
-  const res = await fetch(`${base}/auth/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    cache: "no-store",
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${base}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+  } catch (err) {
+    return NextResponse.json({ detail: backendUnreachableMessage(base, err) }, { status: 503 });
+  }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    return NextResponse.json(data, { status: res.status });
+    const detail = formatHttpApiErrorPayload(data) || "Inscription impossible.";
+    return NextResponse.json({ ...data, detail }, { status: res.status });
   }
   const token = String(data.token || "");
   const workspaceId = String(data.workspace?.id || "");

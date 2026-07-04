@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PROXY_UNPROTECTED, resolveProxySecret } from "../../../../lib/proxySecret";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
-
-const base = (process.env.KORYMB_API_URL || process.env.NEXT_PUBLIC_KORYMB_API_URL || "http://127.0.0.1:8020").replace(/\/$/, "");
+import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
 function targetPath(path: string[]) {
   const joined = path.join("/");
@@ -38,6 +37,15 @@ async function proxy(request: NextRequest, path: string[]) {
   const secret = resolveProxySecret();
   if (!joinedPath) {
     return NextResponse.json({ error: "Path manquant" }, { status: 400 });
+  }
+  let base: string;
+  try {
+    base = serverKorymbApiBase();
+  } catch (err) {
+    return NextResponse.json(
+      { detail: err instanceof Error ? err.message : "Configuration API manquante." },
+      { status: 503 },
+    );
   }
   if (!PROXY_UNPROTECTED.has(joinedPath)) {
     const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
@@ -77,9 +85,9 @@ async function proxy(request: NextRequest, path: string[]) {
     return NextResponse.json(
       {
         detail: refused
-          ? `Backend Korymb injoignable sur ${base}. Démarrez le backend (port 8020), par ex. .\\start-dev-cursor.ps1 -MariaDbTunnel.`
+          ? backendUnreachableMessage(base, err)
           : timedOut
-            ? `Backend Korymb trop lent ou bloqué (${joinedPath}, délai ${timeoutMs} ms). Le watchdog dev devrait redémarrer le backend — rechargez la page.`
+            ? `Backend Korymb trop lent ou bloqué (${joinedPath}, délai ${timeoutMs} ms).`
             : `Proxy API : ${msg}`,
       },
       { status: timedOut ? 504 : 503 },

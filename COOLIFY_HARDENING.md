@@ -27,7 +27,7 @@ Variables Coolify essentielles :
 | Variable | Obligatoire | Description |
 |---|---|---|
 | `ENV` | oui | `production` |
-| `UVICORN_PORT` | oui | `8020` (aligné sur le port exposé Coolify) |
+| `UVICORN_PORT` | non | Alias local dev (`8020`). **En Coolify, c'est `PORT` (souvent `3000`) qui compte** — uvicorn écoute `${PORT}`. |
 | `AGENT_API_SECRET` | oui | Doit être **identique** à `KORYMB_AGENT_SECRET` (frontend) |
 | `JWT_SECRET` | fortement recommandé | Clé HMAC ≥ 32 caractères (sessions utilisateurs). Si vide, repli sur `AGENT_API_SECRET`. |
 | `JWT_EXPIRE_HOURS` | non | Durée session JWT (défaut `168` = 7 jours) |
@@ -40,7 +40,9 @@ Variables Coolify essentielles :
 | `KORYMB_CORS_ORIGINS` | si domaine custom | Origines CORS supplémentaires, séparées par des virgules |
 | Clés LLM | oui | `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, etc. selon `LLM_PROVIDER` |
 
-**Healthcheck conteneur** : `GET /health/live` sur `UVICORN_PORT` (8020 par défaut).
+**Healthcheck conteneur** : `GET /health/live` sur le port **`PORT`** (3000 par défaut dans l'image Docker).
+
+> **Important** : ne forcez pas `UVICORN_PORT=8020` en prod Coolify sauf si le port exposé du service est aussi 8020. Un décalage port proxy / uvicorn provoque des **502 Bad Gateway**.
 
 **Au démarrage** (`init_db`) :
 

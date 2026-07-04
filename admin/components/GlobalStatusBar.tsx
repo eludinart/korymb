@@ -11,6 +11,11 @@ import { adaptivePollInterval } from "../lib/korymbEvents";
 
 const COLLAPSED_LS = "korymb_global_status_bar_collapsed";
 
+const IS_PROD = process.env.NODE_ENV === "production";
+const BACKEND_DOWN_HINT = IS_PROD
+  ? "Vérifiez le service backend dans Coolify (conteneur démarré, port exposé, KORYMB_API_URL sur le frontend)."
+  : "Relancez .\\start-dev-cursor.ps1 -MariaDbTunnel puis rechargez.";
+
 /** Polling allégé quand le flux SSE est connecté (les invalidations arrivent en push). */
 const visibleInterval = (ms: number) => adaptivePollInterval(ms, ms * 3);
 
@@ -209,8 +214,7 @@ export default function GlobalStatusBar() {
         {dbBanner}
         {backendDown ? (
           <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            Backend injoignable (port 8020). Relancez{" "}
-            <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> puis rechargez.
+            Backend injoignable. {BACKEND_DOWN_HINT}
           </p>
         ) : null}
         {metricsDegraded ? (
@@ -239,8 +243,7 @@ export default function GlobalStatusBar() {
       {dbBanner}
       {backendDown ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Backend injoignable — les métriques ci-dessous restent vides. Relancez{" "}
-          <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span> puis rechargez.
+          Backend injoignable — les métriques ci-dessous restent vides. {BACKEND_DOWN_HINT}
         </p>
       ) : metricsDegraded ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
