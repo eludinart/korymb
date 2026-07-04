@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "./api";
+import { normalizeJobId } from "./missionBossView";
 import { QK } from "./queryClient";
 
 export async function hitlResolve(
@@ -60,7 +61,7 @@ export async function dismissInboxItem(item: {
     headers: agentHeaders(),
     body: JSON.stringify({
       kind: item.kind,
-      job_id: item.job_id || null,
+      job_id: item.job_id ? normalizeJobId(item.job_id) || null : null,
       output_id: item.output_id || null,
       suggestion_id: item.suggestion_id || null,
     }),

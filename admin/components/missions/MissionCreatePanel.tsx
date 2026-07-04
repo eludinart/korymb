@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
@@ -114,8 +115,8 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-bold text-slate-900">Lancer une mission</p>
-          <p className="mt-0.5 text-xs text-slate-600">Consigne + agent pilote — suivi immédiat dans ce hub.</p>
+          <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
+          <p className="mt-0.5 text-xs text-slate-600">Décrivez votre objectif — le CIO orchestre l&apos;équipe.</p>
         </div>
         {onCancel ? (
           <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
@@ -124,37 +125,18 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
         ) : null}
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-[minmax(8rem,10rem)_1fr]">
-        <div>
-          <label htmlFor="mission-create-agent" className="field-label">
-            Agent
-          </label>
-          <select
-            id="mission-create-agent"
-            value={agent}
-            onChange={(e) => setAgent(e.target.value)}
-            className="field-input"
-          >
-            {agentOptions.map((a, i) => (
-              <option key={`${a.key}-${i}`} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="mission-create-text" className="field-label">
-            Consigne
-          </label>
-          <textarea
-            id="mission-create-text"
-            rows={4}
-            value={mission}
-            onChange={(e) => setMission(e.target.value)}
-            className="field-input leading-relaxed"
-            placeholder="Décrivez ce que le CIO doit orchestrer…"
-          />
-        </div>
+      <div>
+        <label htmlFor="mission-create-text" className="field-label">
+          Que voulez-vous accomplir ?
+        </label>
+        <textarea
+          id="mission-create-text"
+          rows={4}
+          value={mission}
+          onChange={(e) => setMission(e.target.value)}
+          className="field-input leading-relaxed"
+          placeholder="Ex. : analyser les prospects PACA et préparer un kit de contact…"
+        />
       </div>
 
       {costEst ? (
@@ -165,8 +147,25 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
       ) : null}
 
       <details className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800">
-        <summary className="cursor-pointer text-xs font-semibold text-slate-700">Options avancées</summary>
-        <div className="mt-3 space-y-2">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-700">Options (agent, affinage, plan)</summary>
+        <div className="mt-3 space-y-3">
+          <div>
+            <label htmlFor="mission-create-agent" className="field-label">
+              Agent pilote
+            </label>
+            <select
+              id="mission-create-agent"
+              value={agent}
+              onChange={(e) => setAgent(e.target.value)}
+              className="field-input"
+            >
+              {agentOptions.map((a, i) => (
+                <option key={`${a.key}-${i}`} value={a.key}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </div>
           <label className="flex cursor-pointer items-start gap-2 text-xs">
             <input
               type="checkbox"
@@ -194,6 +193,12 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
             <input type="checkbox" checked={skipPlanHitl} onChange={(e) => setSkipPlanHitl(e.target.checked)} className="mt-0.5" />
             <span>Lancer sans pause sur le plan CIO (pas de validation HITL du plan)</span>
           </label>
+          <p className="text-xs text-slate-500">
+            Besoin d&apos;un cadrage pas-à-pas ?{" "}
+            <Link href="/missions?mode=guided" className="font-semibold text-violet-800 hover:underline">
+              Cadrage guidé
+            </Link>
+          </p>
         </div>
       </details>
 

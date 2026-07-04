@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
-
-export type MissionsHubView = "active" | "archives";
+export type MissionsHubView = "active" | "archives" | "guided";
 
 type Props = {
   view: MissionsHubView;
@@ -41,17 +39,20 @@ export default function MissionsHubToolbar({
         >
           Archives ({archivesCount})
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "guided"}
+          className={tabClass(view === "guided")}
+          onClick={() => onViewChange("guided")}
+        >
+          Cadrage guidé
+        </button>
       </div>
       <div className="flex flex-wrap gap-2">
         <button type="button" onClick={onToggleCreate} className="btn-primary px-3 py-2 text-xs">
-          {showCreate ? "Masquer le formulaire" : "Nouvelle mission"}
+          {showCreate ? "Masquer" : "Nouvelle mission"}
         </button>
-        <Link href="/mission/guided" className="btn-secondary px-3 py-2 text-xs">
-          Mission guidée
-        </Link>
-        <Link href="/chat" className="rounded-full px-3 py-2 text-xs font-semibold text-violet-800 ring-1 ring-violet-200 hover:bg-violet-50">
-          Chat libre
-        </Link>
       </div>
     </div>
   );

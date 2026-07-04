@@ -30,17 +30,22 @@ export default function DeliverableAccessHub({
   className = "",
   assets: assetsProp,
 }: Props) {
-  const assets = useMemo(
-    () =>
+  const assets = useMemo(() => {
+    const raw =
       assetsProp ||
       buildDeliverableAssets({
         jobId,
         deliverablesMarkdown,
         driveArtifacts,
         result,
-      }),
-    [assetsProp, jobId, deliverablesMarkdown, driveArtifacts, result],
-  );
+      });
+    const seen = new Set<string>();
+    return raw.filter((asset) => {
+      if (seen.has(asset.id)) return false;
+      seen.add(asset.id);
+      return true;
+    });
+  }, [assetsProp, jobId, deliverablesMarkdown, driveArtifacts, result]);
 
   const operational = assets.filter((a) => a.channel !== "linkedin" && a.channel !== "facebook" && a.channel !== "telegram");
   if (!operational.length) return null;

@@ -35,7 +35,7 @@ export default function InboxPage() {
         accent="amber"
         badge="Actions requises"
         title="Inbox dirigeant"
-        description="HITL, questions CIO, clôtures, qualité, apprentissage et approbations — triez, filtrez et agissez sans quitter cette page."
+        description="HITL, questions CIO, clôtures et approbations — une seule file pour toutes vos décisions."
         actions={
           <>
             <PageLink href="/briefing">Briefing</PageLink>

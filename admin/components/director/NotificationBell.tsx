@@ -107,6 +107,25 @@ export default function NotificationBell() {
     }
   };
 
+  const deleteNotification = async (id: string) => {
+    if (typeof window !== "undefined" && !window.confirm("Supprimer cette notification ?")) return;
+    setBusyId(id);
+    setActionError("");
+    try {
+      await requestJson(`/admin/notifications/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: agentHeaders(),
+        retries: 1,
+      });
+      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Impossible de supprimer la notification.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const markAllRead = async () => {
     setMarkAllBusy(true);
     setActionError("");
@@ -219,6 +238,7 @@ export default function NotificationBell() {
                     onNavigate={(href, mark) => void navigateFromNotification(n, href, mark)}
                     onMarkRead={() => void markRead(n.id)}
                     onCopyLink={onCopyLink}
+                    onDelete={() => void deleteNotification(n.id)}
                   />
                 ))
               )}

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentActivationBoard from "../../components/AgentActivationBoard";
-import AgentMindMap from "../../components/AgentMindMap";
 import CioResultPanel from "../../components/CioResultPanel";
 import CioQuestionsPanel from "../../components/CioQuestionsPanel";
 import MissionExecutiveBrief from "../../components/MissionExecutiveBrief";
@@ -25,13 +24,14 @@ import CioResumeLivePanel from "../../components/missions/CioResumeLivePanel";
 import MissionCreatePanel from "../../components/missions/MissionCreatePanel";
 import MissionsArchivesList from "../../components/missions/MissionsArchivesList";
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
+import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
-import { sortJobsForBossView } from "../../lib/missionBossView";
+import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
-import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
+import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
@@ -40,6 +40,15 @@ import { useJobDetail } from "../../lib/useJobDetail";
 import { useMissionActions } from "../../lib/useMissionActions";
 import { missionActionLabel, missionJobLine } from "../../lib/missionLabel";
 import { adaptivePollInterval } from "../../lib/korymbEvents";
+import {
+  BTN_DELETE,
+  collectMissionDeleteJobIds,
+  confirmDeleteMission,
+  clusterStillVisible,
+  deleteMissionJobBundle,
+  invalidateAfterMissionDelete,
+} from "../../lib/deleteMissionBundle";
+import { missionTitleLabel } from "../../lib/missionLabel";
 
 import type { Job } from "../../lib/types";
 
@@ -56,6 +65,7 @@ function MissionsContent() {
   const [mobileDetailPane, setMobileDetailPane] = useState<"fil" | "resultats">("resultats");
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [archiveDeleteBusy, setArchiveDeleteBusy] = useState(false);
+  const [deleteMissionBusyId, setDeleteMissionBusyId] = useState<string | null>(null);
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -77,7 +87,7 @@ function MissionsContent() {
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
   const missionRows = useMemo(
-    () => rows.filter((j) => String(j.source || "mission") !== "chat"),
+    () => dedupeMissionListJobs(rows.filter((j) => String(j.source || "mission") !== "chat")),
     [rows],
   );
   const sortedRows = useMemo(() => sortJobsForBossView(missionRows), [missionRows]);
@@ -86,7 +96,7 @@ function MissionsContent() {
   const latestChildByParent = useMemo(() => {
     const map = new Map<string, Job>();
     for (const j of rows) {
-      const pid = j.parent_job_id;
+      const pid = normalizeJobId(j.parent_job_id);
       if (!pid) continue;
       const existing = map.get(pid);
       if (!existing || (j.created_at ?? "") > (existing.created_at ?? "")) {
@@ -100,7 +110,12 @@ function MissionsContent() {
     if (j) setSelected(j);
   }, [searchParams]);
 
-  const hubView: MissionsHubView = searchParams.get("view") === "archives" ? "archives" : "active";
+  const hubView: MissionsHubView =
+    searchParams.get("mode") === "guided"
+      ? "guided"
+      : searchParams.get("view") === "archives"
+        ? "archives"
+        : "active";
 
   useEffect(() => {
     if (searchParams.get("create") === "quick") setShowCreatePanel(true);
@@ -110,10 +125,14 @@ function MissionsContent() {
 
   const setHubView = (view: MissionsHubView) => {
     const p = new URLSearchParams(searchParams.toString());
-    if (view === "archives") p.set("view", "archives");
-    else p.delete("view");
+    p.delete("view");
+    p.delete("mode");
     p.delete("create");
+    if (view === "archives") p.set("view", "archives");
+    else if (view === "guided") p.set("mode", "guided");
+    p.delete("job");
     router.replace(p.toString() ? `/missions?${p.toString()}` : "/missions");
+    setSelected(null);
   };
 
   const openMission = (jobId: string) => {
@@ -123,33 +142,61 @@ function MissionsContent() {
     router.replace(`/missions?${p.toString()}`);
   };
 
+  const deleteMissionBundle = async (primaryJobId: string, mission?: string | null) => {
+    if (!confirmDeleteMission(primaryJobId, mission)) return;
+    const jobIds = collectMissionDeleteJobIds(primaryJobId, rows);
+    setDeleteMissionBusyId(primaryJobId);
+    setError("");
+    setFeedback("");
+    try {
+      const count = await deleteMissionJobBundle(jobIds, rows);
+      invalidateAfterMissionDelete(qc);
+      await qc.refetchQueries({ queryKey: QK.jobsCards });
+
+      const fresh = (qc.getQueryData(QK.jobsCards) as Job[] | undefined) || [];
+      if (clusterStillVisible(fresh, primaryJobId)) {
+        throw new Error(
+          "La mission est encore visible après suppression. Redémarrez start-dev-cursor.ps1 (backend port 8020) puis réessayez.",
+        );
+      }
+
+      if (selected && jobIds.some((id) => normalizeJobId(id) === normalizeJobId(selected))) {
+        setSelected(null);
+        const p = new URLSearchParams(searchParams.toString());
+        p.delete("job");
+        const qs = p.toString();
+        router.replace(qs ? `/missions?${qs}` : "/missions");
+      }
+      const label = missionTitleLabel(mission, 80) || primaryJobId;
+      setFeedback(
+        count > 1
+          ? `« ${label} » supprimée (${count} occurrences effacées).`
+          : `Mission « ${label} » supprimée.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setFeedback("");
+    } finally {
+      setDeleteMissionBusyId(null);
+    }
+  };
+
   const deleteArchiveEntry = async (entry: HistoryEntry) => {
     const label =
       entry.type === "chat"
         ? `la conversation (${entry.jobIds.length} échange(s))`
         : `la mission « ${entry.title} »`;
-    if (typeof window !== "undefined" && !window.confirm(`Supprimer ${label} ?`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`Supprimer ${label} ?\n\nLe contenu disparaît définitivement de l'application.`)) return;
     setArchiveDeleteBusy(true);
     setError("");
     try {
-      for (const jobId of entry.jobIds) {
-        const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}`, {
-          method: "DELETE",
-          headers: agentHeaders(),
-          retries: 1,
-          timeoutMs: 60_000,
-          expectOk: false,
-        });
-        if (!res.ok) {
-          throw new Error(formatHttpApiErrorPayload(data) || `Suppression impossible (HTTP ${res.status})`);
-        }
-      }
+      await deleteMissionJobBundle(entry.jobIds, rows);
       if (selected && entry.jobIds.includes(selected)) {
         setSelected(null);
         router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
       }
       setFeedback(entry.type === "chat" ? "Conversation supprimée." : `Mission « ${entry.title} » supprimée.`);
-      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+      invalidateAfterMissionDelete(qc);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -415,8 +462,13 @@ function MissionsContent() {
         <MissionsHubToolbar
           view={hubView}
           onViewChange={setHubView}
-          showCreate={showCreatePanel}
+          showCreate={showCreatePanel && hubView === "active"}
           onToggleCreate={() => {
+            if (hubView !== "active") {
+              setHubView("active");
+              setShowCreatePanel(true);
+              return;
+            }
             setShowCreatePanel((v) => !v);
             const p = new URLSearchParams(searchParams.toString());
             p.delete("create");
@@ -426,7 +478,11 @@ function MissionsContent() {
           activeCount={sortedRows.length}
           archivesCount={archiveEntries.length}
         />
-        {showCreatePanel ? (
+        {hubView === "guided" ? (
+          <MissionGuidedPanel />
+        ) : (
+        <>
+        {showCreatePanel && hubView === "active" ? (
           <MissionCreatePanel
             onCreated={onMissionCreated}
             onCancel={() => {
@@ -472,8 +528,9 @@ function MissionsContent() {
               <MissionListCard
                 key={j.job_id}
                 job={j}
-                latestChild={latestChildByParent.get(j.job_id)}
+                latestChild={latestChildByParent.get(normalizeJobId(j.job_id))}
                 busy={busyId === j.job_id}
+                deleteBusy={deleteMissionBusyId === j.job_id}
                 onSelect={(id) => openMission(id)}
                 onValidate={(id) => {
                   const job = sortedRows.find((x) => x.job_id === id);
@@ -483,6 +540,7 @@ function MissionsContent() {
                   const job = sortedRows.find((x) => x.job_id === id);
                   void onCloseMission(id, job?.mission);
                 }}
+                onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
               />
             ))}
             {jobs.isSuccess && missionRows.length === 0 ? (
@@ -500,35 +558,29 @@ function MissionsContent() {
         )}
         </div>
         <section className="min-h-[200px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="space-y-4">
+            <div className="space-y-3 text-sm leading-relaxed text-slate-600">
               {hubView === "active" ? (
-                <>
-                  <AgentMindMap />
-                  <p className="text-xs text-slate-500 leading-relaxed">
-                    <strong className="text-slate-700">Opérationnel</strong> — missions à traiter en priorité. Le détail
-                    ouvre la synthèse décisionnelle et le fil CIO.
-                  </p>
-                </>
+                <p>
+                  <strong className="text-slate-800">Opérationnel</strong> — vos missions en cours. Cliquez une carte pour
+                  voir la synthèse et répondre au CIO.
+                </p>
               ) : (
-                <p className="text-sm leading-relaxed text-slate-600">
-                  <strong className="text-slate-800">Archives</strong> — tout l&apos;historique (missions, guidées,
-                  conversations liées). Ouvrez une entrée pour le détail ; supprimez pour nettoyer.
+                <p>
+                  <strong className="text-slate-800">Archives</strong> — historique complet. Ouvrez une entrée pour le
+                  détail ou supprimez pour nettoyer.
                 </p>
               )}
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Besoin d&apos;une conversation libre ?{" "}
-                <Link href="/chat" className="font-medium text-violet-800 hover:underline">
-                  Chat
-                </Link>
-                . Décisions urgentes ?{" "}
+              <p className="text-xs text-slate-400">
+                Décisions urgentes →{" "}
                 <Link href="/inbox" className="font-medium text-violet-800 hover:underline">
                   Inbox
                 </Link>
-                .
               </p>
             </div>
         </section>
       </div>
+        </>
+        )}
       </div>
       ) : (
       <div className="w-full min-w-0 space-y-3">
@@ -552,6 +604,16 @@ function MissionsContent() {
             ) : (
               <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
             )}
+            {selected ? (
+              <button
+                type="button"
+                disabled={Boolean(deleteMissionBusyId) || busyId === selected}
+                onClick={() => void deleteMissionBundle(String(selected), detail.data?.mission)}
+                className="ml-auto shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40"
+              >
+                {deleteMissionBusyId === selected ? "Suppression…" : "Supprimer la mission"}
+              </button>
+            ) : null}
           </div>
         </div>
         {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
@@ -878,8 +940,8 @@ function MissionsContent() {
               </div>
 
               <CollapsibleMissionSection
-                title="Carte d&apos;activation des agents"
-                hint="État des rôles et signaux temps réel — ouvrir si besoin"
+                title="Diagnostic technique"
+                hint="Agents, métriques, événements et journaux — pour le pilotage avancé uniquement"
                 defaultOpen={false}
               >
                 {activeBoardData ? (
@@ -891,14 +953,8 @@ function MissionsContent() {
                 ) : (
                   <p className="text-sm text-slate-500">Aucune donnée d&apos;activation pour l&apos;instant.</p>
                 )}
-              </CollapsibleMissionSection>
 
-              {!cioResumeLiveId ? (
-                <CollapsibleMissionSection
-                  title="Métriques et coûts (mission principale)"
-                  hint="Tokens, coût USD, volumétrie — utile pour le pilotage, pas pour chaque décision métier"
-                  defaultOpen={false}
-                >
+                {!cioResumeLiveId ? (
                   <MissionMetricsRow
                     status={String(detail.data.status || "")}
                     tokensTotal={Number(detail.data.tokens_total || 0)}
@@ -906,8 +962,66 @@ function MissionsContent() {
                     eventsTotal={Number(detail.data.events_total || 0)}
                     logTotal={Number(detail.data.log_total || 0)}
                   />
-                </CollapsibleMissionSection>
-              ) : null}
+                ) : null}
+
+                <MissionEventTimeline
+                  events={detail.data.events}
+                  title="Évolution entre agents"
+                  maxHeightClass="max-h-[min(28rem,55vh)]"
+                />
+
+                <div className="space-y-4 rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Équipe / agents</p>
+                    {normalizeTeamRows(detail.data.team).length ? (
+                      <ul className="space-y-2 text-sm text-slate-700">
+                        {normalizeTeamRows(detail.data.team).map((row, i) => (
+                          <li key={teamRowKey(row, i)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
+                            <span className="font-medium text-slate-800">{row.label || row.key}</span>
+                            {row.status ? <span className="text-xs text-violet-700"> · {row.status}</span> : null}
+                            {row.phase ? <span className="text-xs text-slate-500"> · {row.phase}</span> : null}
+                            {row.detail ? <p className="mt-0.5 text-xs text-slate-600">{row.detail}</p> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-slate-500">Pas de sous-agents sur cette mission.</p>
+                    )}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Événements</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                        {Number(detail.data.events_total || 0)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Lignes de log</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                        {Number(detail.data.log_total || 0)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Tokens</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                        {Number(detail.data.tokens_total || 0)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Coût (USD)</p>
+                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
+                        ${Number(detail.data.cost_usd || 0).toFixed(4)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Journal d&apos;exécution</p>
+                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                      {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
+                    </pre>
+                  </div>
+                </div>
+              </CollapsibleMissionSection>
 
               {!showDecisionRail && canResumeCio ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
@@ -971,77 +1085,6 @@ function MissionsContent() {
                   )}
                 </div>
               ) : null}
-              <CollapsibleMissionSection
-                title="Évolution entre agents (événements)"
-                hint="Qui a fait quoi entre agents — ouvrir pour le détail opérationnel"
-                defaultOpen={false}
-              >
-                <MissionEventTimeline
-                  events={detail.data.events}
-                  title="Évolution entre agents (événements)"
-                  suppressTitle
-                  maxHeightClass="max-h-[min(28rem,55vh)]"
-                />
-              </CollapsibleMissionSection>
-              <SimpleAccordion
-                key={selected || "none"}
-                className="rounded-2xl border border-slate-200 bg-slate-50/80 shadow-sm"
-                triggerClassName="cursor-pointer rounded-2xl px-4 py-3 hover:bg-slate-100/80"
-                title="Détail d&apos;exécution"
-                hint="Équipe, journaux bruts et rappel volumétrique — ouvrir pour le diagnostic technique"
-                defaultOpen={false}
-                panelClassName="space-y-4 border-t border-slate-200 px-4 py-4"
-              >
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Équipe / agents</p>
-                    {normalizeTeamRows(detail.data.team).length ? (
-                      <ul className="space-y-2 text-sm text-slate-700">
-                        {normalizeTeamRows(detail.data.team).map((row, i) => (
-                          <li key={teamRowKey(row, i)} className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5">
-                            <span className="font-medium text-slate-800">{row.label || row.key}</span>
-                            {row.status ? <span className="text-xs text-violet-700"> · {row.status}</span> : null}
-                            {row.phase ? <span className="text-xs text-slate-500"> · {row.phase}</span> : null}
-                            {row.detail ? <p className="mt-0.5 text-xs text-slate-600">{row.detail}</p> : null}
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-slate-500">Pas de sous-agents sur cette mission.</p>
-                    )}
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Événements</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
-                        {Number(detail.data.events_total || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Lignes de log</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
-                        {Number(detail.data.log_total || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Tokens</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
-                        {Number(detail.data.tokens_total || 0)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-center">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Coût (USD)</p>
-                      <p className="mt-1 text-lg font-semibold tabular-nums text-slate-900">
-                        ${Number(detail.data.cost_usd || 0).toFixed(4)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Journal d&apos;exécution</p>
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
-                      {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
-                    </pre>
-                  </div>
-              </SimpleAccordion>
             </div>
           ) : detail.isError ? (
             <div className="space-y-2">

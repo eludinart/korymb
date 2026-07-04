@@ -9,6 +9,7 @@ import {
   notificationShareUrl,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
+import { BTN_DELETE } from "../../lib/deleteMissionBundle";
 
 type Props = {
   notification: DirectorNotification;
@@ -16,6 +17,7 @@ type Props = {
   onNavigate: (href: string, markRead: boolean) => void;
   onMarkRead: () => void;
   onCopyLink: (url: string) => void;
+  onDelete: () => void;
 };
 
 export default function NotificationItemRow({
@@ -24,6 +26,7 @@ export default function NotificationItemRow({
   onNavigate,
   onMarkRead,
   onCopyLink,
+  onDelete,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -109,6 +112,15 @@ export default function NotificationItemRow({
           Marquer lu
         </button>
 
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onDelete()}
+          className={BTN_DELETE}
+        >
+          {busy ? "…" : "Supprimer"}
+        </button>
+
         <div className="relative">
           <button
             type="button"
@@ -181,6 +193,16 @@ export default function NotificationItemRow({
                     Copier l&apos;id mission
                   </button>
                 ) : null}
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left text-xs font-medium text-red-800 hover:bg-red-50"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDelete();
+                  }}
+                >
+                  Supprimer
+                </button>
               </div>
             </>
           ) : null}

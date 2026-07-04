@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
+import MissionContextBanner from "../../components/MissionContextBanner";
 import {
   addPendingChatJob,
   loadPendingChatJobs,
@@ -26,6 +27,11 @@ import { agentHeaders, requestJson } from "../../lib/api";
 import { toChatSurface } from "../../lib/chatSurface";
 import { fetchJobAgentKeys, type ChatJobDelivery } from "../../lib/chatJobAgents";
 import { buildMissionBriefFromChat } from "../../lib/chatMissionConvert";
+import {
+  confirmDeleteChatConversation,
+  deleteChatConversationJobs,
+} from "../../lib/deleteChatConversation";
+import { JOB_ID_MAX_LEN } from "../../lib/missionBossView";
 import { QK } from "../../lib/queryClient";
 
 function stripMarkdownPreview(text: string, max = 120): string {
@@ -65,9 +71,9 @@ function ChatPageInner() {
   const qc = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const linkedParentJobId = (searchParams.get("parent") || "").trim().slice(0, 16);
+  const linkedParentJobId = (searchParams.get("parent") || "").trim().slice(0, JOB_ID_MAX_LEN);
   const urlSessionId = (searchParams.get("session") || "").trim();
-  const highlightJobId = (searchParams.get("job") || "").trim().slice(0, 16);
+  const highlightJobId = (searchParams.get("job") || "").trim().slice(0, JOB_ID_MAX_LEN);
 
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -190,8 +196,19 @@ function ChatPageInner() {
   }, [activeId, messages, persistActiveConversation, refreshConversations, router]);
 
   const removeConversation = useCallback(
-    (id: string) => {
-      if (typeof window !== "undefined" && !window.confirm("Supprimer cette conversation ?")) return;
+    async (id: string) => {
+      if (!confirmDeleteChatConversation()) return;
+      const conv = loadConversations().find((c) => c.id === id);
+      const convMessages = id === activeId ? messages : (conv?.messages ?? []);
+      try {
+        await deleteChatConversationJobs(id, convMessages);
+        invalidateAfterMissionDelete(qc);
+      } catch (err) {
+        if (typeof window !== "undefined") {
+          window.alert(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
       deleteConversation(id);
       const remaining = loadConversations();
       const jobs = loadPendingChatJobs().filter((j) => j.conversationId !== id);
@@ -207,7 +224,7 @@ function ChatPageInner() {
         setBackgroundJobs(jobs);
       }
     },
-    [activeId, newConversation, refreshConversations, selectConversation],
+    [activeId, messages, newConversation, qc, refreshConversations, selectConversation],
   );
 
   useEffect(() => {
@@ -512,6 +529,11 @@ function ChatPageInner() {
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {linkedParentJobId ? (
+            <div className="shrink-0 border-b border-slate-100 px-3 py-2">
+              <MissionContextBanner jobId={linkedParentJobId} />
+            </div>
+          ) : null}
           <ChatShell
             messages={messages}
             draft={draft}

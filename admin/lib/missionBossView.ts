@@ -1,7 +1,100 @@
 import { stripMarkdownLight } from "./normalizeLooseMarkdown";
 import type { BossJobLike } from "@/lib/types";
 
-/** Vue « grand pilotage » : tri des missions et libellés de statut homogènes. */
+/** Identifiant job normalisé (64 car. max — ids type delivlib_merge_xxx). */
+export const JOB_ID_MAX_LEN = 64;
+
+export function normalizeJobId(id: string | null | undefined): string {
+  return String(id || "").trim().slice(0, JOB_ID_MAX_LEN);
+}
+
+/** Signature stable pour regrouper les relances identiques. */
+export function normalizeMissionSignature(mission: string | null | undefined): string {
+  const raw = stripMarkdownLight(String(mission || ""))
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  return raw.slice(0, 120);
+}
+
+type MissionClusterJob = BossJobLike & { agent?: string | null; mission?: string | null };
+
+function clusterIndex<T extends MissionClusterJob>(rows: T[]): {
+  byId: Map<string, T>;
+  ids: Set<string>;
+} {
+  const byId = new Map<string, T>();
+  for (const j of rows) {
+    const id = normalizeJobId(j.job_id);
+    if (id) byId.set(id, j);
+  }
+  return { byId, ids: new Set(byId.keys()) };
+}
+
+/**
+ * Clé de regroupement : chaîne parent/enfant, frères (même parent absent de la liste),
+ * ou relances identiques (même agent + même brief).
+ */
+export function missionClusterKey<T extends MissionClusterJob>(job: T, rows: T[]): string {
+  const { byId, ids } = clusterIndex(rows);
+  const self = normalizeJobId(job.job_id);
+  const parent = normalizeJobId(job.parent_job_id);
+
+  if (parent && parent !== self) {
+    if (ids.has(parent)) {
+      let cur = self;
+      let p = parent;
+      const seen = new Set<string>();
+      while (p && ids.has(p) && !seen.has(p)) {
+        seen.add(cur);
+        cur = p;
+        p = normalizeJobId(byId.get(cur)?.parent_job_id);
+      }
+      return `root:${cur}`;
+    }
+    return `parent:${parent}`;
+  }
+
+  const sig = normalizeMissionSignature(job.mission);
+  const agent = String(job.agent || "coordinateur").trim().toLowerCase();
+  return `sig:${agent}:${sig || self}`;
+}
+
+/** Regroupe les jobs d'un même dossier / relance et ne garde qu'une carte représentative. */
+export function dedupeMissionListJobs<T extends MissionClusterJob>(rows: T[]): T[] {
+  if (rows.length <= 1) return rows;
+
+  const groups = new Map<string, T[]>();
+  for (const j of rows) {
+    const key = missionClusterKey(j, rows);
+    const list = groups.get(key) || [];
+    list.push(j);
+    groups.set(key, list);
+  }
+
+  return [...groups.values()].map((group) => sortJobsForBossView(group)[0]);
+}
+
+/** @deprecated Utiliser dedupeMissionListJobs — conservé pour compatibilité interne. */
+export function filterRootMissionJobs<T extends MissionClusterJob>(rows: T[]): T[] {
+  return dedupeMissionListJobs(rows);
+}
+
+/** Tous les job_id d'un même cluster (suppression groupée). */
+export function collectMissionClusterJobIds<T extends MissionClusterJob>(
+  primaryJobId: string,
+  allJobs: T[],
+): string[] {
+  const primary = allJobs.find((j) => normalizeJobId(j.job_id) === normalizeJobId(primaryJobId));
+  if (!primary) return [normalizeJobId(primaryJobId)].filter(Boolean);
+
+  const key = missionClusterKey(primary, allJobs);
+  const ids = new Set<string>();
+  for (const j of allJobs) {
+    if (missionClusterKey(j, allJobs) === key) ids.add(normalizeJobId(j.job_id));
+  }
+  return [...ids];
+}
 
 export type { BossJobLike } from "@/lib/types";
 
@@ -49,6 +142,8 @@ export function sortJobsForBossView<T extends BossJobLike>(rows: T[]): T[] {
   return [...rows].sort((a, b) => {
     const d = score(a) - score(b);
     if (d !== 0) return d;
-    return String(b.job_id || "").localeCompare(String(a.job_id || ""));
+    const at = String(a.created_at || a.job_id || "");
+    const bt = String(b.created_at || b.job_id || "");
+    return bt.localeCompare(at);
   });
 }

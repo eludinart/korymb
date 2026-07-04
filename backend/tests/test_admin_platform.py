@@ -53,6 +53,32 @@ def test_admin_inbox_cio_question_exposes_questions(client):
     )
 
 
+def test_admin_inbox_dismiss_accepts_long_job_id(client):
+    long_id = "delivlib1_bc4fc7ca"
+    save_job(long_id, "coordinateur", "Mission id long", source="test")
+    update_job(
+        long_id,
+        "running",
+        None,
+        [],
+        0,
+        0,
+        events=[
+            {
+                "type": "cio_question",
+                "ts": "2026-01-01T00:00:00",
+                "payload": {"questions": ["Question long id ?"], "answered": False},
+            },
+        ],
+    )
+    dismiss = client.post(
+        "/admin/inbox/dismiss",
+        json={"kind": "cio_question", "job_id": long_id},
+    )
+    assert dismiss.status_code == 200
+    assert dismiss.json().get("dismiss_key") == f"cio_question:{long_id}"
+
+
 def test_admin_briefing(client):
     r = client.get("/admin/briefing?period=today")
     assert r.status_code == 200

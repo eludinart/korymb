@@ -501,16 +501,7 @@ export default function AgentWorkActivityBar() {
   }
 
   if (total === 0 && recentlyStopped.length === 0) {
-    return (
-      <div
-        className="flex items-center gap-2 rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-2.5 text-xs text-slate-500"
-        role="status"
-        aria-live="polite"
-      >
-        <span className="h-2 w-2 rounded-full bg-slate-300" aria-hidden />
-        Aucun agent en activité — chat et missions apparaîtront ici dès qu&apos;un travail démarre.
-      </div>
-    );
+    return null;
   }
 
   return (

@@ -114,10 +114,14 @@ export type JobRow = {
 /** Shape minimal pour le tri boss-view */
 export type BossJobLike = {
   job_id: string;
+  parent_job_id?: string | null;
+  agent?: string | null;
+  mission?: string | null;
   status?: string;
   user_validated_at?: string | null;
   mission_closed_by_user?: boolean;
   result?: string | null;
+  created_at?: string | null;
 };
 
 // ── Triade agentique ──────────────────────────────────────────────────────────

@@ -2,30 +2,33 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
-import { ADMIN_NAV_LINKS, isAdminLinkActive } from "../lib/adminNav";
+import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
 
-const NAV_PRIORITY = [
+const NAV_PRIMARY = [
   { href: "/briefing", label: "Briefing", priority: true },
   { href: "/inbox", label: "Inbox", priority: true },
   { href: "/missions", label: "Missions", priority: true },
   { href: "/chat", label: "Chat" },
+] as const;
+
+const NAV_MORE = [
   { href: "/livrables", label: "Livrables" },
-  { href: "/dashboard", label: "Métier" },
-  { href: "/administration/reprise", label: "Audit reprise", priority: true },
+  { href: "/dashboard", label: "Vue métier" },
   { href: "/configuration", label: "Configuration" },
   { href: "/administration", label: "Administration" },
-];
+] as const;
 
-const ADMIN_SUB = ADMIN_NAV_LINKS;
+function isNavActive(pathname: string, href: string) {
+  if (href === "/administration") {
+    return pathname === "/administration" || pathname.startsWith("/administration/");
+  }
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
-function isNavActive(pathname: string, href: string, adminActive: boolean) {
-  return (
-    pathname === href ||
-    (href !== "/administration" && pathname.startsWith(`${href}/`)) ||
-    (href === "/administration" && adminActive)
-  );
+function isMoreSectionActive(pathname: string) {
+  return NAV_MORE.some((item) => isNavActive(pathname, item.href));
 }
 
 function drawerLinkClass(active: boolean, priority?: boolean) {
@@ -49,28 +52,27 @@ function RepriseNavBadge({ count }: { count: number }) {
   );
 }
 
-function NavLabel({ item, gapCount }: { item: (typeof NAV_PRIORITY)[number]; gapCount: number }) {
-  if (item.href !== "/administration/reprise") return item.label;
-  return (
-    <>
-      {item.label}
-      <RepriseNavBadge count={gapCount} />
-    </>
-  );
+function adminHref(href: string) {
+  return href === "/administration" ? "/administration/dashboard" : href;
 }
 
 export default function AppNav() {
   const pathname = usePathname() || "";
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
+  const moreActive = isMoreSectionActive(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeMore = useCallback(() => setMoreOpen(false), []);
 
   useEffect(() => {
     closeMenu();
-  }, [pathname, closeMenu]);
+    closeMore();
+  }, [pathname, closeMenu, closeMore]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -81,70 +83,169 @@ export default function AppNav() {
     };
   }, [menuOpen]);
 
-  const navLinks = (
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
+
+  const moreLinks = (
     <>
-      {NAV_PRIORITY.map((item) => {
-        const active = isNavActive(pathname, item.href, adminActive);
+      {NAV_MORE.map((item) => {
+        const active = isNavActive(pathname, item.href);
+        const showRepriseBadge = item.href === "/administration" && repriseGapCount > 0;
         return (
           <Link
             key={item.href}
-            href={item.href === "/administration" ? "/administration/dashboard" : item.href}
-            onClick={closeMenu}
-            className={`${drawerLinkClass(active, item.priority)} inline-flex items-center`}
+            href={adminHref(item.href)}
+            onClick={() => {
+              closeMenu();
+              closeMore();
+            }}
+            className={`${drawerLinkClass(active)} inline-flex items-center`}
           >
-            <NavLabel item={item} gapCount={repriseGapCount} />
+            {item.label}
+            {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
           </Link>
         );
       })}
-      {adminActive ? (
-        <div className="mt-3 space-y-1 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
-          <p className="px-2 text-xs font-extrabold uppercase tracking-wider text-violet-700">Administration</p>
-          {ADMIN_SUB.map((item) => {
+    </>
+  );
+
+  const adminSubLinks = adminActive ? (
+    <div className="mt-3 space-y-3 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
+      {ADMIN_NAV_GROUPS.map((group) => (
+        <div key={group.id} className="space-y-1">
+          <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{group.label}</p>
+          {group.links.map((item) => {
             const active = isAdminLinkActive(pathname, item.href);
+            const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
             return (
-              <Link key={item.href} href={item.href} onClick={closeMenu} className={drawerLinkClass(active)}>
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={closeMenu}
+                className={`${drawerLinkClass(active)} inline-flex items-center text-sm`}
+              >
                 {item.label}
+                {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
               </Link>
             );
           })}
         </div>
-      ) : null}
+      ))}
+    </div>
+  ) : null;
+
+  const navLinks = (
+    <>
+      {NAV_PRIMARY.map((item) => {
+        const active = isNavActive(pathname, item.href);
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={closeMenu}
+            className={`${drawerLinkClass(active, item.priority)} inline-flex items-center`}
+          >
+            {item.label}
+          </Link>
+        );
+      })}
+      <p className="nav-drawer-link-idle px-2 pt-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+        Plus
+      </p>
+      {moreLinks}
+      {adminSubLinks}
     </>
   );
 
   return (
     <>
       <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 xl:flex">
-        <nav className="flex flex-wrap justify-end gap-2">
-          {NAV_PRIORITY.map((item) => {
-            const active = isNavActive(pathname, item.href, adminActive);
+        <nav className="flex flex-wrap items-center justify-end gap-2">
+          {NAV_PRIMARY.map((item) => {
+            const active = isNavActive(pathname, item.href);
             return (
-              <Link
-                key={item.href}
-                href={item.href === "/administration" ? "/administration/dashboard" : item.href}
-                className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}
-              >
-                <NavLabel item={item} gapCount={repriseGapCount} />
+              <Link key={item.href} href={item.href} className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}>
+                {item.label}
               </Link>
             );
           })}
+          <div className="relative" ref={moreRef}>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              className={`${desktopLinkClass(moreActive, false)} inline-flex items-center gap-1`}
+              aria-expanded={moreOpen}
+              aria-haspopup="menu"
+            >
+              Plus
+              <span className="text-[10px] opacity-70" aria-hidden>
+                ▾
+              </span>
+              {!moreActive && repriseGapCount > 0 ? <RepriseNavBadge count={repriseGapCount} /> : null}
+            </button>
+            {moreOpen ? (
+              <div
+                role="menu"
+                className="absolute right-0 z-50 mt-2 min-w-[12rem] rounded-2xl border border-slate-200 bg-white p-2 shadow-lg ring-1 ring-slate-100"
+              >
+                {NAV_MORE.map((item) => {
+                  const active = isNavActive(pathname, item.href);
+                  const showRepriseBadge = item.href === "/administration" && repriseGapCount > 0;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={adminHref(item.href)}
+                      role="menuitem"
+                      onClick={closeMore}
+                      className={`flex items-center rounded-xl px-3 py-2.5 text-sm font-semibold ${
+                        active ? "bg-violet-100 text-violet-900" : "text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      {item.label}
+                      {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
         </nav>
         {adminActive ? (
-          <nav className="flex flex-wrap justify-end gap-1.5 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
-            {ADMIN_SUB.map((item) => {
-              const active = isAdminLinkActive(pathname, item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`rounded-full px-2.5 py-1.5 font-bold ${
-                    active ? "bg-violet-100 text-violet-900 ring-1 ring-violet-200" : "text-slate-700 hover:bg-slate-100"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+          <nav className="flex max-w-full flex-wrap justify-end gap-x-3 gap-y-1 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
+            {ADMIN_NAV_GROUPS.map((group) => (
+              <div key={group.id} className="flex flex-wrap items-center gap-1">
+                <span className="font-bold text-slate-400">{group.label}:</span>
+                {group.links.map((item) => {
+                  const active = isAdminLinkActive(pathname, item.href);
+                  const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`inline-flex items-center rounded-full px-2.5 py-1.5 font-bold ${
+                        active ? "bg-violet-100 text-violet-900 ring-1 ring-violet-200" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      {item.label}
+                      {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         ) : null}
       </div>

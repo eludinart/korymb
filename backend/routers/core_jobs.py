@@ -101,15 +101,35 @@ class DeliverablesUiPut(BaseModel):
 
 
 def delete_job_impl(job_id: str) -> dict:
-    jid = (job_id or "").strip()[:16]
-    if not jid:
+    raw = (job_id or "").strip()[:64]
+    if not raw:
         raise HTTPException(status_code=400, detail="job_id manquant.")
-    from database import delete_job_cascade
 
-    delete_job_from_state(jid)
-    if not delete_job_cascade(jid):
+    from database import (
+        collect_job_delete_cluster_ids,
+        delete_job_cascade,
+        get_conn,
+        resolve_job_id,
+        _cluster_delete_order,
+    )
+
+    resolved = resolve_job_id(raw)
+    if not resolved:
         raise HTTPException(status_code=404, detail="Job introuvable.")
-    return {"deleted": jid}
+
+    cluster = collect_job_delete_cluster_ids(resolved)
+    if not cluster:
+        cluster = [resolved]
+
+    deleted: list[str] = []
+    for cid in _cluster_delete_order(cluster):
+        delete_job_from_state(cid)
+        if delete_job_cascade(cid):
+            deleted.append(cid)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    return {"deleted": resolved, "deleted_ids": deleted, "count": len(deleted)}
 
 
 def clear_jobs_impl() -> dict:
@@ -155,7 +175,7 @@ def validate_mission_by_user_impl(job_id: str) -> dict:
 
 def close_mission_by_user_impl(job_id: str) -> dict:
     """Clôture dirigeant : y compris mission bloquée en « running » (utiliser plutôt que validate-mission)."""
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
     row = db_get_job(jid)
@@ -716,7 +736,7 @@ def resume_paused_job(job_id: str):
 @router.put("/jobs/{job_id}/deliverables-ui", dependencies=[Depends(verify_secret)])
 def put_deliverables_ui(job_id: str, body: DeliverablesUiPut):
     """Notes dirigeant et acceptations par livrable (clé = agent, ex. commercial)."""
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
     out = merge_job_deliverables_ui(jid, body.agents or {})
@@ -739,7 +759,7 @@ def cio_answer(job_id: str, payload: dict):
     from datetime import datetime, timezone
 
     now = datetime.now(timezone.utc).isoformat()
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         raise HTTPException(status_code=400, detail="job_id manquant.")
 

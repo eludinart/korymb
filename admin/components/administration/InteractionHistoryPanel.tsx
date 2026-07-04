@@ -373,7 +373,7 @@ export default function InteractionHistoryPanel({
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                   <Link
-                    href={`/mission/guided?session=${encodeURIComponent(s.id)}`}
+                    href={`/missions?mode=guided&session=${encodeURIComponent(s.id)}`}
                     className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-white"
                   >
                     Ouvrir

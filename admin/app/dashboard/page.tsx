@@ -2,13 +2,21 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
+import {
+  BTN_DELETE,
+  collectMissionDeleteJobIds,
+  confirmDeleteMission,
+  deleteMissionJobBundle,
+  invalidateAfterMissionDelete,
+} from "../../lib/deleteMissionBundle";
+import { schedulerReject } from "../../lib/missionActions";
 import { normalizeTeamRows, type TeamRow } from "../../lib/jobTeam";
 import { QK } from "../../lib/queryClient";
 import { PageHeader, PageLink, PageShell } from "../../components/ui/PageChrome";
 
-import type { AgentCard, JobRow } from "../../lib/types";
+import type { AgentCard, Job, JobRow } from "../../lib/types";
 
 const AGENT_ICONS: Record<string, string> = {
   commercial: "💼",
@@ -84,7 +92,11 @@ function outputTypeLabel(t: string): string {
 }
 
 export default function DashboardPage() {
+  const qc = useQueryClient();
   const [agentPanelKey, setAgentPanelKey] = useState<string | null>(null);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [rejectBusyId, setRejectBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState("");
   const jobs = useQuery({
     queryKey: QK.jobsCards,
     queryFn: async () =>
@@ -113,6 +125,36 @@ export default function DashboardPage() {
   });
 
   const jobRows = useMemo(() => (jobs.data || []) as JobRow[], [jobs.data]);
+  const allJobs = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
+
+  const deleteMission = async (jobId: string, mission?: string | null) => {
+    if (!confirmDeleteMission(jobId, mission)) return;
+    setDeleteBusyId(jobId);
+    setActionError("");
+    try {
+      await deleteMissionJobBundle(collectMissionDeleteJobIds(jobId, allJobs), allJobs);
+      invalidateAfterMissionDelete(qc);
+      void pendingApprovals.refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleteBusyId(null);
+    }
+  };
+
+  const rejectOutput = async (outputId: string, title: string) => {
+    if (typeof window !== "undefined" && !window.confirm(`Rejeter « ${title || outputId} » ?`)) return;
+    setRejectBusyId(outputId);
+    setActionError("");
+    try {
+      await schedulerReject(outputId, "Rejeté depuis le dashboard métier");
+      void pendingApprovals.refetch();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRejectBusyId(null);
+    }
+  };
 
   const agentStatuses = useMemo(() => {
     const list = (agents.data || []) as AgentCard[];
@@ -157,18 +199,16 @@ export default function DashboardPage() {
       />
       <div className="flex flex-wrap gap-3">
         <Link href="/missions" className="btn-primary">
-          Hub Missions
+          Missions
         </Link>
-        <Link href="/mission/guided" className="btn-secondary">
-          Mission guidée
-        </Link>
-        <Link href="/configuration" className="btn-secondary">
-          Configuration
-        </Link>
-        <Link href="/administration/approbations" className="btn-amber">
-          Approbations
+        <Link href="/inbox" className="btn-secondary">
+          Inbox
         </Link>
       </div>
+
+      {actionError ? (
+        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>
+      ) : null}
 
       <section
         className={`rounded-2xl border p-5 ${
@@ -241,6 +281,14 @@ export default function DashboardPage() {
                     <span className="text-[10px] uppercase text-slate-400">{o.target_platform}</span>
                   ) : null}
                   {dateStr ? <span className="text-[11px] text-slate-400">{dateStr}</span> : null}
+                  <button
+                    type="button"
+                    disabled={rejectBusyId === o.id}
+                    onClick={() => void rejectOutput(o.id, o.title)}
+                    className={BTN_DELETE}
+                  >
+                    {rejectBusyId === o.id ? "…" : "Rejeter"}
+                  </button>
                 </li>
               );
             })}
@@ -365,12 +413,22 @@ export default function DashboardPage() {
                             ) : null}
                           </p>
                         </div>
-                        <Link
-                          href={`/missions?job=${encodeURIComponent(job.job_id)}`}
-                          className="shrink-0 text-xs font-medium text-violet-800 hover:underline"
-                        >
-                          Suivi complet →
-                        </Link>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Link
+                            href={`/missions?job=${encodeURIComponent(job.job_id)}`}
+                            className="text-xs font-medium text-violet-800 hover:underline"
+                          >
+                            Suivi →
+                          </Link>
+                          <button
+                            type="button"
+                            disabled={deleteBusyId === job.job_id}
+                            onClick={() => void deleteMission(job.job_id, job.mission)}
+                            className={BTN_DELETE}
+                          >
+                            {deleteBusyId === job.job_id ? "…" : "Supprimer"}
+                          </button>
+                        </div>
                       </div>
                       <div className="mt-2 space-y-1.5 text-xs text-slate-700">
                         {inv.primary ? (

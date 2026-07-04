@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import {
   AlertBox,
@@ -12,13 +13,28 @@ import {
   SectionCard,
   StatCard,
 } from "../../components/ui/PageChrome";
+import {
+  BTN_DELETE,
+  collectMissionDeleteJobIds,
+  confirmDeleteMission,
+  deleteMissionJobBundle,
+  invalidateAfterMissionDelete,
+} from "../../lib/deleteMissionBundle";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { missionTitleLabel } from "../../lib/missionLabel";
+import { QK } from "../../lib/queryClient";
+
+import type { Job } from "../../lib/types";
 
 function isMariaDbTunnelError(message: string) {
   return /mariadb_tunnel_required/i.test(message);
 }
 
 export default function BriefingPage() {
+  const qc = useQueryClient();
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+
   const briefing = useQuery({
     queryKey: ["admin-briefing"],
     queryFn: async () =>
@@ -28,9 +44,34 @@ export default function BriefingPage() {
     refetchOnWindowFocus: false,
   });
 
+  const jobs = useQuery({
+    queryKey: QK.jobsCards,
+    queryFn: async () => {
+      const { data } = await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 30_000 });
+      return ((data as { jobs?: Job[] })?.jobs || []) as Job[];
+    },
+    staleTime: 20_000,
+  });
+
   const b = briefing.data;
   const hitlCount = Number(b?.hitl_pending_count ?? 0);
   const inboxTotal = Number(b?.inbox_total ?? 0);
+  const jobRows = jobs.data || [];
+
+  const deleteMission = async (jobId: string, mission?: string) => {
+    if (!confirmDeleteMission(jobId, mission)) return;
+    setDeleteBusyId(jobId);
+    setDeleteError("");
+    try {
+      await deleteMissionJobBundle(collectMissionDeleteJobIds(jobId, jobRows), jobRows);
+      invalidateAfterMissionDelete(qc);
+      void briefing.refetch();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleteBusyId(null);
+    }
+  };
 
   return (
     <PageShell size="wide">
@@ -38,7 +79,7 @@ export default function BriefingPage() {
         accent="violet"
         badge="Cockpit dirigeant"
         title="Briefing du jour"
-        description="Vue exécutive : budget, missions en cours et liens vers vos files de décision."
+        description="Votre journée en un coup d'œil : décisions en attente, budget et missions actives."
         actions={
           <>
             <PageLink href="/inbox">Inbox {inboxTotal > 0 ? `(${inboxTotal})` : ""}</PageLink>
@@ -48,6 +89,12 @@ export default function BriefingPage() {
           </>
         }
       />
+
+      {deleteError ? (
+        <AlertBox tone="error" title="Suppression impossible">
+          {deleteError}
+        </AlertBox>
+      ) : null}
 
       {briefing.isLoading ? <LoadingLine /> : null}
       {briefing.isError ? (
@@ -69,16 +116,19 @@ export default function BriefingPage() {
 
       {b ? (
         <>
-          <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <section className="grid gap-3 sm:grid-cols-3">
             <StatCard label="Actions inbox" value={inboxTotal} tone={inboxTotal > 0 ? "urgent" : "default"} />
             <StatCard
-              label="HITL en attente"
+              label="Validations requises"
               value={hitlCount}
               tone={hitlCount > 0 ? "warn" : "ok"}
               hint={hitlCount > 0 ? "Décision requise" : undefined}
             />
-            <StatCard label="Clôtures pending" value={b.closures_pending_count ?? 0} tone="info" />
-            <StatCard label="Approbations" value={b.scheduler_pending_count ?? 0} tone="info" />
+            <StatCard
+              label="Missions en cours"
+              value={(b.missions_running || []).length}
+              tone="info"
+            />
           </section>
 
           <SectionCard title="Budget IA" tone={b.budget?.budget_exceeded || b.budget?.alert ? "alert" : "budget"}>
@@ -105,11 +155,26 @@ export default function BriefingPage() {
                 <li className="text-muted-strong">Aucune mission en cours.</li>
               ) : (
                 (b.missions_running || []).map((m: { job_id: string; mission?: string }) => (
-                  <li key={m.job_id} className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-base font-bold text-slate-900">{m.mission || m.job_id}</span>
-                    <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary shrink-0">
-                      Ouvrir mission
-                    </Link>
+                  <li
+                    key={m.job_id}
+                    className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span className="min-w-0 text-base font-bold text-slate-900">
+                      {missionTitleLabel(m.mission, 100) || m.job_id}
+                    </span>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary">
+                        Ouvrir
+                      </Link>
+                      <button
+                        type="button"
+                        disabled={deleteBusyId === m.job_id}
+                        onClick={() => void deleteMission(m.job_id, m.mission)}
+                        className={BTN_DELETE}
+                      >
+                        {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
+                      </button>
+                    </div>
                   </li>
                 ))
               )}

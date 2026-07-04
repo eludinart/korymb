@@ -4,16 +4,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from auth import verify_secret
 from database import (
+    JOB_ID_MAX_LEN,
     get_conn,
     get_learning_suggestion,
     dismiss_inbox_item,
     list_director_notifications,
     mark_all_director_notifications_read,
     mark_director_notification_read,
+    delete_director_notification,
     resolve_learning_suggestion,
 )
 from services.director_platform import build_briefing, build_enriched_inbox
@@ -29,9 +31,17 @@ class LearningResolveBody(BaseModel):
 class InboxDismissBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: str = Field(..., min_length=1, max_length=32)
-    job_id: str | None = Field(None, max_length=16)
+    job_id: str | None = Field(None, max_length=JOB_ID_MAX_LEN)
     output_id: str | None = Field(None, max_length=64)
     suggestion_id: str | None = Field(None, max_length=64)
+
+    @field_validator("job_id", mode="before")
+    @classmethod
+    def _normalize_job_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()[:JOB_ID_MAX_LEN]
+        return normalized or None
 
 
 class RepriseAuditBody(BaseModel):
@@ -204,6 +214,13 @@ def admin_notification_mark_read(notif_id: str):
 def admin_notifications_mark_all_read():
     n = mark_all_director_notifications_read()
     return {"marked": n}
+
+
+@router.delete("/admin/notifications/{notif_id}", dependencies=[Depends(verify_secret)])
+def admin_notification_delete(notif_id: str):
+    if not delete_director_notification(notif_id):
+        raise HTTPException(status_code=404, detail="Notification introuvable.")
+    return {"deleted": notif_id}
 
 
 @router.post("/admin/learning-suggestions/{suggestion_id}/resolve", dependencies=[Depends(verify_secret)])

@@ -33,6 +33,41 @@ MISSION_THREAD_JSON_MAX_BYTES = 14_000_000
 load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
 
+# Les ids jobs peuvent dépasser 16 car. (ex. delivlib_merge_<hex> en tests / prod).
+JOB_ID_MAX_LEN = 64
+
+
+def _norm_job_id(job_id: str | None) -> str:
+    return (job_id or "").strip()[:JOB_ID_MAX_LEN]
+
+
+def resolve_job_id(job_id: str | None) -> str | None:
+    """Résout l'id canonique en base (id complet, sans troncature legacy 16 car.)."""
+    raw = (job_id or "").strip()
+    if not raw:
+        return None
+    candidates: list[str] = []
+    for c in (raw[:JOB_ID_MAX_LEN], raw):
+        if c and c not in candidates:
+            candidates.append(c)
+    with get_conn() as conn:
+        for cand in candidates:
+            row = conn.execute("SELECT id FROM jobs WHERE id=?", (cand,)).fetchone()
+            if row:
+                rid = str(dict(row).get("id") or cand).strip()[:JOB_ID_MAX_LEN]
+                return rid or None
+        prefix = raw[: min(len(raw), 48)]
+        if len(prefix) >= 8:
+            len_fn = "CHAR_LENGTH(id)" if _is_mariadb() else "LENGTH(id)"
+            row = conn.execute(
+                f"SELECT id FROM jobs WHERE id LIKE ? ORDER BY {len_fn} ASC LIMIT 1",
+                (prefix + "%",),
+            ).fetchone()
+            if row:
+                rid = str(dict(row).get("id") or "").strip()[:JOB_ID_MAX_LEN]
+                return rid or None
+    return None
+
 
 def _is_mariadb() -> bool:
     return DB_ENGINE in {"mariadb", "mysql"}
@@ -379,6 +414,13 @@ def _ensure_platform_tables(conn) -> None:
             dismiss_key {text_pk} PRIMARY KEY,
             kind TEXT NOT NULL,
             ref_id TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS library_dismissals (
+            item_hash {text_pk} PRIMARY KEY,
+            item_id TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
     """)
@@ -952,7 +994,7 @@ def log_llm_usage_event(
             "tokens_in, tokens_out, cost_usd) VALUES (?,?,?,?,?,?,?,?,?)",
             (
                 now,
-                (job_id or "")[:16] or None,
+                _norm_job_id(job_id) or None,
                 (context_label or "")[:120],
                 (tier or "")[:32],
                 (model or "")[:200],
@@ -1084,7 +1126,7 @@ def save_job(
 ):
     now = datetime.utcnow().isoformat()
     cfg_json = json.dumps(mission_config if isinstance(mission_config, dict) else {}, ensure_ascii=False)
-    parent = (parent_job_id or "").strip()[:16] or None
+    parent = _norm_job_id(parent_job_id) or None
     session_id = (chat_session_id or "").strip()[:64] or None
     with get_conn() as conn:
         conn.execute(
@@ -1382,8 +1424,11 @@ def insert_mission_trace(
 
 
 def get_job(job_id: str) -> dict | None:
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid:
+        return None
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        row = conn.execute("SELECT * FROM jobs WHERE id=?", (jid,)).fetchone()
     if not row:
         return None
     return _hydrate_job_row(dict(row))
@@ -1394,7 +1439,7 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
     Fusionne des métadonnées UI par agent (notes dirigeant, date d'acceptation livrable).
     Clés d'agent autorisées : alphanum + underscore, max 48 chars.
     """
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         return None
     row = get_job(jid)
@@ -1432,7 +1477,7 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
 
 def append_job_drive_artifacts(job_id: str, artifacts: list[dict[str, Any]] | None) -> dict | None:
     """Ajoute des fichiers Drive exportés automatiquement au job."""
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid or not artifacts:
         return get_job(jid) if jid else None
     row = get_job(jid)
@@ -1454,7 +1499,7 @@ def append_job_drive_artifacts(job_id: str, artifacts: list[dict[str, Any]] | No
 
 def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | None:
     """Dernier job `source=chat` rattaché au parent (suite CIO). Utilisé pour l’UI du job mission."""
-    pid = (parent_job_id or "").strip()[:16]
+    pid = _norm_job_id(parent_job_id)
     if not pid:
         return None
     with get_conn() as conn:
@@ -1618,7 +1663,7 @@ def job_close_mission_by_user(job_id: str) -> bool:
     Clôture explicite par le dirigeant (mission considérée terminée).
     Autorise une mission encore « running » ou en erreur : fige le statut en completed + horodatage.
     """
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         return False
     now = datetime.utcnow().isoformat()
@@ -2515,7 +2560,7 @@ def link_autonomous_output_job(output_id: str, job_id: str) -> dict | None:
     with get_conn() as conn:
         conn.execute(
             "UPDATE autonomous_outputs SET job_id=?, updated_at=? WHERE id=?",
-            (job_id[:16], now, output_id),
+            (_norm_job_id(job_id), now, output_id),
         )
         conn.commit()
     return get_autonomous_output(output_id)
@@ -2539,9 +2584,11 @@ def count_autonomous_runs_today(task_id: str) -> int:
 
 def delete_job_cascade(job_id: str) -> bool:
     """Supprime un job et les enregistrements liés (traces, notifications, etc.)."""
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     if not jid:
         return False
+    resolved = resolve_job_id(jid) or jid
+    jid = resolved
     with get_conn() as conn:
         row = conn.execute("SELECT id FROM jobs WHERE id=?", (jid,)).fetchone()
         if not row:
@@ -2569,6 +2616,113 @@ def delete_job_cascade(job_id: str) -> bool:
     return True
 
 
+def _mission_signature(mission: str | None, agent: str | None) -> tuple[str, str]:
+    agent_k = (agent or "coordinateur").strip().lower()
+    sig = " ".join(str(mission or "").split()).lower()[:120]
+    return agent_k, sig
+
+
+def _cluster_delete_order(job_ids: list[str]) -> list[str]:
+    """Enfants avant parents pour éviter les jobs orphelins."""
+    id_set = set(job_ids)
+    is_parent: dict[str, bool] = {}
+    with get_conn() as conn:
+        for jid in job_ids:
+            rows = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (jid,)).fetchall()
+            is_parent[jid] = any(_norm_job_id(dict(r).get("id")) in id_set for r in rows or [])
+    return sorted(job_ids, key=lambda x: is_parent.get(x, False))
+
+
+def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
+    """
+    Tous les jobs liés à supprimer ensemble : continuations, frères, relances identiques.
+    Parcourt la base entière (pas seulement la fenêtre UI /jobs/cards).
+    """
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid:
+        return []
+
+    primary = get_job(jid)
+    if not primary:
+        return [jid]
+
+    ids: set[str] = set()
+    agent = str(primary.get("agent") or "coordinateur").strip()
+    mission = str(primary.get("mission") or "").strip()
+    agent_k, sig = _mission_signature(mission, agent)
+
+    with get_conn() as conn:
+        if mission:
+            rows = conn.execute(
+                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=? AND mission=?",
+                (agent, mission),
+            ).fetchall()
+            for row in rows or []:
+                rid = _norm_job_id(dict(row).get("id"))
+                if rid:
+                    ids.add(rid)
+
+        if sig:
+            rows2 = conn.execute(
+                "SELECT id, mission, agent, parent_job_id FROM jobs WHERE agent=?",
+                (agent,),
+            ).fetchall()
+            for row in rows2 or []:
+                d = dict(row)
+                a2, s2 = _mission_signature(d.get("mission"), d.get("agent"))
+                if a2 == agent_k and s2 == sig:
+                    rid = _norm_job_id(d.get("id"))
+                    if rid:
+                        ids.add(rid)
+
+        def add_descendants(parent: str) -> None:
+            children = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (parent,)).fetchall()
+            for child in children or []:
+                cid = _norm_job_id(dict(child).get("id"))
+                if cid and cid not in ids:
+                    ids.add(cid)
+                    add_descendants(cid)
+
+        cur_id = jid
+        seen_up: set[str] = set()
+        while cur_id and cur_id not in seen_up:
+            seen_up.add(cur_id)
+            ids.add(cur_id)
+            row = conn.execute("SELECT parent_job_id FROM jobs WHERE id=?", (cur_id,)).fetchone()
+            if not row:
+                break
+            pid = _norm_job_id(dict(row).get("parent_job_id"))
+            if not pid or pid == cur_id:
+                break
+            cur_id = pid
+            ids.add(cur_id)
+
+        parent_of_primary = _norm_job_id(primary.get("parent_job_id"))
+        if parent_of_primary:
+            sibs = conn.execute("SELECT id FROM jobs WHERE parent_job_id=?", (parent_of_primary,)).fetchall()
+            for sib in sibs or []:
+                sid = _norm_job_id(dict(sib).get("id"))
+                if sid:
+                    ids.add(sid)
+
+        for start in list(ids):
+            add_descendants(start)
+
+    return _cluster_delete_order([x for x in ids if x])
+
+
+def delete_job_cluster(job_id: str) -> list[str]:
+    """Supprime le job et tout son cluster ; retourne les ids effectivement effacés."""
+    cluster = collect_job_delete_cluster_ids(job_id)
+    if not cluster:
+        cluster = [_norm_job_id(job_id)]
+    deleted: list[str] = []
+    for cid in _cluster_delete_order(cluster):
+        if delete_job_cascade(cid):
+            deleted.append(cid)
+    return deleted
+
+
 def make_inbox_dismiss_key(
     kind: str,
     *,
@@ -2577,7 +2731,7 @@ def make_inbox_dismiss_key(
     suggestion_id: str | None = None,
 ) -> str:
     k = (kind or "").strip()
-    jid = (job_id or "").strip()[:16]
+    jid = _norm_job_id(job_id)
     oid = (output_id or "").strip()[:64]
     sid = (suggestion_id or "").strip()[:64]
     if k in ("hitl", "cio_question", "closure", "quality") and jid:
@@ -2634,7 +2788,7 @@ def dismiss_inbox_item(
             )
         conn.commit()
     if kind == "cio_question" and (job_id or "").strip():
-        mark_cio_questions_dismissed((job_id or "").strip()[:16])
+        mark_cio_questions_dismissed(_norm_job_id(job_id))
     return {"dismissed": True, "dismiss_key": key}
 
 
@@ -2825,6 +2979,68 @@ def list_jobs_list_light(limit: int = 50) -> list[dict]:
     return [dict(row) for row in rows or []]
 
 
+def _library_item_hash(item_id: str) -> str:
+    import hashlib
+
+    return hashlib.sha256((item_id or "").strip().encode("utf-8")).hexdigest()
+
+
+def list_library_dismissed_item_ids() -> set[str]:
+    with get_conn() as conn:
+        rows = conn.execute("SELECT item_id FROM library_dismissals").fetchall()
+    out: set[str] = set()
+    for row in rows or []:
+        if isinstance(row, dict):
+            item_id = str(row.get("item_id") or "").strip()
+        else:
+            item_id = str(row[0] if row else "").strip()
+        if item_id:
+            out.add(item_id)
+    return out
+
+
+def list_library_dismissed_group_ids() -> set[str]:
+    """Masquages persistants au niveau carte regroupée uniquement."""
+    return {iid for iid in list_library_dismissed_item_ids() if iid.startswith("group:")}
+
+
+def prune_legacy_library_member_dismissals() -> int:
+    """Supprime les masquages membre (ancien format trop agressif) — garde les group:."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "DELETE FROM library_dismissals WHERE item_id NOT LIKE ?",
+            ("group:%",),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def dismiss_library_item(item_id: str) -> dict:
+    """Masque un livrable de la bibliothèque (sans supprimer le job source)."""
+    iid = (item_id or "").strip()
+    if not iid:
+        raise ValueError("item_id requis")
+    if len(iid) > 2000:
+        raise ValueError("item_id trop long")
+    key = _library_item_hash(iid)
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        if _is_mariadb():
+            conn.execute(
+                "INSERT INTO library_dismissals (item_hash, item_id, created_at) VALUES (?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)",
+                (key, iid, now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO library_dismissals (item_hash, item_id, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(item_hash) DO UPDATE SET created_at = excluded.created_at",
+                (key, iid, now),
+            )
+        conn.commit()
+    return {"dismissed": True, "item_id": iid}
+
+
 def list_deliverables_library_rows(limit: int = 200) -> list[dict]:
     """Jobs terminés avec livrables Drive ou blocs LIVRABLE."""
     lim = max(1, min(int(limit), 400))
@@ -2974,6 +3190,16 @@ def mark_all_director_notifications_read() -> int:
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def delete_director_notification(notif_id: str) -> bool:
+    nid = (notif_id or "").strip()
+    if not nid:
+        return False
+    with get_conn() as conn:
+        cur = conn.execute("DELETE FROM director_notifications WHERE id=?", (nid,))
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
 def insert_hitl_plan_snapshot(job_id: str, plan: dict, *, source: str = "hitl_gate") -> dict:

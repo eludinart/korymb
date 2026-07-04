@@ -1,4 +1,9 @@
 import { stripMarkdownLight } from "./normalizeLooseMarkdown";
+import {
+  collectMissionClusterJobIds,
+  dedupeMissionListJobs,
+  missionClusterKey,
+} from "./missionBossView";
 
 import type { Job } from "./types";
 
@@ -48,28 +53,33 @@ function compact(text: string, max = 110): string {
 export function buildHistoryEntries(jobs: Job[]): HistoryEntry[] {
   const out: HistoryEntry[] = [];
   const chatGroups = new Map<string, Job[]>();
+  const missionLike = jobs.filter((j) => detectHistoryItemType(j) !== "chat");
+  const missionReps = dedupeMissionListJobs(missionLike);
+
+  for (const j of missionReps) {
+    const type = detectHistoryItemType(j);
+    const clusterIds = collectMissionClusterJobIds(j.job_id, missionLike);
+    const title = compact(j.mission || "", 85) || "(sans titre)";
+    const quickInfo =
+      type === "mission_guidee"
+        ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
+        : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
+    const source = String((j as Job & { source?: string }).source || "");
+    const testHint =
+      source === "test" || /^pytest\d*$/i.test(j.job_id) || j.job_id.startsWith("cioans") ? " · test auto" : "";
+    const relaunchHint = clusterIds.length > 1 ? ` · ${clusterIds.length} relances` : "";
+    out.push({
+      id: `cluster:${missionClusterKey(j, missionLike)}`,
+      type,
+      title,
+      quickInfo: quickInfo + testHint + relaunchHint,
+      displayJobId: j.job_id,
+      jobIds: clusterIds,
+    });
+  }
 
   for (const j of jobs) {
-    const type = detectHistoryItemType(j);
-    if (type !== "chat") {
-      const title = compact(j.mission || "", 85) || "(sans titre)";
-      const quickInfo =
-        type === "mission_guidee"
-          ? compact(`Issue d'une session de cadrage · ${j.status || "—"}`, 85)
-          : compact(`Agent ${j.agent || "coordinateur"} · ${j.status || "—"}`, 75);
-      const source = String((j as Job & { source?: string }).source || "");
-      const testHint =
-        source === "test" || /^pytest\d*$/i.test(j.job_id) || j.job_id.startsWith("cioans") ? " · test auto" : "";
-      out.push({
-        id: `job:${j.job_id}`,
-        type,
-        title,
-        quickInfo: quickInfo + testHint,
-        displayJobId: j.job_id,
-        jobIds: [j.job_id],
-      });
-      continue;
-    }
+    if (detectHistoryItemType(j) !== "chat") continue;
     const chatSessionId = String(j.chat_session_id || "").trim() || j.job_id;
     const key = `chat:${chatSessionId}`;
     const list = chatGroups.get(key) || [];

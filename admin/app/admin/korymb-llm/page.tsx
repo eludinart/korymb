@@ -171,6 +171,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   const [modelQuickBusy, setModelQuickBusy] = useState(false);
   const [tiersDisableBusy, setTiersDisableBusy] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [configMode, setConfigMode] = useState<"essential" | "expert">("essential");
   const [tiersDraft, setTiersDraft] = useState("");
 
   const [providerDraft, setProviderDraft] = useState<LlmProvider>("mistral");
@@ -193,6 +194,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
   const savedTiersActive = Boolean(tierRouting.tiers && Object.keys(tierRouting.tiers).length > 0);
   const tiersDraftNonEmpty = Boolean(tiersDraft.trim());
   const tierRoutingRelevant = savedTiersActive || tiersDraftNonEmpty;
+  const expertMode = configMode === "expert";
 
   useEffect(() => {
     if (!data) return;
@@ -345,10 +347,12 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
     const pout = priceOut.trim();
     if (pin) body.llm_price_input_per_million_usd = parseFloat(pin);
     if (pout) body.llm_price_output_per_million_usd = parseFloat(pout);
-    const tiersPayload =
-      tiersDraft.trim() ||
-      (prov === "mistral" ? defaultMistralTiersJson() : "");
-    body.llm_tiers_json = tiersPayload;
+    if (expertMode) {
+      const tiersPayload =
+        tiersDraft.trim() ||
+        (prov === "mistral" ? defaultMistralTiersJson() : "");
+      body.llm_tiers_json = tiersPayload;
+    }
     try {
       const r = await fetch("/api/korymb-admin", {
         method: "PUT",
@@ -376,8 +380,30 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
 
   return (
     <div className="max-w-4xl space-y-6 pb-28">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Configuration LLM</h1>
+      <header className="space-y-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Configuration LLM</h1>
+          <div className="flex rounded-full border border-slate-200 bg-slate-100 p-1" role="group" aria-label="Niveau de configuration">
+            <button
+              type="button"
+              onClick={() => setConfigMode("essential")}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                !expertMode ? "bg-white text-violet-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Essentiel
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfigMode("expert")}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold ${
+                expertMode ? "bg-white text-violet-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Expert
+            </button>
+          </div>
+        </div>
         {showLegacyHint ? (
           <p className="text-xs text-slate-500">
             Entrée principale :{" "}
@@ -387,9 +413,9 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
           </p>
         ) : null}
         <p className="max-w-2xl text-sm text-slate-600">
-          Les réglages enregistrés ici sont persistés en base (dev et prod) et remplacent le{" "}
-          <code className="rounded bg-slate-100 px-1 font-mono text-xs">.env</code> pour le fournisseur, les modèles et les paliers.
-          Laisse les champs de clé vides pour ne pas les remplacer.
+          {expertMode
+            ? "Réglages complets : paliers de réflexion, URLs, coûts estimés et JSON avancé."
+            : "L’essentiel : fournisseur, modèle et clé API. Le reste reste accessible en mode Expert."}
         </p>
       </header>
 
@@ -545,7 +571,7 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                 activeProvider={providerDraft}
               />
             </div>
-            {tierRoutingRelevant ? (
+            {tierRoutingRelevant && expertMode ? (
               <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 text-xs leading-relaxed text-slate-600">
@@ -567,8 +593,35 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
                 </div>
               </div>
             ) : null}
+            {!expertMode && savedTiersActive ? (
+              <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-600 sm:px-6">
+                Routage par paliers actif — basculez en mode Expert pour modifier.
+              </div>
+            ) : null}
+            {!expertMode ? (
+              <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
+                <label className={`${labelClass} mb-1.5 block`} htmlFor="essential_api_key">
+                  Clé API {providerDraft === "mistral" ? "Mistral" : providerDraft === "anthropic" ? "Anthropic" : "OpenRouter"}
+                </label>
+                <input
+                  id="essential_api_key"
+                  name={
+                    providerDraft === "mistral"
+                      ? "mistral_api_key"
+                      : providerDraft === "anthropic"
+                        ? "anthropic_api_key"
+                        : "openrouter_api_key"
+                  }
+                  type="password"
+                  autoComplete="off"
+                  placeholder="Laisser vide pour conserver la clé actuelle"
+                  className={`${inputClass} font-mono`}
+                />
+              </div>
+            ) : null}
           </section>
 
+          {expertMode ? (
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             {providerDraft === "anthropic" ? (
               <div className="space-y-5">
@@ -769,7 +822,9 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
               </div>
             )}
           </section>
+          ) : null}
 
+          {expertMode ? (
           <section className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/40">
             <button
               type="button"
@@ -912,10 +967,15 @@ export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
               </div>
             ) : null}
           </section>
+          ) : null}
 
           <div className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pb-safe sm:px-6">
             <div className="pointer-events-auto flex w-full max-w-4xl flex-col gap-2 rounded-2xl border border-slate-200/80 bg-white/95 p-3 shadow-lg shadow-slate-900/10 backdrop-blur-md sm:flex-row sm:items-center sm:justify-between sm:p-4">
-              <p className="text-xs text-slate-500 sm:max-w-md">Enregistre le fournisseur, les modèles et les options avancées visibles ci-dessus.</p>
+              <p className="text-xs text-slate-500 sm:max-w-md">
+                {expertMode
+                  ? "Enregistre le fournisseur, les modèles et les options avancées visibles."
+                  : "Enregistre le fournisseur, le modèle et la clé API si renseignée."}
+              </p>
               <button
                 type="submit"
                 disabled={saving}

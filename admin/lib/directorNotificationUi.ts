@@ -1,3 +1,5 @@
+import { normalizeJobId } from "./missionBossView";
+
 export type DirectorNotification = {
   id: string;
   kind: string;
@@ -76,7 +78,7 @@ export function buildNotificationActions(n: DirectorNotification): NotificationA
   const actions: NotificationAction[] = [];
   const seen = new Set<string>();
   const kind = String(n.kind || "").toLowerCase();
-  const jobId = String(n.job_id || "").trim().slice(0, 16);
+  const jobId = normalizeJobId(n.job_id);
   const actionUrl = String(n.action_url || "").trim();
   const outputId = String(n.output_id || "").trim();
 

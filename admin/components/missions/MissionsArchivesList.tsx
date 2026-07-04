@@ -1,6 +1,7 @@
 "use client";
 
 import { buildHistoryEntries, historyTypeLabel, type HistoryEntry } from "../../lib/historyEntries";
+import { BTN_DELETE } from "../../lib/deleteMissionBundle";
 
 import type { Job } from "../../lib/types";
 
@@ -47,7 +48,7 @@ export default function MissionsArchivesList({ jobs, selectedId, busy = false, o
                   type="button"
                   disabled={busy}
                   onClick={() => onDelete(entry)}
-                  className="rounded-lg border border-red-200 px-2 py-1 text-[10px] font-semibold text-red-800 hover:bg-red-50 disabled:opacity-40"
+                  className={BTN_DELETE}
                 >
                   Supprimer
                 </button>

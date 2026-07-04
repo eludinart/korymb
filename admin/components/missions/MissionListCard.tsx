@@ -4,6 +4,7 @@ import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import MissionStatusBadge from "../MissionStatusBadge";
 import SimpleAccordion from "../SimpleAccordion";
 import { bestPreview } from "../../lib/missionBilan";
+import { BTN_DELETE } from "../../lib/deleteMissionBundle";
 
 import type { Job } from "../../lib/types";
 
@@ -12,13 +13,24 @@ type Props = {
   /** Continuation la plus récente de ce job (résultat à privilégier en preview). */
   latestChild?: Job;
   busy: boolean;
+  deleteBusy?: boolean;
   onSelect: (jobId: string) => void;
   onValidate: (jobId: string, mission?: string | null) => void;
   onClose: (jobId: string, mission?: string | null) => void;
+  onDelete: (jobId: string, mission?: string | null) => void;
 };
 
 /** Carte mission de la liste /missions : statut, brief, bilan CIO, actions valider/clôturer. */
-export default function MissionListCard({ job: j, latestChild, busy, onSelect, onValidate, onClose }: Props) {
+export default function MissionListCard({
+  job: j,
+  latestChild,
+  busy,
+  deleteBusy = false,
+  onSelect,
+  onValidate,
+  onClose,
+  onDelete,
+}: Props) {
   const closed = j.user_validated_at || j.mission_closed_by_user;
   const st = String(j.status || "");
   const canValidate = st === "completed" && !closed;
@@ -77,31 +89,45 @@ export default function MissionListCard({ job: j, latestChild, busy, onSelect, o
             <p className="text-xs text-slate-400">Pas encore de synthèse disponible.</p>
           )}
         </div>
-        {canValidate ? (
+        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+          {canValidate ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onValidate(j.job_id, j.mission);
+              }}
+              disabled={busy || deleteBusy}
+              className="min-h-[44px] w-full rounded-lg bg-violet-900 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
+            >
+              {busy ? "Validation…" : "Valider"}
+            </button>
+          ) : canCloseFromList ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose(j.job_id, j.mission);
+              }}
+              disabled={busy || deleteBusy}
+              className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 disabled:opacity-40 sm:w-auto"
+            >
+              {busy ? "Clôture…" : "Clôturer"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={(e) => {
+              e.preventDefault();
               e.stopPropagation();
-              onValidate(j.job_id, j.mission);
+              onDelete(j.job_id, j.mission);
             }}
-            disabled={busy}
-            className="min-h-[44px] w-full shrink-0 rounded-lg bg-violet-900 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
+            disabled={busy || deleteBusy}
+            className={`min-h-[44px] w-full sm:w-auto ${BTN_DELETE}`}
           >
-            {busy ? "Validation…" : "Valider"}
+            {deleteBusy ? "Suppression…" : "Supprimer"}
           </button>
-        ) : canCloseFromList ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose(j.job_id, j.mission);
-            }}
-            disabled={busy}
-            className="min-h-[44px] w-full shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-800 disabled:opacity-40 sm:w-auto"
-          >
-            {busy ? "Clôture…" : "Clôturer"}
-          </button>
-        ) : null}
+        </div>
       </div>
     </div>
   );

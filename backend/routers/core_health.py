@@ -355,6 +355,8 @@ def health(
     include_tools: bool = Query(False),
     refresh_tools: bool = Query(False),
 ):
+    from database import JOB_ID_MAX_LEN
+
     body: dict = {
         "status": "ok",
         "service": "korymb-backend",
@@ -363,6 +365,7 @@ def health(
         "revision_at": BACKEND_REVISION_AT or None,
         "code_dir": str(_KORYMB_BACKEND_DIR),
         "mission_session_delete_routes": True,
+        "job_id_max_len": JOB_ID_MAX_LEN,
         "database": _database_runtime_snapshot(include_probe=False),
     }
     if include_tools:

@@ -138,7 +138,7 @@ export function buildDeliverableAssets(opts: {
     const href = String(d.webViewLink || d.url || "").trim();
     if (!href) continue;
     push({
-      id: `drive:${d.id || href}`,
+      id: `drive:${opts.jobId}:${d.id || href}`,
       title: String(d.name || "Fichier Drive").trim(),
       channel: driveChannelFromKind(d.kind, d.name),
       href,
@@ -150,14 +150,14 @@ export function buildDeliverableAssets(opts: {
   for (const link of extractDriveLinksFromMarkdown(md)) {
     const ch = link.href.includes("spreadsheets") ? "drive_sheet" : link.href.includes("document") ? "drive_doc" : "drive_file";
     push({
-      id: `mdlink:${link.href}`,
+      id: `mdlink:${opts.jobId}:${link.href}`,
       title: link.title,
       channel: ch,
       href: link.href,
     });
   }
 
-  for (const item of deliverablesForMissionPanel(opts.deliverablesMarkdown || "")) {
+  for (const [idx, item] of deliverablesForMissionPanel(opts.deliverablesMarkdown || "").entries()) {
     const anchorId = livrableAnchorId(item.title);
     const titleLower = item.title.toLowerCase();
     const hasDrive = assets.some(
@@ -165,7 +165,7 @@ export function buildDeliverableAssets(opts: {
     );
 
     push({
-      id: `in_app:${anchorId}`,
+      id: `in_app:${opts.jobId}:${anchorId}:${idx}`,
       title: item.title,
       channel: "in_app",
       anchorId,
@@ -174,7 +174,7 @@ export function buildDeliverableAssets(opts: {
 
     if (!hasDrive && item.body.trim().length > 40) {
       push({
-        id: `email:${anchorId}`,
+        id: `email:${opts.jobId}:${anchorId}:${idx}`,
         title: `${item.title} — brouillon`,
         channel: "email_draft",
         anchorId,

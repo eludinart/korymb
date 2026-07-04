@@ -9,16 +9,30 @@ export type InboxSortMode =
 
 export type InboxKindFilter = "all" | InboxActionItem["kind"];
 
+/** Onglets inbox — regroupe les types proches pour le dirigeant. */
+export type InboxTabId = "all" | "validations" | "cio" | "closures" | "approvals" | "other";
+
 export type InboxDisplayPrefs = {
   sort: InboxSortMode;
   kindFilter: InboxKindFilter;
+  tab: InboxTabId;
 };
+
+export const INBOX_TABS: { id: InboxTabId; label: string; kinds: InboxActionItem["kind"][] | null }[] = [
+  { id: "all", label: "Toutes", kinds: null },
+  { id: "validations", label: "Validations", kinds: ["hitl"] },
+  { id: "cio", label: "Questions CIO", kinds: ["cio_question"] },
+  { id: "closures", label: "Clôtures", kinds: ["closure"] },
+  { id: "approvals", label: "Approbations", kinds: ["scheduler_output"] },
+  { id: "other", label: "Autre", kinds: ["quality", "learning_suggestion"] },
+];
 
 const LS_KEY = "korymb-inbox-display-prefs";
 
 const DEFAULT_PREFS: InboxDisplayPrefs = {
   sort: "priority_desc",
   kindFilter: "all",
+  tab: "all",
 };
 
 export const INBOX_SORT_OPTIONS: { value: InboxSortMode; label: string }[] = [
@@ -49,7 +63,8 @@ export function loadInboxDisplayPrefs(): InboxDisplayPrefs {
     const kindFilter = INBOX_KIND_OPTIONS.some((o) => o.value === parsed.kindFilter)
       ? parsed.kindFilter!
       : DEFAULT_PREFS.kindFilter;
-    return { sort, kindFilter };
+    const tab = INBOX_TABS.some((t) => t.id === parsed.tab) ? parsed.tab! : DEFAULT_PREFS.tab;
+    return { sort, kindFilter, tab };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -70,6 +85,24 @@ function ts(item: InboxActionItem): number {
 export function filterInboxItems(items: InboxActionItem[], kindFilter: InboxKindFilter): InboxActionItem[] {
   if (kindFilter === "all") return items;
   return items.filter((i) => i.kind === kindFilter);
+}
+
+export function filterInboxByTab(items: InboxActionItem[], tab: InboxTabId): InboxActionItem[] {
+  const def = INBOX_TABS.find((t) => t.id === tab);
+  if (!def || !def.kinds) return items;
+  return items.filter((i) => def.kinds!.includes(i.kind as InboxActionItem["kind"]));
+}
+
+export function countInboxByTab(items: InboxActionItem[]): Record<InboxTabId, number> {
+  const counts = Object.fromEntries(INBOX_TABS.map((t) => [t.id, 0])) as Record<InboxTabId, number>;
+  counts.all = items.length;
+  for (const item of items) {
+    for (const tab of INBOX_TABS) {
+      if (tab.id === "all" || !tab.kinds) continue;
+      if (tab.kinds.includes(item.kind as InboxActionItem["kind"])) counts[tab.id] += 1;
+    }
+  }
+  return counts;
 }
 
 export function sortInboxItems(items: InboxActionItem[], sort: InboxSortMode): InboxActionItem[] {

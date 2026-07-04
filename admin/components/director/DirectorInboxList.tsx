@@ -6,6 +6,8 @@ import InboxActionCard, { type InboxActionItem } from "./InboxActionCard";
 import InboxDisplayToolbar from "./InboxDisplayToolbar";
 import { EmptyState } from "../ui/PageChrome";
 import {
+  countInboxByTab,
+  filterInboxByTab,
   filterInboxItems,
   inboxItemKey,
   loadInboxDisplayPrefs,
@@ -42,8 +44,11 @@ export default function DirectorInboxList({
     void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
   };
 
+  const tabCounts = useMemo(() => countInboxByTab(items), [items]);
+
   const { visible, total } = useMemo(() => {
-    const filtered = filterInboxItems(items, prefs.kindFilter);
+    const byTab = filterInboxByTab(items, prefs.tab);
+    const filtered = filterInboxItems(byTab, prefs.kindFilter);
     const sorted = sortInboxItems(filtered, prefs.sort);
     const totalCount = sorted.length;
     const sliced = limit != null ? sorted.slice(0, limit) : sorted;
@@ -61,6 +66,7 @@ export default function DirectorInboxList({
         onChange={onPrefsChange}
         total={items.length}
         visible={visible.length}
+        tabCounts={tabCounts}
         compact={compactToolbar}
       />
       {visible.length === 0 ? (
