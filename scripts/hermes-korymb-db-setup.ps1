@@ -105,8 +105,8 @@ scp -o BatchMode=yes (Join-Path $SkillDir "SKILL.md") "${Target}:${HermesDir}/da
 ssh -o BatchMode=yes $Target "chmod +x ${HermesDir}/data/scripts/korymb-sql.sh && docker exec hermes-agent-aoxw-hermes-agent-1 bash -lc 'chmod +x /opt/data/scripts/korymb-sql.sh 2>/dev/null || true'"
 
 Write-Host "`n=== Test requête depuis Hermes ===" -ForegroundColor Cyan
-ssh -o BatchMode=yes $Target @"
-docker exec hermes-agent-aoxw-hermes-agent-1 bash -lc '/opt/data/scripts/korymb-sql.sh \"SELECT id, name FROM korymb_workspaces WHERE slug='\''default'\'' LIMIT 1\"'
-"@
+ssh -o BatchMode=yes $Target @'
+docker exec hermes-agent-aoxw-hermes-agent-1 /opt/data/scripts/korymb-sql.sh "SELECT COUNT(*) AS n FROM korymb_workspaces LIMIT 1"
+'@
 
 Write-Host "`nTermine. Skill: korymb-analytics - Doc: docs/HERMES-KORYMB-DATABASE.md" -ForegroundColor Green

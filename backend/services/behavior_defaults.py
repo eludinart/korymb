@@ -199,6 +199,40 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
             "Utilise **`web_search`** (ou `read_webpage` sur une doc officielle), puis conclus."
         ),
     },
+    "orchestration.subagent.crm_persist_mandate_suffix": {
+        "category": "orchestration",
+        "type": "text",
+        "label": "Suffixe obligation écriture Gestion Korymb",
+        "description": (
+            "Injecté quand la consigne demande d'ajouter/enregistrer contacts, projets, devis ou planning "
+            "dans le module Gestion. Force l'appel des outils gestion_*."
+        ),
+        "value": (
+            "\n\n---\n**Écriture Gestion Korymb (obligatoire)** : le dirigeant demande d'enregistrer dans l'application "
+            "(contacts, projets, devis ou planning). Tu DOIS appeler les outils `gestion_*` — pas seulement afficher une liste :\n"
+            "- Contacts/prospects : `gestion_search_contacts` puis `gestion_upsert_contact` pour **chaque** fiche "
+            "(name obligatoire ; email/téléphone optionnels — ne refuse pas l'écriture s'ils manquent).\n"
+            "- Projets : `gestion_create_project`\n"
+            "- Devis : `gestion_create_quote`\n"
+            "- Planning : `gestion_schedule_event`\n"
+            "Termine par un récapitulatif : combien de fiches créées/mises à jour et leurs identifiants. "
+            "**Interdit** : dire que tu ne peux pas écrire dans Korymb Gestion alors que tu as les outils `gestion_*`."
+        ),
+    },
+    "orchestration.subagent.repair_gestion_persist_suffix": {
+        "category": "orchestration",
+        "type": "text",
+        "label": "Relance si aucun outil gestion_* (écriture CRM)",
+        "description": (
+            "Second tour si un mandat d'écriture Gestion était détecté mais aucun appel gestion_upsert_contact "
+            "ou équivalent n'a été enregistré."
+        ),
+        "value": (
+            "\n\n---\n**Relance obligatoire (système)** : aucun appel `gestion_upsert_contact`, `gestion_create_project`, "
+            "`gestion_create_quote` ou `gestion_schedule_event` n'a été enregistré. Recommence : exécute les outils "
+            "`gestion_*` pour persister les données dans Korymb, puis rédige ta synthèse avec les IDs créés."
+        ),
+    },
     "orchestration.fallback.prospection_commercial_task": {
         "category": "fallbacks",
         "type": "text",
@@ -210,7 +244,8 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         ),
         "value": (
             "Recherche web + LinkedIn public pour la demande du dirigeant ; "
-            "liste courte de pistes (structures / contacts publics) et angles d’approche."
+            "liste courte de pistes (structures / contacts publics) et angles d’approche ; "
+            "enregistre chaque prospect dans Korymb Gestion via gestion_upsert_contact."
         ),
     },
     "orchestration.fallback.chat_named_role_task_template": {

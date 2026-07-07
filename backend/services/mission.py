@@ -609,6 +609,31 @@ _REPAIR_DEV_WEB_TOOLS_SUFFIX = (
     "Utilise **`web_search`** (ou `read_webpage` sur une doc officielle), puis conclus."
 )
 
+_GESTION_PERSIST_TOOL_NAMES = frozenset({
+    "gestion_upsert_contact",
+    "gestion_create_project",
+    "gestion_create_quote",
+    "gestion_schedule_event",
+})
+
+_CRM_PERSIST_MANDATE_SUFFIX = (
+    "\n\n---\n**Écriture Gestion Korymb (obligatoire)** : le dirigeant demande d'enregistrer dans l'application "
+    "(contacts, projets, devis ou planning). Tu DOIS appeler les outils `gestion_*` — pas seulement afficher une liste :\n"
+    "- Contacts/prospects : `gestion_search_contacts` puis `gestion_upsert_contact` pour **chaque** fiche "
+    "(name obligatoire ; email/téléphone optionnels — ne refuse pas l'écriture s'ils manquent).\n"
+    "- Projets : `gestion_create_project`\n"
+    "- Devis : `gestion_create_quote`\n"
+    "- Planning : `gestion_schedule_event`\n"
+    "Termine par un récapitulatif : combien de fiches créées/mises à jour et leurs identifiants. "
+    "**Interdit** : dire que tu ne peux pas écrire dans Korymb Gestion alors que tu as les outils `gestion_*`."
+)
+
+_REPAIR_GESTION_PERSIST_SUFFIX = (
+    "\n\n---\n**Relance obligatoire (système)** : aucun appel `gestion_upsert_contact`, `gestion_create_project`, "
+    "`gestion_create_quote` ou `gestion_schedule_event` n'a été enregistré. Recommence : exécute les outils "
+    "`gestion_*` pour persister les données dans Korymb, puis rédige ta synthèse avec les IDs créés."
+)
+
 _SUBAGENT_DELIVERABLE_BLOCKS_SUFFIX = (
     "\n\n---\n### Format livrables distincts (obligatoire si tu produis plusieurs pièces)\n"
     "Si tu livres **plusieurs** courriels, messages réseaux, posts ou documents **séparés**, chaque pièce doit être "
@@ -633,6 +658,22 @@ _CONTACT_TABLE_MANDATE_SUFFIX = (
     "est introuvable (n'invente jamais un email ou un téléphone). Le tableau doit contenir le maximum de "
     "lignes réellement trouvées. Ce bloc est le livrable exploitable — pas un plan, pas « à finaliser »."
 )
+
+
+def _mission_wants_crm_persist(blob: str) -> bool:
+    """True si le dirigeant demande d'écrire dans le module Gestion Korymb."""
+    t = _ascii_fold(blob or "")
+    if re.search(
+        r"\b(ajout|ajoute|ajouter|enregistr|saisir|importer|creer|cree|crees|mets|mettre|inserer|insere)\b",
+        t,
+    ) and re.search(
+        r"\b(contact|contacts|crm|gestion|fiche|fiches|prospect|prospects|projet|projets|devis|planning|agenda|evenement|rdv)\b",
+        t,
+    ):
+        return True
+    if re.search(r"\b(dans le crm|dans korymb|module gestion|base contacts|korymb gestion)\b", t):
+        return True
+    return False
 
 
 def _mission_wants_contact_table(blob: str) -> bool:
@@ -1688,7 +1729,8 @@ def orchestrate_coordinateur_mission(
             "orchestration.fallback.prospection_commercial_task",
             (
                 "Recherche web + LinkedIn public pour la demande du dirigeant ; "
-                "liste courte de pistes (structures / contacts publics) et angles d’approche."
+                "liste courte de pistes (structures / contacts publics) et angles d’approche ; "
+                "enregistre chaque prospect dans Korymb Gestion via gestion_upsert_contact."
             ),
         )
         plan["sous_taches"] = st
@@ -1986,20 +2028,29 @@ def orchestrate_coordinateur_mission(
         )
 
         web_evidence_calls = 0
+        gestion_persist_calls = 0
         web_tool_names = frozenset(
             _behavior_str_list("orchestration.tools.web_research_tool_names", list(_WEB_RESEARCH_TOOL_NAMES))
         )
         dev_web_tool_names = frozenset(
             _behavior_str_list("orchestration.tools.dev_web_research_tool_names", list(_DEV_WEB_RESEARCH_TOOL_NAMES))
         )
+        gestion_persist_tool_names = frozenset(
+            _behavior_str_list(
+                "orchestration.tools.gestion_persist_tool_names",
+                list(_GESTION_PERSIST_TOOL_NAMES),
+            )
+        )
 
         def on_sub_tool(actor: str, tool_name: str, meta: dict):
-            nonlocal web_evidence_calls
+            nonlocal web_evidence_calls, gestion_persist_calls
             if job_id and actor == agent_key:
                 if agent_key == "commercial" and tool_name in web_tool_names:
                     web_evidence_calls += 1
                 elif agent_key == "developpeur" and tool_name in dev_web_tool_names:
                     web_evidence_calls += 1
+                if tool_name in gestion_persist_tool_names:
+                    gestion_persist_calls += 1
             _emit_job_event(job_id, "tool_call", actor, meta)
 
         sub_user = (
@@ -2021,12 +2072,21 @@ def orchestrate_coordinateur_mission(
         per_blob = f"{tache}\n{root_mission_label}\n{mission_txt}"
         need_commercial_web = agent_key == "commercial" and _blob_needs_commercial_web_evidence(per_blob)
         need_dev_web = agent_key == "developpeur" and _blob_needs_developer_web_evidence(per_blob)
+        need_crm_persist = (
+            "gestion" in agents_def()[agent_key].get("tools", [])
+            and _mission_wants_crm_persist(per_blob)
+        )
         mandate_web = need_commercial_web or need_dev_web
         sub_user_final = sub_user
         if need_commercial_web:
             sub_user_final += _behavior_text(
                 "orchestration.subagent.commercial_web_mandate_suffix",
                 _COMMERCIAL_WEB_MANDATE_SUFFIX,
+            )
+        if need_crm_persist:
+            sub_user_final += _behavior_text(
+                "orchestration.subagent.crm_persist_mandate_suffix",
+                _CRM_PERSIST_MANDATE_SUFFIX,
             )
         if agent_key == "commercial" and _mission_wants_contact_table(per_blob):
             sub_user_final += _behavior_text(
@@ -2080,6 +2140,30 @@ def orchestrate_coordinateur_mission(
                     log(
                         f"[korymb] {agents_def()[agent_key]['label']} : besoin web détecté, "
                         f"aucun appel web_search/read_webpage/search_linkedin après relance système.",
+                    )
+            if need_crm_persist and not sub_agent_exc and gestion_persist_calls == 0:
+                res2, tic2, toc2 = llm_turn_maybe_tools(
+                    agent_sys,
+                    sub_user_final
+                    + _behavior_text(
+                        "orchestration.subagent.repair_gestion_persist_suffix",
+                        _REPAIR_GESTION_PERSIST_SUFFIX,
+                    ),
+                    agents_def()[agent_key].get("tools"),
+                    job_logs,
+                    on_tool=on_sub_tool if job_id else None,
+                    tool_actor=agent_key,
+                    usage_job_id=job_id,
+                    usage_context=f"subagent_gestion_repair:{agent_key}",
+                )
+                if (res2 or "").strip():
+                    res = res2
+                ti2 += tic2
+                to2 += toc2
+                if gestion_persist_calls == 0:
+                    log(
+                        f"[korymb] {agents_def()[agent_key]['label']} : écriture Gestion demandée, "
+                        f"aucun appel gestion_* après relance système.",
                     )
         except Exception as e:
             logger.exception("Sous-agent %s : exécution interrompue", agent_key)

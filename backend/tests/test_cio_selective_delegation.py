@@ -13,6 +13,7 @@ from services.mission import (
     _mission_requires_delegation,
     _mission_suggests_commercial,
     _mission_wants_contact_table,
+    _mission_wants_crm_persist,
 )
 
 
@@ -148,3 +149,14 @@ def test_mission_wants_contact_table_detects_prospection_with_fields():
 def test_mission_wants_contact_table_ignores_plain_question():
     assert not _mission_wants_contact_table("Quelle heure est-il à Paris ?")
     assert not _mission_wants_contact_table("Rédige un post LinkedIn inspirant")
+
+
+def test_mission_wants_crm_persist_detects_add_to_contacts():
+    assert _mission_wants_crm_persist("Ajoute ces prospects aux contacts Korymb")
+    assert _mission_wants_crm_persist("Enregistre les fiches dans le module gestion")
+    assert _mission_wants_crm_persist("Crée un devis pour ce client")
+
+
+def test_mission_wants_crm_persist_ignores_plain_research():
+    assert not _mission_wants_crm_persist("Trouve 5 coachs en PACA")
+    assert not _mission_wants_crm_persist("Quelle heure est-il ?")

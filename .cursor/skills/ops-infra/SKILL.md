@@ -98,6 +98,8 @@ docker exec hermes-agent-aoxw-hermes-agent-1 bash -lc 'gosu hermes hermes config
 | `execute_code` docker denied | User hermes hors groupe docker | `init-docker-access.sh` + socket monté |
 | Terminal SSH permission denied | Pas de clé dans `/opt/data/.ssh` | Copier `hermes-agent` → `data/.ssh/id_ed25519` |
 | `hermes.eludein.art` 503 | Host absent dans Traefik | Ajouter domaine dans label Host |
+| Gateway Timeout / 504 | Traefik route via réseau `default` (IP inaccessible) | Label `traefik.docker.network=coolify` |
+| `Permission denied: /opt/data/.env` | `.env` édité en root (`root:root` mode 600) | `.\scripts\hermes-vps.ps1 fix-perms` ou `chown 10000:10000 data/.env` ; `init-docker-access.sh` corrige au démarrage |
 | Config ignorée | Édition de `/root/.hermes/` | Éditer `data/` sur l'hôte |
 
 ---

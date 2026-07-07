@@ -142,14 +142,19 @@ Points importants :
 Exemple de label :
 
 ```yaml
+traefik.docker.network=coolify
 traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`hermes.eludein.art`) || Host(`${COMPOSE_PROJECT_NAME}.${TRAEFIK_HOST}`)
 ```
+
+Le label `traefik.docker.network=coolify` est **obligatoire** : sans lui, Traefik tente le backend sur le réseau `default` (IP `10.0.3.x`), inaccessible depuis `coolify-proxy` → Gateway Timeout.
 
 ### Dépannage rapide
 
 | Problème | Action |
 |----------|--------|
 | 503 sur hermes.eludein.art | Vérifier label Traefik + réseau `coolify` |
+| Gateway Timeout / 504 | Ajouter `traefik.docker.network=coolify` dans les labels compose |
+| `Permission denied: /opt/data/.env` | `chown 10000:10000 /docker/hermes-agent-aoxw/data/.env` |
 | Conteneur Exited (1) | `tail data/logs/dashboard.log` — souvent auth dashboard manquante |
 | Chat HTTP 401 | Vérifier clés dans `data/.env` (pas de `[200~` dans les valeurs) |
 | execute_code échoue | `docker.sock` monté + `init-docker-access.sh` actif |

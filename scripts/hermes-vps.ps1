@@ -16,7 +16,7 @@
   .\scripts\hermes-vps.ps1 restart
 #>
 param(
-  [ValidateSet("status", "logs", "restart", "config", "health", "compose")]
+  [ValidateSet("status", "logs", "restart", "config", "health", "compose", "fix-perms")]
   [string] $Action = "status",
   [int] $Tail = 50,
   [string] $Target = $(if ($env:KORYMB_VPS_SSH) { $env:KORYMB_VPS_SSH } else { "root@187.124.42.135" })
@@ -61,5 +61,9 @@ curl -s -o /dev/null -w 'hermes.eludein.art %{http_code}\n' https://hermes.elude
   }
   "compose" {
     Invoke-Remote "cat $HermesDir/docker-compose.yml"
+  }
+  "fix-perms" {
+    Write-Host "Correction propriétaire data/.env (hermes UID 10000)..." -ForegroundColor Yellow
+    Invoke-Remote "chown 10000:10000 $HermesDir/data/.env && chmod 600 $HermesDir/data/.env && ls -la $HermesDir/data/.env && docker exec $Container bash -lc 'gosu hermes test -r /opt/data/.env && echo OK'"
   }
 }
