@@ -1,0 +1,39 @@
+---
+description: Contexte ops — administration conjointe Korymb (app) et Hermes Agent sur le VPS eludein
+alwaysApply: true
+---
+
+# Ops Korymb + Hermes
+
+Ce dépôt sert aussi à **administrer l'infrastructure** liée au projet, pas seulement le code applicatif.
+
+## Périmètre
+
+| Système | Rôle | Où ça tourne |
+|--------|------|----------------|
+| **Korymb** | Plateforme dev (admin Next + backend FastAPI) | Local Windows (dev) ; prod Coolify sur le VPS |
+| **Hermes Agent** | Agent IA autonome (dashboard, gateway, Telegram, outils) | Docker sur le VPS (`/docker/hermes-agent-aoxw/`) |
+
+## VPS (référence)
+
+- SSH : `root@187.124.42.135` (override : `$env:KORYMB_VPS_SSH`)
+- Reverse proxy : Traefik **Coolify** (`coolify-proxy`) — entrypoint `https`, pas `websecure`
+- Doc ops détaillée : `docs/ADMINISTRATION.md`
+- Skill agent : `.cursor/skills/ops-infra/SKILL.md`
+
+## Règles pour les changements infra
+
+1. **Hermes** : préférer `docker compose` dans `/docker/hermes-agent-aoxw/` — ne pas lancer un `docker run` manuel avec `/opt/data` vide.
+2. **Données Hermes** : volume réel = `/docker/hermes-agent-aoxw/data` (monté en `/opt/data` dans le conteneur). `/root/.hermes/` sur l'hôte n'est **pas** utilisé par le conteneur.
+3. **Secrets Hermes** : clés LLM dans `/docker/hermes-agent-aoxw/data/.env` ; auth dashboard dans `/docker/hermes-agent-aoxw/.env` (`ADMIN_USERNAME` / `ADMIN_PASSWORD`).
+4. **Mistral LLM** : `OPENAI_API_KEY` pour l'endpoint chat ; `MISTRAL_API_KEY` pour Voxtral TTS/STT ; `model.provider: custom` + `base_url: https://api.mistral.ai/v1`.
+5. **Terminal Hermes → hôte** : `terminal.backend: ssh`, clé dans `/opt/data/.ssh/id_ed25519`, hôte `10.0.3.1`, user `root`.
+6. **Domaine Hermes** : Traefik doit inclure `hermes.eludein.art` dans la règle Host (en plus du hostname Hostinger si besoin).
+7. **Korymb dev** : tunnel MariaDB via `.\scripts\mariadb-vps-tunnel.ps1` ; démarrage `.\start-dev-cursor.ps1 -MariaDbTunnel`.
+8. Ne **jamais** committer de secrets (`.env`, clés SSH, mots de passe Hostinger).
+
+## Avant toute modification VPS
+
+- Lire `docs/ADMINISTRATION.md` et la section concernée dans la skill ops.
+- Vérifier l'état (`docker compose ps`, `/health`, logs) avant et après.
+- Changements petits et réversibles ; documenter si le workflow change.

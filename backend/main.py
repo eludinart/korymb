@@ -78,6 +78,7 @@ from routers.core_admin import router as core_admin_router
 from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
 from routers.core_auth import router as core_auth_router
+from routers.core_business import router as core_business_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -151,6 +152,7 @@ app.include_router(core_admin_router)
 app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
 app.include_router(core_auth_router)
+app.include_router(core_business_router)
 
 
 @app.middleware("http")

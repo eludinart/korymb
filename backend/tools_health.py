@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+from env_loader import load_backend_env
 
-load_dotenv(Path(__file__).resolve().with_name(".env"), override=True)
+load_backend_env()
 
 from tools import run_read_webpage, run_web_search
 

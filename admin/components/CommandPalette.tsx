@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../lib/api";
 import { QK } from "../lib/queryClient";
+import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS } from "../lib/gestionNav";
 import type { Job } from "../lib/types";
 
 type Command = {
@@ -40,25 +41,40 @@ function CommandPaletteInner() {
     staleTime: 30_000,
   });
 
-  const baseCommands: Command[] = useMemo(
-    () => [
+  const baseCommands: Command[] = useMemo(() => {
+    const gestionNav: Command[] = GESTION_NAV_LINKS.map((link) => ({
+      id: `gestion-${link.href}`,
+      label: link.label,
+      hint: link.hint,
+      href: link.href,
+      group: "Gestion entreprise",
+    }));
+    const gestionActions: Command[] = GESTION_QUICK_ACTIONS.map((action) => ({
+      id: action.id,
+      label: action.label,
+      hint: action.hint,
+      href: action.href,
+      group: "Actions gestion",
+    }));
+    return [
       { id: "briefing", label: "Briefing du jour", href: "/briefing", group: "Navigation" },
-      { id: "triage", label: "Traiter l'inbox (mode triage)", href: "/inbox?triage=1", group: "Actions" },
+      ...gestionNav,
+      ...gestionActions,
+      { id: "triage", label: "Traiter l'inbox (mode triage)", href: "/inbox?triage=1", group: "Actions IA" },
       { id: "inbox", label: "Inbox dirigeant", href: "/inbox", group: "Navigation" },
       { id: "missions", label: "Missions", href: "/missions", group: "Navigation" },
-      { id: "mission-new", label: "Lancer une mission", href: "/missions?create=1", group: "Actions" },
+      { id: "mission-new", label: "Lancer une mission", href: "/missions?create=1", group: "Actions IA" },
       { id: "chat", label: "Chat dirigeant", href: "/chat", group: "Navigation" },
       { id: "livrables", label: "Bibliothèque livrables", href: "/livrables", group: "Navigation" },
-      { id: "dashboard", label: "Vue métier", href: "/dashboard", group: "Navigation" },
+      { id: "dashboard", label: "Vue agents", href: "/dashboard", group: "Navigation" },
       {
         id: "budget",
         label: "Budget & coûts IA",
         href: "/administration/budget",
-        group: "Pilotage",
+        group: "Administration",
       },
-    ],
-    [],
-  );
+    ];
+  }, []);
 
   const jobCommands: Command[] = useMemo(() => {
     const rows = (jobs.data || []).filter((j) => String(j.source || "") !== "chat").slice(0, 12);

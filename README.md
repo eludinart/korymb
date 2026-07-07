@@ -54,6 +54,10 @@ Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health` : `d
 
 Guide de démarrage détaillé (options, watchdog, logs, dépannage) : [docs/DEMARRAGE.md](docs/DEMARRAGE.md).
 
+Administration VPS (Korymb prod + Hermes Agent) : [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
+
+Description métier complète pour Hermes : [docs/KORYMB-DESCRIPTION-HERMES.md](docs/KORYMB-DESCRIPTION-HERMES.md).
+
 Stop with:
 
 ```powershell

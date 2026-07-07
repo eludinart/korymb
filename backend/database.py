@@ -699,6 +699,12 @@ def init_db():
         seed_bootstrap_admin()
     except Exception:
         pass
+    try:
+        from services.business_db import init_business_tables
+
+        init_business_tables()
+    except Exception:
+        pass
 
 
 def seed_scheduled_task_defaults() -> None:
@@ -2200,7 +2206,7 @@ _CUSTOM_AGENT_RESERVED = frozenset(
     {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable", "auto_summary"},
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
-    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate", "db"},
+    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate", "db", "gestion"},
 )
 
 

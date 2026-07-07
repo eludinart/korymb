@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import GestionShortcuts from "../../components/gestion/GestionShortcuts";
 import {
   AlertBox,
   LoadingLine,
@@ -122,6 +123,7 @@ function BriefingPageContent() {
         {b ? (
           <>
             <ExecutiveBriefHero data={b} userName={userName} />
+            <GestionShortcuts />
             <MissionQuickLaunch compact />
 
             {(b.missions_running || []).length > 0 ? (

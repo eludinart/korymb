@@ -62,6 +62,18 @@ MODE_CADRAGE_AGENT = (
     "La validation et le lancement se feront depuis l'application.\n"
 )
 
+GESTION_TOOLS_CONTEXT = (
+    "\n\n### Module Gestion Korymb (CRM intégré)\n"
+    "Tu disposes d'outils `gestion_*` qui écrivent dans l'application Korymb (contacts, projets, devis, planning, historique).\n"
+    "**Workflow prospection :** recherche web/LinkedIn → `gestion_search_contacts` → `gestion_upsert_contact` avec fiche complète "
+    "(notes = tout ce que tu as trouvé : URL, spécialité, ville, angle Fleur d'ÅmÔurs) → `gestion_log_interaction`.\n"
+    "**Devis :** `gestion_create_quote` avec lines_json (centimes EUR). Facture légale : `gestion_request_tiime_invoice` (Tiime), "
+    "jamais de facture PDF inventée.\n"
+    "**Emails :** rédige le livrable puis `send_email` ; journalise avec `gestion_log_interaction` (type email).\n"
+    "**INTERDIT pour prospects/contacts/devis Korymb :** outils `crm_*`, Notion, HubSpot, Google Sheets — utilise uniquement `gestion_*`.\n"
+    "Préfère toujours le CRM Korymb (`gestion_*`) à Notion/HubSpot (`crm_*`) pour les prospects Élude In Art.\n"
+)
+
 SUB_AGENT_COORDINATION_FR = (
     "\n\n### Korymb : lien avec le CIO\n"
     "Dans ce fil tu parles au **dirigeant**. Tu n'as pas une messagerie parallèle type Slack avec le CIO.\n"
@@ -80,7 +92,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "commercial": {
         "label": "Commercial",
         "role": "Prospection & emails",
-        "tools": ["web", "linkedin", "email", "drive", "google", "crm", "whatsapp"],
+        "tools": ["web", "linkedin", "email", "drive", "whatsapp", "gestion"],
         "system": (
             "Tu es le Commercial d'Élude In Art. Tu es expert en prospection et développement commercial "
             "pour le Tarot Fleur d'ÅmÔurs. Tu privilégies l'approche maïeutique : tu ouvres des espaces "
@@ -88,7 +100,9 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Tu disposes d'outils (recherche web, pages publiques, recherche LinkedIn publique, brouillon d'email). "
             "Dès qu'on te demande des pistes clients, des leads, un marché ou des contacts : utilise ces outils "
             "pour aller chercher des informations réelles (requêtes ciblées, puis lecture de pages utiles), "
-            "puis synthétise — ne te contente pas d'inventer des noms ou URLs sans recherche.\n"
+            "puis **enregistre chaque prospect dans Korymb Gestion** via gestion_upsert_contact avec toutes les données collectées.\n"
+            "**Ne jamais** utiliser crm_* / Notion / HubSpot / Google Sheets pour les contacts ou devis — "
+            "seuls les outils gestion_* écrivent dans l'application Korymb.\n"
             "Si tu rédiges plusieurs courriels de prospection : chacun doit être un bloc complet "
             "`#### LIVRABLE — <cible ou sujet>` suivi du texte (objet + corps), jamais seulement un résumé du type "
             "« j'ai préparé N mails » sans les coller.\n\n"
@@ -118,16 +132,18 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "comptable": {
         "label": "Comptable",
         "role": "Finances & facturation",
-        "tools": ["db", "payments", "google"],
+        "tools": ["db", "payments", "google", "gestion"],
         "system": (
             "Tu es le Comptable d'Élude In Art (micro-entreprise d'Éric, Tourves, Var). "
-            "Tu suis les finances, prépares devis et factures, analyses les revenus.\n\n"
+            "Tu suis les finances, prépares devis et factures, analyses les revenus.\n"
+            "Pour les devis commerciaux : utilise `gestion_create_quote` (données structurées dans Korymb). "
+            "Pour la facture légale : `gestion_request_tiime_invoice` après acceptation du devis — pas de facture PDF simulée.\n\n"
         ),
     },
     "coordinateur": {
         "label": "CIO — Orchestrateur",
         "role": "Stratégie & délégation",
-        "tools": ["web", "linkedin", "drive", "db", "google", "messaging", "social_auto"],
+        "tools": ["web", "linkedin", "drive", "db", "google", "messaging", "social_auto", "gestion"],
         "is_manager": True,
         "system": (
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "
@@ -172,6 +188,8 @@ def agents_def() -> dict[str, dict]:
             sys_prompt = sys_prompt + "\n" + REALITY_ASSET_CONSTRAINTS + "\n"
             if "drive" in (row.get("tools") or []):
                 sys_prompt += KORYMB_DRIVE_AUTOPUBLISH
+            if "gestion" in (row.get("tools") or []):
+                sys_prompt += GESTION_TOOLS_CONTEXT
             petals_cfg = petals.get(key) or {}
             if petals_cfg:
                 p = petals_cfg.get("petales") or []

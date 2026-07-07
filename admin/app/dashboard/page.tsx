@@ -190,6 +190,7 @@ export default function DashboardPage() {
         description="Agents, approbations et activité par rôle — le suivi mission complet est sur Missions."
         actions={
           <>
+            <PageLink href="/gestion">Gestion entreprise</PageLink>
             <PageLink href="/missions?create=quick">Nouvelle mission</PageLink>
             <PageLink href="/inbox" variant="secondary">
               Inbox
@@ -198,6 +199,9 @@ export default function DashboardPage() {
         }
       />
       <div className="flex flex-wrap gap-3">
+        <Link href="/gestion" className="btn-success">
+          Gestion entreprise
+        </Link>
         <Link href="/missions" className="btn-primary">
           Missions
         </Link>

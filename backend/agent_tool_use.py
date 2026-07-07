@@ -9,9 +9,48 @@ from __future__ import annotations
 import json
 import logging
 import os
+import contextvars
 from typing import Any, Callable
 
 ToolEmitFn = Callable[[str, str, dict[str, Any]], None]
+
+_tool_run_ctx: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
+    "korymb_tool_run_ctx",
+    default={"job_id": "", "agent_key": ""},
+)
+
+
+def _parse_agent_key_from_context(usage_context: Any, tool_actor: str | None) -> str:
+    if tool_actor:
+        return str(tool_actor).strip()
+    if usage_context is _UNSET or not usage_context:
+        return ""
+    label = str(usage_context).strip()
+    if ":" in label:
+        return label.split(":", 1)[1].strip()
+    return label
+
+
+def _activate_tool_run_ctx(
+    usage_job_id: Any,
+    usage_context: Any,
+    tool_actor: str | None,
+) -> contextvars.Token:
+    job_id = ""
+    if usage_job_id is not _UNSET and usage_job_id is not None:
+        job_id = str(usage_job_id).strip()
+    agent_key = _parse_agent_key_from_context(usage_context, tool_actor)
+    return _tool_run_ctx.set({"job_id": job_id, "agent_key": agent_key})
+
+
+def _inject_tool_run_ctx(inp: dict[str, Any]) -> dict[str, Any]:
+    ctx = _tool_run_ctx.get()
+    out = dict(inp)
+    if ctx.get("job_id") and not str(out.get("job_id") or "").strip():
+        out["job_id"] = ctx["job_id"]
+    if ctx.get("agent_key") and not str(out.get("agent_key") or "").strip():
+        out["agent_key"] = ctx["agent_key"]
+    return out
 
 import anthropic
 import httpx
@@ -57,6 +96,12 @@ from tools.extras import (
     run_translate_text,
 )
 from tools.agent_tools import get_fleet_status, search_core_notes, validate_syntax
+from tools.registry_business import (
+    BUSINESS_TOOL_SCHEMAS,
+    GESTION_EXECUTE_GATED,
+    GESTION_TAG_TO_TOOLS,
+    dispatch_business_tool,
+)
 from tools.registry_extended import (
     EXTENDED_EXECUTE_GATED,
     EXTENDED_TAG_TO_TOOLS,
@@ -122,6 +167,8 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "knowledge": ("search_core_notes", "get_fleet_status"),
     "validate": ("validate_syntax",),
 }
+for _tag, _names in GESTION_TAG_TO_TOOLS.items():
+    _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 for _tag, _names in EXTENDED_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 
@@ -504,6 +551,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
 ]
 
 _ALL_ANTHROPIC_TOOLS.extend(EXTENDED_TOOL_SCHEMAS)
+_ALL_ANTHROPIC_TOOLS.extend(BUSINESS_TOOL_SCHEMAS)
 
 
 def tool_names_for_tags(tags: list[str]) -> list[str]:
@@ -547,7 +595,7 @@ def _execute_tool(name: str, inp: Any) -> str:
         "schedule_facebook_post",
         "post_linkedin",
         "publish_scheduler_output",
-    }) | EXTENDED_EXECUTE_GATED
+    }) | EXTENDED_EXECUTE_GATED | GESTION_EXECUTE_GATED
     if name in _EXECUTE_GATED:
         try:
             from database import get_behavior_setting
@@ -676,6 +724,11 @@ def _execute_tool(name: str, inp: Any) -> str:
         ext = dispatch_extended_tool(name, inp)
         if ext is not None:
             return ext
+        if name.startswith("gestion_"):
+            inp = _inject_tool_run_ctx(inp)
+        biz = dispatch_business_tool(name, inp)
+        if biz is not None:
+            return biz
     except Exception as e:
         return f"Erreur outil {name} : {e}"
     return f"Outil inconnu : {name}"
@@ -721,6 +774,10 @@ def _classify_tool_outcome(name: str, preview: str) -> tuple[bool, str | None]:
         return True, None
     if t.startswith("Erreur outil "):
         return False, "tool_error"
+    if name.startswith("gestion_") and (t.startswith("Erreur gestion") or "introuvable" in t.lower()):
+        return False, "gestion_error"
+    if name.startswith("gestion_"):
+        return True, None
     return True, None
 
 
@@ -830,8 +887,23 @@ def llm_turn_with_tools(
     system_use = system + extra
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(prov):
-        return _openrouter_tool_loop(
+    token = _activate_tool_run_ctx(usage_job_id, usage_context, tool_actor)
+    try:
+        if is_chat_completions_provider(prov):
+            return _openrouter_tool_loop(
+                system_use,
+                user_text,
+                allowed,
+                job_logs,
+                max_tokens,
+                cfg,
+                on_tool,
+                tool_actor,
+                usage_job_id=usage_job_id,
+                usage_context=usage_context,
+                temperature=temperature,
+            )
+        return _anthropic_tool_loop(
             system_use,
             user_text,
             allowed,
@@ -844,19 +916,8 @@ def llm_turn_with_tools(
             usage_context=usage_context,
             temperature=temperature,
         )
-    return _anthropic_tool_loop(
-        system_use,
-        user_text,
-        allowed,
-        job_logs,
-        max_tokens,
-        cfg,
-        on_tool,
-        tool_actor,
-        usage_job_id=usage_job_id,
-        usage_context=usage_context,
-        temperature=temperature,
-    )
+    finally:
+        _tool_run_ctx.reset(token)
 
 
 def _anthropic_tool_loop(
@@ -1248,8 +1309,20 @@ def llm_chat_with_tools(
     system_use = system + extra
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(prov):
-        return _openrouter_chat_tool_loop(
+    token = _activate_tool_run_ctx(usage_job_id, usage_context, None)
+    try:
+        if is_chat_completions_provider(prov):
+            return _openrouter_chat_tool_loop(
+                system_use,
+                messages,
+                allowed,
+                job_logs,
+                max_tokens,
+                cfg,
+                usage_job_id=usage_job_id,
+                usage_context=usage_context,
+            )
+        return _anthropic_chat_tool_loop(
             system_use,
             messages,
             allowed,
@@ -1259,16 +1332,8 @@ def llm_chat_with_tools(
             usage_job_id=usage_job_id,
             usage_context=usage_context,
         )
-    return _anthropic_chat_tool_loop(
-        system_use,
-        messages,
-        allowed,
-        job_logs,
-        max_tokens,
-        cfg,
-        usage_job_id=usage_job_id,
-        usage_context=usage_context,
-    )
+    finally:
+        _tool_run_ctx.reset(token)
 
 
 def _anthropic_chat_tool_loop(

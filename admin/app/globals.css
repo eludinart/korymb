@@ -226,6 +226,10 @@ body {
     @apply touch-target inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50;
   }
 
+  .input-field {
+    @apply rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200;
+  }
+
   /* ── Kind badges (inbox, etc.) ── */
   .kind-badge {
     @apply inline-flex rounded-full px-2.5 py-1 text-xs font-extrabold uppercase tracking-wide ring-2;
@@ -343,5 +347,19 @@ body {
 
   .admin-nav-link-idle {
     @apply text-slate-800 hover:bg-violet-50 active:bg-violet-100;
+  }
+
+  /* ── Gestion sidebar ── */
+  .gestion-nav-link {
+    @apply shrink-0 rounded-xl px-3 py-3 text-sm font-bold transition-colors lg:w-full;
+    min-height: 44px;
+  }
+
+  .gestion-nav-link-active {
+    @apply bg-emerald-700 text-white shadow-sm;
+  }
+
+  .gestion-nav-link-idle {
+    @apply text-slate-800 hover:bg-emerald-50 active:bg-emerald-100;
   }
 }

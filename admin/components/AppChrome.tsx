@@ -18,7 +18,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
         <div className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-5 lg:px-6 xl:px-8">
           <div className="min-w-0 flex-1">
             <p className="app-brand">Korymb</p>
-            {showTechnical ? <RuntimeHeader /> : null}
+            <RuntimeHeader showInfrastructure={showTechnical} />
             {executiveMode ? (
               <p className="text-xs font-semibold text-slate-500">
                 Cockpit dirigeant ·{" "}

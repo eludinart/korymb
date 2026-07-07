@@ -11,11 +11,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
-from dotenv import load_dotenv
 
+from env_loader import load_backend_env
 from integration_settings import getenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
+load_backend_env()
 logger = logging.getLogger(__name__)
 
 _SERVICE_TOKEN_ENV: dict[str, str] = {

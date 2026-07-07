@@ -8,33 +8,58 @@ function statusUi(status: "ok" | "warning" | "error") {
   return { dot: "bg-amber-500", text: "Sync…", textClass: "text-amber-800 font-bold" };
 }
 
-export default function RuntimeHeader() {
+function shortModel(model: string | null): string {
+  if (!model) return "—";
+  return model.split("/").pop() || model;
+}
+
+export default function RuntimeHeader({ showInfrastructure = true }: { showInfrastructure?: boolean }) {
   const { llm, db, status } = useKorymbEventStream();
 
   const ui = statusUi(status);
-  const modelHint =
-    llm.provider && llm.model ? `${llm.provider} · ${llm.model}` : "Synchronisation du modèle…";
+  const providerLabel = llm.provider ? llm.provider.toUpperCase() : "—";
+  const modelLabel = shortModel(llm.model);
+  const modelFull = llm.model || "Synchronisation du modèle…";
   const dbEnv = String(db.runtimeEnv || "").toLowerCase().includes("prod") ? "PROD" : "DEV";
   const dbEngine = db.engine ? db.engine.toUpperCase() : "DB ?";
   return (
-    <div
-      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700"
-      title={modelHint}
-    >
-      <span className="font-bold text-slate-500">Flux</span>
-      <span className={`inline-flex items-center gap-1 ${ui.textClass}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${ui.dot}`} />
-        {ui.text}
-      </span>
-      <span className="text-slate-300">•</span>
-      <span className="inline-flex items-center gap-1">
-        <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">{dbEngine}</span>
-        <span
-          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-            dbEnv === "PROD" ? "bg-violet-100 text-violet-700" : "bg-emerald-100 text-emerald-700"
-          }`}
-        >
-          {dbEnv}
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+      {showInfrastructure ? (
+        <>
+          <span className="font-bold text-slate-500">Flux</span>
+          <span className={`inline-flex items-center gap-1 ${ui.textClass}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${ui.dot}`} />
+            {ui.text}
+          </span>
+          <span className="text-slate-300">•</span>
+          <span className="inline-flex items-center gap-1">
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">{dbEngine}</span>
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                dbEnv === "PROD" ? "bg-violet-100 text-violet-700" : "bg-emerald-100 text-emerald-700"
+              }`}
+            >
+              {dbEnv}
+            </span>
+          </span>
+          <span className="text-slate-300">•</span>
+        </>
+      ) : null}
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+        <span className="inline-flex items-center gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Fournisseur</span>
+          <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-800">
+            {providerLabel}
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Modèle</span>
+          <span
+            className="max-w-[14rem] truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+            title={modelFull}
+          >
+            {modelLabel}
+          </span>
         </span>
       </span>
     </div>

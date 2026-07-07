@@ -30,6 +30,8 @@ def _secret(key: str) -> bool:
         "CRM_PROVIDER",
         "BREVO_SENDER_NAME",
         "BREVO_SENDER_EMAIL",
+        "TIIME_MAKE_WEBHOOK_URL",
+        "TIIME_WEBHOOK_URL",
     }:
         return False
     return any(x in k for x in ("_KEY", "_SECRET", "_TOKEN", "_PASS", "API_KEY"))
@@ -161,6 +163,19 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
             {"key": "PAYPAL_CLIENT_ID", "label": "PayPal Client ID", "secret": False},
             {"key": "PAYPAL_CLIENT_SECRET", "label": "PayPal Client Secret"},
             {"key": "PAYPAL_API_BASE", "label": "PayPal API Base URL", "secret": False},
+        ],
+    },
+    {
+        "id": "tiime",
+        "label": "Tiime — facturation électronique",
+        "description": "Factures légales via Tiime (PA). Devis dans Korymb ; émission facture dans Tiime ou via Make (offre Business).",
+        "fields": [
+            {
+                "key": "TIIME_MAKE_WEBHOOK_URL",
+                "label": "Webhook Make/Tiime (URL)",
+                "secret": False,
+                "hint": "Scénario Make : module Tiime Apps — création facture depuis devis Korymb",
+            },
         ],
     },
     {

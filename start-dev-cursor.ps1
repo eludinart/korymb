@@ -307,7 +307,18 @@ function Start-FrontendDevProcess {
   }
   $nextScript = Join-Path $adminDir "node_modules\next\dist\bin\next"
   if (-not (Test-Path -LiteralPath $nextScript)) {
-    throw "Next.js introuvable: $nextScript (lancez npm install dans admin/)"
+    Write-Host "(dev) Next.js absent — npm ci dans admin/..." -ForegroundColor Yellow
+    Push-Location $adminDir
+    try {
+      & npm ci
+      if ($LASTEXITCODE -ne 0) { throw "npm ci a echoue (code $LASTEXITCODE)" }
+    }
+    finally {
+      Pop-Location
+    }
+    if (-not (Test-Path -LiteralPath $nextScript)) {
+      throw "Next.js introuvable apres npm ci: $nextScript"
+    }
   }
   $logDir = Join-Path $rootDir ".dev-logs"
   New-Item -ItemType Directory -Force -Path $logDir | Out-Null
