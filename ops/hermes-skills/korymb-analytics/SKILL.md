@@ -9,9 +9,51 @@ description: Analyses opérationnelles sur la base MariaDB Korymb (missions, tok
 Hermes interroge **directement** la base Korymb pour des analyses rapides (SQL).
 Korymb reste propriétaire des **écritures** et des **missions** ; Hermes **lit** et **synthétise**.
 
-## Connexion
+## Comment se connecter (mode d'emploi Hermes)
 
-Variables dans `/opt/data/.env` :
+**Tu n'as pas besoin de saisir un mot de passe ni de configurer une connexion.**
+Tout est déjà prêt dans ton environnement (`/opt/data`).
+
+### Méthode à utiliser (obligatoire)
+
+Exécute toujours tes requêtes via le script :
+
+```bash
+/opt/data/scripts/korymb-sql.sh "SELECT ... LIMIT N"
+```
+
+- Le script lit les identifiants dans `/opt/data/.env` (`KORYMB_DB_*`).
+- Il se connecte au conteneur MariaDB Korymb sur le réseau Docker `coolify`.
+- Il accepte **SELECT**, **SHOW**, **DESCRIBE** ; `LIMIT` auto (200) sur les SELECT si absent.
+
+### Vérifier que la connexion fonctionne
+
+```bash
+/opt/data/scripts/korymb-sql.sh "SELECT COUNT(*) AS workspaces FROM korymb_workspaces LIMIT 1"
+```
+
+Résultat attendu : un nombre (ex. `10`). Si erreur `KORYMB_DB_PASSWORD manquant` → signaler à Éric (relancer `hermes-korymb-db-setup.ps1` côté repo).
+
+### Où exécuter la commande
+
+| Contexte | Commande |
+|----------|----------|
+| Terminal intégré Hermes | `/opt/data/scripts/korymb-sql.sh "SELECT ..."` |
+| `execute_code` (bash) | même commande dans un shell |
+| SSH vers le VPS | `docker exec hermes-agent-aoxw-hermes-agent-1 /opt/data/scripts/korymb-sql.sh "SELECT ..."` |
+
+### Ce qu'il ne faut **pas** faire
+
+- **Ne jamais** utiliser `docker exec ... mariadb -uroot` — utilise uniquement `korymb-sql.sh`.
+- **Ne jamais** cibler le conteneur `p11nw75ijqbg4lfzmwbw2m3m` (MariaDB Mandala vide) : le bon conteneur est `juehpsnqkm60d2o6dhs38c5t`.
+- Ne pas modifier `korymb-sql.sh` ni `/opt/data/.env` sans demande explicite d'Éric.
+- Ne pas lire ni afficher les mots de passe (`KORYMB_DB_PASSWORD`, root MariaDB) dans le chat.
+- Ne pas tenter INSERT/UPDATE/DELETE (refusé par le script **et** par l'utilisateur MariaDB).
+- Ne pas se connecter à `127.0.0.1:3307` (tunnel dev Windows d'Éric, pas ton environnement).
+
+### Paramètres de connexion (référence)
+
+Variables dans `/opt/data/.env` (déjà configurées) :
 
 | Variable | Valeur typique |
 |----------|----------------|
@@ -21,8 +63,6 @@ Variables dans `/opt/data/.env` :
 | `KORYMB_DB_USER` | `hermes_readonly` |
 | `KORYMB_DB_PASSWORD` | *(secret VPS — jamais afficher)* |
 | `KORYMB_DB_CONTAINER` | `juehpsnqkm60d2o6dhs38c5t` |
-
-Script : `/opt/data/scripts/korymb-sql.sh` — **SELECT uniquement**, `LIMIT` auto si absent.
 
 Workspace production Élude In Art : `ws-default-legacy` (`korymb_workspaces.slug = default`).
 

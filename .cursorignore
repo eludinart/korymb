@@ -1,0 +1,9 @@
+node_modules/
+admin/node_modules/
+**/__pycache__/
+.pytest_cache/
+backend/.venv/
+dist/
+build/
+.next/
+*.pyc

@@ -31,8 +31,8 @@ fi
 SQL="$(echo "$1" | tr '\n' ' ' | sed 's/[[:space:]]\+/ /g' | sed 's/;*$//')"
 SQL_UPPER="$(echo "$SQL" | tr '[:lower:]' '[:upper:]')"
 
-if [[ ! "$SQL_UPPER" =~ ^SELECT[[:space:]] ]]; then
-  echo "Erreur: seules les requêtes SELECT sont autorisées." >&2
+if [[ ! "$SQL_UPPER" =~ ^(SELECT|SHOW|DESCRIBE|DESC)[[:space:]] ]]; then
+  echo "Erreur: seules SELECT, SHOW et DESCRIBE sont autorisees." >&2
   exit 1
 fi
 
@@ -46,7 +46,7 @@ if echo "$SQL" | grep -q ';'; then
   exit 1
 fi
 
-if ! echo "$SQL_UPPER" | grep -qE '\bLIMIT[[:space:]]+[0-9]'; then
+if [[ "$SQL_UPPER" =~ ^SELECT[[:space:]] ]] && ! echo "$SQL_UPPER" | grep -qE '\bLIMIT[[:space:]]+[0-9]'; then
   SQL="$SQL LIMIT 200"
 fi
 

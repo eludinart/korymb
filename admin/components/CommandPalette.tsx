@@ -152,13 +152,13 @@ function CommandPaletteInner() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center bg-slate-900/50 p-4 pt-[12vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-900/50 p-0 backdrop-blur-sm sm:items-start sm:p-4 sm:pt-[12vh]"
       role="dialog"
       aria-label="Palette de commandes"
       onClick={() => setOpen(false)}
     >
       <div
-        className="w-full max-w-xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        className="max-h-[85dvh] w-full max-w-xl overflow-hidden rounded-t-2xl border border-slate-200 bg-white shadow-2xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b border-slate-100 px-4 py-3">

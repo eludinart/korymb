@@ -1,0 +1,18 @@
+# Crontab Élude In Art — Hermes VPS
+# Installer : scripts/hermes-cron-install.ps1
+# Horaires UTC (Paris été = UTC+2)
+
+# Briefing matinal 7h Paris
+0 5 * * * /opt/data/scripts/eludein-morning-briefing.sh >> /var/log/eludein-briefing.log 2>&1
+
+# Recap soir 19h Paris
+0 17 * * * /opt/data/scripts/eludein-evening-recap.sh >> /var/log/eludein-recap.log 2>&1
+
+# Alertes proactives toutes les 3h
+0 */3 * * * /opt/data/scripts/eludein-alerts.sh >> /var/log/eludein-alerts.log 2>&1
+
+# Smoke post-deploy / santé périodique
+15 */4 * * * /opt/data/scripts/eludein-post-deploy-smoke.sh >> /var/log/eludein-smoke.log 2>&1
+
+# Log watcher
+30 * * * * /opt/data/scripts/eludein-log-watch.sh >> /var/log/eludein-logwatch.log 2>&1

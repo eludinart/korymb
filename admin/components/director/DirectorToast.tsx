@@ -25,7 +25,7 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
   }, [onDismiss]);
 
   return (
-    <div className="fixed bottom-4 left-3 right-3 z-50 mx-auto max-w-sm rounded-2xl border-2 border-violet-300 bg-white p-4 shadow-2xl sm:left-auto sm:right-4">
+    <div className="fixed bottom-[max(1rem,var(--safe-bottom))] left-3 right-3 z-50 mx-auto max-w-sm rounded-2xl border-2 border-violet-300 bg-white p-4 shadow-2xl sm:left-auto sm:right-4">
       <p className="text-[10px] font-bold uppercase tracking-wide text-violet-800">
         {notificationKindLabel(notification.kind)}
       </p>
@@ -33,7 +33,7 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
       {notification.body ? (
         <p className="mt-1 line-clamp-3 text-sm font-semibold text-slate-700">{notification.body}</p>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {primary && onNavigate ? (
           <button
             type="button"
@@ -41,7 +41,7 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
               onMarkRead?.();
               onNavigate(primary.href);
             }}
-            className="btn-primary flex-1 text-center text-sm"
+            className="btn-primary min-h-11 w-full text-center text-sm sm:w-auto sm:flex-1"
           >
             {primary.label}
           </button>
@@ -53,12 +53,12 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
               onMarkRead?.();
               onNavigate(secondary.href);
             }}
-            className="btn-secondary flex-1 text-center text-sm"
+            className="btn-secondary min-h-11 w-full text-center text-sm sm:w-auto sm:flex-1"
           >
             {secondary.label}
           </button>
         ) : null}
-        <button type="button" onClick={onDismiss} className="btn-secondary px-3 text-sm">
+        <button type="button" onClick={onDismiss} className="btn-secondary min-h-11 w-full px-3 text-sm sm:w-auto">
           Plus tard
         </button>
       </div>

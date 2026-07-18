@@ -129,6 +129,89 @@ docker compose up -d --force-recreate   # après modification compose
 | execute_code | Docker (socket monté + init-docker-access) |
 | Réseaux Docker | `coolify`, `default` |
 
+### Hermes WebUI (intégré au compose agent)
+
+| Paramètre | Valeur |
+|-----------|--------|
+| URL | https://hermeswebui.eludein.art (fallback http://187.124.42.135:3001) |
+| Conteneur | `hermes-agent-aoxw-hermes-webui-1` |
+| Image | `hermes-webui-local:latest` |
+| Agent cible | `http://hermes-agent:4860` (réseau Docker interne) |
+| Données partagées | `./data:/opt/data` (même volume que l'agent) |
+| Source agent (skills API) | `./hermes-agent-src:/opt/hermes:ro` (sync depuis conteneur agent) |
+| État WebUI | `./data/hermes-webui-state` |
+| Auth | même mot de passe que le dashboard agent (`ADMIN_PASSWORD` → `HERMES_WEBUI_PASSWORD`) |
+| Workspace fichiers | `/opt/data/livrables` (défaut) |
+
+**Espaces WebUI** (onglet Espaces) :
+
+| Space | Chemin | Usage |
+|-------|--------|-------|
+| **Livrables** | `/opt/data/livrables` | Fichiers produits pour Éric |
+| **Sources** | `/opt/data/sources` | Briefs, docs de référence |
+| **Travail** | `/opt/data/travail` | Workspace classique, brouillons |
+| **rep_tech_hermes** | `/opt/data/rep_tech_hermes` | Technique organisé (symlinks) |
+
+Install / mise à jour des espaces : `.\scripts\hermes-workspace-layout.ps1`
+
+Optimisation complète (agent + WebUI + hôte + smoke) :
+
+```powershell
+.\scripts\hermes-optimize.ps1
+```
+
+Correction ouverture artefacts (chemins `/opt/data/...` hors workspace) :
+
+```powershell
+.\scripts\hermes-webui-artifact-fix.ps1
+```
+
+**Accéder aux fichiers** (https://hermeswebui.eludein.art) :
+1. **Espaces** (barre latérale) → choisir Livrables, Travail, Sources ou rep_tech_hermes
+2. Ou panneau **Espace de travail** → onglet **Fichiers** (suit la session active)
+3. Clic droit → **Télécharger**
+
+Ne pas pointer un Space vers `/opt/data` racine (bruit technique) — utiliser **rep_tech_hermes**.
+
+Référence compose repo : `ops/hermes/docker-compose.yml`  
+Intégration / redéploiement :
+
+```powershell
+.\scripts\hermes-webui-integrate.ps1
+```
+
+> Ne pas réinstaller WebUI via `/opt/data/docker-compose-hermes-webui.yml` (stack standalone obsolète).  
+> Dashboard agent prod : https://hermes.eludein.art — WebUI : interface complémentaire sur `:3001`.
+
+### Intelligence Hermes (SOUL, skills, runbooks)
+
+Déploiement :
+
+```powershell
+.\scripts\hermes-intelligence-deploy.ps1
+.\scripts\hermes-cron-install.ps1
+```
+
+Skills P0/P1 : `eludein-daily-briefing`, `korymb-api-bridge`, `coolify-services-map`, `korymb-inbox-triage`, `fleur-growth-snapshot`, etc.
+
+Crons : briefing 7h, recap 19h, alertes /3h (Telegram).
+
+Doc : [HERMES-INTELLIGENCE.md](HERMES-INTELLIGENCE.md).
+
+### Optimisation complète (recommandé après changement infra)
+
+Un seul script remet en ordre agent, WebUI, sync hôte `/opt/data`, espaces, modèle Mistral et smoke tests :
+
+```powershell
+.\scripts\hermes-optimize.ps1
+```
+
+Options : `-SkipIntelligence` (sans redéploiement skills), `-SkipCrons`.
+
+Manuel (VPS) : `bash /tmp/hermes-optimize.sh` après copie des scripts depuis le repo.
+
+**Pont API Korymb** : ajouter `KORYMB_AGENT_SECRET` dans `data/.env` (même valeur que `AGENT_API_SECRET` backend) pour activer `korymb-api.sh`.
+
 ### Traefik
 
 Le proxy Coolify (`coolify-proxy`, Traefik v3) expose les services via labels Docker.
@@ -159,7 +242,7 @@ Le label `traefik.docker.network=coolify` est **obligatoire** : sans lui, Traefi
 | Chat HTTP 401 | Vérifier clés dans `data/.env` (pas de `[200~` dans les valeurs) |
 | execute_code échoue | `docker.sock` monté + `init-docker-access.sh` actif |
 | SSH terminal échoue | Clé dans `data/.ssh/`, `terminal.backend: ssh` dans config |
-| Modèles absents | `provider: custom`, cache `data/provider_models_cache.json` |
+| `/api/skills` 500 / ModuleNotFoundError `agent` | Monter `./hermes-agent-src:/opt/hermes:ro` + `.\scripts\hermes-webui-integrate.ps1` |
 
 ### Accès base Korymb (lecture seule)
 
@@ -173,13 +256,21 @@ Hermes peut interroger la MariaDB Korymb pour des analyses SQL (`hermes_readonly
 | Skill | `korymb-analytics` |
 | Variables | `KORYMB_DB_*` dans `data/.env` |
 
-Installation / mise à jour depuis Windows :
+Installation : `.\scripts\hermes-korymb-db-setup.ps1` — Doc : [HERMES-KORYMB-DATABASE.md](HERMES-KORYMB-DATABASE.md).
 
-```powershell
-.\scripts\hermes-korymb-db-setup.ps1
-```
+### Accès base Fleur d'ÅmÔurs (lecture seule)
 
-Doc détaillée : [HERMES-KORYMB-DATABASE.md](HERMES-KORYMB-DATABASE.md).
+Hermes interroge l'app tarot (`app-fleurdamours.eludein.art`) via `hermes_fleur_readonly` et les tables `wp_fleur_*`.
+
+| Élément | Valeur |
+|---------|--------|
+| Conteneur MariaDB | `juehpsnqkm60d2o6dhs38c5t` |
+| Base | `default` |
+| Script | `/opt/data/scripts/fleur-sql.sh` |
+| Skills | `fleur-analytics`, `eludein-ecosystem` |
+| Variables | `FLEUR_DB_*` dans `data/.env` |
+
+Installation : `.\scripts\hermes-fleur-db-setup.ps1` — Doc : [HERMES-FLEUR-DATABASE.md](HERMES-FLEUR-DATABASE.md).
 
 ---
 
@@ -189,7 +280,9 @@ Doc détaillée : [HERMES-KORYMB-DATABASE.md](HERMES-KORYMB-DATABASE.md).
 |--------|------|
 | `scripts/vps-ssh.ps1` | Ouvre une session SSH vers le VPS |
 | `scripts/hermes-vps.ps1` | Status / logs / restart Hermes à distance |
-| `scripts/hermes-korymb-db-setup.ps1` | Accès MariaDB lecture seule pour Hermes |
+| `scripts/hermes-intelligence-deploy.ps1` | SOUL, mémoire, skills ops, runbooks |
+| `scripts/hermes-korymb-db-setup.ps1` | Accès MariaDB lecture seule Hermes → Korymb |
+| `scripts/hermes-fleur-db-setup.ps1` | Accès MariaDB lecture seule Hermes → Fleur d'ÅmÔurs |
 | `scripts/mariadb-vps-tunnel.ps1` | Tunnel MariaDB pour dev Korymb |
 | `start-dev-cursor.ps1` | Lance Korymb en local (option `-MariaDbTunnel`) |
 | `stop-dev-cursor.ps1` | Arrête les processus dev |

@@ -511,36 +511,44 @@ export default function AgentWorkActivityBar() {
       aria-live="polite"
       aria-label="Activité des agents en cours"
     >
-      <div className="flex items-center gap-2 border-b border-violet-200/70 bg-violet-100/50 px-4 py-2">
-        <span className="relative flex h-2.5 w-2.5 shrink-0">
-          {workingCount > 0 ? (
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-          ) : null}
-          <span
-            className={`relative inline-flex h-2.5 w-2.5 rounded-full ${workingCount > 0 ? "bg-emerald-500" : "bg-slate-400"}`}
-          />
-        </span>
-        <h2 className="shrink-0 text-sm font-extrabold tracking-tight text-violet-950">
-          {workingCount > 0
-            ? `${workingCount} agent${workingCount > 1 ? "s" : ""} au travail${
-                total - workingCount > 0 ? ` · ${total - workingCount} en attente` : ""
-              }`
-            : runningCount > 0
-              ? `${runningCount} ouvert${runningCount > 1 ? "s" : ""} · aucun agent actif`
-              : pausedCount > 0
-                ? `${pausedCount} en pause`
-                : recentlyStopped.length > 0
-                  ? `${recentlyStopped.length} arrêté${recentlyStopped.length > 1 ? "s" : ""}`
-                  : `${total} en attente`}
-        </h2>
-        {!expanded && total > 0 ? <CompactProcessChips jobs={jobs} /> : <div className="min-w-0 flex-1" />}
+      <div className="flex flex-col gap-2 border-b border-violet-200/70 bg-violet-100/50 px-3 py-2 sm:flex-row sm:items-center sm:gap-2 sm:px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5 shrink-0">
+            {workingCount > 0 ? (
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+            ) : null}
+            <span
+              className={`relative inline-flex h-2.5 w-2.5 rounded-full ${workingCount > 0 ? "bg-emerald-500" : "bg-slate-400"}`}
+            />
+          </span>
+          <h2 className="min-w-0 text-sm font-extrabold tracking-tight text-violet-950">
+            {workingCount > 0
+              ? `${workingCount} agent${workingCount > 1 ? "s" : ""} au travail${
+                  total - workingCount > 0 ? ` · ${total - workingCount} en attente` : ""
+                }`
+              : runningCount > 0
+                ? `${runningCount} ouvert${runningCount > 1 ? "s" : ""} · aucun agent actif`
+                : pausedCount > 0
+                  ? `${pausedCount} en pause`
+                  : recentlyStopped.length > 0
+                    ? `${recentlyStopped.length} arrêté${recentlyStopped.length > 1 ? "s" : ""}`
+                    : `${total} en attente`}
+          </h2>
+        </div>
+        {!expanded && total > 0 ? (
+          <div className="min-w-0 sm:flex-1">
+            <CompactProcessChips jobs={jobs} />
+          </div>
+        ) : (
+          <div className="hidden min-w-0 flex-1 sm:block" />
+        )}
         <div className="flex shrink-0 items-center gap-2">
           {orphanCount > 0 ? (
             <button
               type="button"
               disabled={Boolean(busyJobId)}
               onClick={() => void handleCleanupAllOrphans()}
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+              className="min-h-9 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
             >
               Nettoyer {orphanCount} fantôme{orphanCount > 1 ? "s" : ""}
             </button>
@@ -548,7 +556,7 @@ export default function AgentWorkActivityBar() {
           <button
             type="button"
             onClick={() => setExpanded((v) => !v)}
-            className="rounded-lg border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-50"
+            className="min-h-9 rounded-lg border border-violet-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-50"
             aria-expanded={expanded}
           >
             {expanded ? "Réduire" : "Détail"}

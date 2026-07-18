@@ -168,6 +168,35 @@ Les clés d’intégration sont dans `.env` / configuration runtime — **ne jam
 
 **Hermes peut aider Korymb** en : surveillant le VPS, exécutant des commandes SSH, préparant des contenus, alertant sur des incidents, **interrogeant la base Korymb en lecture seule** (skill `korymb-analytics`, script `korymb-sql.sh`), ou en appelant l’API Korymb (briefing, lancement mission).
 
+### Connexion à la base Korymb (Hermes)
+
+Hermes lit la MariaDB Korymb **sans configuration manuelle** :
+
+```bash
+# Test connexion
+/opt/data/scripts/korymb-sql.sh "SELECT COUNT(*) AS n FROM korymb_workspaces LIMIT 1"
+
+# Requête métier (toujours filtrer le workspace prod)
+/opt/data/scripts/korymb-sql.sh "
+SELECT status, COUNT(*) n FROM jobs
+WHERE workspace_id = 'ws-default-legacy'
+GROUP BY status LIMIT 20
+"
+```
+
+| Élément | Détail |
+|---------|--------|
+| Script | `/opt/data/scripts/korymb-sql.sh` |
+| Credentials | `/opt/data/.env` → `KORYMB_DB_*` (user `hermes_readonly`, SELECT only) |
+| Base | `default` sur conteneur MariaDB Coolify |
+| Workspace Élude In Art | `ws-default-legacy` |
+| Skill | `korymb-analytics` |
+| Écritures / missions | **API** `https://api-korymb.eludein.art` — jamais SQL |
+
+Doc Fleur (app tarot) : skill `fleur-analytics`, script `/opt/data/scripts/fleur-sql.sh` — voir `docs/HERMES-FLEUR-DATABASE.md`. Routage global : skill `eludein-ecosystem`.
+
+Doc détaillée : `docs/HERMES-KORYMB-DATABASE.md`
+
 **Korymb ne remplace pas Hermes** pour l’administration bas niveau du serveur ou l’autonomie Telegram.
 
 **Cursor** (IDE) est la couche **développement** du repo Korymb + doc ops (`docs/ADMINISTRATION.md`).
@@ -227,6 +256,7 @@ curl -s https://api-korymb.eludein.art/health
 | `docs/DEMARRAGE.md` | Dev local Windows + tunnel MariaDB |
 | `docs/ADMINISTRATION.md` | Ops VPS Korymb + Hermes |
 | `docs/HERMES-KORYMB-DATABASE.md` | Accès SQL lecture seule Hermes → MariaDB Korymb |
+| `docs/HERMES-FLEUR-DATABASE.md` | Accès SQL lecture seule Hermes → app Fleur d'ÅmÔurs |
 | `backend/services/agents.py` | Définitions agents et contexte métier (source de vérité prompts) |
 
 ---

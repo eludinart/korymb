@@ -1,0 +1,75 @@
+# Hermes Agent + WebUI — référence VPS (/docker/hermes-agent-aoxw/)
+# WebUI partage ./data avec l'agent et appelle http://hermes-agent:4860 sur le réseau Docker.
+
+services:
+  hermes-agent:
+    image: ghcr.io/hostinger/hvps-hermes-agent:latest
+    restart: unless-stopped
+    group_add:
+      - "988"
+    ports:
+      - "4860"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.rule=Host(`hermes.eludein.art`) || Host(`${COMPOSE_PROJECT_NAME}.${TRAEFIK_HOST}`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.entrypoints=https
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}.tls.certresolver=letsencrypt
+      - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=4860
+    env_file:
+      - .env
+    entrypoint: [ /bin/bash, /init-docker-access.sh ]
+    volumes:
+      - ./data:/opt/data
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./init-docker-access.sh:/init-docker-access.sh:ro
+    networks:
+      - coolify
+      - default
+
+  hermes-webui:
+    image: hermes-webui-local:latest
+    restart: unless-stopped
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        rm -rf /workspace 2>/dev/null || true
+        ln -sf /opt/data/livrables /workspace
+        bash /opt/hermes-webui-patches/apply-patches.sh
+        exec /hermeswebui_init.bash
+    ports:
+      - "3001:8787"
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=coolify
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui.rule=Host(`hermeswebui.eludein.art`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui.entrypoints=https
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui.tls.certresolver=letsencrypt
+      - traefik.http.services.${COMPOSE_PROJECT_NAME}-webui.loadbalancer.server.port=8787
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui-http.rule=Host(`hermeswebui.eludein.art`)
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui-http.entrypoints=http
+      - traefik.http.routers.${COMPOSE_PROJECT_NAME}-webui-http.middlewares=redirect-to-https
+    env_file:
+      - .env
+    environment:
+      HERMES_WEBUI_STATE_DIR: /opt/data/hermes-webui-state
+      HERMES_HOME: /opt/data
+      HERMES_WEBUI_DEFAULT_WORKSPACE: /opt/data/livrables
+      HERMES_AGENT_URL: http://hermes-agent:4860
+      HERMES_WEBUI_PASSWORD: ${ADMIN_PASSWORD}
+      NODE_ENV: production
+    volumes:
+      - ./data:/opt/data
+      # Source agent (module Python `agent`) — requis pour /api/skills
+      - ./hermes-agent-src:/opt/hermes:ro
+      - ./hermes-webui-patches:/opt/hermes-webui-patches:ro
+    depends_on:
+      - hermes-agent
+    networks:
+      - coolify
+      - default
+
+networks:
+  coolify:
+    external: true

@@ -26,13 +26,13 @@ export default function RuntimeHeader({ showInfrastructure = true }: { showInfra
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
       {showInfrastructure ? (
         <>
-          <span className="font-bold text-slate-500">Flux</span>
+          <span className="hidden font-bold text-slate-500 md:inline">Flux</span>
           <span className={`inline-flex items-center gap-1 ${ui.textClass}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${ui.dot}`} />
             {ui.text}
           </span>
-          <span className="text-slate-300">•</span>
-          <span className="inline-flex items-center gap-1">
+          <span className="hidden text-slate-300 sm:inline">•</span>
+          <span className="hidden items-center gap-1 sm:inline-flex">
             <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700">{dbEngine}</span>
             <span
               className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
@@ -42,20 +42,20 @@ export default function RuntimeHeader({ showInfrastructure = true }: { showInfra
               {dbEnv}
             </span>
           </span>
-          <span className="text-slate-300">•</span>
+          <span className="hidden text-slate-300 md:inline">•</span>
         </>
       ) : null}
-      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+      <span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5">
         <span className="inline-flex items-center gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Fournisseur</span>
           <span className="rounded bg-violet-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-violet-800">
             {providerLabel}
           </span>
         </span>
-        <span className="inline-flex items-center gap-1">
+        <span className="inline-flex min-w-0 items-center gap-1">
           <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Modèle</span>
           <span
-            className="max-w-[14rem] truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700"
+            className="max-w-[9rem] truncate rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-700 sm:max-w-[14rem]"
             title={modelFull}
           >
             {modelLabel}

@@ -25,6 +25,7 @@ Scripts : `scripts/vps-ssh.ps1`, `scripts/hermes-vps.ps1`
 | VPS SSH | `root@187.124.42.135` |
 | Hermes URL | https://hermes.eludein.art |
 | Hermes compose | `/docker/hermes-agent-aoxw/` |
+| Hermes WebUI | https://hermeswebui.eludein.art (fallback :3001) |
 | Hermes données | `/docker/hermes-agent-aoxw/data/` → `/opt/data` |
 | Korymb prod app | https://korymb.eludein.art |
 | Korymb prod API | https://api-korymb.eludein.art |
@@ -74,7 +75,7 @@ docker exec hermes-agent-aoxw-hermes-agent-1 bash -lc 'gosu hermes hermes config
 
 | Fichier | Contenu |
 |---------|---------|
-| `docker-compose.yml` | Image, Traefik labels, volumes, init-docker-access |
+| `docker-compose.yml` | Agent + WebUI, Traefik labels, volumes |
 | `.env` | `ADMIN_USERNAME`, `ADMIN_PASSWORD`, `TRAEFIK_HOST` |
 | `data/.env` | Clés API, `TERMINAL_SSH_*`, `OPENAI_API_KEY`, etc. |
 | `data/config.yaml` | Modèle, terminal, custom_providers |
@@ -144,12 +145,38 @@ Hermes interroge la MariaDB Korymb via `hermes_readonly` (SELECT uniquement).
 
 Doc : `docs/HERMES-KORYMB-DATABASE.md`
 
-Test depuis le VPS :
+### Hermes → base Fleur d'ÅmÔurs (lecture seule)
+
+Hermes interroge l'app tarot via `hermes_fleur_readonly` (tables `wp_fleur_*`, `wp_users`).
+
+```powershell
+.\scripts\hermes-fleur-db-setup.ps1   # user + déploie script/skill
+```
+
+| Élément | Chemin / valeur |
+|---------|-----------------|
+| Script SQL | `/opt/data/scripts/fleur-sql.sh` |
+| Skills | `fleur-analytics`, `eludein-ecosystem` |
+| App | https://app-fleurdamours.eludein.art |
+
+Doc : `docs/HERMES-FLEUR-DATABASE.md`
+
+Test :
 
 ```bash
-docker exec hermes-agent-aoxw-hermes-agent-1 /opt/data/scripts/korymb-sql.sh \
-  "SELECT COUNT(*) AS jobs FROM jobs WHERE workspace_id='ws-default-legacy'"
+docker exec hermes-agent-aoxw-hermes-agent-1 /opt/data/scripts/fleur-sql.sh \
+  "SELECT COUNT(*) AS fleur_tables FROM information_schema.tables WHERE table_schema='default' AND table_name LIKE 'wp_fleur_%'"
 ```
+
+### Hermes — intelligence (SOUL + skills)
+
+```powershell
+.\scripts\hermes-intelligence-deploy.ps1
+```
+
+Skills prioritaires : `eludein-ops-rules`, `eludein-ecosystem`, `hermes-vps-health`, `hermes-db-analysis`.
+
+Doc : `docs/HERMES-INTELLIGENCE.md`
 
 ---
 
@@ -159,6 +186,6 @@ docker exec hermes-agent-aoxw-hermes-agent-1 /opt/data/scripts/korymb-sql.sh \
 - [ ] https://hermes.eludein.art → 302 (login)
 - [ ] `hermes config show` → modèle / terminal attendus
 - [ ] Test SSH terminal : `hostname` → `srv1498916`, `whoami` → `root`
-- [ ] `korymb-sql.sh` depuis Hermes si accès DB touché
+- [ ] `korymb-sql.sh` / `fleur-sql.sh` depuis Hermes si accès DB touché
 - [ ] Korymb local `/health` si tunnel DB touché
 - [ ] Aucun secret commité

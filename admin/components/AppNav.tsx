@@ -425,7 +425,7 @@ export default function AppNav() {
         <button
           type="button"
           onClick={() => setMenuOpen(true)}
-          className="touch-target inline-flex items-center justify-center rounded-xl border-2 border-violet-300 bg-violet-700 px-4 text-sm font-extrabold text-white shadow-md hover:bg-violet-800"
+          className="touch-target inline-flex items-center justify-center rounded-xl border-2 border-violet-300 bg-violet-700 px-3 text-sm font-extrabold text-white shadow-md hover:bg-violet-800 sm:px-4"
           aria-expanded={menuOpen}
           aria-controls="app-mobile-nav"
         >

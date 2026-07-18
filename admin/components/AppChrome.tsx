@@ -15,12 +15,14 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     <>
       <CommandPalette />
       <header className="app-header-bar">
-        <div className="flex w-full min-w-0 items-center justify-between gap-2 px-3 py-3 sm:gap-3 sm:px-5 lg:px-6 xl:px-8">
+        <div className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
           <div className="min-w-0 flex-1">
             <p className="app-brand">Korymb</p>
-            <RuntimeHeader showInfrastructure={showTechnical} />
+            <div className="mt-0.5 hidden sm:block">
+              <RuntimeHeader showInfrastructure={showTechnical} />
+            </div>
             {executiveMode ? (
-              <p className="text-xs font-semibold text-slate-500">
+              <p className="mt-0.5 hidden text-xs font-semibold text-slate-500 sm:block">
                 Cockpit dirigeant ·{" "}
                 <button
                   type="button"
@@ -34,12 +36,14 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               </p>
             ) : null}
           </div>
-          <AuthBar />
-          <NotificationBell />
-          <AppNav />
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <AuthBar />
+            <NotificationBell />
+            <AppNav />
+          </div>
         </div>
         <div className="app-status-strip">
-          <div className="w-full min-w-0 px-3 py-2.5 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+          <div className="w-full min-w-0 px-3 py-2 sm:px-5 sm:py-2.5 lg:px-6 xl:px-8">
             <AppStatusZone executiveMode={executiveMode} />
           </div>
         </div>

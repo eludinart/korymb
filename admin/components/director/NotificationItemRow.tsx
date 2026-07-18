@@ -79,13 +79,13 @@ export default function NotificationItemRow({
         ) : null}
       </div>
 
-      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {primary ? (
           <button
             type="button"
             disabled={busy}
             onClick={() => onNavigate(primary.href, true)}
-            className="rounded-lg bg-violet-700 px-2.5 py-1.5 text-[11px] font-bold text-white hover:bg-violet-800 disabled:opacity-50"
+            className="min-h-10 rounded-lg bg-violet-700 px-3 py-2 text-xs font-bold text-white hover:bg-violet-800 disabled:opacity-50"
           >
             {busy ? "…" : primary.label}
           </button>
@@ -97,7 +97,7 @@ export default function NotificationItemRow({
             type="button"
             disabled={busy}
             onClick={() => onNavigate(a.href, true)}
-            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
           >
             {a.label}
           </button>
@@ -107,7 +107,7 @@ export default function NotificationItemRow({
           type="button"
           disabled={busy || !isUnread}
           onClick={() => onMarkRead()}
-          className="rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
+          className="min-h-10 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
         >
           Marquer lu
         </button>
@@ -126,7 +126,7 @@ export default function NotificationItemRow({
             type="button"
             disabled={busy}
             onClick={() => setMenuOpen((v) => !v)}
-            className="rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] font-bold text-slate-600 hover:bg-slate-50"
+            className="touch-target inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
             aria-expanded={menuOpen}
             aria-label="Plus d'options"
           >

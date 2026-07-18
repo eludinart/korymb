@@ -47,7 +47,9 @@ export function PageHeader({
           <h1 className="page-title">{title}</h1>
           {description ? <p className="page-lead">{description}</p> : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+        {actions ? (
+          <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">{actions}</div>
+        ) : null}
       </div>
     </header>
   );
@@ -63,7 +65,10 @@ export function PageLink({
   variant?: "primary" | "secondary";
 }) {
   return (
-    <Link href={href} className={variant === "primary" ? "btn-link-primary" : "btn-link-secondary"}>
+    <Link
+      href={href}
+      className={`${variant === "primary" ? "btn-link-primary" : "btn-link-secondary"} w-full justify-center sm:w-auto`}
+    >
       {children}
     </Link>
   );

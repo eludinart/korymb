@@ -219,11 +219,11 @@ body {
   }
 
   .btn-link-primary {
-    @apply touch-target inline-flex items-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200;
+    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200;
   }
 
   .btn-link-secondary {
-    @apply touch-target inline-flex items-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50;
+    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50;
   }
 
   .input-field {
@@ -283,6 +283,23 @@ body {
 
   .app-status-strip {
     @apply w-full min-w-0 border-t border-violet-100 bg-gradient-to-r from-violet-50/90 to-slate-50/90;
+  }
+
+  /* ── Mobile sheets / overlays ── */
+  .mobile-bottom-sheet {
+    @apply absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl border-2 border-violet-200 bg-white shadow-2xl;
+    top: max(0.75rem, var(--safe-top));
+  }
+
+  .mobile-sheet-handle {
+    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300;
+  }
+
+  /* Horizontal nav chips (admin / gestion) */
+  .h-scroll-nav {
+    @apply flex gap-2 overflow-x-auto overscroll-x-contain pb-1;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* ── Mobile tabs ── */

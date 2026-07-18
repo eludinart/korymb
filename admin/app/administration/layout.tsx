@@ -27,7 +27,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
           {ADMIN_NAV_GROUPS.map((group) => (
             <div key={group.id}>
               <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{group.label}</p>
-              <div className="mt-1 flex gap-2 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+              <div className="h-scroll-nav mt-1 lg:flex-col lg:overflow-visible lg:pb-0">
                 {group.links.map((l) => {
                   const active = isAdminLinkActive(pathname, l.href);
                   const showBadge = l.href === "/administration/reprise" && repriseGapCount > 0;
@@ -35,7 +35,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
                     <Link
                       key={l.href}
                       href={l.href}
-                      className={`${active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"} inline-flex items-center gap-2`}
+                      className={`${active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"} inline-flex shrink-0 items-center gap-2`}
                     >
                       <span className="min-w-0 truncate">{l.label}</span>
                       {showBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
