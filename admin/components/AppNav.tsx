@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
 import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
 import {
@@ -75,6 +76,7 @@ export default function AppNav() {
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
   const gestionActive = isGestionPath(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [gestionOpen, setGestionOpen] = useState(false);
   const [canAdmin, setCanAdmin] = useState(true);
@@ -82,6 +84,8 @@ export default function AppNav() {
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -115,10 +119,15 @@ export default function AppNav() {
     if (!menuOpen) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeMenu();
+    };
+    document.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
+      document.removeEventListener("keydown", onKey);
     };
-  }, [menuOpen]);
+  }, [menuOpen, closeMenu]);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -272,6 +281,30 @@ export default function AppNav() {
       {adminSubLinks}
     </>
   );
+
+  const mobileDrawer =
+    menuOpen && mounted
+      ? createPortal(
+          <div className="fixed inset-0 z-[90] xl:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+            <button
+              type="button"
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
+              aria-label="Fermer le menu"
+              onClick={closeMenu}
+            />
+            <div id="app-mobile-nav" className="nav-drawer">
+              <div className="flex items-center justify-between gap-2 border-b-2 border-violet-100 px-4 py-4">
+                <p className="text-base font-extrabold text-slate-950">Navigation</p>
+                <button type="button" onClick={closeMenu} className="btn-secondary px-3 py-2 text-sm">
+                  Fermer
+                </button>
+              </div>
+              <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 py-4 pb-safe">{navLinks}</nav>
+            </div>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <>
@@ -428,30 +461,13 @@ export default function AppNav() {
           className="touch-target inline-flex items-center justify-center rounded-xl border-2 border-violet-300 bg-violet-700 px-3 text-sm font-extrabold text-white shadow-md hover:bg-violet-800 sm:px-4"
           aria-expanded={menuOpen}
           aria-controls="app-mobile-nav"
+          aria-haspopup="dialog"
         >
           Menu
         </button>
       </div>
 
-      {menuOpen ? (
-        <div className="fixed inset-0 z-50 xl:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
-          <button
-            type="button"
-            className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm"
-            aria-label="Fermer le menu"
-            onClick={closeMenu}
-          />
-          <div id="app-mobile-nav" className="nav-drawer">
-            <div className="flex items-center justify-between gap-2 border-b-2 border-violet-100 px-4 py-4">
-              <p className="text-base font-extrabold text-slate-950">Navigation</p>
-              <button type="button" onClick={closeMenu} className="btn-secondary px-3 py-2 text-sm">
-                Fermer
-              </button>
-            </div>
-            <nav className="flex-1 space-y-1.5 overflow-y-auto px-3 py-4 pb-safe">{navLinks}</nav>
-          </div>
-        </div>
-      ) : null}
+      {mobileDrawer}
     </>
   );
 }
