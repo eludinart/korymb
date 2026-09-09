@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
+import ContactEmailPanel from "../../../../components/gestion/ContactEmailPanel";
 import ContactOutreachSuggestionsField from "../../../../components/gestion/ContactOutreachSuggestionsField";
 import ContactProfileChips from "../../../../components/gestion/ContactProfileChips";
 import ContactProfileView from "../../../../components/gestion/ContactProfileView";
@@ -296,6 +297,10 @@ export default function GestionContactEditPage() {
           </div>
         </form>
         )}
+      </SectionCard>
+
+      <SectionCard title="Prospection e-mail">
+        <ContactEmailPanel contact={contact.data} />
       </SectionCard>
 
       <SectionCard title="Historique des interactions">

@@ -9,6 +9,7 @@ import logging
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -26,7 +27,20 @@ _SERVICE_TOKEN_ENV: dict[str, str] = {
 }
 
 
-def get_google_token(service: str = "") -> str:
+def get_google_token(service: str = "", *, allow_refresh: bool = True) -> str:
+    """Access token Google. Préfère OAuth refresh si dispo (token statique souvent expiré)."""
+    if allow_refresh:
+        try:
+            from tools import _google_oauth_bundle, _get_google_drive_token
+
+            refresh, client_id, client_secret, _ = _google_oauth_bundle()
+            if refresh and client_id and client_secret:
+                tok = _get_google_drive_token()
+                if tok:
+                    return tok
+        except Exception:
+            logger.debug("google oauth refresh unavailable for %s", service, exc_info=True)
+
     key = _SERVICE_TOKEN_ENV.get((service or "").strip().lower(), "")
     if key:
         tok = getenv(key, "")
@@ -43,6 +57,16 @@ def get_google_token(service: str = "") -> str:
         return ""
 
 
+def force_refresh_google_token() -> str:
+    try:
+        from tools import _refresh_google_access_token
+
+        return _refresh_google_access_token(force=True) or ""
+    except Exception:
+        logger.warning("force_refresh_google_token failed", exc_info=True)
+        return ""
+
+
 def _google_headers(service: str = "") -> dict[str, str]:
     token = get_google_token(service)
     if not token:
@@ -52,13 +76,53 @@ def _google_headers(service: str = "") -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
+def _gmail_request(
+    method: str,
+    url: str,
+    *,
+    params: dict | None = None,
+    json_body: dict | None = None,
+    timeout: float = 25,
+) -> httpx.Response:
+    """Appel Gmail avec 1 retry après refresh OAuth si 401."""
+    hdrs = _google_headers("gmail")
+    r = httpx.request(method, url, headers=hdrs, params=params, json=json_body, timeout=timeout)
+    if r.status_code != 401:
+        return r
+    refreshed = force_refresh_google_token()
+    if not refreshed:
+        return r
+    hdrs = {"Authorization": f"Bearer {refreshed}", "Content-Type": "application/json"}
+    return httpx.request(method, url, headers=hdrs, params=params, json=json_body, timeout=timeout)
+
+
 def _sim(service: str, detail: str) -> str:
     return f"[SIMULATION] {service} :\n{detail}\n⚠️ Configurez les tokens Google OAuth dans .env."
 
 
+def _gmail_auth_error_hint(exc: BaseException | str) -> str:
+    text = str(exc)
+    if "401" in text or "invalid_token" in text.lower() or "Invalid Credentials" in text:
+        return (
+            " Token Gmail expiré ou invalide — reconnectez Google OAuth "
+            "(Administration → Intégrations : refresh token / access token)."
+        )
+    if "invalid_grant" in text.lower():
+        return " Refresh token Google révoqué — refaites le consentement OAuth Gmail."
+    return ""
+
+
 # ── Gmail ─────────────────────────────────────────────────────────────────────
 
-def run_send_gmail(to: str, subject: str, body: str) -> str:
+def run_send_gmail(
+    to: str,
+    subject: str,
+    body: str,
+    *,
+    in_reply_to: str = "",
+    references: str = "",
+    thread_id: str = "",
+) -> str:
     to_addr = (to or "").strip()
     subj = (subject or "").strip()
     text = (body or "").strip()
@@ -69,24 +133,37 @@ def run_send_gmail(to: str, subject: str, body: str) -> str:
     except RuntimeError as e:
         return _sim("Gmail", f"À : {to_addr}\nObjet : {subj}\n\n{text[:600]}")
     import base64
+    import secrets
     from email.mime.text import MIMEText
 
     msg = MIMEText(text, "plain", "utf-8")
     msg["to"] = to_addr
     msg["subject"] = subj
+    rfc_mid = f"<korymb-{secrets.token_hex(10)}@eludein.art>"
+    msg["Message-ID"] = rfc_mid
+    reply_to = (in_reply_to or "").strip()
+    if reply_to:
+        msg["In-Reply-To"] = reply_to
+        msg["References"] = (references or reply_to).strip()
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
+    payload: dict[str, Any] = {"raw": raw}
+    gmail_thread = (thread_id or "").strip()
+    if gmail_thread:
+        payload["threadId"] = gmail_thread
     try:
-        r = httpx.post(
+        r = _gmail_request(
+            "POST",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-            headers=hdrs,
-            json={"raw": raw},
+            json_body=payload,
             timeout=25,
         )
         r.raise_for_status()
-        mid = (r.json() or {}).get("id", "?")
-        return f"✅ Email Gmail envoyé à {to_addr} (id: {mid})"
+        data = r.json() or {}
+        mid = data.get("id", "?")
+        tid = data.get("threadId") or gmail_thread or "?"
+        return f"✅ Email Gmail envoyé à {to_addr} (id: {mid}, thread: {tid}, rfc: {rfc_mid})"
     except Exception as e:
-        return f"Erreur Gmail : {e}"
+        return f"Erreur Gmail : {e}{_gmail_auth_error_hint(e)}"
 
 
 def run_list_gmail(query: str = "", limit: int = 10) -> str:
@@ -126,6 +203,86 @@ def run_list_gmail(query: str = "", limit: int = 10) -> str:
                 f"  De : {h.get('From', '?')} — {h.get('Date', '')[:16]}"
             )
         return "\n".join(lines)
+    except Exception as e:
+        return f"Erreur lecture Gmail : {e}"
+
+
+def _header_map(payload: dict | None) -> dict[str, str]:
+    headers = (payload or {}).get("headers") or []
+    out: dict[str, str] = {}
+    for h in headers:
+        name = str(h.get("name") or "").strip()
+        if name:
+            out[name.lower()] = str(h.get("value") or "")
+    return out
+
+
+def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str, Any]] | str:
+    """Messages entrants structurés depuis une adresse (sync prospection)."""
+    addr = (from_email or "").strip()
+    if not addr:
+        return "Adresse e-mail requise."
+    try:
+        hdrs = _google_headers("gmail")
+    except RuntimeError as e:
+        return str(e)
+    try:
+        params: dict[str, str | int] = {
+            "maxResults": min(int(limit or 15), 25),
+            "q": f"from:{addr} in:inbox",
+        }
+        r = httpx.get(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            headers=hdrs,
+            params=params,
+            timeout=25,
+        )
+        r.raise_for_status()
+        ids = [m.get("id") for m in (r.json().get("messages") or []) if m.get("id")]
+        out: list[dict[str, Any]] = []
+        for mid in ids:
+            r2 = httpx.get(
+                f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}",
+                headers=hdrs,
+                params={
+                    "format": "metadata",
+                    "metadataHeaders": [
+                        "Subject",
+                        "From",
+                        "To",
+                        "Date",
+                        "Message-ID",
+                        "In-Reply-To",
+                        "References",
+                    ],
+                },
+                timeout=20,
+            )
+            if r2.status_code != 200:
+                continue
+            data = r2.json() or {}
+            h = _header_map(data.get("payload") if isinstance(data.get("payload"), dict) else {})
+            internal = data.get("internalDate")
+            created = ""
+            if internal is not None:
+                try:
+                    created = datetime.fromtimestamp(int(internal) / 1000, tz=timezone.utc).isoformat()
+                except (TypeError, ValueError, OSError):
+                    created = ""
+            out.append(
+                {
+                    "gmail_message_id": str(data.get("id") or mid),
+                    "gmail_thread_id": str(data.get("threadId") or ""),
+                    "subject": h.get("subject") or "",
+                    "from": h.get("from") or addr,
+                    "to": h.get("to") or "",
+                    "snippet": str(data.get("snippet") or ""),
+                    "message_id_header": h.get("message-id") or "",
+                    "in_reply_to": h.get("in-reply-to") or "",
+                    "internal_date": created,
+                }
+            )
+        return out
     except Exception as e:
         return f"Erreur lecture Gmail : {e}"
 

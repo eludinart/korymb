@@ -212,6 +212,41 @@ def init_business_tables() -> None:
                 resolved_at     TEXT
             )
         """)
+        # Fils e-mail prospection (envois HITL + réponses Gmail)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS biz_email_threads (
+                id                  {pk} PRIMARY KEY,
+                workspace_id        {pk} NOT NULL,
+                contact_id          {pk},
+                subject             TEXT NOT NULL DEFAULT '',
+                to_email            TEXT NOT NULL DEFAULT '',
+                status              TEXT NOT NULL DEFAULT 'open',
+                gmail_thread_id     TEXT NOT NULL DEFAULT '',
+                last_message_at     TEXT NOT NULL DEFAULT '',
+                follow_up_event_id  TEXT NOT NULL DEFAULT '',
+                ticket_id           TEXT NOT NULL DEFAULT '',
+                job_id              TEXT NOT NULL DEFAULT '',
+                created_at          TEXT NOT NULL,
+                updated_at          TEXT NOT NULL
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS biz_email_messages (
+                id                  {pk} PRIMARY KEY,
+                workspace_id        {pk} NOT NULL,
+                thread_id           {pk} NOT NULL,
+                direction           TEXT NOT NULL DEFAULT 'outbound',
+                subject             TEXT NOT NULL DEFAULT '',
+                body                TEXT NOT NULL DEFAULT '',
+                from_email          TEXT NOT NULL DEFAULT '',
+                to_email            TEXT NOT NULL DEFAULT '',
+                message_id_header   TEXT NOT NULL DEFAULT '',
+                gmail_message_id    TEXT NOT NULL DEFAULT '',
+                in_reply_to         TEXT NOT NULL DEFAULT '',
+                ticket_id           TEXT NOT NULL DEFAULT '',
+                created_at          TEXT NOT NULL
+            )
+        """)
         conn.commit()
 
 
@@ -2470,6 +2505,14 @@ def get_commercial_morning_snapshot() -> dict[str, Any]:
         if len(weak_contacts) >= 8:
             break
 
+    email_stats: dict[str, Any] = {"open_threads": [], "counts": {}}
+    try:
+        from services.email_prospecting import email_prospecting_stats
+
+        email_stats = email_prospecting_stats(limit_open=8)
+    except Exception:
+        pass
+
     return {
         "follow_ups_due_today": [
             {
@@ -2486,12 +2529,14 @@ def get_commercial_morning_snapshot() -> dict[str, Any]:
         "follow_ups_due_tomorrow_count": len(due_tomorrow),
         "stale_quotes": stale_quotes,
         "weak_contacts": weak_contacts,
+        "email_threads_open": email_stats.get("open_threads") or [],
         "counts": {
             "follow_ups_due_today": len(due_today),
             "follow_ups_overdue": sum(1 for e in due_today if e.get("overdue")),
             "follow_ups_due_tomorrow": len(due_tomorrow),
             "stale_quotes": len(stale_quotes),
             "weak_contacts": len(weak_contacts),
+            **(email_stats.get("counts") or {}),
         },
     }
 

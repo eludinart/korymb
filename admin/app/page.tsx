@@ -70,6 +70,21 @@ export default function LandingPage() {
           Démarrer maintenant
         </Link>
       </section>
+
+      <footer className="mt-16 border-t border-slate-200 pt-6 text-center text-sm text-slate-500">
+        <p>Korymb — cockpit agentique pour piloter votre activité</p>
+        <p className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+          <Link href="/confidentialite" className="text-violet-800 hover:underline">
+            Confidentialité
+          </Link>
+          <Link href="/cgu" className="text-violet-800 hover:underline">
+            CGU
+          </Link>
+          <a href="https://eludein.art" className="text-violet-800 hover:underline">
+            Élude In Art
+          </a>
+        </p>
+      </footer>
     </div>
   );
 }

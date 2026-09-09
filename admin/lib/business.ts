@@ -52,6 +52,50 @@ export type ContactEnrichmentProposal = {
   resolved_at?: string | null;
 };
 
+export type BizInteraction = {
+  id: string;
+  contact_id: string | null;
+  project_id: string | null;
+  quote_id: string | null;
+  interaction_type: string;
+  summary: string;
+  details: string;
+  agent_key: string;
+  job_id: string;
+  created_at: string;
+};
+
+export type ContactEmailMessage = {
+  id: string;
+  thread_id: string;
+  direction: "outbound" | "inbound" | string;
+  subject: string;
+  body: string;
+  from_email: string;
+  to_email: string;
+  message_id_header?: string;
+  gmail_message_id?: string;
+  in_reply_to?: string;
+  ticket_id?: string;
+  created_at: string;
+};
+
+export type ContactEmailThread = {
+  id: string;
+  contact_id: string | null;
+  subject: string;
+  to_email: string;
+  status: string;
+  gmail_thread_id?: string;
+  last_message_at?: string;
+  follow_up_event_id?: string;
+  ticket_id?: string;
+  job_id?: string;
+  created_at: string;
+  updated_at: string;
+  messages?: ContactEmailMessage[];
+};
+
 export type BizProject = {
   id: string;
   contact_id: string | null;
@@ -110,19 +154,6 @@ export type BizEvent = {
   location: string;
   status: string;
   notes: string;
-};
-
-export type BizInteraction = {
-  id: string;
-  contact_id: string | null;
-  project_id: string | null;
-  quote_id: string | null;
-  interaction_type: string;
-  summary: string;
-  details: string;
-  agent_key: string;
-  job_id: string;
-  created_at: string;
 };
 
 export type BizOverview = {
@@ -306,6 +337,43 @@ export const businessApi = {
       headers: agentHeaders(),
     });
     return ((data as { interactions?: BizInteraction[] })?.interactions || []) as BizInteraction[];
+  },
+  listContactEmails: async (contactId: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(contactId)}/emails`, {
+      headers: agentHeaders(),
+    });
+    return ((data as { threads?: ContactEmailThread[] })?.threads || []) as ContactEmailThread[];
+  },
+  prepareContactEmail: async (
+    contactId: string,
+    body: { subject?: string; body?: string; job_id?: string; thread_id?: string } = {},
+  ) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(contactId)}/emails/prepare`, {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify(body),
+      timeoutMs: 20_000,
+    });
+    return data as {
+      success: boolean;
+      ticket?: { id: string; status?: string; title?: string };
+      chain?: { steps?: string[] };
+      contact?: { id?: string; name?: string; email?: string };
+    };
+  },
+  syncContactEmails: async (contactId: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(contactId)}/emails/sync`, {
+      method: "POST",
+      headers: agentHeaders(),
+      timeoutMs: 45_000,
+    });
+    return data as {
+      success: boolean;
+      imported?: number;
+      skipped?: number;
+      threads?: ContactEmailThread[];
+      details?: Array<{ thread_id?: string; cancelled_follow_ups?: number }>;
+    };
   },
   listProjects: async () => {
     const { data } = await requestJson("/business/projects", { headers: agentHeaders() });

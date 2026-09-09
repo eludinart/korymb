@@ -57,6 +57,11 @@ from services.business_db import (
     update_project,
     update_quote,
 )
+from services.email_prospecting import (
+    list_contact_email_threads,
+    prepare_contact_email_ticket,
+    sync_gmail_replies_for_contact,
+)
 from services.tiime_client import is_tiime_automation_configured, request_tiime_invoice
 
 router = APIRouter(tags=["business"])
@@ -561,6 +566,54 @@ async def business_reject_contact_enrichment(contact_id: str, proposal_id: str):
         raise HTTPException(404, detail="Proposition introuvable")
     row = reject_enrichment_proposal(proposal_id)
     return {"proposal": row}
+
+
+class ContactEmailPrepareBody(BaseModel):
+    subject: str = ""
+    body: str = ""
+    job_id: str = ""
+    thread_id: str = ""
+
+
+@router.get("/business/contacts/{contact_id}/emails", dependencies=[Depends(resolve_tenant)])
+async def business_list_contact_emails(
+    contact_id: str,
+    limit: int = Query(default=30, ge=1, le=100),
+):
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    return {"threads": list_contact_email_threads(contact_id, limit=limit)}
+
+
+@router.post("/business/contacts/{contact_id}/emails/prepare", dependencies=[Depends(resolve_tenant)])
+async def business_prepare_contact_email(contact_id: str, body: ContactEmailPrepareBody | None = None):
+    """Prépare un ticket e-mail HITL (validation inbox avant envoi réel)."""
+    payload = body or ContactEmailPrepareBody()
+    result = prepare_contact_email_ticket(
+        contact_id,
+        subject=payload.subject,
+        body=payload.body,
+        job_id=payload.job_id,
+        thread_id=payload.thread_id,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Impossible de préparer l'e-mail",
+        )
+    return result
+
+
+@router.post("/business/contacts/{contact_id}/emails/sync", dependencies=[Depends(resolve_tenant)])
+async def business_sync_contact_emails(contact_id: str):
+    """Synchronise les réponses Gmail du contact vers les fils CRM."""
+    result = sync_gmail_replies_for_contact(contact_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Sync Gmail impossible",
+        )
+    return result
 
 
 @router.get("/business/interactions", dependencies=[Depends(resolve_tenant)])

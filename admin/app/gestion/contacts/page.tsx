@@ -64,6 +64,12 @@ function notesPreview(notes: string | undefined, max = 140): string | null {
   return `${raw.slice(0, max).trimEnd()}…`;
 }
 
+function isFlaggedTestContact(c: BizContact): boolean {
+  const name = (c.name || "").toUpperCase();
+  const tags = (c.tags || []).map((t) => t.trim().toLowerCase());
+  return name.includes("[TEST]") || tags.includes("test") || tags.includes("test-prospection");
+}
+
 export default function GestionContactsPage() {
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -89,7 +95,8 @@ export default function GestionContactsPage() {
     if (reachFilter !== "all") {
       rows = rows.filter((c) => getContactReachability(c).level === reachFilter);
     }
-    return rows;
+    // Contacts marqués TEST en tête de liste
+    return [...rows].sort((a, b) => Number(isFlaggedTestContact(b)) - Number(isFlaggedTestContact(a)));
   }, [contacts.data, profileFilter, relationFilter, reachFilter]);
 
   const filtersActive = profileFilter !== "all" || relationFilter !== "all" || reachFilter !== "all";
@@ -213,11 +220,24 @@ export default function GestionContactsPage() {
             const expanded = expandedId === c.id;
             const profiles = contactProfileKeys(c);
             const preview = notesPreview(c.notes);
+            const flagged = isFlaggedTestContact(c);
             return (
-              <li key={c.id} className="py-3">
+              <li
+                key={c.id}
+                className={
+                  flagged
+                    ? "rounded-xl border-2 border-amber-300 bg-amber-50/80 px-3 py-3 ring-1 ring-amber-200"
+                    : "py-3"
+                }
+              >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
+                      {flagged ? (
+                        <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                          Test
+                        </span>
+                      ) : null}
                       <p className="font-semibold text-slate-900">
                         <Link href={`/gestion/contacts/${c.id}`} className="hover:text-emerald-900 hover:underline">
                           {c.name}

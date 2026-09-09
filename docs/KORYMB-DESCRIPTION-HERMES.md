@@ -82,8 +82,9 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 | File | Statut / table | Ce que le dirigeant valide | Exécution |
 |------|----------------|---------------------------|-----------|
 | **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job — **Valider et lancer** enchaîne validation + reprise des sous-agents |
-| **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL). **E-mail** : envoi + journal CRM + relance J+7. **Social / WordPress** : publish + suivi mesurer/relayer J+3 dans Planning. |
+| **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL). **E-mail** : envoi + fil CRM (`biz_email_threads` / `biz_email_messages`) + journal + relance J+7. **Social / WordPress** : publish + suivi mesurer/relayer J+3 dans Planning. |
 | **Relance CRM** | créneau Planning (`Relance —…` / Mesurer / Relayer) · inbox `kind: crm_follow_up` · `POST /business/events/{id}/prepare-follow-up-email` | Relances dues du jour (et en retard) | Prépare un ticket e-mail HITL, ou marque fait / report +3 j. Remonte aussi dans le **briefing commercial**. |
+| **Prospection mail** | fiche contact · `POST …/emails/prepare` + `…/emails/sync` | Préparer un brouillon HITL depuis la fiche ; sync réponses Gmail | Réponse inbound → fil `replied` + **annulation auto** des créneaux `Relance —…`. |
 
 Les outils `send_email`, `send_gmail`, `create_calendar_event`, posts Meta, `wordpress_create_post` **n’exécutent plus en live** : ils créent un ticket. WordPress (si configuré) crée d’abord un **brouillon** ; l’approbation passe en `publish`. Après un e-mail réellement envoyé, Korymb journalise une interaction CRM (`gestion_log_interaction`).
 
@@ -274,4 +275,4 @@ curl -s https://api-korymb.eludein.art/health
 
 ---
 
-*Dernière mise à jour : septembre 2026 — chaînage HITL + relances CRM dans l’inbox + briefing commercial du matin.*
+*Dernière mise à jour : septembre 2026 — chaînage prospection e-mail (fils CRM + sync Gmail + HITL) + relances CRM inbox / briefing.*

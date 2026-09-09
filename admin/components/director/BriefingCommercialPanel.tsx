@@ -9,6 +9,8 @@ export type CommercialMorningSnapshot = {
     follow_ups_due_tomorrow?: number;
     stale_quotes?: number;
     weak_contacts?: number;
+    email_threads_open?: number;
+    email_threads_replied_recent?: number;
   };
   follow_ups_due_today?: Array<{
     id?: string;
@@ -32,17 +34,19 @@ export type CommercialMorningSnapshot = {
     email?: string;
     reachability?: { level?: string; label?: string };
   }>;
+  email_threads_open?: Array<{
+    id?: string;
+    contact_id?: string;
+    subject?: string;
+    to_email?: string;
+    last_message_at?: string;
+  }>;
   follow_ups_due_tomorrow_count?: number;
 };
 
 type Props = {
   data?: CommercialMorningSnapshot | null;
 };
-
-function eurosFromCents(cents?: number) {
-  if (cents == null || !Number.isFinite(cents)) return null;
-  return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
-}
 
 /** Tableau de bord commercial du matin — relances, devis, joignabilité. */
 export default function BriefingCommercialPanel({ data }: Props) {
@@ -51,10 +55,12 @@ export default function BriefingCommercialPanel({ data }: Props) {
   const followUps = data.follow_ups_due_today || [];
   const staleQuotes = data.stale_quotes || [];
   const weak = data.weak_contacts || [];
+  const openMails = data.email_threads_open || [];
   const totalSignal =
     Number(counts.follow_ups_due_today || 0) +
     Number(counts.stale_quotes || 0) +
-    Number(counts.weak_contacts || 0);
+    Number(counts.weak_contacts || 0) +
+    Number(counts.email_threads_open || openMails.length || 0);
   if (totalSignal === 0 && !Number(counts.follow_ups_due_tomorrow || 0)) {
     return (
       <section
@@ -203,9 +209,34 @@ export default function BriefingCommercialPanel({ data }: Props) {
           </ul>
         </div>
       ) : null}
+
+      {openMails.length > 0 ? (
+        <div className="mt-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
+            E-mails en attente de réponse ({counts.email_threads_open ?? openMails.length})
+          </p>
+          <ul className="mt-2 space-y-2">
+            {openMails.slice(0, 5).map((t) => (
+              <li
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-teal-100 bg-white/80 px-3 py-2"
+              >
+                <span className="truncate text-sm font-semibold text-slate-900">
+                  {t.subject || t.to_email || "Fil e-mail"}
+                </span>
+                {t.contact_id ? (
+                  <Link
+                    href={`/gestion/contacts/${encodeURIComponent(t.contact_id)}`}
+                    className="btn-link-secondary text-xs"
+                  >
+                    Fiche
+                  </Link>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
-
-// silence unused helper if cents not on type yet
-void eurosFromCents;

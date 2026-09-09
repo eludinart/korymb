@@ -24,7 +24,11 @@ def execute_ticket(ticket: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
     payload = ticket.get("payload") if isinstance(ticket.get("payload"), dict) else {}
     if kind == "email":
         result = _execute_email(payload)
-        chain = complete_email_outcome(ticket, payload) if result_is_success(result) else None
+        chain = (
+            complete_email_outcome(ticket, payload, send_result=result)
+            if result_is_success(result)
+            else None
+        )
         return result, chain
     if kind == "calendar":
         return _execute_calendar(payload), None
@@ -125,14 +129,21 @@ def _schedule_content_follow_up(
         return None
 
 
-def complete_email_outcome(ticket: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    """Après envoi réussi : journal CRM + créneau relance planning Korymb."""
+def complete_email_outcome(
+    ticket: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    send_result: str = "",
+) -> dict[str, Any]:
+    """Après envoi réussi : fil e-mail + journal CRM + créneau relance planning Korymb."""
     chain: dict[str, Any] = {
         "sent": True,
         "crm_logged": False,
         "contact_id": None,
         "contact_name": None,
         "interaction_id": None,
+        "email_thread_id": None,
+        "email_message_id": None,
         "follow_up": None,
         "steps": ["E-mail envoyé"],
     }
@@ -149,7 +160,7 @@ def complete_email_outcome(ticket: dict[str, Any], payload: dict[str, Any]) -> d
                 summary=f"E-mail envoyé — {payload.get('subject') or ticket.get('title') or ''}"[:500],
                 details=str(payload.get("body") or "")[:4000],
                 agent_key=str(payload.get("agent_key") or ""),
-                job_id=str(ticket.get("job_id") or ""),
+                job_id=str(ticket.get("job_id") or payload.get("job_id") or ""),
             )
             chain["crm_logged"] = True
             chain["interaction_id"] = (interaction or {}).get("id")
@@ -162,11 +173,49 @@ def complete_email_outcome(ticket: dict[str, Any], payload: dict[str, Any]) -> d
     else:
         chain["steps"].append("Aucun contact CRM pour ce destinataire (pas de journal)")
 
+    try:
+        from services.email_prospecting import parse_send_provider_ids, record_outbound_email
+
+        ids = parse_send_provider_ids(send_result)
+        rfc_m = ""
+        if "rfc:" in (send_result or ""):
+            # … rfc: <korymb-…@eludein.art>)
+            part = (send_result or "").split("rfc:", 1)[-1].strip()
+            rfc_m = part.split(")", 1)[0].strip()
+        recorded = record_outbound_email(
+            contact_id=str((contact or {}).get("id") or "") or None,
+            to_email=str(payload.get("to") or ""),
+            subject=str(payload.get("subject") or ticket.get("title") or ""),
+            body=str(payload.get("body") or ""),
+            ticket_id=str(ticket.get("id") or ""),
+            job_id=str(ticket.get("job_id") or payload.get("job_id") or ""),
+            gmail_message_id=ids.get("gmail_message_id") or "",
+            gmail_thread_id=ids.get("gmail_thread_id") or "",
+            message_id_header=rfc_m,
+            existing_thread_id=str(payload.get("thread_id") or "") or None,
+        )
+        thread = recorded.get("thread") or {}
+        message = recorded.get("message") or {}
+        chain["email_thread_id"] = thread.get("id")
+        chain["email_message_id"] = message.get("id")
+        if thread.get("id"):
+            chain["steps"].append("Fil e-mail CRM mis à jour")
+    except Exception:
+        logger.warning("Email thread record failed", exc_info=True)
+        chain["steps"].append("Fil e-mail : enregistrement impossible")
+
     follow = _schedule_email_follow_up(ticket, payload, contact)
     if follow:
         chain["follow_up"] = follow
         when = str(follow.get("starts_at") or "")[:16].replace("T", " ")
         chain["steps"].append(f"Relance planifiée {when}" if when else "Relance planifiée")
+        if chain.get("email_thread_id") and follow.get("id"):
+            try:
+                from services.email_prospecting import attach_follow_up_to_thread
+
+                attach_follow_up_to_thread(str(chain["email_thread_id"]), str(follow["id"]))
+            except Exception:
+                logger.warning("Attach follow-up to email thread failed", exc_info=True)
     return chain
 
 
@@ -246,10 +295,20 @@ def _execute_email(payload: dict[str, Any]) -> str:
         return "Erreur: payload e-mail incomplet (to / subject)."
 
     preferred = str(payload.get("tool") or "").strip()
+    in_reply_to = str(payload.get("in_reply_to") or "").strip()
+    references = str(payload.get("references") or "").strip()
+    gmail_thread = str(payload.get("gmail_thread_id") or "").strip()
     if preferred == "send_gmail" or _gmail_configured():
         from tools.google_api import run_send_gmail
 
-        result = run_send_gmail(to, subject, body)
+        result = run_send_gmail(
+            to,
+            subject,
+            body,
+            in_reply_to=in_reply_to,
+            references=references,
+            thread_id=gmail_thread,
+        )
         if result_is_success(result):
             return result
         logger.warning("Gmail failed, falling back to SMTP: %s", result[:200])

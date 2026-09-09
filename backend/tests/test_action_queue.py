@@ -210,8 +210,9 @@ def test_cio_plan_approve_returns_launch_chain(client):
 
 
 def test_approve_email_chains_crm_and_follow_up(client, monkeypatch):
-    """Approuver un e-mail : envoi + journal CRM + créneau relance planning."""
+    """Approuver un e-mail : envoi + journal CRM + fil e-mail + créneau relance planning."""
     from services.business_db import create_contact, list_calendar_events, list_interactions
+    from services.email_prospecting import list_contact_email_threads
 
     contact = create_contact(
         name="Coach Relance",
@@ -253,17 +254,92 @@ def test_approve_email_chains_crm_and_follow_up(client, monkeypatch):
     assert chain.get("sent") is True
     assert chain.get("crm_logged") is True
     assert chain.get("contact_id") == cid
+    assert chain.get("email_thread_id")
     assert chain.get("follow_up", {}).get("id")
     assert any("envoyé" in s.lower() for s in (chain.get("steps") or []))
 
     interactions = list_interactions(contact_id=cid, limit=10)
     assert any(i.get("interaction_type") == "email" for i in interactions)
 
+    threads = list_contact_email_threads(cid, limit=5)
+    assert len(threads) >= 1
+    assert threads[0].get("status") == "open"
+    assert any(m.get("direction") == "outbound" for m in (threads[0].get("messages") or []))
+
     events = list_calendar_events(limit=20)
     assert any(
         (e.get("id") == chain["follow_up"]["id"]) or ("Relance" in (e.get("title") or ""))
         for e in events
     )
+
+
+def test_prepare_contact_email_and_inbound_cancels_follow_up(client, monkeypatch):
+    """Fiche contact → ticket HITL ; réponse inbound annule la relance Relance —…"""
+    from services.business_db import create_contact, create_calendar_event, get_calendar_event
+    from services.email_prospecting import (
+        list_contact_email_threads,
+        record_inbound_reply,
+        record_outbound_email,
+    )
+
+    contact = create_contact(
+        name="Prospect Mail",
+        email="prospect.mail@example.com",
+        contact_type="prospect",
+        outreach_suggestions="Bonjour, proposition module…",
+    )
+    cid = contact["id"]
+
+    prep = client.post(
+        f"/business/contacts/{cid}/emails/prepare",
+        json={"subject": "Proposition", "body": "Corps test"},
+    )
+    assert prep.status_code == 200, prep.text
+    ticket = prep.json().get("ticket") or {}
+    assert ticket.get("id")
+    assert ticket.get("status") == "pending"
+
+    recorded = record_outbound_email(
+        contact_id=cid,
+        to_email="prospect.mail@example.com",
+        subject="Proposition",
+        body="Corps test",
+        ticket_id=ticket["id"],
+    )
+    thread = recorded["thread"]
+    event = create_calendar_event(
+        title=f"Relance — {contact['name']}",
+        starts_at="2030-01-15T09:00:00",
+        ends_at="2030-01-15T09:30:00",
+        contact_id=cid,
+        event_type="autre",
+        status="planned",
+        notes="auto test",
+    )
+    from services.email_prospecting import attach_follow_up_to_thread
+
+    attach_follow_up_to_thread(thread["id"], event["id"])
+
+    result = record_inbound_reply(
+        contact_id=cid,
+        thread=thread,
+        subject="Re: Proposition",
+        body="Merci, intéressé.",
+        from_email="prospect.mail@example.com",
+        gmail_message_id="gmsg-test-1",
+    )
+    assert (result.get("thread") or {}).get("status") == "replied"
+    assert any(c.get("id") == event["id"] for c in (result.get("cancelled_follow_ups") or []))
+    refreshed = get_calendar_event(event["id"])
+    assert refreshed and refreshed.get("status") == "cancelled"
+
+    threads = list_contact_email_threads(cid)
+    assert threads[0]["status"] == "replied"
+    assert any(m.get("direction") == "inbound" for m in threads[0].get("messages") or [])
+
+    listed = client.get(f"/business/contacts/{cid}/emails")
+    assert listed.status_code == 200
+    assert len(listed.json().get("threads") or []) >= 1
 
 
 def test_reject_does_not_send(client, monkeypatch):
