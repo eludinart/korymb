@@ -63,6 +63,8 @@ KORYMB_AGENT_SECRET (frontend)  ==  AGENT_API_SECRET (backend)
 
 En production, ne pas définir `NEXT_PUBLIC_KORYMB_AGENT_SECRET` : le proxy Next utilise uniquement le secret serveur.
 
+Le cookie JWT (`korymb_token`) est obligatoire pour les pages cockpit. `KORYMB_AGENT_SECRET` n'autorise pas un accès navigateur sans login.
+
 ## 4) CORS
 
 En `ENV=production`, le backend autorise par défaut :

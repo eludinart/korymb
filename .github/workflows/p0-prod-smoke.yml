@@ -1,0 +1,22 @@
+name: P0 prod smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 06:00 UTC ≈ 08:00 Paris (été)
+    - cron: "0 6 * * *"
+
+jobs:
+  ecosystem:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Smoke P0 écosystème
+        run: npm run smoke:p0

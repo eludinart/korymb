@@ -5,6 +5,7 @@
   "scripts": {
     "verify:api": "node tools/verify-korymb-health.mjs",
     "smoke:deploy": "node tools/smoke-post-deploy.mjs",
+    "smoke:p0": "node tools/smoke-p0-ecosystem.mjs",
     "dev": "node tools/verify-korymb-health.mjs && npm --prefix admin run dev",
     "build": "npm --prefix admin run build",
     "start": "npm --prefix admin run start",
