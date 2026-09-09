@@ -75,7 +75,14 @@ export default function MissionExecutiveBrief({
     );
   }
 
-  const chip = statusChip(status);
+  const chip =
+    pendingCount > 0 ? (
+      <span className="shrink-0 rounded-full bg-teal-700 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+        À vous · {pendingCount}
+      </span>
+    ) : (
+      statusChip(status)
+    );
   const canAnswer = Boolean(jobId && onValidateAnswers);
 
   return (

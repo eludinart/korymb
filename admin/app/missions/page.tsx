@@ -30,6 +30,7 @@ import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
+import { buildMissionExecutiveBrief } from "../../lib/missionExecutiveBrief";
 import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
@@ -311,7 +312,6 @@ function MissionsContent() {
       .flatMap((q) => q.questions);
     return countPendingArbitrageQuestions(texts, cioQuestionAnswers);
   }, [cioQuestions, cioQuestionAnswers]);
-  const hasPendingCioQuestions = pendingCioQuestionCount > 0;
 
   /** Actions CIO / questions (carte sous le fil : clôture, précisions, options). */
   const showDecisionRail = Boolean(
@@ -411,13 +411,51 @@ function MissionsContent() {
       cardCost,
       cardEvents,
       hasChild,
-      liveStatus: String(liveD.status || ""),
+      liveStatus: liveHasResult
+        ? "completed"
+        : fbOk
+          ? "completed"
+          : String(liveD.status || ""),
       deliveryWarnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
       deliveryBlocked: Boolean(liveD.delivery_blocked),
       deliverablesMarkdown: del.markdown,
       deliverablesTeam: del.team,
     };
   }, [selected, detail.data, latestChildByParent, cioResumeLiveId, cioResumeLive.data]);
+
+  /** Arbitrages dans la synthèse CIO (souvent présents alors que le job est déjà « completed »). */
+  const pendingBriefArbitrageCount = useMemo(() => {
+    const result = selectedMissionSynth?.cardResult || detail.data?.result;
+    const brief = buildMissionExecutiveBrief(result);
+    if (!brief?.questions?.length) return 0;
+    return countPendingArbitrageQuestions(brief.questions, cioQuestionAnswers);
+  }, [selectedMissionSynth?.cardResult, detail.data?.result, cioQuestionAnswers]);
+
+  const pendingDirectorQuestionCount = Math.max(pendingCioQuestionCount, pendingBriefArbitrageCount);
+  const hasPendingCioQuestions = pendingDirectorQuestionCount > 0;
+
+  /** Statut affiché au dirigeant (évite « En cours » alors que la synthèse est déjà Terminée). */
+  const displayMissionStatus = useMemo(() => {
+    const live = String(selectedMissionSynth?.liveStatus || "").toLowerCase();
+    const raw = selectedJobStatus.toLowerCase();
+    const hasResult = String(selectedMissionSynth?.cardResult || "").trim().length > 80;
+    if (live === "completed" || live.startsWith("error") || live === "awaiting_validation" || live === "cancelled") {
+      return live;
+    }
+    if ((raw === "running" || raw === "in_progress") && hasResult && selectedMissionSynth?.hasChild) {
+      return "completed";
+    }
+    if ((raw === "running" || raw === "in_progress") && hasResult && detail.data?.execution_live === false) {
+      return "completed";
+    }
+    return live || raw;
+  }, [
+    selectedMissionSynth?.liveStatus,
+    selectedMissionSynth?.cardResult,
+    selectedMissionSynth?.hasChild,
+    selectedJobStatus,
+    detail.data?.execution_live,
+  ]);
 
   const cioSynthReaderBadge = useMemo(() => {
     if (!selectedMissionSynth) return null;
@@ -679,7 +717,7 @@ function MissionsContent() {
         <div
           className={
             showConversationSidebar
-              ? "lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0"
+              ? "lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0 lg:overflow-hidden"
               : ""
           }
         >
@@ -746,7 +784,7 @@ function MissionsContent() {
                     key={`cio-dock-more-${selected}`}
                     title={
                       hasPendingCioQuestions
-                        ? `Précisions CIO (${pendingCioQuestionCount})`
+                        ? `Précisions CIO (${pendingDirectorQuestionCount})`
                         : "Précisions, questions & options"
                     }
                     hint="Déplier pour questions pendant mission, réglages et rappels"
@@ -804,7 +842,7 @@ function MissionsContent() {
           ) : null}
 
           <div
-            className={`min-w-0 space-y-4 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:pr-1 ${
+            className={`min-w-0 space-y-4 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain lg:pr-1 ${
               showConversationSidebar && mobileDetailPane === "fil" ? "hidden lg:block" : "block"
             }`}
           >
@@ -853,11 +891,15 @@ function MissionsContent() {
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.data ? (
             <div className="space-y-5">
-              <MissionProcessingBanner
-                status={detail.data.status}
-                executionLive={detail.data.execution_live}
-                agentHint={detail.data.agent}
-              />
+              {!missionClosedByUser ? (
+                <MissionProcessingBanner
+                  status={displayMissionStatus || detail.data.status}
+                  executionLive={detail.data.execution_live}
+                  agentHint={detail.data.agent}
+                  awaitingDirectorResponse={hasPendingCioQuestions}
+                  pendingQuestionCount={pendingDirectorQuestionCount}
+                />
+              ) : null}
               {detail.isError ? (
                 <div
                   className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
@@ -918,7 +960,7 @@ function MissionsContent() {
               {selectedMissionSynth && !cioResumeLiveId ? (
                 <MissionExecutiveBrief
                   result={selectedMissionSynth.cardResult}
-                  status={selectedMissionSynth.liveStatus}
+                  status={displayMissionStatus || selectedMissionSynth.liveStatus}
                   deliveryWarnings={selectedMissionSynth.deliveryWarnings}
                   deliveryBlocked={selectedMissionSynth.deliveryBlocked}
                   jobId={selected || undefined}
