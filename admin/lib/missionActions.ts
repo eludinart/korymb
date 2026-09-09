@@ -345,8 +345,13 @@ export function useQualityOverride(jobId: string, onSuccess?: () => void) {
 export function useInboxDismiss(onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (item: { kind: string; job_id?: string; output_id?: string; suggestion_id?: string }) =>
-      dismissInboxItem(item),
+    mutationFn: (item: {
+      kind: string;
+      job_id?: string;
+      output_id?: string;
+      suggestion_id?: string;
+      ticket_id?: string;
+    }) => dismissInboxItem(item),
     onSuccess: () => {
       invalidateMissionQueries(qc);
       onSuccess?.();

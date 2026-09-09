@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import HealthDot from "../../../components/HealthDot";
 import MistralReflectionTiersEditor from "../../../components/config/MistralReflectionTiersEditor";
 import type { HealthTone } from "../../../lib/healthTone";
@@ -18,8 +18,6 @@ type TierRouting = {
   expensive_research_tier?: boolean;
   default_prices?: { input_per_million_usd?: number; output_per_million_usd?: number };
 };
-
-type Props = { showLegacyHint?: boolean };
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 shadow-sm transition placeholder:text-slate-400 focus:border-violet-500 focus:outline-none focus:ring-4 focus:ring-violet-500/10";
@@ -160,8 +158,10 @@ function syncDraftsFromSettings(d: Settings) {
   };
 }
 
-export default function KorymbLlmAdminPage({ showLegacyHint = true }: Props) {
+export default function KorymbLlmAdminPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const showLegacyHint = (pathname || "").includes("korymb-llm");
   const [data, setData] = useState<Settings | null>(null);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState("");
