@@ -15,6 +15,11 @@ export default function GestionContactNouveauPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [company, setCompany] = useState("");
+  const [website, setWebsite] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [contactType, setContactType] = useState("prospect");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
@@ -26,13 +31,18 @@ export default function GestionContactNouveauPage() {
         email: email.trim(),
         phone: phone.trim(),
         company: company.trim(),
+        website: website.trim(),
+        linkedin_url: linkedinUrl.trim(),
+        address: address.trim(),
+        city: city.trim(),
+        postal_code: postalCode.trim(),
         contact_type: contactType,
         notes: notes.trim(),
       }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: ["business-contacts"] });
       void qc.invalidateQueries({ queryKey: ["business-overview"] });
-      router.push("/gestion/contacts");
+      router.push(`/gestion/contacts/${created.id}`);
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -88,6 +98,26 @@ export default function GestionContactNouveauPage() {
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Structure / entreprise</span>
             <input className="input-field mt-1 w-full" value={company} onChange={(e) => setCompany(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Site web</span>
+            <input className="input-field mt-1 w-full" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">LinkedIn</span>
+            <input className="input-field mt-1 w-full" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/…" />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-slate-700">Adresse</span>
+            <input className="input-field mt-1 w-full" value={address} onChange={(e) => setAddress(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Ville</span>
+            <input className="input-field mt-1 w-full" value={city} onChange={(e) => setCity(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Code postal</span>
+            <input className="input-field mt-1 w-full" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Notes</span>

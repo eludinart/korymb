@@ -59,8 +59,17 @@ export default function AuthBar() {
   }
 
   if (!me?.user) {
+    const agentMode = me?.mode === "agent_secret" || me?.role === "admin";
     return (
       <div className="flex shrink-0 items-center gap-2">
+        {agentMode ? (
+          <span
+            className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 sm:inline"
+            title="Accès local via secret agent — connectez un compte pour le profil dirigeant"
+          >
+            Mode agent
+          </span>
+        ) : null}
         <Link
           href="/login"
           className="touch-target inline-flex items-center justify-center rounded-xl px-3 text-sm font-bold text-violet-800 hover:bg-violet-50"

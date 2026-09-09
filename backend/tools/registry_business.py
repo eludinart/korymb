@@ -10,6 +10,7 @@ from services.business_db import (
     INTERACTION_TYPES,
     append_contact_notes,
     create_calendar_event,
+    create_enrichment_proposal,
     create_project,
     create_quote,
     get_business_overview,
@@ -33,6 +34,7 @@ GESTION_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
         "gestion_search_contacts",
         "gestion_upsert_contact",
         "gestion_update_contact",
+        "gestion_propose_contact_enrichment",
         "gestion_log_interaction",
         "gestion_list_interactions",
         "gestion_create_project",
@@ -98,7 +100,11 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
                 "profile_notes": {
                     "type": "string",
-                    "description": "Fiche complète : sources, URL, contexte, besoins, angle d'approche",
+                    "description": "Infos factuelles : sources, URL, spécialité, contexte (pas l'angle de vente)",
+                },
+                "outreach_suggestions": {
+                    "type": "string",
+                    "description": "Comment approcher / contacter ce prospect (accroche, offre, canal)",
                 },
                 "agent_key": {"type": "string"},
                 "job_id": {"type": "string"},
@@ -117,6 +123,53 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "status": {"type": "string"},
                 "append_notes": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["contact_id"],
+        },
+    },
+    {
+        "name": "gestion_propose_contact_enrichment",
+        "description": (
+            "Propose un enrichissement de fiche contact (email, tél, site, LinkedIn, adresse, réseaux) "
+            "SANS écrire directement. Le dirigeant valide un diff avant application. "
+            "À utiliser pour les explorations détaillées CRM."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "contact_id": {"type": "string", "description": "ID exact de la fiche Korymb"},
+                "email": {"type": "string"},
+                "phone": {"type": "string"},
+                "website": {"type": "string"},
+                "linkedin_url": {"type": "string"},
+                "address": {"type": "string"},
+                "city": {"type": "string"},
+                "postal_code": {"type": "string"},
+                "company": {"type": "string"},
+                "instagram": {"type": "string"},
+                "facebook": {"type": "string"},
+                "notes_append": {
+                    "type": "string",
+                    "description": (
+                        "Infos FACTUELLES uniquement (spécialité, SIRET, contexte métier, sources). "
+                        "Ne pas y mettre l'angle de vente ni comment contacter."
+                    ),
+                },
+                "outreach_suggestions": {
+                    "type": "string",
+                    "description": (
+                        "Suggestions d'APPROCHE commerciale : canal, accroche, offre, timing, "
+                        "prochaine action — en approfondissant ce qui a déjà été suggéré/fait."
+                    ),
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "URLs / sources utilisées",
+                },
+                "summary": {"type": "string", "description": "Résumé court pour le dirigeant"},
+                "agent_key": {"type": "string"},
+                "job_id": {"type": "string"},
             },
             "required": ["contact_id"],
         },
@@ -305,6 +358,7 @@ def dispatch_business_tool(name: str, inp: dict[str, Any]) -> str | None:
         }),
         "gestion_upsert_contact": lambda: _do_upsert_contact(inp),
         "gestion_update_contact": lambda: _do_update_contact(inp),
+        "gestion_propose_contact_enrichment": lambda: _do_propose_enrichment(inp),
         "gestion_log_interaction": lambda: _do_log_interaction(inp),
         "gestion_list_interactions": lambda: _json_ok({
             "interactions": list_interactions(
@@ -362,6 +416,11 @@ def _do_upsert_contact(inp: dict[str, Any]) -> str:
     )
     agent_key = str(inp.get("agent_key") or "")
     job_id = str(inp.get("job_id") or "")
+    outreach = str(inp.get("outreach_suggestions") or "").strip()
+    if outreach and contact.get("id"):
+        from services.business_db import append_outreach_suggestions
+
+        contact = append_outreach_suggestions(str(contact["id"]), outreach, source="prospection") or contact
     log_interaction(
         contact_id=contact.get("id"),
         interaction_type="prospection" if created else "note",
@@ -378,7 +437,7 @@ def _do_update_contact(inp: dict[str, Any]) -> str:
     if not cid:
         return "Erreur gestion : contact_id requis."
     patch: dict[str, Any] = {}
-    for key in ("contact_type", "status"):
+    for key in ("contact_type", "status", "email", "phone", "website", "linkedin_url", "address", "city", "postal_code", "company"):
         if inp.get(key):
             patch[key] = str(inp.get(key))
     if inp.get("tags") and isinstance(inp.get("tags"), list):
@@ -389,6 +448,48 @@ def _do_update_contact(inp: dict[str, Any]) -> str:
     if not row:
         return f"Erreur gestion : contact {cid} introuvable."
     return _json_ok({"contact": row})
+
+
+def _do_propose_enrichment(inp: dict[str, Any]) -> str:
+    cid = str(inp.get("contact_id") or "").strip()
+    if not cid:
+        return "Erreur gestion : contact_id requis."
+    if not get_contact(cid):
+        return f"Erreur gestion : contact {cid} introuvable."
+    proposed: dict[str, Any] = {}
+    for key in ("email", "phone", "website", "linkedin_url", "address", "city", "postal_code", "company", "notes_append", "outreach_suggestions"):
+        if inp.get(key):
+            proposed[key] = str(inp.get(key)).strip()
+    socials: dict[str, str] = {}
+    for key in ("instagram", "facebook"):
+        if inp.get(key):
+            socials[key] = str(inp.get(key)).strip()
+    if socials:
+        proposed["socials"] = socials
+    sources = inp.get("sources")
+    source_list = [str(s) for s in sources] if isinstance(sources, list) else []
+    row = create_enrichment_proposal(
+        contact_id=cid,
+        proposed=proposed,
+        sources=source_list,
+        summary=str(inp.get("summary") or ""),
+        job_id=str(inp.get("job_id") or ""),
+        agent_key=str(inp.get("agent_key") or "commercial"),
+    )
+    if not row:
+        return "Erreur gestion : aucun champ exploitable dans la proposition."
+    log_interaction(
+        contact_id=cid,
+        interaction_type="prospection",
+        summary="Proposition d'enrichissement (à valider)",
+        details=str(inp.get("summary") or row.get("summary") or "")[:4000],
+        agent_key=str(inp.get("agent_key") or "commercial"),
+        job_id=str(inp.get("job_id") or ""),
+    )
+    return _json_ok({
+        "proposal": row,
+        "hint": "Le dirigeant doit valider le diff dans Gestion → contact avant écriture.",
+    })
 
 
 def _do_log_interaction(inp: dict[str, Any]) -> str:

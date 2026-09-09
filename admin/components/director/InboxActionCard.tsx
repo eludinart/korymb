@@ -3,20 +3,23 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import CioArbitrageFreeField from "../CioArbitrageFreeField";
 import CioArbitrageQuestionRow from "../CioArbitrageQuestionRow";
 import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
+import { CIO_FREE_CONSIGNE_QUESTION, collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import {
   useCioAnswerAndResume,
   useHitlResolve,
+  useActionResolve,
   useInboxDismiss,
   useLearningResolve,
   useQualityOverride,
   useSchedulerApprove,
   useSchedulerReject,
+  useCloseMission,
   useValidateMission,
 } from "../../lib/missionActions";
 import InboxMetaStrip from "./InboxMetaStrip";
@@ -26,6 +29,7 @@ export type InboxActionItem = {
   job_id?: string;
   output_id?: string;
   suggestion_id?: string;
+  ticket_id?: string;
   title?: string;
   mission?: string;
   status?: string;
@@ -41,6 +45,21 @@ export type InboxActionItem = {
   priority_rank?: number;
   questions?: string[];
   hitl_kind?: string;
+  action_kind?: string;
+  summary?: string;
+  preview_url?: string;
+  payload?: {
+    to?: string;
+    subject?: string;
+    body?: string;
+    tool?: string;
+    summary?: string;
+    start_at?: string;
+    end_at?: string;
+    caption?: string;
+    content?: string;
+    platform?: string;
+  };
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
   proposal_meta?: {
     why_now?: string;
@@ -62,7 +81,7 @@ type Props = {
 };
 
 export default function InboxActionCard({ item, defaultExpanded = false, onDismissed }: Props) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(defaultExpanded || item.kind === "action_ticket");
   const [hidden, setHidden] = useState(false);
   const jobId = item.job_id || "";
 
@@ -90,6 +109,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const [cioResumeJobId, setCioResumeJobId] = useState<string | null>(null);
 
   const hitlResolve = useHitlResolve(jobId);
+  const actionResolve = useActionResolve();
   const cioAnswerMut = useCioAnswerAndResume(jobId, {
     onSuccess: (resumeJobId) => {
       setCioResumeJobId(resumeJobId);
@@ -97,6 +117,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     },
   });
   const validateMut = useValidateMission(jobId);
+  const closeMut = useCloseMission(jobId);
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
@@ -108,8 +129,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const busy =
     hitlResolve.isPending ||
+    actionResolve.isPending ||
     cioAnswerMut.isPending ||
     validateMut.isPending ||
+    closeMut.isPending ||
     schedApprove.isPending ||
     schedReject.isPending ||
     learningMut.isPending ||
@@ -125,8 +148,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const kindLabel: Record<string, string> = {
     hitl: "HITL",
+    action_ticket: "Envoi",
     cio_question: "Question CIO",
     closure: "Clôture",
+    mission_error: "Échec",
     scheduler_output: "Approbation",
     learning_suggestion: "Apprentissage",
     quality: "Qualité",
@@ -134,8 +159,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const kindBadgeClass: Record<string, string> = {
     hitl: "kind-badge kind-badge--hitl",
+    action_ticket: "kind-badge kind-badge--action_ticket",
     cio_question: "kind-badge kind-badge--cio_question",
     closure: "kind-badge kind-badge--closure",
+    mission_error: "kind-badge kind-badge--quality",
     scheduler_output: "kind-badge kind-badge--scheduler_output",
     learning_suggestion: "kind-badge kind-badge--learning_suggestion",
     quality: "kind-badge kind-badge--quality",
@@ -160,6 +187,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       job_id: item.job_id,
       output_id: item.output_id,
       suggestion_id: item.suggestion_id,
+      ticket_id: item.ticket_id,
     });
   };
 
@@ -259,6 +287,83 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
       {expanded ? (
         <div className="mt-4 border-t-2 border-violet-100 pt-4">
+          {item.kind === "action_ticket" && item.ticket_id ? (
+            <div className="space-y-3">
+              {item.payload?.to ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">À :</span> {item.payload.to}
+                </p>
+              ) : null}
+              {item.payload?.subject ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Objet :</span> {item.payload.subject}
+                </p>
+              ) : null}
+              {item.payload?.start_at ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Créneau :</span> {item.payload.start_at}
+                  {item.payload.end_at ? ` → ${item.payload.end_at}` : ""}
+                </p>
+              ) : null}
+              {item.payload?.platform ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Plateforme :</span> {item.payload.platform}
+                </p>
+              ) : null}
+              {item.preview_url ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Aperçu :</span>{" "}
+                  <a href={item.preview_url} target="_blank" rel="noreferrer" className="text-violet-800 underline">
+                    {item.preview_url}
+                  </a>
+                </p>
+              ) : null}
+              {item.payload?.body || item.payload?.caption || item.payload?.content ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.payload.body || item.payload.caption || item.payload.content}
+                </pre>
+              ) : item.summary ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.summary}
+                </pre>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    actionResolve.mutate(
+                      { ticketId: item.ticket_id!, decision: "approve" },
+                      { onSuccess: () => setHidden(true) },
+                    )
+                  }
+                  className="btn-success"
+                >
+                  {actionResolve.isPending
+                    ? "Exécution…"
+                    : item.action_kind === "calendar"
+                      ? "Valider et créer"
+                      : item.action_kind === "wordpress" || item.action_kind === "social"
+                        ? "Valider et publier"
+                        : "Valider et envoyer"}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    actionResolve.mutate(
+                      { ticketId: item.ticket_id!, decision: "reject" },
+                      { onSuccess: () => setHidden(true) },
+                    )
+                  }
+                  className="btn-danger"
+                >
+                  Rejeter
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {item.kind === "hitl" && jobId ? (
             <div className="space-y-3">
               {item.hitl_kind === "cio_plan" && hitlQuery.data ? (
@@ -290,6 +395,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   ))}
                 </ol>
               ) : null}
+              <CioArbitrageFreeField
+                savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
+                busy={cioAnswerMut.isPending}
+                onSubmit={(answer) => onCioSubmit(CIO_FREE_CONSIGNE_QUESTION, answer)}
+              />
               {cioResumeJobId ? (
                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-violet-500 align-middle" />
@@ -306,6 +416,23 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             <button type="button" disabled={busy} onClick={() => validateMut.mutate()} className="btn-success">
               {validateMut.isPending ? "Validation…" : "Valider mission"}
             </button>
+          ) : null}
+
+          {item.kind === "mission_error" && jobId ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => closeMut.mutate()}
+                className="btn-success"
+                title="Clôturer cette mission en échec (archivage dirigeant)"
+              >
+                {closeMut.isPending ? "Clôture…" : "Clôturer l'échec"}
+              </button>
+              <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
+                Voir la mission →
+              </Link>
+            </div>
           ) : null}
 
           {item.kind === "quality" && jobId ? (
@@ -382,7 +509,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </div>
           ) : null}
 
-          {[hitlResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
+          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
             .map((err, i) => (
               <p key={i} className="mt-2 text-xs text-red-700">

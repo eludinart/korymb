@@ -131,3 +131,170 @@ def test_business_interactions_list(client):
     rows = r.json()["interactions"]
     assert len(rows) >= 1
     assert rows[0]["summary"] == "Premier contact LinkedIn"
+
+
+def test_business_contact_reachability_and_enrichment(client):
+    create = client.post(
+        "/business/contacts",
+        json={
+            "name": "Prospect Partiel",
+            "email": "partial@example.com",
+            "website": "https://example.com",
+            "city": "Draguignan",
+        },
+    )
+    assert create.status_code == 200
+    body = create.json()
+    cid = body["id"]
+    assert body["website"] == "https://example.com"
+    assert body["reachability"]["level"] == "complete"
+    assert body["reachability"]["score"] >= 45
+
+    upd = client.put(
+        f"/business/contacts/{cid}",
+        json={"email": "", "website": "", "phone": "", "linkedin_url": ""},
+    )
+    assert upd.status_code == 200
+    assert upd.json()["reachability"]["level"] == "unreachable"
+
+    explore = client.post(f"/business/contacts/{cid}/explore")
+    assert explore.status_code == 200
+    assert explore.json()["job_id"]
+    assert explore.json()["agent"] == "commercial"
+
+    from tools.registry_business import dispatch_business_tool
+
+    propose = dispatch_business_tool(
+        "gestion_propose_contact_enrichment",
+        {
+            "contact_id": cid,
+            "email": "found@example.com",
+            "phone": "+33600000000",
+            "linkedin_url": "https://linkedin.com/in/test",
+            "instagram": "https://instagram.com/test",
+            "summary": "Trouvé via site + LinkedIn",
+            "sources": ["https://example.com", "LinkedIn"],
+            "job_id": explore.json()["job_id"],
+            "agent_key": "commercial",
+        },
+    )
+    assert "proposal" in propose or '"proposal"' in propose
+
+    pending = client.get(f"/business/contacts/{cid}/enrichment-proposals?status=pending")
+    assert pending.status_code == 200
+    proposals = pending.json()["proposals"]
+    assert len(proposals) == 1
+    pid = proposals[0]["id"]
+    assert proposals[0]["proposed"]["email"] == "found@example.com"
+    assert proposals[0]["proposed"]["socials"]["instagram"]
+
+    apply = client.post(
+        f"/business/contacts/{cid}/enrichment-proposals/{pid}/apply",
+        json={"fields": ["email", "phone", "linkedin_url", "socials"]},
+    )
+    assert apply.status_code == 200
+    contact = apply.json()["contact"]
+    assert contact["email"] == "found@example.com"
+    assert contact["phone"] == "+33600000000"
+    assert contact["linkedin_url"] == "https://linkedin.com/in/test"
+    assert contact["socials"]["instagram"]
+    assert contact["verified_at"]
+    assert contact["reachability"]["level"] == "complete"
+
+    again = client.get(f"/business/contacts/{cid}/enrichment-proposals?status=pending")
+    assert again.json()["proposals"] == []
+
+
+def test_business_enrichment_reject(client):
+    contact = client.post("/business/contacts", json={"name": "À rejeter"}).json()
+    from tools.registry_business import dispatch_business_tool
+
+    dispatch_business_tool(
+        "gestion_propose_contact_enrichment",
+        {
+            "contact_id": contact["id"],
+            "email": "skip@example.com",
+            "summary": "Proposition à ignorer",
+        },
+    )
+    pid = client.get(
+        f"/business/contacts/{contact['id']}/enrichment-proposals?status=pending",
+    ).json()["proposals"][0]["id"]
+
+    reject = client.post(
+        f"/business/contacts/{contact['id']}/enrichment-proposals/{pid}/reject",
+    )
+    assert reject.status_code == 200
+    assert reject.json()["proposal"]["status"] == "rejected"
+    assert (
+        client.get(f"/business/contacts/{contact['id']}/enrichment-proposals?status=pending").json()["proposals"]
+        == []
+    )
+
+
+def test_business_contact_exploration_endpoint(client):
+    contact = client.post("/business/contacts", json={"name": "Sans explor"}).json()
+    empty = client.get(f"/business/contacts/{contact['id']}/exploration")
+    assert empty.status_code == 200
+    assert empty.json()["job_id"] is None
+    assert empty.json()["result"] is None
+
+    explore = client.post(f"/business/contacts/{contact['id']}/explore")
+    assert explore.status_code == 200
+    job_id = explore.json()["job_id"]
+
+    # Sans résultat encore : la mission vient d'être planifiée
+    row = client.get(f"/business/contacts/{contact['id']}/exploration")
+    assert row.status_code == 200
+    assert row.json()["job_id"] == job_id
+
+
+def test_fill_contact_from_exploration_result(client, monkeypatch):
+    contact = client.post("/business/contacts", json={"name": "FillMe Corp", "company": "FillMe"}).json()
+    cid = contact["id"]
+
+    sample = """
+Voici les infos.
+
+### 1. Données de contact
+| Champ | Valeur |
+| Email | found@fillme.test |
+| Téléphone | +33 6 12 34 56 78 |
+| Site web | https://www.fillme.test |
+| LinkedIn | https://fr.linkedin.com/company/fillme |
+| Adresse | 10 Rue Test, 75001 Paris, France |
+
+### 2. Informations complémentaires
+Cabinet de coaching d'équipes, spécialisé intelligence collective.
+
+### 3. Notes pour l'approche commerciale
+Proposer le tarot comme médiateur visuel dans leurs ateliers problem-solving.
+Canal : email contact@ + LinkedIn. Offre : module pro coachs.
+"""
+
+    from database import save_job, update_job
+
+    jid = "filltest01ab"
+    save_job(jid, "commercial", "explore", source=f"contact_explore:{cid}")
+    update_job(jid, status="completed", result=sample)
+
+    fill = client.post(f"/business/contacts/{cid}/exploration/fill", json={"apply": True})
+    assert fill.status_code == 200, fill.text
+    body = fill.json()
+    assert body["applied"] is True
+    c = body["contact"]
+    assert c["email"] == "found@fillme.test"
+    assert "612345678" in c["phone"].replace(" ", "")
+    assert c["website"] == "https://www.fillme.test"
+    assert "linkedin.com/company/fillme" in c["linkedin_url"]
+    assert c["city"] == "Paris"
+    assert c["postal_code"] == "75001"
+    assert c["verified_at"]
+    assert "intelligence collective" in (c.get("notes") or "").lower() or "coaching" in (c.get("notes") or "").lower()
+    assert "médiateur" in (c.get("outreach_suggestions") or "").lower() or "module" in (c.get("outreach_suggestions") or "").lower()
+
+    again = client.post(f"/business/contacts/{cid}/exploration/fill", json={"apply": True})
+    assert again.status_code == 200
+    assert again.json()["reason"] == "already_applied_for_job"
+
+

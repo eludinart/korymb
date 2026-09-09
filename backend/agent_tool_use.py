@@ -596,6 +596,38 @@ def _execute_tool(name: str, inp: Any) -> str:
         "post_linkedin",
         "publish_scheduler_output",
     }) | EXTENDED_EXECUTE_GATED | GESTION_EXECUTE_GATED
+    _QUEUE_TOOLS = frozenset({
+        "send_email",
+        "send_gmail",
+        "create_calendar_event",
+        "post_instagram",
+        "post_facebook",
+        "schedule_instagram_post",
+        "schedule_facebook_post",
+        "wordpress_create_post",
+    })
+    if not isinstance(inp, dict):
+        try:
+            inp = json.loads(inp) if isinstance(inp, str) else {}
+        except json.JSONDecodeError:
+            inp = {}
+    if name in _QUEUE_TOOLS:
+        try:
+            from services.action_queue import enqueue_from_tool
+
+            ctx = _tool_run_ctx.get()
+            return enqueue_from_tool(
+                tool_name=name,
+                inp=inp,
+                job_id=str(ctx.get("job_id") or ""),
+                agent_key=str(ctx.get("agent_key") or ""),
+            )
+        except Exception as exc:
+            logger.exception("enqueue action failed for %s", name)
+            return (
+                f"[sandbox] Exécution bloquée pour `{name}` — file d'arbitrage indisponible ({exc}). "
+                "Aucun effet externe n'a été produit."
+            )
     if name in _EXECUTE_GATED:
         try:
             from database import get_behavior_setting
@@ -606,16 +638,14 @@ def _execute_tool(name: str, inp: Any) -> str:
                 sandbox = behavior_default_value("orchestration.tools.sandbox_execute")
             if bool(sandbox):
                 return (
-                    f"[sandbox] Exécution bloquée pour `{name}` — niveau execute interdit "
-                    "(approbation dirigeant ou désactivation sandbox requise)."
+                    f"[sandbox] Exécution bloquée pour `{name}` — validation dirigeant requise "
+                    "(file d'actions / inbox). Aucun effet externe n'a été produit."
                 )
         except Exception:
-            pass
-    if not isinstance(inp, dict):
-        try:
-            inp = json.loads(inp) if isinstance(inp, str) else {}
-        except json.JSONDecodeError:
-            inp = {}
+            return (
+                f"[sandbox] Exécution bloquée pour `{name}` — validation dirigeant requise "
+                "(sandbox illisible, fail-closed). Aucun effet externe n'a été produit."
+            )
     try:
         if name == "web_search":
             return run_web_search(str(inp.get("query", "")))

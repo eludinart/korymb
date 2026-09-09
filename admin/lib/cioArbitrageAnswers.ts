@@ -2,6 +2,13 @@ import { eventPayload } from "./missionEvents";
 
 type ThreadMsg = { content?: string; source?: string };
 
+/** Clé stable pour une consigne hors des propositions CIO. */
+export const CIO_FREE_CONSIGNE_QUESTION = "Consigne libre (hors propositions CIO)";
+
+export function isFreeConsigneQuestion(question: string | undefined): boolean {
+  return String(question || "").trim() === CIO_FREE_CONSIGNE_QUESTION;
+}
+
 /** Réponses dirigeant indexées par libellé exact de question. */
 export function collectCioArbitrageAnswers(
   events: Array<Record<string, unknown>> | undefined,

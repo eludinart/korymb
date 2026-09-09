@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "./api";
+import { isFreeConsigneQuestion } from "./cioArbitrageAnswers";
 import { normalizeJobId } from "./missionBossView";
 import { QK } from "./queryClient";
 
@@ -32,6 +33,13 @@ export async function cioAnswer(jobId: string, answer: string, question?: string
 
 function buildArbitrageResumeMessage(answer: string, question?: string): string {
   const trimmed = answer.trim();
+  if (isFreeConsigneQuestion(question)) {
+    return (
+      `Le dirigeant sort des propositions CIO et donne cette consigne à suivre à la place :\n` +
+      `${trimmed}\n` +
+      `Priorise cette consigne, même si elle s'écarte des questions stratégiques posées.`
+    );
+  }
   if (question?.trim()) {
     return (
       `Arbitrage dirigeant reçu.\n` +
@@ -104,6 +112,7 @@ export async function dismissInboxItem(item: {
   job_id?: string;
   output_id?: string;
   suggestion_id?: string;
+  ticket_id?: string;
 }) {
   const { res, data } = await requestJson("/admin/inbox/dismiss", {
     method: "POST",
@@ -113,6 +122,7 @@ export async function dismissInboxItem(item: {
       job_id: item.job_id ? normalizeJobId(item.job_id) || null : null,
       output_id: item.output_id || null,
       suggestion_id: item.suggestion_id || null,
+      ticket_id: item.ticket_id || null,
     }),
     expectOk: false,
   });
@@ -178,6 +188,43 @@ function invalidateMissionQueries(qc: ReturnType<typeof useQueryClient>, jobId?:
   }
 }
 
+export async function resolveActionTicket(
+  ticketId: string,
+  body: { decision: "approve" | "reject"; comment?: string; source?: string },
+) {
+  const { res, data } = await requestJson(`/actions/${encodeURIComponent(ticketId)}/resolve`, {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({
+      decision: body.decision,
+      source: body.source || "inbox",
+      comment: body.comment || "",
+    }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data;
+}
+
+export function useActionResolve(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ticketId,
+      decision,
+      comment,
+    }: {
+      ticketId: string;
+      decision: "approve" | "reject";
+      comment?: string;
+    }) => resolveActionTicket(ticketId, { decision, comment }),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
+      onSuccess?.();
+    },
+  });
+}
+
 export function useHitlResolve(jobId: string, onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({
@@ -225,6 +272,28 @@ export function useValidateMission(jobId: string, onSuccess?: () => void) {
       onSuccess?.();
     },
   });
+}
+
+export function useCloseMission(jobId: string, onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => closeMission(jobId),
+    onSuccess: () => {
+      invalidateMissionQueries(qc, jobId);
+      onSuccess?.();
+    },
+  });
+}
+
+export async function closeInboxBulk(kinds: string[] = ["closure", "mission_error"]) {
+  const { res, data } = await requestJson("/admin/inbox/close-bulk", {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({ kinds, limit: 200 }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { closed_count?: number; skipped_count?: number; closed?: string[] };
 }
 
 export function useSchedulerApprove(onSuccess?: () => void) {

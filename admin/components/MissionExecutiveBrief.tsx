@@ -2,8 +2,9 @@
 
 import { useMemo } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
+import CioArbitrageFreeField from "./CioArbitrageFreeField";
 import CioArbitrageQuestionRow from "./CioArbitrageQuestionRow";
-import { countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
+import { CIO_FREE_CONSIGNE_QUESTION, countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
 import { buildMissionExecutiveBrief } from "../lib/missionExecutiveBrief";
 
 type Props = {
@@ -149,18 +150,27 @@ export default function MissionExecutiveBrief({
             )}
           </div>
           {canAnswer ? (
-            <ol className="space-y-2.5">
-              {brief.questions.map((q, i) => (
-                <CioArbitrageQuestionRow
-                  key={`${i}-${q.slice(0, 40)}`}
-                  index={i}
-                  question={q}
-                  savedAnswer={questionAnswers[q.trim()]}
+            <>
+              <ol className="space-y-2.5">
+                {brief.questions.map((q, i) => (
+                  <CioArbitrageQuestionRow
+                    key={`${i}-${q.slice(0, 40)}`}
+                    index={i}
+                    question={q}
+                    savedAnswer={questionAnswers[q.trim()]}
+                    busy={answerBusy}
+                    onSubmit={(answer) => onAnswerQuestion!(q, answer)}
+                  />
+                ))}
+              </ol>
+              <div className="mt-3">
+                <CioArbitrageFreeField
+                  savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
                   busy={answerBusy}
-                  onSubmit={(answer) => onAnswerQuestion!(q, answer)}
+                  onSubmit={(answer) => onAnswerQuestion!(CIO_FREE_CONSIGNE_QUESTION, answer)}
                 />
-              ))}
-            </ol>
+              </div>
+            </>
           ) : (
             <ol className="space-y-2.5">
               {brief.questions.map((q, i) => (
@@ -178,8 +188,8 @@ export default function MissionExecutiveBrief({
           )}
           {canAnswer ? (
             <p className="mt-3 text-[11px] leading-relaxed text-amber-900/80">
-              Chaque réponse est enregistrée sur le fil CIO de la mission — vous pouvez traiter les arbitrages dans
-              l&apos;ordre qui vous convient.
+              Chaque réponse est enregistrée sur le fil CIO de la mission. Vous pouvez traiter les arbitrages dans
+              l&apos;ordre qui vous convient, ou envoyer une consigne libre si aucune proposition ne convient.
             </p>
           ) : null}
         </section>

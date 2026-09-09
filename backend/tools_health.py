@@ -251,8 +251,13 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         },
         "telegram": {
             "ok": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip() and os.getenv("TELEGRAM_CHAT_ID", "").strip()),
-            "configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip()),
-            "note": "TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID.",
+            "configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or os.getenv("TELEGRAM_HITL_BOT_TOKEN", "").strip()),
+            "note": "TELEGRAM_CHAT_ID + bot. Bot HITL dédié (TELEGRAM_HITL_BOT_TOKEN) pour boutons Valider.",
+        },
+        "wordpress": {
+            "ok": bool(os.getenv("WP_BASE_URL", "").strip() and os.getenv("WP_USER", "").strip() and os.getenv("WP_APP_PASSWORD", "").strip()),
+            "configured": bool(os.getenv("WP_BASE_URL", "").strip()),
+            "note": "WP_BASE_URL + WP_USER + WP_APP_PASSWORD (Application Password).",
         },
         "webhook": {
             "ok": bool(os.getenv("KORYMB_WEBHOOK_URL", "").strip() or os.getenv("NOTIFICATION_WEBHOOK_URL", "").strip()),

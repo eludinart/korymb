@@ -20,11 +20,11 @@ export type InboxDisplayPrefs = {
 
 export const INBOX_TABS: { id: InboxTabId; label: string; kinds: InboxActionItem["kind"][] | null }[] = [
   { id: "all", label: "Toutes", kinds: null },
-  { id: "validations", label: "Validations", kinds: ["hitl"] },
+  { id: "validations", label: "Validations", kinds: ["hitl", "action_ticket"] },
   { id: "cio", label: "Questions CIO", kinds: ["cio_question"] },
   { id: "closures", label: "Clôtures", kinds: ["closure"] },
   { id: "approvals", label: "Approbations", kinds: ["scheduler_output"] },
-  { id: "other", label: "Autre", kinds: ["quality", "learning_suggestion"] },
+  { id: "other", label: "Autre", kinds: ["quality", "learning_suggestion", "mission_error"] },
 ];
 
 const LS_KEY = "korymb-inbox-display-prefs";
@@ -46,8 +46,10 @@ export const INBOX_SORT_OPTIONS: { value: InboxSortMode; label: string }[] = [
 export const INBOX_KIND_OPTIONS: { value: InboxKindFilter; label: string }[] = [
   { value: "all", label: "Tous les types" },
   { value: "hitl", label: "HITL" },
+  { value: "action_ticket", label: "Envois à valider" },
   { value: "cio_question", label: "Questions CIO" },
   { value: "closure", label: "Clôtures" },
+  { value: "mission_error", label: "Échecs" },
   { value: "quality", label: "Qualité" },
   { value: "scheduler_output", label: "Approbations" },
   { value: "learning_suggestion", label: "Apprentissage" },
@@ -167,5 +169,5 @@ export function urgencyLabel(urgency?: string, daysOverdue?: number): string | n
 }
 
 export function inboxItemKey(item: InboxActionItem, idx: number): string {
-  return `${item.kind}-${item.job_id || item.output_id || item.suggestion_id || idx}`;
+  return `${item.kind}-${item.ticket_id || item.job_id || item.output_id || item.suggestion_id || idx}`;
 }

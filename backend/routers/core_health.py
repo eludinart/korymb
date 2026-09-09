@@ -277,7 +277,11 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
         },
         "telegram": {
             "configured": _env_is_set("TELEGRAM_BOT_TOKEN") and _env_is_set("TELEGRAM_CHAT_ID"),
-            "note": "Bot Telegram",
+            "note": "Bot Telegram. HITL : TELEGRAM_HITL_BOT_TOKEN + TELEGRAM_WEBHOOK_SECRET.",
+        },
+        "wordpress": {
+            "configured": _env_is_set("WP_BASE_URL") and _env_is_set("WP_USER") and _env_is_set("WP_APP_PASSWORD"),
+            "note": "WordPress REST — brouillon puis publish après validation.",
         },
         "korymb_webhook": {
             "configured": _env_is_set("KORYMB_WEBHOOK_URL") or _env_is_set("NOTIFICATION_WEBHOOK_URL"),
@@ -342,6 +346,7 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
         "pinterest": "pinterest",
         "discord": "discord",
         "telegram": "telegram",
+        "wordpress": "wordpress",
         "korymb_webhook": "webhook",
         "text_to_speech": "text_to_speech",
     }

@@ -34,6 +34,7 @@ class InboxDismissBody(BaseModel):
     job_id: str | None = Field(None, max_length=JOB_ID_MAX_LEN)
     output_id: str | None = Field(None, max_length=64)
     suggestion_id: str | None = Field(None, max_length=64)
+    ticket_id: str | None = Field(None, max_length=64)
 
     @field_validator("job_id", mode="before")
     @classmethod
@@ -162,7 +163,7 @@ async def admin_reprise_audit(body: RepriseAuditBody):
 
 
 @router.get("/admin/inbox", dependencies=[Depends(require_admin)])
-def admin_inbox(limit: int = Query(40, ge=1, le=200)):
+def admin_inbox(limit: int = Query(80, ge=1, le=200)):
     return build_enriched_inbox(limit=limit)
 
 
@@ -174,9 +175,50 @@ def admin_inbox_dismiss(body: InboxDismissBody):
             job_id=body.job_id,
             output_id=body.output_id,
             suggestion_id=body.suggestion_id,
+            ticket_id=body.ticket_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class InboxBulkCloseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kinds: list[str] = Field(default_factory=lambda: ["closure", "mission_error"])
+    limit: int = Field(100, ge=1, le=200)
+
+
+@router.post("/admin/inbox/close-bulk", dependencies=[Depends(require_admin)])
+def admin_inbox_close_bulk(body: InboxBulkCloseBody):
+    """Clôture en masse les clôtures / échecs encore ouverts dans l'inbox."""
+    from database import job_close_mission_by_user, job_set_user_validated
+
+    wanted = {str(k).strip() for k in (body.kinds or []) if str(k).strip()}
+    if not wanted:
+        wanted = {"closure", "mission_error"}
+    inbox = build_enriched_inbox(limit=body.limit)
+    closed: list[str] = []
+    skipped: list[str] = []
+    for item in inbox.get("items") or []:
+        kind = str(item.get("kind") or "")
+        jid = str(item.get("job_id") or "").strip()
+        if kind not in wanted or not jid:
+            continue
+        ok = False
+        if kind == "closure":
+            ok = job_set_user_validated(jid)
+        elif kind == "mission_error":
+            ok = job_close_mission_by_user(jid)
+        if ok:
+            closed.append(jid)
+        else:
+            skipped.append(jid)
+    return {
+        "ok": True,
+        "closed": closed,
+        "closed_count": len(closed),
+        "skipped": skipped,
+        "skipped_count": len(skipped),
+    }
 
 
 def _require_database_or_503() -> None:

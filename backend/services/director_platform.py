@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from database import (
+    _user_validated_set,
     get_hitl_gate,
     list_autonomous_outputs,
     list_director_notifications,
@@ -22,7 +23,9 @@ from runtime_sse import enqueue_job_sse_event
 def _priority_score(kind: str) -> int:
     return {
         "hitl": 0,
+        "action_ticket": 0,
         "cio_question": 1,
+        "mission_error": 1,
         "closure": 2,
         "learning_suggestion": 3,
         "scheduler_output": 4,
@@ -34,7 +37,9 @@ def _sla_days(kind: str) -> int:
     """Délai cible (jours) avant considérer l'item en retard."""
     return {
         "hitl": 1,
+        "action_ticket": 1,
         "cio_question": 2,
+        "mission_error": 1,
         "closure": 3,
         "quality": 1,
         "learning_suggestion": 7,
@@ -68,12 +73,26 @@ def _days_open_since(iso_ts: str | None) -> int:
 def _progress_label(kind: str) -> str:
     return {
         "hitl": "Validation dirigeant requise",
+        "action_ticket": "Envoi réel — validation requise",
         "cio_question": "Réponse dirigeant attendue",
+        "mission_error": "Mission en échec — à traiter ou clôturer",
         "closure": "Mission terminée — clôture en attente",
         "quality": "Contrôle qualité bloquant",
         "learning_suggestion": "Suggestion d'apprentissage à arbitrer",
         "scheduler_output": "Proposition autonome à approuver",
     }.get(kind, "Action requise")
+
+
+def _is_chat_followup(row: dict) -> bool:
+    """Suites CIO rattachées à une mission parent (évite le double affichage clôture)."""
+    src = str(row.get("source") or "").strip().lower()
+    if src != "chat":
+        return False
+    return bool(str(row.get("parent_job_id") or "").strip())
+
+
+def _status_is_error(status: str) -> bool:
+    return str(status or "").strip().lower().startswith("error")
 
 
 def _urgency_level(days_open: int, sla_days: int) -> str:
@@ -163,16 +182,17 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 job_id=item.get("job_id"),
                 output_id=item.get("output_id"),
                 suggestion_id=item.get("suggestion_id"),
+                ticket_id=item.get("ticket_id"),
             )
             return key in dismissed
         except ValueError:
             return False
 
     for row in jobs:
-        if str(row.get("source") or "") == "chat":
-            continue
         jid = row.get("id")
         st = str(row.get("status") or "")
+        # Suites chat rattachées : HITL / questions CIO restent visibles, pas la clôture (le parent porte le rituel).
+        skip_closure = _is_chat_followup(row)
         if st == "awaiting_validation":
             gate = get_hitl_gate(jid) or {"gate": row.get("hitl_gate") or {}}
             hk = _hitl_kind_from_gate(gate)
@@ -187,7 +207,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "gate_preview": _gate_preview(gate),
                 "priority_score": _priority_score("hitl"),
             }, job_row=row))
-        elif st == "completed" and not row.get("user_validated_at"):
+        elif st == "completed" and not _user_validated_set(row) and not skip_closure:
             items.append(_enrich_inbox_item({
                 "kind": "closure",
                 "job_id": jid,
@@ -196,6 +216,21 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "priority_score": _priority_score("closure"),
+                "source": row.get("source"),
+            }, job_row=row))
+        elif _status_is_error(st) and not _user_validated_set(row) and not skip_closure:
+            err_detail = st[6:].strip() if st.lower().startswith("error:") else st
+            mission = str(row.get("mission") or "").strip()
+            items.append(_enrich_inbox_item({
+                "kind": "mission_error",
+                "job_id": jid,
+                "title": (err_detail or mission or "Mission en échec")[:200],
+                "mission": mission[:160],
+                "status": st,
+                "created_at": row.get("updated_at"),
+                "updated_at": row.get("updated_at"),
+                "priority_score": _priority_score("mission_error"),
+                "source": row.get("source"),
             }, job_row=row))
         elif st == "quality_blocked":
             items.append(_enrich_inbox_item({
@@ -255,6 +290,28 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         }))
 
     try:
+        from services.action_queue import list_actions
+
+        for ticket in list_actions(status="pending", limit=40):
+            payload = ticket.get("payload") if isinstance(ticket.get("payload"), dict) else {}
+            items.append(_enrich_inbox_item({
+                "kind": "action_ticket",
+                "ticket_id": ticket.get("id"),
+                "job_id": ticket.get("job_id") or None,
+                "action_kind": ticket.get("kind"),
+                "title": ticket.get("title") or "Action à valider",
+                "summary": ticket.get("summary") or "",
+                "preview_url": ticket.get("preview_url") or None,
+                "payload": payload,
+                "status": ticket.get("status"),
+                "created_at": ticket.get("created_at"),
+                "updated_at": ticket.get("updated_at"),
+                "priority_score": _priority_score("action_ticket"),
+            }))
+    except Exception:
+        pass
+
+    try:
         for out in list_autonomous_outputs(status="pending", limit=20):
             meta = _parse_proposal_meta(str(out.get("content") or ""))
             item = _enrich_inbox_item({
@@ -281,6 +338,8 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
 def _priority_label(item: dict) -> str:
     kind = str(item.get("kind") or "")
     title = str(item.get("title") or item.get("mission") or "").strip()
+    if kind == "action_ticket":
+        return f"Valider l'envoi — {title[:80]}" if title else "Valider une action préparée"
     if kind == "hitl":
         hk = str(item.get("hitl_kind") or "")
         if hk == "cio_plan":
@@ -288,6 +347,8 @@ def _priority_label(item: dict) -> str:
         return f"Validation requise — {title[:80]}" if title else "Validation dirigeant requise"
     if kind == "cio_question":
         return title[:120] if title else "Répondre au CIO"
+    if kind == "mission_error":
+        return f"Échec mission — {title[:80]}" if title else "Mission en échec"
     if kind == "closure":
         return f"Clôturer la mission — {title[:80]}" if title else "Clôturer une mission terminée"
     if kind == "scheduler_output":
@@ -301,10 +362,11 @@ def _priority_label(item: dict) -> str:
 
 def _priority_href(item: dict) -> str:
     kind = str(item.get("kind") or "")
+    tid = str(item.get("ticket_id") or "").strip()
     jid = str(item.get("job_id") or "").strip()
     oid = str(item.get("output_id") or "").strip()
     sid = str(item.get("suggestion_id") or "").strip()
-    focus = jid or oid or sid
+    focus = tid or jid or oid or sid
     if focus:
         return f"/inbox?triage=1&focus={focus}"
     return "/inbox?triage=1"
@@ -314,7 +376,7 @@ def _build_top_priorities(inbox_items: list[dict], *, limit: int = 3) -> list[di
     out: list[dict] = []
     for item in inbox_items[:limit]:
         out.append({
-            "id": str(item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
+            "id": str(item.get("ticket_id") or item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
             "label": _priority_label(item),
             "href": _priority_href(item),
             "kind": item.get("kind"),

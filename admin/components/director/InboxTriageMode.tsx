@@ -24,6 +24,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
     const idx = sorted.findIndex(
       (it, i) =>
         it.job_id === focusParam ||
+        it.ticket_id === focusParam ||
         it.output_id === focusParam ||
         it.suggestion_id === focusParam ||
         inboxItemKey(it, i) === focusParam,

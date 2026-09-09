@@ -19,6 +19,7 @@ type IntegrationGroup = {
   id: string;
   label: string;
   description?: string;
+  priority?: boolean;
   fields: IntegrationField[];
 };
 
@@ -44,6 +45,7 @@ export default function IntegrationsSettingsPage() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [openGroup, setOpenGroup] = useState<string>("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const query = useQuery({
     queryKey: ["integration-settings"],
@@ -56,11 +58,15 @@ export default function IntegrationsSettingsPage() {
   });
 
   const catalog = query.data?.catalog ?? [];
+  const visibleCatalog = useMemo(
+    () => (showAdvanced ? catalog : catalog.filter((g) => g.priority)),
+    [catalog, showAdvanced],
+  );
   const values = query.data?.values ?? {};
 
   useEffect(() => {
-    if (catalog.length && !openGroup) setOpenGroup(catalog[0]?.id ?? "");
-  }, [catalog, openGroup]);
+    if (visibleCatalog.length && !openGroup) setOpenGroup(visibleCatalog[0]?.id ?? "");
+  }, [visibleCatalog, openGroup]);
 
   const save = useMutation({
     mutationFn: async (payload: { fields: Record<string, string>; clear_fields?: string[] }) => {
@@ -122,6 +128,25 @@ export default function IntegrationsSettingsPage() {
     save.mutate({ fields: {}, clear_fields: [key] });
   }
 
+  const health = useQuery({
+    queryKey: ["admin-system-health"],
+    queryFn: async () => {
+      const { data } = await requestJson("/admin/system-health", { headers: agentHeaders(), retries: 1 });
+      return data as {
+        integrations?: Record<string, { ok?: boolean; configured?: boolean; probe_detail?: string; folder_id_set?: boolean }>;
+      };
+    },
+    staleTime: 60_000,
+  });
+
+  const driveHealth = health.data?.integrations?.google_drive;
+  const oauthHealth = health.data?.integrations?.google_oauth;
+  const driveBroken = Boolean(
+    (driveHealth?.configured && driveHealth?.ok === false) ||
+      (oauthHealth?.configured && oauthHealth?.ok === false),
+  );
+  const tiimeWebhookSet = values.TIIME_MAKE_WEBHOOK_URL_set === true || Boolean(String(values.TIIME_MAKE_WEBHOOK_URL || "").trim());
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -141,6 +166,28 @@ export default function IntegrationsSettingsPage() {
         </div>
       ) : null}
 
+      {driveBroken ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-bold">Google Drive / OAuth à réparer</p>
+          <p className="mt-1 text-amber-900">
+            Export auto des livrables en échec
+            {driveHealth?.probe_detail ? ` (${driveHealth.probe_detail})` : ""}.
+            Rafraîchissez le refresh token OAuth et renseignez{" "}
+            <span className="font-semibold">GOOGLE_DRIVE_FOLDER_ID</span> (module Google OAuth &amp; Drive).
+          </p>
+        </div>
+      ) : null}
+
+      {!tiimeWebhookSet && query.isSuccess ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+          <p className="font-bold">Tiime — facturation non automatisée</p>
+          <p className="mt-1 text-slate-600">
+            Les devis Korymb fonctionnent. Pour pousser une facture automatiquement, configurez{" "}
+            <span className="font-semibold">TIIME_MAKE_WEBHOOK_URL</span> (module Tiime) ou ouvrez Tiime manuellement.
+          </p>
+        </div>
+      ) : null}
+
       <SectionCard title="Vue d'ensemble">
         {query.isLoading ? <p className="text-sm text-slate-500">Chargement…</p> : null}
         {query.isError ? (
@@ -156,10 +203,18 @@ export default function IntegrationsSettingsPage() {
             <span className="text-slate-500">Les secrets ne sont jamais réaffichés après enregistrement.</span>
           </p>
         ) : null}
+        <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={showAdvanced}
+            onChange={(e) => setShowAdvanced(e.target.checked)}
+          />
+          Afficher les intégrations secondaires (WhatsApp, Canva, TTS, CRM externe…)
+        </label>
       </SectionCard>
 
       <div className="space-y-3">
-        {catalog.map((group) => {
+        {visibleCatalog.map((group) => {
           const isOpen = openGroup === group.id;
           const groupConfigured = group.fields.filter((f) => values[`${f.key}_set`] === true).length;
           return (

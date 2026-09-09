@@ -239,6 +239,10 @@ body {
     @apply bg-violet-100 text-violet-950 ring-violet-300;
   }
 
+  .kind-badge--action_ticket {
+    @apply bg-orange-100 text-orange-950 ring-orange-300;
+  }
+
   .kind-badge--cio_question {
     @apply bg-amber-100 text-amber-950 ring-amber-300;
   }

@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
+import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../../_shared";
@@ -16,12 +18,20 @@ export default function GestionContactEditPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [company, setCompany] = useState("");
+  const [website, setWebsite] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [instagram, setInstagram] = useState("");
+  const [facebook, setFacebook] = useState("");
+  const [resalib, setResalib] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [contactType, setContactType] = useState("prospect");
   const [status, setStatus] = useState("active");
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
+  const [outreachSuggestions, setOutreachSuggestions] = useState("");
   const [error, setError] = useState("");
-  const [hydrated, setHydrated] = useState(false);
 
   const contact = useQuery({
     queryKey: ["business-contact", id],
@@ -36,18 +46,26 @@ export default function GestionContactEditPage() {
   });
 
   useEffect(() => {
-    if (!contact.data || hydrated) return;
+    if (!contact.data) return;
     const c = contact.data;
     setName(c.name || "");
     setEmail(c.email || "");
     setPhone(c.phone || "");
     setCompany(c.company || "");
+    setWebsite(c.website || "");
+    setLinkedinUrl(c.linkedin_url || "");
+    setInstagram(c.socials?.instagram || "");
+    setFacebook(c.socials?.facebook || "");
+    setResalib(c.socials?.resalib || "");
+    setAddress(c.address || "");
+    setCity(c.city || "");
+    setPostalCode(c.postal_code || "");
     setContactType(c.contact_type || "prospect");
     setStatus(c.status || "active");
     setTags((c.tags || []).join(", "));
     setNotes(c.notes || "");
-    setHydrated(true);
-  }, [contact.data, hydrated]);
+    setOutreachSuggestions(c.outreach_suggestions || "");
+  }, [contact.data]);
 
   const save = useMutation({
     mutationFn: () =>
@@ -56,6 +74,17 @@ export default function GestionContactEditPage() {
         email: email.trim(),
         phone: phone.trim(),
         company: company.trim(),
+        website: website.trim(),
+        linkedin_url: linkedinUrl.trim(),
+        socials: {
+          ...(contact.data?.socials || {}),
+          instagram: instagram.trim(),
+          facebook: facebook.trim(),
+          resalib: resalib.trim(),
+        },
+        address: address.trim(),
+        city: city.trim(),
+        postal_code: postalCode.trim(),
         contact_type: contactType,
         status,
         tags: tags
@@ -63,6 +92,7 @@ export default function GestionContactEditPage() {
           .map((t) => t.trim())
           .filter(Boolean),
         notes: notes.trim(),
+        outreach_suggestions: outreachSuggestions.trim(),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["business-contacts"] });
@@ -101,11 +131,18 @@ export default function GestionContactEditPage() {
         title={`Modifier — ${contact.data.name}`}
         description={`Créé le ${formatDateTime(contact.data.created_at)}`}
         actions={
-          <Link href="/gestion/contacts" className="btn-link-secondary">
-            ← Retour à la liste
-          </Link>
+          <div className="flex flex-wrap items-center gap-3">
+            <ContactReachabilityBadge contact={contact.data} />
+            <Link href="/gestion/contacts" className="btn-link-secondary">
+              ← Retour à la liste
+            </Link>
+          </div>
         }
       />
+
+      <SectionCard title="Exploration détaillée">
+        <ContactEnrichmentPanel contact={contact.data} />
+      </SectionCard>
 
       <SectionCard title="Fiche contact">
         <form
@@ -155,14 +192,65 @@ export default function GestionContactEditPage() {
             <span className="font-medium text-slate-700">Structure / entreprise</span>
             <input className="input-field mt-1 w-full" value={company} onChange={(e) => setCompany(e.target.value)} />
           </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Site web</span>
+            <input className="input-field mt-1 w-full" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">LinkedIn</span>
+            <input className="input-field mt-1 w-full" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/…" />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Instagram</span>
+            <input className="input-field mt-1 w-full" value={instagram} onChange={(e) => setInstagram(e.target.value)} placeholder="https://instagram.com/…" />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Facebook</span>
+            <input className="input-field mt-1 w-full" value={facebook} onChange={(e) => setFacebook(e.target.value)} placeholder="https://facebook.com/…" />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-slate-700">Resalib / fiche métier</span>
+            <input className="input-field mt-1 w-full" value={resalib} onChange={(e) => setResalib(e.target.value)} placeholder="https://www.resalib.fr/…" />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-slate-700">Adresse</span>
+            <input className="input-field mt-1 w-full" value={address} onChange={(e) => setAddress(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Ville</span>
+            <input className="input-field mt-1 w-full" value={city} onChange={(e) => setCity(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Code postal</span>
+            <input className="input-field mt-1 w-full" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
+          </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Tags (séparés par des virgules)</span>
             <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="coach, var, fleur" />
           </label>
           <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Notes</span>
+            <span className="font-medium text-slate-700">Notes sur le contact</span>
+            <p className="mt-0.5 text-xs text-slate-500">Faits : spécialité, SIRET, contexte métier, sources — pas l’angle de vente.</p>
             <textarea className="input-field mt-1 w-full" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-slate-700">Suggestions pour le contacter</span>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Angle d’approche, canal, accroche, offre — approfondi à partir des missions / interactions passées.
+            </p>
+            <textarea
+              className="input-field mt-1 w-full"
+              rows={5}
+              value={outreachSuggestions}
+              onChange={(e) => setOutreachSuggestions(e.target.value)}
+              placeholder="Ex. : email perso + accroche intelligence collective…"
+            />
+          </label>
+          {contact.data.verified_at ? (
+            <p className="sm:col-span-2 text-xs text-emerald-800">
+              Dernière validation enrichissement : {formatDateTime(contact.data.verified_at)}
+            </p>
+          ) : null}
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
             <button type="submit" className="btn-primary" disabled={save.isPending}>
               {save.isPending ? "Enregistrement…" : "Enregistrer les modifications"}

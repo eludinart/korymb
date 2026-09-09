@@ -610,6 +610,24 @@ def finalize_mission_drive_deliverables(
 
     folder_id = resolve_workspace_folder_id()
     artifacts: list[dict[str, Any]] = []
+
+    from tools import _get_google_drive_token
+
+    if not _get_google_drive_token():
+        log(
+            "[korymb] Drive : OAuth Google indisponible (401 / refresh) — "
+            "reconfigurez Google OAuth dans Administration → Intégrations."
+        )
+        log("[korymb] Drive : mission avec livrable fichier attendu mais export auto impossible (vérifiez OAuth Drive).")
+        return cleaned, []
+
+    if not folder_id:
+        log(
+            "[korymb] Drive : aucun dossier cible (GOOGLE_DRIVE_FOLDER_ID) — "
+            "export auto ignoré. Renseignez l'ID dossier dans Intégrations."
+        )
+        return cleaned, []
+
     for c in candidates[:6]:
         title = c["title"]
         body = c["body"]
@@ -618,6 +636,9 @@ def finalize_mission_drive_deliverables(
         parsed = _parse_upload_result(raw)
         if not parsed:
             log(f"[korymb] Drive auto-export échec pour « {title[:60]} » : {raw[:180]}")
+            if "401" in str(raw) or "Unauthorized" in str(raw):
+                log("[korymb] Drive : arrêt des exports auto (OAuth expiré).")
+                break
             continue
         kind = "sheet" if fmt == "sheet" else "doc" if fmt == "doc" else "fichier"
         art = {

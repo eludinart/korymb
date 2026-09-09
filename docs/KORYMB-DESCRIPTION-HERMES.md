@@ -71,17 +71,28 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 1. Cadrage     → Le dirigeant précise l’intention (chat ou formulaire mission)
 2. Lancement    → Le CIO (agent coordinateur) décompose et délègue aux agents spécialisés
 3. Exécution    → Jobs asynchrones, outils (web, Drive, réseaux, DB…), traces auditables
-4. HITL         → Points de validation humaine si nécessaire (Human-in-the-Loop)
+4. HITL         → Deux files distinctes (plan CIO vs envoi réel)
 5. Qualité      → Garde-fou score minimum avant clôture (configurable)
 6. Clôture      → Validation dirigeant, livrables archivés (app + Drive si applicable)
 7. Mémoire      → Enrichissement de la mémoire d’entreprise pour les missions suivantes
 ```
 
+### Deux HITL distincts (ne pas confondre)
+
+| File | Statut / table | Ce que le dirigeant valide | Exécution |
+|------|----------------|---------------------------|-----------|
+| **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job |
+| **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL) |
+
+Les outils `send_email`, `send_gmail`, `create_calendar_event`, posts Meta, `wordpress_create_post` **n’exécutent plus en live** : ils créent un ticket. WordPress (si configuré) crée d’abord un **brouillon** ; l’approbation passe en `publish`. Après un e-mail réellement envoyé, Korymb journalise une interaction CRM (`gestion_log_interaction`).
+
+Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejeter en 1 clic, un **bot HITL dédié** (`TELEGRAM_HITL_BOT_TOKEN`) + webhook `POST /telegram/webhook` (secret `TELEGRAM_WEBHOOK_SECRET`) — **ne jamais** `setWebhook` sur le bot Hermes.
+
 ### Modes importants
 
 - **Mode cadrage** : échange sans lancer le pipeline multi-agents — le dirigeant valide ensuite dans l’app
-- **Mode exécution** : orchestration réelle (legacy ou **LangGraph** selon réglage `orchestration.engine`)
-- **Playbooks** : bibliothèque de scénarios prêts à lancer (thèmes Fleur / Sivana)
+- **Mode exécution** : orchestration réelle (moteur **legacy** par défaut ; LangGraph gelé)
+- **Playbooks** : bibliothèque de scénarios prêts à lancer (thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social)
 
 ---
 
@@ -238,7 +249,8 @@ curl -s https://api-korymb.eludein.art/health
 |-------|------|
 | **Mission** | Unité de travail déléguée aux agents (objectif + livrables) |
 | **Job** | Exécution technique asynchrone d’une mission (suivi, annulation, traces) |
-| **HITL** | Human-in-the-Loop — validation humaine requise à une étape |
+| **HITL** | Human-in-the-Loop — plan CIO (`awaiting_validation`) ou ticket d’action (`action_tickets`) |
+| **Ticket d’action** | Envoi/publication préparé, exécuté seulement après Valider |
 | **CIO / coordinateur** | Agent orchestrateur stratégique |
 | **Playbook** | Scénario de mission pré-défini |
 | **Workspace** | Espace Korymb isolé (multi-tenant) |
@@ -261,4 +273,4 @@ curl -s https://api-korymb.eludein.art/health
 
 ---
 
-*Dernière mise à jour : juillet 2026 — à synchroniser si l’offre produit ou les agents changent.*
+*Dernière mise à jour : septembre 2026 — file d’actions HITL (e-mail, agenda, social, WordPress) + bot Telegram dédié.*

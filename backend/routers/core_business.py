@@ -3,7 +3,7 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from auth import resolve_tenant
@@ -17,6 +17,8 @@ from services.business_db import (
     PROJECT_STATUSES,
     PROJECT_TYPES,
     QUOTE_STATUSES,
+    apply_enrichment_proposal,
+    build_contact_exploration_mission,
     create_calendar_event,
     create_contact,
     create_external_invoice,
@@ -26,18 +28,23 @@ from services.business_db import (
     delete_contact,
     delete_project,
     delete_quote,
+    exploration_result_summary,
+    fill_contact_from_exploration,
     get_business_overview,
     get_calendar_event,
     get_contact,
+    get_enrichment_proposal,
     get_external_invoice,
     get_project,
     get_quote,
     list_calendar_events,
     list_contacts,
+    list_enrichment_proposals,
     list_external_invoices,
     list_interactions,
     list_projects,
     list_quotes,
+    reject_enrichment_proposal,
     update_calendar_event,
     update_contact,
     update_external_invoice,
@@ -67,6 +74,13 @@ class ContactCreate(BaseModel):
     status: str = "active"
     tags: list[str] = Field(default_factory=list)
     notes: str = ""
+    outreach_suggestions: str = ""
+    website: str = ""
+    linkedin_url: str = ""
+    address: str = ""
+    city: str = ""
+    postal_code: str = ""
+    socials: dict[str, str] = Field(default_factory=dict)
 
 
 class ContactUpdate(BaseModel):
@@ -78,6 +92,18 @@ class ContactUpdate(BaseModel):
     status: str | None = None
     tags: list[str] | None = None
     notes: str | None = None
+    outreach_suggestions: str | None = None
+    website: str | None = None
+    linkedin_url: str | None = None
+    address: str | None = None
+    city: str | None = None
+    postal_code: str | None = None
+    socials: dict[str, str] | None = None
+    verified_at: str | None = None
+
+
+class EnrichmentApplyBody(BaseModel):
+    fields: list[str] | None = None
 
 
 class ProjectCreate(BaseModel):
@@ -249,6 +275,157 @@ async def business_delete_contact(contact_id: str):
     if not delete_contact(contact_id):
         raise HTTPException(404, detail="Contact introuvable")
     return {"deleted": True}
+
+
+@router.post("/business/contacts/{contact_id}/explore", dependencies=[Depends(resolve_tenant)])
+async def business_explore_contact(contact_id: str, background_tasks: BackgroundTasks):
+    """Lance une mission Commercial d'exploration détaillée (proposition avant écriture)."""
+    import uuid
+
+    from services.mission import _mission_config_from_payload, _schedule_mission_execution
+
+    contact = get_contact(contact_id)
+    if not contact:
+        raise HTTPException(404, detail="Contact introuvable")
+
+    mission = build_contact_exploration_mission(contact)
+    job_id = uuid.uuid4().hex[:12]
+    mcfg = _mission_config_from_payload({
+        "require_user_validation": True,
+        "cio_plan_hitl_enabled": False,
+        "cio_questions_enabled": False,
+        "mode": "agent",
+    })
+    _schedule_mission_execution(
+        background_tasks,
+        job_id,
+        "commercial",
+        mission,
+        {"contact_id": contact_id, "explore": True},
+        f"contact_explore:{contact_id}",
+        mission_config=mcfg,
+    )
+    return {
+        "contact_id": contact_id,
+        "job_id": job_id,
+        "status": "accepted",
+        "agent": "commercial",
+        "reachability": contact.get("reachability"),
+        "message": "Exploration lancée — le Commercial proposera un enrichissement à valider.",
+    }
+
+
+@router.get("/business/contacts/{contact_id}/exploration", dependencies=[Depends(resolve_tenant)])
+async def business_get_contact_exploration(contact_id: str):
+    """Dernière mission d'exploration + résumé résultat pour la fiche contact."""
+    from database import get_job, get_latest_job_by_source
+
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+
+    job = get_latest_job_by_source(f"contact_explore:{contact_id}")
+    if not job:
+        return {
+            "contact_id": contact_id,
+            "job_id": None,
+            "status": None,
+            "result": None,
+            "summary": None,
+            "can_fill": False,
+            "already_filled": False,
+        }
+
+    fresh = get_job(str(job.get("id") or "")) or job
+    result = str(fresh.get("result") or "").strip()
+    summary = exploration_result_summary(result)
+    jid = str(fresh.get("id") or "")
+    already = any(
+        str(p.get("job_id") or "") == jid
+        for p in list_enrichment_proposals(contact_id=contact_id, status="applied", limit=20)
+    )
+    status = str(fresh.get("status") or "")
+    can_fill = bool(result) and status in {"completed", "done", "success"} and not already
+    return {
+        "contact_id": contact_id,
+        "job_id": fresh.get("id"),
+        "status": fresh.get("status"),
+        "agent": fresh.get("agent"),
+        "result": result or None,
+        "summary": summary,
+        "can_fill": can_fill,
+        "already_filled": already,
+        "created_at": fresh.get("created_at"),
+        "updated_at": fresh.get("updated_at"),
+    }
+
+
+class ExplorationFillBody(BaseModel):
+    apply: bool = True
+
+
+@router.post("/business/contacts/{contact_id}/exploration/fill", dependencies=[Depends(resolve_tenant)])
+async def business_fill_contact_from_exploration(
+    contact_id: str,
+    body: ExplorationFillBody | None = None,
+):
+    """Remplit la fiche contact depuis le résultat de la dernière exploration."""
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    apply = True if body is None else bool(body.apply)
+    result = fill_contact_from_exploration(contact_id, apply=apply)
+    if not result:
+        raise HTTPException(404, detail="Contact introuvable")
+    if result.get("skipped") and result.get("reason") == "no_exploration_job":
+        raise HTTPException(404, detail="Aucune exploration trouvée pour ce contact")
+    if result.get("skipped") and result.get("reason") == "no_fields_extracted":
+        raise HTTPException(400, detail="Impossible d'extraire des champs depuis le résultat d'exploration")
+    return result
+
+
+@router.get("/business/contacts/{contact_id}/enrichment-proposals", dependencies=[Depends(resolve_tenant)])
+async def business_list_contact_enrichments(
+    contact_id: str,
+    status: str | None = Query(default="pending"),
+    limit: int = Query(default=10, ge=1, le=50),
+):
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    return {
+        "proposals": list_enrichment_proposals(contact_id=contact_id, status=status, limit=limit),
+    }
+
+
+@router.post(
+    "/business/contacts/{contact_id}/enrichment-proposals/{proposal_id}/apply",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_apply_contact_enrichment(
+    contact_id: str,
+    proposal_id: str,
+    body: EnrichmentApplyBody | None = None,
+):
+    proposal = get_enrichment_proposal(proposal_id)
+    if not proposal or proposal.get("contact_id") != contact_id:
+        raise HTTPException(404, detail="Proposition introuvable")
+    result = apply_enrichment_proposal(
+        proposal_id,
+        fields=(body.fields if body else None),
+    )
+    if not result:
+        raise HTTPException(400, detail="Impossible d'appliquer cette proposition (déjà traitée ?).")
+    return result
+
+
+@router.post(
+    "/business/contacts/{contact_id}/enrichment-proposals/{proposal_id}/reject",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_reject_contact_enrichment(contact_id: str, proposal_id: str):
+    proposal = get_enrichment_proposal(proposal_id)
+    if not proposal or proposal.get("contact_id") != contact_id:
+        raise HTTPException(404, detail="Proposition introuvable")
+    row = reject_enrichment_proposal(proposal_id)
+    return {"proposal": row}
 
 
 @router.get("/business/interactions", dependencies=[Depends(resolve_tenant)])

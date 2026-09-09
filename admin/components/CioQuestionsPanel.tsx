@@ -1,7 +1,8 @@
 "use client";
 
+import CioArbitrageFreeField from "./CioArbitrageFreeField";
 import CioArbitrageQuestionRow from "./CioArbitrageQuestionRow";
-import { countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
+import { CIO_FREE_CONSIGNE_QUESTION, countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
 
 type CioQuestion = {
   eventId?: string;
@@ -56,9 +57,15 @@ export default function CioQuestionsPanel({
           ))}
         </ol>
 
+        <CioArbitrageFreeField
+          savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
+          busy={busy}
+          onSubmit={(answer) => onAnswer(CIO_FREE_CONSIGNE_QUESTION, answer)}
+        />
+
         <p className="text-[10px] text-slate-400">
-          La mission s&apos;exécute en arrière-plan. Répondez question par question — chaque arbitrage enrichit la
-          synthèse finale du CIO.
+          La mission s&apos;exécute en arrière-plan. Répondez question par question, ou envoyez une consigne libre si
+          aucune proposition ne convient.
         </p>
       </div>
     </div>

@@ -239,7 +239,14 @@ export function scoreActiveJobPriority(job: ActiveAgentJob): number {
 
 export function pickPrimaryActiveJob(jobs: ActiveAgentJob[]): ActiveAgentJob | null {
   if (!jobs.length) return null;
-  return [...jobs].sort((a, b) => scoreActiveJobPriority(b) - scoreActiveJobPriority(a))[0] ?? null;
+  return (
+    [...jobs].sort((a, b) => {
+      const liveA = a.execution_live === false ? 0 : 1;
+      const liveB = b.execution_live === false ? 0 : 1;
+      if (liveB !== liveA) return liveB - liveA;
+      return scoreActiveJobPriority(b) - scoreActiveJobPriority(a);
+    })[0] ?? null
+  );
 }
 
 function toolCreatesDeliverable(toolHint: string): boolean {

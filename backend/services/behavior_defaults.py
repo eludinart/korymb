@@ -20,8 +20,8 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         "type": "string",
         "label": "Moteur orchestration mission",
         "description": (
-            "legacy = pipeline historique ; langgraph = graphe LangGraph avec checkpoints ; "
-            "shadow = exécute legacy mais journalise la préparation LangGraph."
+            "legacy = pipeline historique (moteur opérationnel). "
+            "langgraph / shadow = gelés, ne pas activer en production."
         ),
         "value": "legacy",
     },
@@ -30,10 +30,11 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         "type": "boolean",
         "label": "Sandbox outils execute (email, posts sociaux)",
         "description": (
-            "Si activé, les outils à effet externe (email, Instagram, Facebook…) ne s'exécutent pas "
-            "sans gate HITL / approbation dirigeant."
+            "Si activé, les outils à effet externe (Instagram, Facebook, agenda…) ne s'exécutent pas "
+            "sans validation dirigeant. Les e-mails passent toujours par la file d'actions (inbox), "
+            "même si ce sandbox est désactivé."
         ),
-        "value": False,
+        "value": True,
     },
     "orchestration.routing.delegation_key_aliases": {
         "category": "orchestration",

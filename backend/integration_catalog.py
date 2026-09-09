@@ -32,6 +32,10 @@ def _secret(key: str) -> bool:
         "BREVO_SENDER_EMAIL",
         "TIIME_MAKE_WEBHOOK_URL",
         "TIIME_WEBHOOK_URL",
+        "WP_BASE_URL",
+        "WP_USER",
+        "TELEGRAM_CHAT_ID",
+        "KORYMB_PUBLIC_URL",
     }:
         return False
     return any(x in k for x in ("_KEY", "_SECRET", "_TOKEN", "_PASS", "API_KEY"))
@@ -102,12 +106,23 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
     {
         "id": "google_workspace",
         "label": "Gmail, Calendar, Sheets",
+        "priority": True,
         "fields": [
             {"key": "GOOGLE_GMAIL_ACCESS_TOKEN", "label": "Gmail Token dédié (optionnel)"},
             {"key": "GOOGLE_CALENDAR_ACCESS_TOKEN", "label": "Calendar Token dédié (optionnel)"},
             {"key": "GOOGLE_SHEETS_ACCESS_TOKEN", "label": "Sheets Token dédié (optionnel)"},
             {"key": "GOOGLE_CALENDAR_ID", "label": "Calendar ID", "secret": False, "placeholder": "primary"},
             {"key": "GOOGLE_SHEETS_DEFAULT_ID", "label": "Spreadsheet ID par défaut", "secret": False},
+        ],
+    },
+    {
+        "id": "wordpress",
+        "label": "WordPress (CMS)",
+        "description": "Publication d'articles via REST API (Application Password). Brouillon à la préparation, publish après validation.",
+        "fields": [
+            {"key": "WP_BASE_URL", "label": "URL du site", "secret": False, "placeholder": "https://eludein.art"},
+            {"key": "WP_USER", "label": "Utilisateur WP", "secret": False},
+            {"key": "WP_APP_PASSWORD", "label": "Application Password"},
         ],
     },
     {
@@ -195,8 +210,11 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
             {"key": "DISCORD_WEBHOOK_URL", "label": "Discord Webhook URL"},
             {"key": "DISCORD_BOT_TOKEN", "label": "Discord Bot Token"},
             {"key": "DISCORD_CHANNEL_ID", "label": "Discord Channel ID", "secret": False},
-            {"key": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token"},
+            {"key": "TELEGRAM_BOT_TOKEN", "label": "Telegram Bot Token (Hermes — ne pas webhooker)"},
             {"key": "TELEGRAM_CHAT_ID", "label": "Telegram Chat ID", "secret": False},
+            {"key": "TELEGRAM_HITL_BOT_TOKEN", "label": "Bot HITL dédié (boutons Valider/Rejeter)"},
+            {"key": "TELEGRAM_WEBHOOK_SECRET", "label": "Secret webhook HITL"},
+            {"key": "KORYMB_PUBLIC_URL", "label": "URL publique Korymb", "secret": False, "placeholder": "https://korymb.eludein.art"},
             {"key": "KORYMB_WEBHOOK_URL", "label": "Webhook Korymb (sortant)"},
             {"key": "NOTIFICATION_WEBHOOK_URL", "label": "Webhook notifications"},
         ],
@@ -232,6 +250,22 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
 ]
 
 for group in INTEGRATION_GROUPS:
+    group.setdefault(
+        "priority",
+        group["id"]
+        in {
+            "web_search",
+            "email",
+            "google_oauth",
+            "google_drive",
+            "google_workspace",
+            "wordpress",
+            "meta_social",
+            "messaging",
+            "tiime",
+            "fleur_db",
+        },
+    )
     for field in group["fields"]:
         field.setdefault("secret", _secret(str(field["key"])))
 

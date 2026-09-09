@@ -79,6 +79,36 @@ def test_admin_inbox_dismiss_accepts_long_job_id(client):
     assert dismiss.json().get("dismiss_key") == f"cio_question:{long_id}"
 
 
+def test_admin_inbox_includes_chat_closures(client):
+    save_job("chatinbx1", "coordinateur", "Prospection chat à clôturer", source="chat")
+    update_job("chatinbx1", "completed", "Résultat chat", [], 0, 0)
+    r = client.get("/admin/inbox?limit=80")
+    assert r.status_code == 200
+    item = next(i for i in r.json()["items"] if i.get("job_id") == "chatinbx1" and i.get("kind") == "closure")
+    assert "Prospection chat" in (item.get("title") or "")
+
+
+def test_admin_inbox_includes_mission_errors(client):
+    save_job("errinbx1", "coordinateur", "Mission cassée", source="mission")
+    update_job("errinbx1", "error: Délai dépassé HITL", "échec", [], 0, 0)
+    r = client.get("/admin/inbox?limit=80")
+    assert r.status_code == 200
+    item = next(i for i in r.json()["items"] if i.get("job_id") == "errinbx1" and i.get("kind") == "mission_error")
+    assert "Délai" in (item.get("title") or "") or "HITL" in (item.get("title") or "")
+
+
+def test_admin_inbox_close_bulk(client):
+    save_job("bulkcl01", "coordinateur", "À clôturer en masse", source="chat")
+    update_job("bulkcl01", "completed", "ok", [], 0, 0)
+    r = client.post("/admin/inbox/close-bulk", json={"kinds": ["closure"], "limit": 80})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert "bulkcl01" in (body.get("closed") or [])
+    r2 = client.get("/admin/inbox?limit=80")
+    assert not any(i.get("job_id") == "bulkcl01" and i.get("kind") == "closure" for i in r2.json()["items"])
+
+
 def test_admin_briefing(client):
     r = client.get("/admin/briefing?period=today")
     assert r.status_code == 200

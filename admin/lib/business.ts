@@ -7,6 +7,14 @@ export type QuoteLine = {
   tax_rate: number;
 };
 
+export type ContactReachability = {
+  score: number;
+  level: "complete" | "partial" | "unreachable" | string;
+  label: string;
+  missing: string[];
+  verified_at?: string | null;
+};
+
 export type BizContact = {
   id: string;
   name: string;
@@ -17,8 +25,31 @@ export type BizContact = {
   status: string;
   tags: string[];
   notes: string;
+  outreach_suggestions?: string;
+  website?: string;
+  linkedin_url?: string;
+  address?: string;
+  city?: string;
+  postal_code?: string;
+  socials?: Record<string, string>;
+  verified_at?: string | null;
+  reachability?: ContactReachability;
   created_at: string;
   updated_at: string;
+};
+
+export type ContactEnrichmentProposal = {
+  id: string;
+  contact_id: string;
+  job_id?: string;
+  status: string;
+  proposed: Record<string, unknown>;
+  sources: string[];
+  summary?: string;
+  agent_key?: string;
+  created_at: string;
+  updated_at?: string;
+  resolved_at?: string | null;
 };
 
 export type BizProject = {
@@ -148,6 +179,80 @@ export const businessApi = {
       method: "DELETE",
       headers: agentHeaders(),
     });
+  },
+  exploreContact: async (id: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/explore`, {
+      method: "POST",
+      headers: agentHeaders(),
+      timeoutMs: 20_000,
+    });
+    return data as {
+      contact_id: string;
+      job_id: string;
+      status: string;
+      message?: string;
+      reachability?: ContactReachability;
+    };
+  },
+  getContactExploration: async (id: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/exploration`, {
+      headers: agentHeaders(),
+    });
+    return data as {
+      contact_id: string;
+      job_id: string | null;
+      status: string | null;
+      agent?: string;
+      result?: string | null;
+      summary?: string | null;
+      can_fill?: boolean;
+      already_filled?: boolean;
+      created_at?: string;
+      updated_at?: string;
+    };
+  },
+  fillContactFromExploration: async (id: string, apply = true) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/exploration/fill`, {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ apply }),
+      timeoutMs: 20_000,
+    });
+    return data as {
+      contact?: BizContact;
+      applied: boolean;
+      skipped: boolean;
+      reason?: string;
+      job_id?: string;
+      fields?: Record<string, unknown>;
+      proposal?: ContactEnrichmentProposal;
+    };
+  },
+  listEnrichmentProposals: async (contactId: string, status = "pending") => {
+    const q = new URLSearchParams({ status });
+    const { data } = await requestJson(
+      `/business/contacts/${encodeURIComponent(contactId)}/enrichment-proposals?${q}`,
+      { headers: agentHeaders() },
+    );
+    return ((data as { proposals?: ContactEnrichmentProposal[] })?.proposals || []) as ContactEnrichmentProposal[];
+  },
+  applyEnrichmentProposal: async (contactId: string, proposalId: string, fields?: string[]) => {
+    const { data } = await requestJson(
+      `/business/contacts/${encodeURIComponent(contactId)}/enrichment-proposals/${encodeURIComponent(proposalId)}/apply`,
+      {
+        method: "POST",
+        headers: agentHeaders(),
+        body: JSON.stringify(fields ? { fields } : {}),
+      },
+    );
+    return data as { contact: BizContact; proposal: ContactEnrichmentProposal };
+  },
+  rejectEnrichmentProposal: async (contactId: string, proposalId: string) => {
+    const { data } = await requestJson(
+      `/business/contacts/${encodeURIComponent(contactId)}/enrichment-proposals/${encodeURIComponent(proposalId)}/reject`,
+      { method: "POST", headers: agentHeaders() },
+    );
+    return data as { proposal: ContactEnrichmentProposal };
   },
   listInteractions: async (contact_id?: string, project_id?: string) => {
     const params = new URLSearchParams();

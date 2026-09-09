@@ -45,6 +45,7 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "library_dismissals",
     "scheduled_tasks",
     "autonomous_outputs",
+    "action_tickets",
     "knowledge_entities",
     "llm_usage_events",
 )
