@@ -77,6 +77,16 @@ Smoke test post-déploiement :
 node tools/smoke-post-deploy.mjs --app-url "https://korymb.eludein.art" --backend-url "https://api-korymb.eludein.art"
 ```
 
+Contrôle P0 écosystème (HTTP public, **sans SSH** — Korymb, API + MariaDB, Fleur, Hermes, site) :
+
+```bash
+npm run smoke:p0
+```
+
+`GET /health` est un liveness (pas de ping DB, `connected` peut être `null`). La preuve MariaDB est `GET /health/database` → `connected: true`.
+
+SSH VPS (conteneurs, crons, backups) : `.\scripts\vps-ssh.ps1` puis skill `hermes-vps-health`. Le middleware Next exige un cookie JWT sur les pages cockpit : le secret agent ne contourne plus le login.
+
 ---
 
 ## Hermes Agent

@@ -24,7 +24,8 @@ Individual commands:
 
 - `npm run check:backend:tests` — pytest in `backend/tests/` and `backend/evals/`
 - `npm run generate:api-schema` — OpenAPI types (backend must be running)
-- `npm --prefix admin run test:e2e` — Playwright smoke (servers running)
+- `npm --prefix admin run test:e2e` — Playwright smoke (build Next puis `next start`, ou serveur déjà sur :3000)
+- `npm run smoke:p0` — HTTP public Korymb / Fleur / Hermes / MariaDB (`/health/database`)
 
 ## Manual Test Matrix (Minimum)
 
@@ -47,10 +48,13 @@ For UI changes:
 CI must pass on pull requests:
 
 - unified frontend build,
+- Playwright smoke (accueil, login, redirection cockpit sans session),
 - backend dependency install + compile check,
 - backend pytest.
 
+A scheduled workflow (`p0-prod-smoke.yml`) hits production URLs daily (`npm run smoke:p0`).
+
 ## Future Improvements
 
-- Expand Playwright E2E in CI (nightly)
+- Playwright golden path with a seeded login (mission + inbox)
 - Golden-path eval with LangGraph HITL mock

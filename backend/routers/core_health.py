@@ -555,6 +555,7 @@ def health(
     include_tools: bool = Query(False),
     refresh_tools: bool = Query(False),
 ):
+    """Liveness process : pas de ping DB (`database.connected` = null). Voir `/health/database`."""
     from database import JOB_ID_MAX_LEN
 
     body: dict = {
@@ -565,7 +566,6 @@ def health(
         "revision_at": BACKEND_REVISION_AT or None,
         "code_dir": str(_KORYMB_BACKEND_DIR),
         "mission_session_delete_routes": True,
-        "job_id_max_len": JOB_ID_MAX_LEN,
         "database": _database_runtime_snapshot(include_probe=False),
     }
     if include_tools:
