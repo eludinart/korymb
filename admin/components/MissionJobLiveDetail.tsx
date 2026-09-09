@@ -10,6 +10,7 @@ import CollapsibleMissionSection from "./CollapsibleMissionSection";
 import SimpleAccordion from "./SimpleAccordion";
 import MissionEventTimeline from "./MissionEventTimeline";
 import MissionMetricsRow from "./MissionMetricsRow";
+import MissionProcessingBanner from "./MissionProcessingBanner";
 import SessionCadrageTimeline from "./SessionCadrageTimeline";
 import CioPlanHitlPanel from "./CioPlanHitlPanel";
 import CioResumePanel from "./missions/CioResumePanel";
@@ -36,6 +37,7 @@ export type MissionJobLivePayload = {
   team?: unknown;
   logs?: string[];
   hitl?: Record<string, unknown> | null;
+  execution_live?: boolean | null;
   latest_chat_followup?: LatestChatFollowup | null;
   deliverables_ui?: DeliverablesUiState;
   drive_artifacts?: DriveArtifact[];
@@ -92,6 +94,11 @@ export default function MissionJobLiveDetail({
 
   return (
     <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+      <MissionProcessingBanner
+        status={d?.status}
+        executionLive={d?.execution_live}
+        agentHint={String(d?.agent || agentFallback || "")}
+      />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
         <div>
           <p className="text-sm font-semibold text-slate-900">

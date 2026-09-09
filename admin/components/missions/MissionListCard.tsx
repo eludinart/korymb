@@ -37,12 +37,21 @@ export default function MissionListCard({
   const canCloseFromList = !closed && st !== "cancelled" && !canValidate;
   const bestResultSource = latestChild ?? j;
   const previewText = bestPreview(String(bestResultSource.result || "").trim(), 25);
+  const isProcessing =
+    j.execution_live !== false &&
+    (st === "running" || st === "in_progress" || st === "pending" || st === "accepted");
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className="min-w-0 cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500"
+      className={`min-w-0 cursor-pointer rounded-2xl border bg-white p-4 transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 ${
+        isProcessing
+          ? "border-amber-400 shadow-md ring-2 ring-amber-200/80"
+          : st === "awaiting_validation"
+            ? "border-violet-400 ring-2 ring-violet-200/70"
+            : "border-slate-200"
+      }`}
       onClick={() => onSelect(j.job_id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -55,6 +64,11 @@ export default function MissionListCard({
         <div className="min-w-0 w-full flex-1 space-y-2 sm:w-auto">
           <div className="flex flex-wrap items-center gap-2">
             <MissionStatusBadge status={j.status} executionLive={j.execution_live} />
+            {isProcessing ? (
+              <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                Traitement
+              </span>
+            ) : null}
             {canValidate ? (
               <span className="rounded-md bg-violet-900 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                 À valider

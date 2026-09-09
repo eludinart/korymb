@@ -14,6 +14,7 @@ import CollapsibleMissionSection from "../../components/CollapsibleMissionSectio
 import SimpleAccordion from "../../components/SimpleAccordion";
 import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
+import MissionProcessingBanner from "../../components/MissionProcessingBanner";
 import MissionExchangeBrief from "../../components/missions/MissionExchangeBrief";
 import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
@@ -684,7 +685,7 @@ function MissionsContent() {
         >
           {showConversationSidebar && detail.data ? (
             <aside
-              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-y-auto overflow-x-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:pr-0.5 ${
+              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-y-auto overflow-x-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:overflow-hidden lg:pr-0.5 ${
                 mobileDetailPane === "fil" ? "flex" : "hidden lg:flex"
               }`}
             >
@@ -718,7 +719,7 @@ function MissionsContent() {
                 />
               </div>
               {showDecisionRail ? (
-                <div className="mt-2 max-h-[min(36vh,18rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
+                <div className="mt-2 max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
                   {canCloseMission && canResumeCio ? (
                     <div className="border-b border-violet-100 p-3">
                       <button
@@ -752,7 +753,7 @@ function MissionsContent() {
                     defaultOpen={hasPendingCioQuestions}
                     className="rounded-b-2xl bg-violet-50/30"
                     triggerClassName="w-full rounded-b-2xl px-3 py-2.5 text-left hover:bg-violet-50/80"
-                    panelClassName="max-h-[min(42vh,20rem)] space-y-3 overflow-y-auto border-t border-violet-100/90 bg-white/90 px-3 py-3"
+                    panelClassName="space-y-3 border-t border-violet-100/90 bg-white/90 px-3 py-3"
                   >
                     <p className="text-[11px] leading-snug text-slate-600">
                       Le fil ci-dessus s&apos;enrichit à chaque échange ; la synthèse et les livrables se mettent à jour
@@ -852,6 +853,11 @@ function MissionsContent() {
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.data ? (
             <div className="space-y-5">
+              <MissionProcessingBanner
+                status={detail.data.status}
+                executionLive={detail.data.execution_live}
+                agentHint={detail.data.agent}
+              />
               {detail.isError ? (
                 <div
                   className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"

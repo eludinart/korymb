@@ -223,9 +223,7 @@ export default function MissionDeliverablesPanel({
                 </div>
               </div>
               <div
-                className={`mt-3 min-h-0 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2 ${
-                  embedded ? "" : "max-h-[min(28rem,52vh)] overflow-y-auto"
-                }`}
+                className={`mt-3 min-h-0 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2`}
               >
                 <AgentMessageMarkdown
                   source={it.body}
