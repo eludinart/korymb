@@ -20,7 +20,7 @@ Activer : `eludein-ops-rules`, `korymb-api-bridge`, `korymb-analytics`.
 SELECT id, status, agent, LEFT(mission,100) mission, updated_at
 FROM jobs
 WHERE workspace_id='ws-default-legacy'
-  AND status IN ('awaiting_validation')
+  AND status = 'awaiting_validation'
 ORDER BY updated_at ASC
 LIMIT 10
 "
@@ -48,7 +48,7 @@ Ou API : `/opt/data/scripts/korymb-api.sh GET '/actions?status=pending'`
 SELECT id, status, TIMESTAMPDIFF(HOUR, updated_at, UTC_TIMESTAMP()) AS hours_stale
 FROM jobs
 WHERE workspace_id='ws-default-legacy'
-  AND status IN ('awaiting_validation')
+  AND status = 'awaiting_validation'
   AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
 LIMIT 10
 "

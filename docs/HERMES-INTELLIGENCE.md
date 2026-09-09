@@ -110,7 +110,7 @@ Prompt startup suggéré (Briefing dirigeant) :
 | `eludein-telegram-send.sh` | Envoi Telegram |
 | `eludein-morning-briefing.sh` | Briefing matin |
 | `eludein-evening-recap.sh` | Recap soir |
-| `eludein-alerts.sh` | Alertes proactives |
+| `eludein-alerts.sh` | Alertes proactives (HITL = `awaiting_validation`, échecs clé LLM) |
 | `eludein-post-deploy-smoke.sh` | Smoke périodique |
 | `eludein-log-watch.sh` | Logs agent |
 
