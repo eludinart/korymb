@@ -123,7 +123,7 @@ export default function ChatSidebar({
                   <button
                     type="button"
                     onClick={() => onDelete(c.id)}
-                    className="shrink-0 px-2 py-2.5 text-xs text-slate-300 opacity-0 transition-opacity hover:text-red-600 group-hover:opacity-100"
+                    className="touch-target shrink-0 rounded-lg px-2 text-base text-slate-400 opacity-100 transition-colors hover:bg-red-50 hover:text-red-700 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                     aria-label={`Supprimer ${c.title}`}
                     title="Supprimer"
                   >

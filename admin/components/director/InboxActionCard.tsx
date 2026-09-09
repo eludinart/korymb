@@ -217,7 +217,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
         type="button"
         onClick={onDismiss}
         disabled={busy}
-        className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        className="absolute right-3 top-3 z-10 touch-target flex items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
         aria-label={isClosureKind ? "Marquer comme terminé" : "Supprimer cette décision"}
         title={isClosureKind ? "Marquer comme terminé — ne plus afficher" : "Supprimer — ne plus afficher"}
       >
@@ -284,24 +284,24 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </p>
           ) : null}
         </div>
-        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+        <div className="flex w-full shrink-0 flex-row flex-wrap gap-2 sm:w-auto sm:flex-col">
           {isClosureKind && jobId ? (
             <button
               type="button"
               disabled={busy}
               onClick={markClosureDone}
-              className="btn-success px-4 py-2.5 text-sm"
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
               title="Clôturer la mission et la retirer de l'inbox"
             >
               {doneLabel}
             </button>
           ) : null}
-          <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary px-4 py-2.5 text-sm">
-            {expanded ? "Réduire" : "Agir maintenant"}
+          <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary flex-1 px-4 text-sm sm:flex-none">
+            {expanded ? "Réduire" : "Agir"}
           </button>
           {jobId ? (
-            <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-secondary text-center">
-              Ouvrir mission
+            <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-secondary flex-1 text-center sm:flex-none">
+              Mission
             </Link>
           ) : null}
           {!isClosureKind ? (
@@ -309,7 +309,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               type="button"
               onClick={onDismiss}
               disabled={busy}
-              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
+              className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
               title="Retirer cette décision de votre briefing et inbox"
             >
               {dismissMut.isPending ? "Suppression…" : "Supprimer"}

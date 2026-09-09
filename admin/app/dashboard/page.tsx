@@ -198,17 +198,6 @@ export default function DashboardPage() {
           </>
         }
       />
-      <div className="flex flex-wrap gap-3">
-        <Link href="/gestion" className="btn-success">
-          Gestion entreprise
-        </Link>
-        <Link href="/missions" className="btn-primary">
-          Missions
-        </Link>
-        <Link href="/inbox" className="btn-secondary">
-          Inbox
-        </Link>
-      </div>
 
       {actionError ? (
         <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>

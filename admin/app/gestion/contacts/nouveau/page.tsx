@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
+import ContactProfileChips from "../../../../components/gestion/ContactProfileChips";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_TYPE_LABELS } from "../../_shared";
 
@@ -21,6 +22,7 @@ export default function GestionContactNouveauPage() {
   const [city, setCity] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [contactType, setContactType] = useState("prospect");
+  const [profileTags, setProfileTags] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
 
@@ -37,6 +39,7 @@ export default function GestionContactNouveauPage() {
         city: city.trim(),
         postal_code: postalCode.trim(),
         contact_type: contactType,
+        tags: profileTags,
         notes: notes.trim(),
       }),
     onSuccess: (created) => {
@@ -78,7 +81,7 @@ export default function GestionContactNouveauPage() {
             <input className="input-field mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} required autoFocus />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">Type</span>
+            <span className="font-medium text-slate-700">Relation</span>
             <select className="input-field mt-1 w-full" value={contactType} onChange={(e) => setContactType(e.target.value)}>
               {Object.entries(CONTACT_TYPE_LABELS).map(([k, v]) => (
                 <option key={k} value={k}>
@@ -86,7 +89,15 @@ export default function GestionContactNouveauPage() {
                 </option>
               ))}
             </select>
+            <span className="mt-0.5 block text-xs text-slate-500">Prospect, client, partenaire…</span>
           </label>
+          <div className="sm:col-span-2">
+            <p className="text-sm font-medium text-slate-700">Profil</p>
+            <p className="mt-0.5 text-xs text-slate-500">Métier / cible — utilisé pour filtrer la liste.</p>
+            <div className="mt-1.5">
+              <ContactProfileChips tags={profileTags} onChange={setProfileTags} />
+            </div>
+          </div>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Email</span>
             <input type="email" className="input-field mt-1 w-full" value={email} onChange={(e) => setEmail(e.target.value)} />

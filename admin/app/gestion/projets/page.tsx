@@ -58,11 +58,13 @@ export default function GestionProjetsPage() {
                   <p className="text-xs text-slate-500">
                     Contact : {contactLabel(undefined, p.contact_id, contacts.data || [])}
                   </p>
-                  {p.description ? <p className="mt-1 text-sm text-slate-600">{p.description}</p> : null}
+                  {p.description ? (
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-600">{p.description}</p>
+                  ) : null}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                   <select
-                    className="input-field text-xs"
+                    className="input-field min-w-[8rem] flex-1 text-sm sm:flex-none"
                     value={p.status}
                     onChange={(e) => setProjectStatus.mutate({ id: p.id, st: e.target.value })}
                   >
@@ -72,8 +74,11 @@ export default function GestionProjetsPage() {
                       </option>
                     ))}
                   </select>
-                  <Link href={`/gestion/projets/${p.id}`} className="text-xs font-medium text-violet-800 hover:underline">
-                    Modifier
+                  <Link
+                    href={`/gestion/projets/${p.id}`}
+                    className="touch-target inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-900"
+                  >
+                    Ouvrir
                   </Link>
                 </div>
               </div>

@@ -496,12 +496,12 @@ function ChatPageInner() {
     !pending;
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-10rem)] max-w-6xl flex-col">
+    <div className="mx-auto flex h-chat-shell max-w-6xl flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 lg:hidden">
         <button
           type="button"
           onClick={() => setSidebarOpen((v) => !v)}
-          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800"
+          className="touch-target rounded-lg border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800"
         >
           Conversations
         </button>

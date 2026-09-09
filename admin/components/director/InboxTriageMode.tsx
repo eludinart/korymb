@@ -131,14 +131,14 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/70 backdrop-blur-sm">
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-violet-300">Mode triage</p>
           <p className="text-sm font-semibold text-white">
             {index + 1} / {total}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-300">
+        <div className="hidden flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-300 md:flex">
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">J</kbd> suivant
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">K</kbd> précédent
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">S</kbd> reporter
@@ -147,7 +147,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
         <button
           type="button"
           onClick={exitTriage}
-          className="rounded-xl border border-white/20 px-3 py-1.5 text-sm font-bold text-white hover:bg-white/10"
+          className="touch-target rounded-xl border border-white/20 px-4 text-sm font-bold text-white hover:bg-white/10"
         >
           Quitter
         </button>
@@ -166,19 +166,19 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
               }}
             />
           ) : null}
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center">
             <button
               type="button"
               disabled={index <= 0}
               onClick={goPrev}
-              className="rounded-xl border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+              className="touch-target rounded-xl border-2 border-white/30 bg-white/10 px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               ← Précédent
             </button>
             <button
               type="button"
               onClick={snoozeCurrent}
-              className="rounded-xl border-2 border-amber-300/50 bg-amber-500/20 px-4 py-2 text-sm font-bold text-amber-100"
+              className="touch-target rounded-xl border-2 border-amber-300/50 bg-amber-500/20 px-4 text-sm font-bold text-amber-100"
             >
               Reporter 24 h
             </button>
@@ -186,7 +186,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
               type="button"
               disabled={index >= total - 1}
               onClick={goNext}
-              className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+              className="touch-target rounded-xl bg-violet-600 px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               Suivant →
             </button>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import AppNav from "./AppNav";
 import AppStatusZone from "./AppStatusZone";
 import RuntimeHeader from "./RuntimeHeader";
@@ -10,12 +11,30 @@ import { useExecutiveMode } from "../lib/executiveMode";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const { executiveMode, showTechnical, toggleTechnical } = useExecutiveMode();
+  const headerRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const sync = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--app-header-offset", `${h}px`);
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    window.addEventListener("resize", sync);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", sync);
+    };
+  }, [executiveMode, showTechnical]);
 
   return (
     <>
       <CommandPalette />
-      <header className="app-header-bar">
-        <div className="flex w-full min-w-0 items-start gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+      <header ref={headerRef} className="app-header-bar">
+        <div className="flex w-full min-w-0 flex-wrap items-start gap-2 px-3 py-2.5 sm:flex-nowrap sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
           <div className="min-w-0 flex-1">
             <p className="app-brand">Korymb</p>
             <div className="mt-0.5 hidden sm:block">

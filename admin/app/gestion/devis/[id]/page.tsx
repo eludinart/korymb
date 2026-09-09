@@ -312,7 +312,7 @@ export default function GestionDevisEditPage() {
                       setLines(next);
                     }}
                   />
-                  <button type="button" className="text-xs text-red-700 sm:col-span-1" onClick={() => setLines(lines.filter((_, i) => i !== idx))}>
+                  <button type="button" className="touch-target inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-800 sm:col-span-1" onClick={() => setLines(lines.filter((_, i) => i !== idx))} aria-label="Supprimer la ligne">
                     ×
                   </button>
                 </div>

@@ -6,6 +6,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactReachabilityBadge from "../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
 import { businessApi, type BizContact } from "../../../lib/business";
+import {
+  CONTACT_PROFILE_DEFS,
+  contactMatchesProfile,
+  contactProfileKeys,
+  extraProfileTags,
+} from "../../../lib/contactProfiles";
 import { getContactReachability } from "../../../lib/contactReachability";
 import { CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../_shared";
 
@@ -45,21 +51,48 @@ function ContactInteractions({ contactId }: { contactId: string }) {
   );
 }
 
+function profileLabel(key: string): string {
+  if (key.startsWith("tag:")) return key.slice(4);
+  return CONTACT_PROFILE_DEFS.find((p) => p.key === key)?.label || key;
+}
+
+/** Extrait court pour la liste — le détail reste sur la fiche contact. */
+function notesPreview(notes: string | undefined, max = 140): string | null {
+  const raw = (notes || "").replace(/\s+/g, " ").trim();
+  if (!raw) return null;
+  if (raw.length <= max) return raw;
+  return `${raw.slice(0, max).trimEnd()}…`;
+}
+
 export default function GestionContactsPage() {
   const qc = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [reachFilter, setReachFilter] = useState<ReachFilter>("all");
+  const [profileFilter, setProfileFilter] = useState("all");
+  const [relationFilter, setRelationFilter] = useState("all");
 
   const contacts = useQuery({
     queryKey: ["business-contacts"],
     queryFn: () => businessApi.listContacts(),
   });
 
+  const extraTags = useMemo(() => extraProfileTags(contacts.data || []), [contacts.data]);
+
   const filtered = useMemo(() => {
-    const rows = contacts.data || [];
-    if (reachFilter === "all") return rows;
-    return rows.filter((c) => getContactReachability(c).level === reachFilter);
-  }, [contacts.data, reachFilter]);
+    let rows = contacts.data || [];
+    if (profileFilter !== "all") {
+      rows = rows.filter((c) => contactMatchesProfile(c, profileFilter));
+    }
+    if (relationFilter !== "all") {
+      rows = rows.filter((c) => c.contact_type === relationFilter);
+    }
+    if (reachFilter !== "all") {
+      rows = rows.filter((c) => getContactReachability(c).level === reachFilter);
+    }
+    return rows;
+  }, [contacts.data, profileFilter, relationFilter, reachFilter]);
+
+  const filtersActive = profileFilter !== "all" || relationFilter !== "all" || reachFilter !== "all";
 
   const remove = useMutation({
     mutationFn: (id: string) => businessApi.deleteContact(id),
@@ -75,7 +108,7 @@ export default function GestionContactsPage() {
         accent="emerald"
         badge="Contacts"
         title="Contacts & relations"
-        description="Base CRM Élude In Art — coachs, thérapeutes, clients, partenaires. Les agents proposent des enrichissements à valider ; rien n’est écrit tout seul."
+        description="Base CRM Élude In Art — filtrer par profil (coach, thérapeute, éditeur…) et par relation (prospect, client…). Les agents proposent des enrichissements à valider."
         actions={
           <Link href="/gestion/contacts/nouveau" className="btn-primary">
             + Nouveau contact
@@ -84,12 +117,52 @@ export default function GestionContactsPage() {
       />
 
       <SectionCard
-        title={`Liste (${filtered.length}${reachFilter !== "all" ? ` / ${contacts.data?.length ?? 0}` : ""})`}
-        action={
-          <label className="flex items-center gap-2 text-xs text-slate-600">
+        title={`Liste (${filtered.length}${filtersActive ? ` / ${contacts.data?.length ?? 0}` : ""})`}
+      >
+        <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto] lg:items-end">
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
+            Profil
+            <select
+              className="input-field w-full py-2.5 text-sm"
+              value={profileFilter}
+              onChange={(e) => setProfileFilter(e.target.value)}
+            >
+              <option value="all">Tous les profils</option>
+              {CONTACT_PROFILE_DEFS.map((p) => (
+                <option key={p.key} value={p.key}>
+                  {p.label}
+                </option>
+              ))}
+              {extraTags.length ? (
+                <optgroup label="Autres tags">
+                  {extraTags.map((tag) => (
+                    <option key={tag} value={`tag:${tag}`}>
+                      {tag}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
+            Relation
+            <select
+              className="input-field w-full py-2.5 text-sm"
+              value={relationFilter}
+              onChange={(e) => setRelationFilter(e.target.value)}
+            >
+              <option value="all">Toutes les relations</option>
+              {Object.entries(CONTACT_TYPE_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
             Joignabilité
             <select
-              className="input-field py-1 text-xs"
+              className="input-field w-full py-2.5 text-sm"
               value={reachFilter}
               onChange={(e) => setReachFilter(e.target.value as ReachFilter)}
             >
@@ -99,8 +172,21 @@ export default function GestionContactsPage() {
               <option value="unreachable">Injoignable</option>
             </select>
           </label>
-        }
-      >
+          {filtersActive ? (
+            <button
+              type="button"
+              className="touch-target text-xs font-medium text-slate-600 underline-offset-2 hover:text-slate-900 hover:underline sm:self-end"
+              onClick={() => {
+                setProfileFilter("all");
+                setRelationFilter("all");
+                setReachFilter("all");
+              }}
+            >
+              Réinitialiser
+            </button>
+          ) : null}
+        </div>
+
         {contacts.isLoading ? <LoadingLine /> : null}
         {contacts.isError ? (
           <AlertBox tone="error" title="Erreur">
@@ -116,11 +202,17 @@ export default function GestionContactsPage() {
           </p>
         ) : null}
         {!contacts.isLoading && (contacts.data || []).length > 0 && filtered.length === 0 ? (
-          <p className="text-sm text-slate-500">Aucun contact pour ce filtre de joignabilité.</p>
+          <p className="text-sm text-slate-500">
+            Aucun contact pour ces filtres
+            {profileFilter !== "all" ? ` (profil « ${profileLabel(profileFilter)} »)` : ""}.
+            Posez un profil via les tags sur la fiche contact.
+          </p>
         ) : null}
         <ul className="divide-y divide-slate-100">
           {filtered.map((c: BizContact) => {
             const expanded = expandedId === c.id;
+            const profiles = contactProfileKeys(c);
+            const preview = notesPreview(c.notes);
             return (
               <li key={c.id} className="py-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
@@ -135,29 +227,32 @@ export default function GestionContactsPage() {
                     </div>
                     <p className="text-xs text-slate-500">
                       {CONTACT_TYPE_LABELS[c.contact_type] || c.contact_type}
+                      {profiles.length
+                        ? ` · ${profiles.map((k) => CONTACT_PROFILE_DEFS.find((p) => p.key === k)?.label || k).join(", ")}`
+                        : ""}
                       {c.email ? ` · ${c.email}` : ""}
                       {c.company ? ` · ${c.company}` : ""}
                       {c.website ? ` · ${c.website}` : ""}
                     </p>
-                    {c.notes ? <p className="mt-1 text-sm text-slate-600 whitespace-pre-wrap">{c.notes}</p> : null}
+                    {preview ? <p className="mt-1 line-clamp-2 text-sm text-slate-600">{preview}</p> : null}
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <Link
                       href={`/gestion/contacts/${c.id}`}
-                      className="text-xs font-medium text-violet-800 hover:underline"
+                      className="touch-target inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-900"
                     >
-                      Explorer / modifier
+                      Ouvrir
                     </Link>
                     <button
                       type="button"
-                      className="text-xs font-medium text-emerald-800 hover:underline"
+                      className="touch-target inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"
                       onClick={() => setExpandedId(expanded ? null : c.id)}
                     >
-                      {expanded ? "Masquer l'historique" : "Voir interactions"}
+                      {expanded ? "Masquer" : "Interactions"}
                     </button>
                     <button
                       type="button"
-                      className="text-xs font-medium text-red-700 hover:underline"
+                      className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800 disabled:opacity-50"
                       disabled={remove.isPending}
                       onClick={() => {
                         if (window.confirm(`Supprimer ${c.name} ?`)) remove.mutate(c.id);

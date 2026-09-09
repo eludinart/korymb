@@ -14,9 +14,9 @@ import type { Job } from "./types";
 
 export { normalizeJobId } from "./missionBossView";
 
-/** Classe Tailwind commune pour les boutons « Supprimer ». */
+/** Classe Tailwind commune pour les boutons « Supprimer » (cible tactile ≥ 44px). */
 export const BTN_DELETE =
-  "rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40";
+  "touch-target inline-flex items-center justify-center rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40";
 
 export function invalidateAfterMissionDelete(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: QK.jobsCards });

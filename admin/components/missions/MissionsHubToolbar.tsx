@@ -20,21 +20,21 @@ export default function MissionsHubToolbar({
   archivesCount,
 }: Props) {
   const tabClass = (active: boolean) =>
-    `rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+    `touch-target rounded-full px-3 text-sm font-bold transition-colors ${
       active ? "bg-violet-700 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
     }`;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Vue missions">
-        <button type="button" role="tab" aria-selected={view === "active"} className={tabClass(view === "active")} onClick={() => onViewChange("active")}>
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
+      <div className="flex w-full gap-2 overflow-x-auto pb-0.5 sm:w-auto sm:flex-wrap" role="tablist" aria-label="Vue missions">
+        <button type="button" role="tab" aria-selected={view === "active"} className={`${tabClass(view === "active")} shrink-0`} onClick={() => onViewChange("active")}>
           Opérationnel ({activeCount})
         </button>
         <button
           type="button"
           role="tab"
           aria-selected={view === "archives"}
-          className={tabClass(view === "archives")}
+          className={`${tabClass(view === "archives")} shrink-0`}
           onClick={() => onViewChange("archives")}
         >
           Archives ({archivesCount})
@@ -43,14 +43,14 @@ export default function MissionsHubToolbar({
           type="button"
           role="tab"
           aria-selected={view === "guided"}
-          className={tabClass(view === "guided")}
+          className={`${tabClass(view === "guided")} shrink-0`}
           onClick={() => onViewChange("guided")}
         >
           Cadrage guidé
         </button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <button type="button" onClick={onToggleCreate} className="btn-primary px-3 py-2 text-xs">
+      <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
+        <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
           {showCreate ? "Masquer" : "Nouvelle mission"}
         </button>
       </div>

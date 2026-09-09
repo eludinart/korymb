@@ -6,11 +6,19 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
 import ContactOutreachSuggestionsField from "../../../../components/gestion/ContactOutreachSuggestionsField";
+import ContactProfileChips from "../../../../components/gestion/ContactProfileChips";
 import ContactProfileView from "../../../../components/gestion/ContactProfileView";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../../_shared";
+
+function parseTagsInput(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
 
 export default function GestionContactEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -184,7 +192,7 @@ export default function GestionContactEditPage() {
             <input className="input-field mt-1 w-full" value={name} onChange={(e) => setName(e.target.value)} required />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">Type</span>
+            <span className="font-medium text-slate-700">Relation</span>
             <select className="input-field mt-1 w-full" value={contactType} onChange={(e) => setContactType(e.target.value)}>
               {Object.entries(CONTACT_TYPE_LABELS).map(([k, v]) => (
                 <option key={k} value={k}>
@@ -192,6 +200,7 @@ export default function GestionContactEditPage() {
                 </option>
               ))}
             </select>
+            <span className="mt-0.5 block text-xs text-slate-500">Prospect, client, partenaire…</span>
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Statut</span>
@@ -203,6 +212,16 @@ export default function GestionContactEditPage() {
               ))}
             </select>
           </label>
+          <div className="sm:col-span-2">
+            <p className="text-sm font-medium text-slate-700">Profil</p>
+            <p className="mt-0.5 text-xs text-slate-500">Métier / cible — coach, thérapeute, éditeur, écolieu…</p>
+            <div className="mt-1.5">
+              <ContactProfileChips
+                tags={parseTagsInput(tags)}
+                onChange={(next) => setTags(next.join(", "))}
+              />
+            </div>
+          </div>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Email</span>
             <input type="email" className="input-field mt-1 w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -248,8 +267,8 @@ export default function GestionContactEditPage() {
             <input className="input-field mt-1 w-full" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
           </label>
           <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Tags (séparés par des virgules)</span>
-            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="coach, var, fleur" />
+            <span className="font-medium text-slate-700">Tags libres (séparés par des virgules)</span>
+            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Var, Fleur d'ÅmÔurs…" />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Notes sur le contact</span>

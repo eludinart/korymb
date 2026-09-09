@@ -175,7 +175,7 @@ export default function ChatShell({
 
       {canConvertToMission && onConvertToMission ? (
         <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-4 py-2.5">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+          <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <p className="text-xs text-slate-500 sm:text-sm">
               Approfondir ce sujet avec toute l&apos;équipe multi-agents ?
             </p>
@@ -183,7 +183,7 @@ export default function ChatShell({
               type="button"
               onClick={onConvertToMission}
               disabled={convertBusy}
-              className="shrink-0 rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-50 disabled:opacity-50"
+              className="touch-target w-full shrink-0 rounded-2xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-50 disabled:opacity-50 sm:w-auto"
             >
               {convertBusy ? "Lancement…" : "Lancer en mission →"}
             </button>
