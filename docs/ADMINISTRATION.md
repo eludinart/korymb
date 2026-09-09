@@ -194,7 +194,7 @@ Déploiement :
 
 Skills P0/P1 : `eludein-daily-briefing`, `korymb-api-bridge`, `coolify-services-map`, `korymb-inbox-triage`, `fleur-growth-snapshot`, etc.
 
-Crons : briefing 7h, recap 19h, alertes /3h (Telegram).
+Crons : briefing 7h, recap 19h, alertes /3h (Telegram). Après modification des scripts `ops/hermes-scripts/`, relancer `.\scripts\hermes-intelligence-deploy.ps1` pour les copier sur le VPS.
 
 Doc : [HERMES-INTELLIGENCE.md](HERMES-INTELLIGENCE.md).
 

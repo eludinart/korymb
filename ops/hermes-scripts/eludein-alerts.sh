@@ -40,16 +40,28 @@ if ! "$SCRIPTS/eludein-db-check.sh" >/tmp/eludein-db-check.out 2>&1; then
   add_alert "DB check FAIL — voir eludein-db-check.sh"
 fi
 
-# --- HITL bloqué >48h ---
+# --- HITL bloqué >48h (statut réel Korymb : awaiting_validation) ---
 HITL_STALE="$("$SCRIPTS/korymb-sql.sh" "
 SELECT COUNT(*) FROM jobs
 WHERE workspace_id='ws-default-legacy'
-  AND status IN ('awaiting_hitl','hitl_pending','paused_hitl')
+  AND status = 'awaiting_validation'
   AND updated_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 48 HOUR)
 LIMIT 1
 " 2>/dev/null | tail -1 || echo 0)"
 if [[ "${HITL_STALE:-0}" =~ ^[0-9]+$ ]] && [[ "$HITL_STALE" -gt 0 ]]; then
   add_alert "$HITL_STALE mission(s) HITL bloquée(s) >48h — https://korymb.eludein.art/inbox"
+fi
+
+# --- Missions en échec clé LLM (7j) ---
+LLM_KEY_FAIL="$("$SCRIPTS/korymb-sql.sh" "
+SELECT COUNT(*) FROM jobs
+WHERE workspace_id='ws-default-legacy'
+  AND status LIKE 'error:%API_KEY%'
+  AND updated_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY)
+LIMIT 1
+" 2>/dev/null | tail -1 || echo 0)"
+if [[ "${LLM_KEY_FAIL:-0}" =~ ^[0-9]+$ ]] && [[ "$LLM_KEY_FAIL" -gt 0 ]]; then
+  add_alert "$LLM_KEY_FAIL mission(s) en échec (clé API LLM manquante) — https://korymb.eludein.art/configuration"
 fi
 
 # --- Coût LLM 24h (seuil 5 USD) ---

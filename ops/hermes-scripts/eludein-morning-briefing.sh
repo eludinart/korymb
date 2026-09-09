@@ -45,16 +45,25 @@ if [[ "$NO_TG" == "--no-telegram" ]]; then
   exit 0
 fi
 
-# Telegram : version courte
+# Telegram : version courte + 1 action
 NOTIF="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM director_notifications WHERE workspace_id='ws-default-legacy' AND read_at IS NULL LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
-OPEN="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status NOT IN ('completed','cancelled') LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
+OPEN="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status NOT IN ('completed','cancelled') AND status NOT LIKE 'error%' LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
+HITL="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status = 'awaiting_validation' LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
+FAIL="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status LIKE 'error%' AND updated_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
 FLEUR7="$("$SCRIPTS/fleur-sql.sh" "SELECT COUNT(*) FROM wp_users WHERE user_registered >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
+
+ACTION="Inbox: https://korymb.eludein.art/inbox"
+if [[ "${HITL:-0}" =~ ^[1-9] ]]; then
+  ACTION="Valider HITL: https://korymb.eludein.art/inbox"
+elif [[ "${FAIL:-0}" =~ ^[1-9] ]]; then
+  ACTION="Voir échecs / clé LLM: https://korymb.eludein.art/configuration"
+fi
 
 TG_MSG="☀️ *Briefing Élude In Art* — $DATE
 
 • Hermes: HTTP $HERMES_HTTP
-• Korymb jobs ouverts: $OPEN | notifs: $NOTIF
+• Korymb: jobs ouverts $OPEN | HITL $HITL | notifs $NOTIF | échecs 7j $FAIL
 • Fleur users 7j: +$FLEUR7
-• Inbox: https://korymb.eludein.art/inbox"
+• Action: $ACTION"
 
 "$SCRIPTS/eludein-telegram-send.sh" "$TG_MSG" --parse-mode Markdown || echo "Telegram non envoyé (config manquante?)"
