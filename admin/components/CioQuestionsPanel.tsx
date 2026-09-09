@@ -1,8 +1,7 @@
 "use client";
 
-import CioArbitrageFreeField from "./CioArbitrageFreeField";
-import CioArbitrageQuestionRow from "./CioArbitrageQuestionRow";
-import { CIO_FREE_CONSIGNE_QUESTION, countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
+import CioArbitrageQuestionnaire from "./CioArbitrageQuestionnaire";
+import { countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
 
 type CioQuestion = {
   eventId?: string;
@@ -14,14 +13,14 @@ type CioQuestion = {
 type Props = {
   questions: CioQuestion[];
   questionAnswers?: Record<string, string>;
-  onAnswer: (question: string, answer: string) => Promise<void>;
+  onValidateAndLaunch: (answers: Array<{ question: string; answer: string }>) => Promise<void>;
   busy?: boolean;
 };
 
 export default function CioQuestionsPanel({
   questions,
   questionAnswers = {},
-  onAnswer,
+  onValidateAndLaunch,
   busy = false,
 }: Props) {
   const pending = questions.filter((q) => !q.answered);
@@ -37,36 +36,17 @@ export default function CioQuestionsPanel({
         <span className="text-base">❓</span>
         <p className="text-sm font-bold text-white">Le CIO a besoin de précisions</p>
         <span className="ml-auto rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-semibold text-white">
-          {pendingCount > 0
-            ? `${pendingCount} en attente`
-            : "Mission en cours en parallèle"}
+          {pendingCount > 0 ? `${pendingCount} en attente` : "Réponses enregistrées"}
         </span>
       </div>
 
       <div className="space-y-3 p-4">
-        <ol className="space-y-2.5">
-          {allQuestions.map((q, i) => (
-            <CioArbitrageQuestionRow
-              key={`${i}-${q.slice(0, 40)}`}
-              index={i}
-              question={q}
-              savedAnswer={questionAnswers[q.trim()]}
-              busy={busy}
-              onSubmit={(answer) => onAnswer(q, answer)}
-            />
-          ))}
-        </ol>
-
-        <CioArbitrageFreeField
-          savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
+        <CioArbitrageQuestionnaire
+          questions={allQuestions}
+          savedAnswers={questionAnswers}
           busy={busy}
-          onSubmit={(answer) => onAnswer(CIO_FREE_CONSIGNE_QUESTION, answer)}
+          onValidateAndLaunch={onValidateAndLaunch}
         />
-
-        <p className="text-[10px] text-slate-400">
-          La mission s&apos;exécute en arrière-plan. Répondez question par question, ou envoyez une consigne libre si
-          aucune proposition ne convient.
-        </p>
       </div>
     </div>
   );

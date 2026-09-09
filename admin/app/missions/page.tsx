@@ -33,7 +33,7 @@ import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../.
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { cioAnswerAndResume, markMissionResultConsulted } from "../../lib/missionActions";
+import { cioAnswersAndResume, markMissionResultConsulted } from "../../lib/missionActions";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
@@ -322,12 +322,12 @@ function MissionsContent() {
   /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
   const showConversationSidebar = Boolean(detail.data);
 
-  const onAnswerCioQuestion = async (answer: string, question?: string) => {
-    if (!selected || !answer.trim() || cioQuestionBusy) return;
+  const onValidateCioAnswers = async (answers: Array<{ question: string; answer: string }>) => {
+    if (!selected || !answers.length || cioQuestionBusy) return;
     setCioQuestionBusy(true);
     setError("");
     try {
-      const result = await cioAnswerAndResume(selected, answer, question, { cioQuestionsEnabled });
+      const result = await cioAnswersAndResume(selected, answers, { cioQuestionsEnabled });
       void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
       void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
@@ -784,7 +784,7 @@ function MissionsContent() {
                       <CioQuestionsPanel
                         questions={cioQuestions}
                         questionAnswers={cioQuestionAnswers}
-                        onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
+                        onValidateAndLaunch={onValidateCioAnswers}
                         busy={cioQuestionBusy}
                       />
                     ) : null}
@@ -895,7 +895,7 @@ function MissionsContent() {
                 <CioQuestionsPanel
                   questions={cioQuestions}
                   questionAnswers={cioQuestionAnswers}
-                  onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
+                  onValidateAndLaunch={onValidateCioAnswers}
                   busy={cioQuestionBusy}
                 />
               )}
@@ -917,7 +917,7 @@ function MissionsContent() {
                   deliveryBlocked={selectedMissionSynth.deliveryBlocked}
                   jobId={selected || undefined}
                   questionAnswers={cioQuestionAnswers}
-                  onAnswerQuestion={(q, a) => onAnswerCioQuestion(a, q)}
+                  onValidateAnswers={onValidateCioAnswers}
                   answerBusy={cioQuestionBusy}
                 />
               ) : null}

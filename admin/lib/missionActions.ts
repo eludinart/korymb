@@ -87,6 +87,46 @@ export async function cioAnswerAndResume(
   return { ...answerRes, resume_job_id: resume.job_id };
 }
 
+function buildBatchArbitrageResumeMessage(answers: Array<{ question: string; answer: string }>): string {
+  if (answers.length === 1) {
+    return buildArbitrageResumeMessage(answers[0].answer, answers[0].question);
+  }
+  const free = answers.find((a) => isFreeConsigneQuestion(a.question));
+  const lines = answers
+    .filter((a) => !isFreeConsigneQuestion(a.question))
+    .map((a, i) => `${i + 1}. Q : ${a.question.trim()}\n   R : ${a.answer.trim()}`);
+  let msg = `Arbitrages dirigeant reçus (${answers.length}) :\n\n` + lines.join("\n\n");
+  if (free?.answer.trim()) {
+    msg +=
+      `\n\nConsigne libre prioritaire :\n${free.answer.trim()}\n` +
+      `Priorise cette consigne si elle s'écarte des réponses ci-dessus.`;
+  } else {
+    msg += `\n\nIntègre toutes ces décisions dans la synthèse et les livrables.`;
+  }
+  return msg;
+}
+
+/** Enregistre toutes les réponses puis relance la mission une seule fois. */
+export async function cioAnswersAndResume(
+  jobId: string,
+  answers: Array<{ question: string; answer: string }>,
+  opts?: { cioQuestionsEnabled?: boolean },
+) {
+  const cleaned = answers
+    .map((a) => ({ question: String(a.question || "").trim(), answer: String(a.answer || "").trim() }))
+    .filter((a) => a.answer);
+  if (!cleaned.length) throw new Error("Aucune réponse à enregistrer.");
+  let lastAnswerRes: { question_answers?: Record<string, string> } = {};
+  for (const row of cleaned) {
+    lastAnswerRes = await cioAnswer(jobId, row.answer, row.question || undefined);
+  }
+  const resume = await resumeMissionCio(jobId, buildBatchArbitrageResumeMessage(cleaned), opts);
+  if (resume.status !== "accepted" || !resume.job_id) {
+    throw new Error("Reprise mission CIO impossible (pas de job_id).");
+  }
+  return { ...lastAnswerRes, resume_job_id: resume.job_id, answers_count: cleaned.length };
+}
+
 export async function validateMission(jobId: string) {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, {
     method: "POST",
@@ -303,6 +343,21 @@ export function useCioAnswerAndResume(
   return useMutation({
     mutationFn: ({ answer, question }: { answer: string; question?: string }) =>
       cioAnswerAndResume(jobId, answer, question, { cioQuestionsEnabled: opts?.cioQuestionsEnabled }),
+    onSuccess: (data) => {
+      invalidateMissionQueries(qc, jobId);
+      if (data.resume_job_id) opts?.onSuccess?.(data.resume_job_id);
+    },
+  });
+}
+
+export function useCioAnswersAndResume(
+  jobId: string,
+  opts?: { cioQuestionsEnabled?: boolean; onSuccess?: (resumeJobId: string) => void },
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (answers: Array<{ question: string; answer: string }>) =>
+      cioAnswersAndResume(jobId, answers, { cioQuestionsEnabled: opts?.cioQuestionsEnabled }),
     onSuccess: (data) => {
       invalidateMissionQueries(qc, jobId);
       if (data.resume_job_id) opts?.onSuccess?.(data.resume_job_id);

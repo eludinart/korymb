@@ -2,9 +2,8 @@
 
 import { useMemo } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
-import CioArbitrageFreeField from "./CioArbitrageFreeField";
-import CioArbitrageQuestionRow from "./CioArbitrageQuestionRow";
-import { CIO_FREE_CONSIGNE_QUESTION, countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
+import CioArbitrageQuestionnaire from "./CioArbitrageQuestionnaire";
+import { countPendingArbitrageQuestions } from "../lib/cioArbitrageAnswers";
 import { buildMissionExecutiveBrief } from "../lib/missionExecutiveBrief";
 
 type Props = {
@@ -15,7 +14,7 @@ type Props = {
   className?: string;
   jobId?: string;
   questionAnswers?: Record<string, string>;
-  onAnswerQuestion?: (question: string, answer: string) => Promise<void>;
+  onValidateAnswers?: (answers: Array<{ question: string; answer: string }>) => Promise<void>;
   answerBusy?: boolean;
 };
 
@@ -49,7 +48,7 @@ export default function MissionExecutiveBrief({
   className = "",
   jobId,
   questionAnswers = {},
-  onAnswerQuestion,
+  onValidateAnswers,
   answerBusy = false,
 }: Props) {
   const brief = useMemo(
@@ -77,7 +76,7 @@ export default function MissionExecutiveBrief({
   }
 
   const chip = statusChip(status);
-  const canAnswer = Boolean(jobId && onAnswerQuestion);
+  const canAnswer = Boolean(jobId && onValidateAnswers);
 
   return (
     <article
@@ -145,32 +144,17 @@ export default function MissionExecutiveBrief({
               </span>
             ) : (
               <span className="text-[10px] font-medium text-amber-800/80">
-                Répondez question par question ci-dessous
+                Questionnaire CIO
               </span>
             )}
           </div>
           {canAnswer ? (
-            <>
-              <ol className="space-y-2.5">
-                {brief.questions.map((q, i) => (
-                  <CioArbitrageQuestionRow
-                    key={`${i}-${q.slice(0, 40)}`}
-                    index={i}
-                    question={q}
-                    savedAnswer={questionAnswers[q.trim()]}
-                    busy={answerBusy}
-                    onSubmit={(answer) => onAnswerQuestion!(q, answer)}
-                  />
-                ))}
-              </ol>
-              <div className="mt-3">
-                <CioArbitrageFreeField
-                  savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
-                  busy={answerBusy}
-                  onSubmit={(answer) => onAnswerQuestion!(CIO_FREE_CONSIGNE_QUESTION, answer)}
-                />
-              </div>
-            </>
+            <CioArbitrageQuestionnaire
+              questions={brief.questions}
+              savedAnswers={questionAnswers}
+              busy={answerBusy}
+              onValidateAndLaunch={onValidateAnswers!}
+            />
           ) : (
             <ol className="space-y-2.5">
               {brief.questions.map((q, i) => (
@@ -186,12 +170,6 @@ export default function MissionExecutiveBrief({
               ))}
             </ol>
           )}
-          {canAnswer ? (
-            <p className="mt-3 text-[11px] leading-relaxed text-amber-900/80">
-              Chaque réponse est enregistrée sur le fil CIO de la mission. Vous pouvez traiter les arbitrages dans
-              l&apos;ordre qui vous convient, ou envoyer une consigne libre si aucune proposition ne convient.
-            </p>
-          ) : null}
         </section>
       ) : null}
     </article>

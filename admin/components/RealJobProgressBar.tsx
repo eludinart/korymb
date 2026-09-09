@@ -1,6 +1,6 @@
 "use client";
 
-import type { JobProgress } from "../../lib/jobProgress";
+import type { JobProgress } from "../lib/jobProgress";
 
 type Props = {
   percent: number;

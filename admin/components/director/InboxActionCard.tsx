@@ -3,15 +3,14 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import CioArbitrageFreeField from "../CioArbitrageFreeField";
-import CioArbitrageQuestionRow from "../CioArbitrageQuestionRow";
+import CioArbitrageQuestionnaire from "../CioArbitrageQuestionnaire";
 import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { CIO_FREE_CONSIGNE_QUESTION, collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
+import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import {
-  useCioAnswerAndResume,
+  useCioAnswersAndResume,
   useHitlResolve,
   useActionResolve,
   useInboxDismiss,
@@ -123,7 +122,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const hitlResolve = useHitlResolve(jobId);
   const actionResolve = useActionResolve();
-  const cioAnswerMut = useCioAnswerAndResume(jobId, {
+  const cioAnswerMut = useCioAnswersAndResume(jobId, {
     onSuccess: (resumeJobId) => {
       setCioResumeJobId(resumeJobId);
       void jobAnswersQuery.refetch();
@@ -196,9 +195,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const cioPrimaryLabel = item.primary_cta || "Valider et lancer";
 
-  const onCioSubmit = async (question: string, answer: string) => {
-    if (!answer.trim()) return;
-    await cioAnswerMut.mutateAsync({ answer: answer.trim(), question });
+  const onCioValidate = async (answers: Array<{ question: string; answer: string }>) => {
+    if (!answers.length) return;
+    await cioAnswerMut.mutateAsync(answers);
   };
 
   const [rejectReason, setRejectReason] = useState("");
@@ -598,24 +597,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
           {item.kind === "cio_question" && jobId ? (
             <div className="space-y-3">
-              {cioQuestions.length > 0 ? (
-                <ol className="space-y-2.5">
-                  {cioQuestions.map((q, i) => (
-                    <CioArbitrageQuestionRow
-                      key={`${i}-${q.slice(0, 40)}`}
-                      index={i}
-                      question={q}
-                      savedAnswer={questionAnswers[q.trim()]}
-                      busy={cioAnswerMut.isPending}
-                      onSubmit={(answer) => onCioSubmit(q, answer)}
-                    />
-                  ))}
-                </ol>
-              ) : null}
-              <CioArbitrageFreeField
-                savedAnswer={questionAnswers[CIO_FREE_CONSIGNE_QUESTION]}
+              <CioArbitrageQuestionnaire
+                questions={cioQuestions}
+                savedAnswers={questionAnswers}
                 busy={cioAnswerMut.isPending}
-                onSubmit={(answer) => onCioSubmit(CIO_FREE_CONSIGNE_QUESTION, answer)}
+                onValidateAndLaunch={onCioValidate}
               />
               {cioResumeJobId ? (
                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">

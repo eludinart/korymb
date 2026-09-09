@@ -703,10 +703,22 @@ def plan_diff(from_plan: dict, to_plan: dict) -> dict:
     for key in set(list(fst.keys()) + list(tst.keys())):
         if fst.get(key) != tst.get(key):
             changed_tasks.append({"key": key, "before": fst.get(key), "after": tst.get(key)})
+    synthese_before = str(fp.get("synthese_attendue") or "")
+    synthese_after = str(tp.get("synthese_attendue") or "")
+    agents_added = sorted(ta - fa)
+    agents_removed = sorted(fa - ta)
+    has_changes = bool(
+        agents_added
+        or agents_removed
+        or changed_tasks
+        or synthese_before.strip() != synthese_after.strip()
+    )
     return {
-        "agents_added": sorted(ta - fa),
-        "agents_removed": sorted(fa - ta),
-        "synthese_before": str(fp.get("synthese_attendue") or ""),
-        "synthese_after": str(tp.get("synthese_attendue") or ""),
+        "agents_added": agents_added,
+        "agents_removed": agents_removed,
+        "synthese_before": synthese_before,
+        "synthese_after": synthese_after,
+        "synthese_changed": synthese_before.strip() != synthese_after.strip(),
         "sous_taches_changed": changed_tasks,
+        "has_changes": has_changes,
     }

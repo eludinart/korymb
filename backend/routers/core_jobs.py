@@ -954,13 +954,41 @@ def job_hitl_plan_diff(job_id: str, from_version: int = 1, to_version: int | Non
     if not snaps:
         raise HTTPException(status_code=404, detail="Aucun snapshot plan pour cette mission.")
     by_v = {int(s.get("version") or 0): s.get("plan") or {} for s in snaps}
+    versions = sorted(by_v.keys())
+    if len(versions) < 2:
+        # Une seule version : pas de comparaison utile (évite Avant = Après).
+        only_v = versions[0]
+        only_plan = by_v[only_v] if isinstance(by_v.get(only_v), dict) else {}
+        empty = plan_diff(only_plan, only_plan)
+        empty["has_changes"] = False
+        return {
+            "job_id": job_id,
+            "from_version": only_v,
+            "to_version": only_v,
+            "versions": versions,
+            "snapshot_count": len(versions),
+            "identical": True,
+            "diff": empty,
+        }
     fv = by_v.get(from_version)
     if fv is None:
-        raise HTTPException(status_code=404, detail=f"Version {from_version} introuvable.")
-    tv = by_v.get(to_version) if to_version else by_v.get(max(by_v.keys()))
+        # Si from_version=1 absent, comparer l'avant-dernière → dernière.
+        from_version = versions[-2]
+        fv = by_v[from_version]
+    tv = by_v.get(to_version) if to_version else by_v.get(versions[-1])
     if tv is None:
         raise HTTPException(status_code=404, detail="Version cible introuvable.")
-    return {"job_id": job_id, "from_version": from_version, "to_version": to_version or max(by_v.keys()), "diff": plan_diff(fv, tv)}
+    resolved_to = to_version or versions[-1]
+    diff = plan_diff(fv, tv)
+    return {
+        "job_id": job_id,
+        "from_version": from_version,
+        "to_version": resolved_to,
+        "versions": versions,
+        "snapshot_count": len(versions),
+        "identical": not bool(diff.get("has_changes")),
+        "diff": diff,
+    }
 
 
 @router.post("/jobs/{job_id}/clone", dependencies=[Depends(resolve_tenant)])
