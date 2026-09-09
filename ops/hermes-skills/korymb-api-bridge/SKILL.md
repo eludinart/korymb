@@ -31,6 +31,7 @@ KORYMB_API_URL=https://api-korymb.eludein.art
 | `/admin/briefing?period=today` | Briefing dirigeant |
 | `/admin/inbox` | Inbox HITL enrichie |
 | `/admin/notifications?unread_only=true` | Notifications |
+| `/actions?status=pending` | File d'envois à valider |
 
 ## Écritures autorisées (whitelist script)
 
@@ -39,8 +40,12 @@ KORYMB_API_URL=https://api-korymb.eludein.art
 | Marquer notif lue | `PATCH /admin/notifications/{id}/read` |
 | Tout marquer lu | `POST /admin/notifications/mark-all-read` |
 | Dismiss inbox | `POST /admin/inbox/dismiss` + JSON body |
+| Créer un ticket d'action | `POST /actions` + JSON body |
+| Valider / rejeter un envoi | `POST /actions/{id}/resolve` + `{"decision":"approve\|reject"}` |
 
-**Interdit** sans accord explicite d'Éric : lancer missions, reprise audit, learning resolve.
+**Interdit** sans accord explicite d'Éric : lancer missions, reprise audit, learning resolve. **Ne pas** `approve` un ticket d'action (e-mail, agenda, social, WordPress) sans instruction d'Éric.
+
+Le webhook `POST /telegram/webhook` est géré par **Korymb** (bot HITL dédié). Hermes ne doit pas appeler `setWebhook` sur `TELEGRAM_BOT_TOKEN`.
 
 ## Exemples
 

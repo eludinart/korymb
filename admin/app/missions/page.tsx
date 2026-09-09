@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,7 @@ import CollapsibleMissionSection from "../../components/CollapsibleMissionSectio
 import SimpleAccordion from "../../components/SimpleAccordion";
 import MissionEventTimeline from "../../components/MissionEventTimeline";
 import MissionMetricsRow from "../../components/MissionMetricsRow";
+import MissionProcessingBanner from "../../components/MissionProcessingBanner";
 import MissionExchangeBrief from "../../components/missions/MissionExchangeBrief";
 import ExpandableMissionReader from "../../components/ExpandableMissionReader";
 import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
@@ -29,11 +30,12 @@ import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
+import { buildMissionExecutiveBrief } from "../../lib/missionExecutiveBrief";
 import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../../lib/missionBossView";
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { cioAnswerAndResume } from "../../lib/missionActions";
+import { cioAnswersAndResume, markMissionResultConsulted } from "../../lib/missionActions";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
@@ -140,6 +142,8 @@ function MissionsContent() {
 
   const openMission = (jobId: string) => {
     setSelected(jobId);
+    setFeedback("");
+    setError("");
     const p = new URLSearchParams(searchParams.toString());
     p.set("job", jobId);
     router.replace(`/missions?${p.toString()}`);
@@ -216,6 +220,25 @@ function MissionsContent() {
     forceFastPoll: Boolean(cioResumeLiveId),
   });
 
+  const consultedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const jobId = selected ? String(selected) : "";
+    if (!jobId || !detail.data) return;
+    const st = String(detail.data.status || "").toLowerCase();
+    const ready =
+      st === "completed" || st === "awaiting_validation" || st.startsWith("error");
+    if (!ready) return;
+    if (consultedJobRef.current === jobId) return;
+    consultedJobRef.current = jobId;
+    void markMissionResultConsulted(jobId)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      })
+      .catch(() => {
+        consultedJobRef.current = null;
+      });
+  }, [selected, detail.data, qc]);
+
   const detailRefreshError = detail.isError
     ? detail.error instanceof Error
       ? detail.error.message
@@ -289,7 +312,6 @@ function MissionsContent() {
       .flatMap((q) => q.questions);
     return countPendingArbitrageQuestions(texts, cioQuestionAnswers);
   }, [cioQuestions, cioQuestionAnswers]);
-  const hasPendingCioQuestions = pendingCioQuestionCount > 0;
 
   /** Actions CIO / questions (carte sous le fil : clôture, précisions, options). */
   const showDecisionRail = Boolean(
@@ -301,12 +323,12 @@ function MissionsContent() {
   /** Colonne gauche type chat (fil + actions) dès que le détail mission est chargé. */
   const showConversationSidebar = Boolean(detail.data);
 
-  const onAnswerCioQuestion = async (answer: string, question?: string) => {
-    if (!selected || !answer.trim() || cioQuestionBusy) return;
+  const onValidateCioAnswers = async (answers: Array<{ question: string; answer: string }>) => {
+    if (!selected || !answers.length || cioQuestionBusy) return;
     setCioQuestionBusy(true);
     setError("");
     try {
-      const result = await cioAnswerAndResume(selected, answer, question, { cioQuestionsEnabled });
+      const result = await cioAnswersAndResume(selected, answers, { cioQuestionsEnabled });
       void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
       void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
@@ -389,13 +411,51 @@ function MissionsContent() {
       cardCost,
       cardEvents,
       hasChild,
-      liveStatus: String(liveD.status || ""),
+      liveStatus: liveHasResult
+        ? "completed"
+        : fbOk
+          ? "completed"
+          : String(liveD.status || ""),
       deliveryWarnings: (liveD.delivery_warnings as string[] | undefined) ?? [],
       deliveryBlocked: Boolean(liveD.delivery_blocked),
       deliverablesMarkdown: del.markdown,
       deliverablesTeam: del.team,
     };
   }, [selected, detail.data, latestChildByParent, cioResumeLiveId, cioResumeLive.data]);
+
+  /** Arbitrages dans la synthèse CIO (souvent présents alors que le job est déjà « completed »). */
+  const pendingBriefArbitrageCount = useMemo(() => {
+    const result = selectedMissionSynth?.cardResult || detail.data?.result;
+    const brief = buildMissionExecutiveBrief(result);
+    if (!brief?.questions?.length) return 0;
+    return countPendingArbitrageQuestions(brief.questions, cioQuestionAnswers);
+  }, [selectedMissionSynth?.cardResult, detail.data?.result, cioQuestionAnswers]);
+
+  const pendingDirectorQuestionCount = Math.max(pendingCioQuestionCount, pendingBriefArbitrageCount);
+  const hasPendingCioQuestions = pendingDirectorQuestionCount > 0;
+
+  /** Statut affiché au dirigeant (évite « En cours » alors que la synthèse est déjà Terminée). */
+  const displayMissionStatus = useMemo(() => {
+    const live = String(selectedMissionSynth?.liveStatus || "").toLowerCase();
+    const raw = selectedJobStatus.toLowerCase();
+    const hasResult = String(selectedMissionSynth?.cardResult || "").trim().length > 80;
+    if (live === "completed" || live.startsWith("error") || live === "awaiting_validation" || live === "cancelled") {
+      return live;
+    }
+    if ((raw === "running" || raw === "in_progress") && hasResult && selectedMissionSynth?.hasChild) {
+      return "completed";
+    }
+    if ((raw === "running" || raw === "in_progress") && hasResult && detail.data?.execution_live === false) {
+      return "completed";
+    }
+    return live || raw;
+  }, [
+    selectedMissionSynth?.liveStatus,
+    selectedMissionSynth?.cardResult,
+    selectedMissionSynth?.hasChild,
+    selectedJobStatus,
+    detail.data?.execution_live,
+  ]);
 
   const cioSynthReaderBadge = useMemo(() => {
     if (!selectedMissionSynth) return null;
@@ -500,11 +560,26 @@ function MissionsContent() {
         ) : null}
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(280px,0.75fr)]">
         <div className="min-w-0 space-y-3">
-        {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
+        {error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="min-w-0 flex-1 break-words">{error}</p>
+            <button type="button" onClick={() => setError("")} className="shrink-0 font-bold text-red-500 hover:text-red-800" aria-label="Fermer">
+              ×
+            </button>
+          </div>
+        ) : null}
         {feedback ? (
-          <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            {feedback}
-          </p>
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            <p className="min-w-0 flex-1 break-words">{feedback}</p>
+            <button
+              type="button"
+              onClick={() => setFeedback("")}
+              className="shrink-0 font-bold text-emerald-600 hover:text-emerald-900"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+          </div>
         ) : null}
         {jobs.isPending && !jobs.isError ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
         {jobs.isError ? (
@@ -620,13 +695,6 @@ function MissionsContent() {
             ) : null}
           </div>
         </div>
-        {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
-        {feedback ? (
-          <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            {feedback}
-          </p>
-        ) : null}
-
         {showConversationSidebar ? (
           <div className="mobile-tab-bar lg:hidden">
             <button
@@ -649,13 +717,13 @@ function MissionsContent() {
         <div
           className={
             showConversationSidebar
-              ? "lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0"
+              ? "lg:grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-stretch lg:gap-6 xl:gap-8 lg:h-[calc(100dvh-10.5rem)] lg:max-h-[calc(100dvh-10.5rem)] lg:min-h-0 lg:overflow-hidden"
               : ""
           }
         >
           {showConversationSidebar && detail.data ? (
             <aside
-              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-y-auto overflow-x-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:pr-0.5 ${
+              className={`order-first mb-6 flex min-h-[min(72dvh,38rem)] min-w-0 flex-col overflow-y-auto overflow-x-hidden lg:order-none lg:mb-0 lg:h-full lg:max-h-full lg:min-h-0 lg:overflow-hidden lg:pr-0.5 ${
                 mobileDetailPane === "fil" ? "flex" : "hidden lg:flex"
               }`}
             >
@@ -689,7 +757,7 @@ function MissionsContent() {
                 />
               </div>
               {showDecisionRail ? (
-                <div className="mt-2 max-h-[min(36vh,18rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
+                <div className="mt-2 max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
                   {canCloseMission && canResumeCio ? (
                     <div className="border-b border-violet-100 p-3">
                       <button
@@ -716,14 +784,14 @@ function MissionsContent() {
                     key={`cio-dock-more-${selected}`}
                     title={
                       hasPendingCioQuestions
-                        ? `Précisions CIO (${pendingCioQuestionCount})`
+                        ? `Précisions CIO (${pendingDirectorQuestionCount})`
                         : "Précisions, questions & options"
                     }
                     hint="Déplier pour questions pendant mission, réglages et rappels"
                     defaultOpen={hasPendingCioQuestions}
                     className="rounded-b-2xl bg-violet-50/30"
                     triggerClassName="w-full rounded-b-2xl px-3 py-2.5 text-left hover:bg-violet-50/80"
-                    panelClassName="max-h-[min(42vh,20rem)] space-y-3 overflow-y-auto border-t border-violet-100/90 bg-white/90 px-3 py-3"
+                    panelClassName="space-y-3 border-t border-violet-100/90 bg-white/90 px-3 py-3"
                   >
                     <p className="text-[11px] leading-snug text-slate-600">
                       Le fil ci-dessus s&apos;enrichit à chaque échange ; la synthèse et les livrables se mettent à jour
@@ -755,7 +823,7 @@ function MissionsContent() {
                       <CioQuestionsPanel
                         questions={cioQuestions}
                         questionAnswers={cioQuestionAnswers}
-                        onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
+                        onValidateAndLaunch={onValidateCioAnswers}
                         busy={cioQuestionBusy}
                       />
                     ) : null}
@@ -774,7 +842,7 @@ function MissionsContent() {
           ) : null}
 
           <div
-            className={`min-w-0 space-y-4 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:pr-1 ${
+            className={`min-w-0 space-y-4 lg:min-h-0 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain lg:pr-1 ${
               showConversationSidebar && mobileDetailPane === "fil" ? "hidden lg:block" : "block"
             }`}
           >
@@ -823,6 +891,15 @@ function MissionsContent() {
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.data ? (
             <div className="space-y-5">
+              {!missionClosedByUser ? (
+                <MissionProcessingBanner
+                  status={displayMissionStatus || detail.data.status}
+                  executionLive={detail.data.execution_live}
+                  agentHint={detail.data.agent}
+                  awaitingDirectorResponse={hasPendingCioQuestions}
+                  pendingQuestionCount={pendingDirectorQuestionCount}
+                />
+              ) : null}
               {detail.isError ? (
                 <div
                   className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
@@ -866,7 +943,7 @@ function MissionsContent() {
                 <CioQuestionsPanel
                   questions={cioQuestions}
                   questionAnswers={cioQuestionAnswers}
-                  onAnswer={(q, a) => onAnswerCioQuestion(a, q)}
+                  onValidateAndLaunch={onValidateCioAnswers}
                   busy={cioQuestionBusy}
                 />
               )}
@@ -883,12 +960,12 @@ function MissionsContent() {
               {selectedMissionSynth && !cioResumeLiveId ? (
                 <MissionExecutiveBrief
                   result={selectedMissionSynth.cardResult}
-                  status={selectedMissionSynth.liveStatus}
+                  status={displayMissionStatus || selectedMissionSynth.liveStatus}
                   deliveryWarnings={selectedMissionSynth.deliveryWarnings}
                   deliveryBlocked={selectedMissionSynth.deliveryBlocked}
                   jobId={selected || undefined}
                   questionAnswers={cioQuestionAnswers}
-                  onAnswerQuestion={(q, a) => onAnswerCioQuestion(a, q)}
+                  onValidateAnswers={onValidateCioAnswers}
                   answerBusy={cioQuestionBusy}
                 />
               ) : null}

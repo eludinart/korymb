@@ -32,6 +32,7 @@ const INTEGRATION_LABELS: Record<string, string> = {
   pinterest:       "Pinterest",
   discord:         "Discord",
   telegram:        "Telegram",
+  wordpress:       "WordPress",
   korymb_webhook:  "Webhook sortant (n8n/Zapier)",
   text_to_speech:  "Synthèse vocale (TTS)",
   web_tools:       "Recherche web (chaîne providers)",

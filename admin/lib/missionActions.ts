@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "./api";
+import { isFreeConsigneQuestion } from "./cioArbitrageAnswers";
 import { normalizeJobId } from "./missionBossView";
 import { QK } from "./queryClient";
 
@@ -32,6 +33,13 @@ export async function cioAnswer(jobId: string, answer: string, question?: string
 
 function buildArbitrageResumeMessage(answer: string, question?: string): string {
   const trimmed = answer.trim();
+  if (isFreeConsigneQuestion(question)) {
+    return (
+      `Le dirigeant sort des propositions CIO et donne cette consigne à suivre à la place :\n` +
+      `${trimmed}\n` +
+      `Priorise cette consigne, même si elle s'écarte des questions stratégiques posées.`
+    );
+  }
   if (question?.trim()) {
     return (
       `Arbitrage dirigeant reçu.\n` +
@@ -79,6 +87,46 @@ export async function cioAnswerAndResume(
   return { ...answerRes, resume_job_id: resume.job_id };
 }
 
+function buildBatchArbitrageResumeMessage(answers: Array<{ question: string; answer: string }>): string {
+  if (answers.length === 1) {
+    return buildArbitrageResumeMessage(answers[0].answer, answers[0].question);
+  }
+  const free = answers.find((a) => isFreeConsigneQuestion(a.question));
+  const lines = answers
+    .filter((a) => !isFreeConsigneQuestion(a.question))
+    .map((a, i) => `${i + 1}. Q : ${a.question.trim()}\n   R : ${a.answer.trim()}`);
+  let msg = `Arbitrages dirigeant reçus (${answers.length}) :\n\n` + lines.join("\n\n");
+  if (free?.answer.trim()) {
+    msg +=
+      `\n\nConsigne libre prioritaire :\n${free.answer.trim()}\n` +
+      `Priorise cette consigne si elle s'écarte des réponses ci-dessus.`;
+  } else {
+    msg += `\n\nIntègre toutes ces décisions dans la synthèse et les livrables.`;
+  }
+  return msg;
+}
+
+/** Enregistre toutes les réponses puis relance la mission une seule fois. */
+export async function cioAnswersAndResume(
+  jobId: string,
+  answers: Array<{ question: string; answer: string }>,
+  opts?: { cioQuestionsEnabled?: boolean },
+) {
+  const cleaned = answers
+    .map((a) => ({ question: String(a.question || "").trim(), answer: String(a.answer || "").trim() }))
+    .filter((a) => a.answer);
+  if (!cleaned.length) throw new Error("Aucune réponse à enregistrer.");
+  let lastAnswerRes: { question_answers?: Record<string, string> } = {};
+  for (const row of cleaned) {
+    lastAnswerRes = await cioAnswer(jobId, row.answer, row.question || undefined);
+  }
+  const resume = await resumeMissionCio(jobId, buildBatchArbitrageResumeMessage(cleaned), opts);
+  if (resume.status !== "accepted" || !resume.job_id) {
+    throw new Error("Reprise mission CIO impossible (pas de job_id).");
+  }
+  return { ...lastAnswerRes, resume_job_id: resume.job_id, answers_count: cleaned.length };
+}
+
 export async function validateMission(jobId: string) {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/validate-mission`, {
     method: "POST",
@@ -99,11 +147,24 @@ export async function closeMission(jobId: string) {
   return data;
 }
 
+/** Marque le résultat comme consulté (retire la mission de « à reprendre » au briefing). */
+export async function markMissionResultConsulted(jobId: string) {
+  const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/result-consulted`, {
+    method: "POST",
+    headers: agentHeaders(),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { job_id?: string; result_consulted_at?: string; already?: boolean };
+}
+
 export async function dismissInboxItem(item: {
   kind: string;
   job_id?: string;
   output_id?: string;
   suggestion_id?: string;
+  ticket_id?: string;
+  event_id?: string;
 }) {
   const { res, data } = await requestJson("/admin/inbox/dismiss", {
     method: "POST",
@@ -113,11 +174,40 @@ export async function dismissInboxItem(item: {
       job_id: item.job_id ? normalizeJobId(item.job_id) || null : null,
       output_id: item.output_id || null,
       suggestion_id: item.suggestion_id || null,
+      ticket_id: item.ticket_id || null,
+      event_id: item.event_id || null,
     }),
     expectOk: false,
   });
   if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
   return data;
+}
+
+export async function prepareCrmFollowUpEmail(eventId: string) {
+  const { res, data } = await requestJson(
+    `/business/events/${encodeURIComponent(eventId)}/prepare-follow-up-email`,
+    {
+      method: "POST",
+      headers: agentHeaders(),
+      expectOk: false,
+    },
+  );
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { success?: boolean; ticket?: { id?: string }; chain?: { steps?: string[] } };
+}
+
+export async function completeCrmFollowUp(eventId: string, snoozeDays = 0) {
+  const { res, data } = await requestJson(
+    `/business/events/${encodeURIComponent(eventId)}/complete-follow-up`,
+    {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ snooze_days: snoozeDays }),
+      expectOk: false,
+    },
+  );
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { success?: boolean; event?: unknown; snoozed_days?: number };
 }
 
 export async function schedulerApprove(outputId: string, launchMode?: "supervised" | "autonomous") {
@@ -178,13 +268,57 @@ function invalidateMissionQueries(qc: ReturnType<typeof useQueryClient>, jobId?:
   }
 }
 
-export function useHitlResolve(jobId: string, onSuccess?: () => void) {
+export async function resolveActionTicket(
+  ticketId: string,
+  body: { decision: "approve" | "reject"; comment?: string; source?: string },
+) {
+  const { res, data } = await requestJson(`/actions/${encodeURIComponent(ticketId)}/resolve`, {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({
+      decision: body.decision,
+      source: body.source || "inbox",
+      comment: body.comment || "",
+    }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data;
+}
+
+export function useActionResolve(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      ticketId,
+      decision,
+      comment,
+    }: {
+      ticketId: string;
+      decision: "approve" | "reject";
+      comment?: string;
+    }) => resolveActionTicket(ticketId, { decision, comment }),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
+      void qc.invalidateQueries({ queryKey: ["business-contacts"] });
+      void qc.invalidateQueries({ queryKey: ["business-events"] });
+      void qc.invalidateQueries({ queryKey: ["business-overview"] });
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      onSuccess?.();
+    },
+  });
+}
+
+export function useHitlResolve(jobId: string, onSuccess?: (data?: unknown) => void) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Parameters<typeof hitlResolve>[1]) => hitlResolve(jobId, body),
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidateMissionQueries(qc, jobId);
-      onSuccess?.();
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      onSuccess?.(data);
     },
   });
 }
@@ -216,6 +350,21 @@ export function useCioAnswerAndResume(
   });
 }
 
+export function useCioAnswersAndResume(
+  jobId: string,
+  opts?: { cioQuestionsEnabled?: boolean; onSuccess?: (resumeJobId: string) => void },
+) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (answers: Array<{ question: string; answer: string }>) =>
+      cioAnswersAndResume(jobId, answers, { cioQuestionsEnabled: opts?.cioQuestionsEnabled }),
+    onSuccess: (data) => {
+      invalidateMissionQueries(qc, jobId);
+      if (data.resume_job_id) opts?.onSuccess?.(data.resume_job_id);
+    },
+  });
+}
+
 export function useValidateMission(jobId: string, onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({
@@ -225,6 +374,28 @@ export function useValidateMission(jobId: string, onSuccess?: () => void) {
       onSuccess?.();
     },
   });
+}
+
+export function useCloseMission(jobId: string, onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => closeMission(jobId),
+    onSuccess: () => {
+      invalidateMissionQueries(qc, jobId);
+      onSuccess?.();
+    },
+  });
+}
+
+export async function closeInboxBulk(kinds: string[] = ["closure", "mission_error"]) {
+  const { res, data } = await requestJson("/admin/inbox/close-bulk", {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({ kinds, limit: 200 }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { closed_count?: number; skipped_count?: number; closed?: string[] };
 }
 
 export function useSchedulerApprove(onSuccess?: () => void) {
@@ -276,8 +447,37 @@ export function useQualityOverride(jobId: string, onSuccess?: () => void) {
 export function useInboxDismiss(onSuccess?: () => void) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (item: { kind: string; job_id?: string; output_id?: string; suggestion_id?: string }) =>
-      dismissInboxItem(item),
+    mutationFn: (item: {
+      kind: string;
+      job_id?: string;
+      output_id?: string;
+      suggestion_id?: string;
+      ticket_id?: string;
+      event_id?: string;
+    }) => dismissInboxItem(item),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
+      onSuccess?.();
+    },
+  });
+}
+
+export function usePrepareCrmFollowUp(onSuccess?: (data: unknown) => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) => prepareCrmFollowUpEmail(eventId),
+    onSuccess: (data) => {
+      invalidateMissionQueries(qc);
+      onSuccess?.(data);
+    },
+  });
+}
+
+export function useCompleteCrmFollowUp(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, snoozeDays = 0 }: { eventId: string; snoozeDays?: number }) =>
+      completeCrmFollowUp(eventId, snoozeDays),
     onSuccess: () => {
       invalidateMissionQueries(qc);
       onSuccess?.();

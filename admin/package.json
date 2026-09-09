@@ -24,6 +24,7 @@
     "@types/node": "20.19.43",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@playwright/test": "^1.55.0",
     "eslint": "^9",
     "eslint-config-next": "15.1.7",
     "postcss": "^8",

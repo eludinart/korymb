@@ -4,14 +4,20 @@ import { normalizeTeamRows, type TeamRow } from "./jobTeam";
 import { buildMissionExecutiveBrief } from "./missionExecutiveBrief";
 import { stripMarkdownLight } from "./normalizeLooseMarkdown";
 
+export type UserConsigneItem = {
+  ts?: string;
+  excerpt: string;
+  full: string;
+};
+
 export type AgentSuggestionGroup = {
   agentKey: string;
   agentLabel: string;
-  items: string[];
+  items: { excerpt: string; full: string }[];
 };
 
 export type MissionExchangeBriefModel = {
-  userConsignes: { ts?: string; excerpt: string }[];
+  userConsignes: UserConsigneItem[];
   operationalSummary: string;
   agentSuggestions: AgentSuggestionGroup[];
 };
@@ -61,7 +67,7 @@ function isCioAgent(key: string): boolean {
 }
 
 function pushSuggestion(
-  map: Map<string, { label: string; items: string[] }>,
+  map: Map<string, { label: string; items: { excerpt: string; full: string }[] }>,
   agent: string,
   text: string,
   team: TeamRow[],
@@ -72,10 +78,11 @@ function pushSuggestion(
   if (isCioAgent(key)) return;
   const label = resolveAgentLabel(agent, team);
   const existing = map.get(key) || { label, items: [] };
-  const compact = excerpt(t, 320);
+  const full = stripMarkdownLight(t).replace(/\s+/g, " ").trim() || t.trim();
+  const compact = excerpt(full, 320);
   if (!compact) return;
-  const dup = existing.items.some((i) => i.slice(0, 48) === compact.slice(0, 48));
-  if (!dup) existing.items.push(compact);
+  const dup = existing.items.some((i) => i.excerpt.slice(0, 48) === compact.slice(0, 48));
+  if (!dup) existing.items.push({ excerpt: compact, full });
   map.set(key, existing);
 }
 
@@ -88,8 +95,8 @@ export function buildMissionExchangeBrief(opts: {
   missionBrief?: string | null;
 }): MissionExchangeBriefModel {
   const team = normalizeTeamRows(opts.team);
-  const map = new Map<string, { label: string; items: string[] }>();
-  const userConsignes: { ts?: string; excerpt: string }[] = [];
+  const map = new Map<string, { label: string; items: { excerpt: string; full: string }[] }>();
+  const userConsignes: UserConsigneItem[] = [];
 
   const result = String(opts.result || "");
   const model = buildCioDisplayModel(result);
@@ -121,8 +128,9 @@ export function buildMissionExchangeBrief(opts: {
     const ts = String(m.ts || "");
 
     if (role === "user" && content) {
-      const ex = excerpt(content, 220);
-      if (ex) userConsignes.push({ ts, excerpt: ex });
+      const full = content;
+      const ex = excerpt(full, 220);
+      if (ex) userConsignes.push({ ts, excerpt: ex, full });
       continue;
     }
 
@@ -137,8 +145,15 @@ export function buildMissionExchangeBrief(opts: {
   }
 
   if (userConsignes.length === 0 && opts.missionBrief?.trim()) {
-    userConsignes.push({ excerpt: excerpt(opts.missionBrief, 220) });
+    const full = opts.missionBrief.trim();
+    userConsignes.push({ excerpt: excerpt(full, 220), full });
   }
+
+  userConsignes.sort((a, b) => {
+    const ta = a.ts ? Date.parse(a.ts) : 0;
+    const tb = b.ts ? Date.parse(b.ts) : 0;
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
 
   const agentSuggestions = [...map.entries()]
     .map(([agentKey, v]) => ({ agentKey, agentLabel: v.label, items: v.items }))

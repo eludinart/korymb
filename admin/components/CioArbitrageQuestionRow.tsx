@@ -55,6 +55,11 @@ export default function CioArbitrageQuestionRow({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold leading-snug text-slate-900">{question}</p>
+          {!(answered && !editing) ? (
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+              Acceptez, refusez, ou indiquez une autre direction.
+            </p>
+          ) : null}
 
           {answered && !editing ? (
             <div className="mt-2">
@@ -78,7 +83,7 @@ export default function CioArbitrageQuestionRow({
                 onChange={(e) => setDraft(e.target.value)}
                 disabled={busy}
                 rows={2}
-                placeholder="Votre arbitrage pour cette question…"
+                placeholder="Oui, non, ou une autre direction…"
                 className="field-input w-full resize-y text-sm"
               />
               <div className="flex flex-wrap gap-2">

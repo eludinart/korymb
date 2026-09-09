@@ -50,7 +50,7 @@ esac
 # Interdire écritures dangereuses
 if [[ "$METHOD" != "GET" && "$METHOD" != "HEAD" ]]; then
   case "$PATH_PART" in
-    /admin/notifications/*/read|/admin/notifications/mark-all-read|/admin/inbox/dismiss)
+    /admin/notifications/*/read|/admin/notifications/mark-all-read|/admin/inbox/dismiss|/actions|/actions/*/resolve)
       ;;
     *)
       echo "Erreur: écriture non autorisée sur $PATH_PART (whitelist notifications/inbox dismiss)." >&2

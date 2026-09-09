@@ -16,6 +16,11 @@ type Props = {
   maxHeightClass?: string;
   /** Colonne latérale : hauteur remplie par le parent, bandeau + onglets fixes, un seul tour défile. */
   fillColumn?: boolean;
+  /**
+   * Le parent scrolle déjà (ex. résumé des échanges) : pas de max-height ni overflow interne
+   * (évite double / triple ascenseur).
+   */
+  embedInParentScroll?: boolean;
   /** Section « questions stratégiques » (résultat CIO complet) ; sinon détection sur la fin du fil. */
   cioStrategicFollowup?: string | null;
   /** Masque la carte « suite mission » (évite doublon avec le panneau décision). */
@@ -269,6 +274,7 @@ export default function SessionCadrageTimeline({
   className = "",
   maxHeightClass = "max-h-[min(32rem,60vh)]",
   fillColumn = false,
+  embedInParentScroll = false,
   cioStrategicFollowup = null,
   hideStrategicFollowup = false,
   missionPlan = null,
@@ -351,10 +357,18 @@ export default function SessionCadrageTimeline({
   }
 
   const expandedTypography = readerOpen;
-  const outerFlex = fillColumn || readerOpen;
+  const outerFlex = (fillColumn || readerOpen) && !embedInParentScroll;
   const panelRootClass = outerFlex
     ? "flex min-h-0 flex-1 flex-col overflow-hidden"
-    : "flex flex-col overflow-hidden";
+    : embedInParentScroll
+      ? "flex flex-col"
+      : "flex flex-col overflow-hidden";
+
+  const messageListClass = embedInParentScroll
+    ? "min-w-0 space-y-0 overflow-visible px-3 py-3 pb-4"
+    : outerFlex
+      ? "min-h-[10rem] min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 pb-12"
+      : `min-h-[8rem] overflow-y-auto overflow-x-hidden px-3 py-3 pb-10 ${maxHeightClass}`;
 
   const renderPanelInner = () => (
     <div className={panelRootClass}>
@@ -377,13 +391,15 @@ export default function SessionCadrageTimeline({
               {viewMode === "full" ? "Par échange" : "Fil complet"}
             </button>
           ) : null}
-          <button
-            type="button"
-            onClick={() => setReaderOpen((v) => !v)}
-            className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            {readerOpen ? "Réduire" : "Agrandir"}
-          </button>
+          {!embedInParentScroll ? (
+            <button
+              type="button"
+              onClick={() => setReaderOpen((v) => !v)}
+              className="rounded-full border border-slate-200 bg-white px-2.5 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              {readerOpen ? "Réduire" : "Agrandir"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -423,17 +439,12 @@ export default function SessionCadrageTimeline({
         </div>
       ) : null}
 
-      <div
-        ref={scrollRef}
-        className={
-          outerFlex
-            ? "min-h-[10rem] min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3 pb-12"
-            : `min-h-[8rem] overflow-y-auto overflow-x-hidden px-3 py-3 pb-10 ${maxHeightClass}`
-        }
-      >
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-          Messages du fil — faites défiler
-        </p>
+      <div ref={scrollRef} className={messageListClass}>
+        {!embedInParentScroll ? (
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            Messages du fil
+          </p>
+        ) : null}
         {showMissionBrief ? (
           <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50/90">
             <button
@@ -445,7 +456,7 @@ export default function SessionCadrageTimeline({
               <span className="text-slate-400">{briefOpen ? "▲" : "▼"}</span>
             </button>
             {briefOpen ? (
-              <div className="max-h-[min(40vh,20rem)] overflow-y-auto border-t border-slate-200 px-3 py-3">
+              <div className="border-t border-slate-200 px-3 py-3">
                 <AgentMessageMarkdown
                   source={briefText}
                   className="text-[12px] leading-relaxed text-slate-800 [&_p]:text-[12px]"
@@ -500,9 +511,11 @@ export default function SessionCadrageTimeline({
     </div>
   );
 
-  const shellClass = `rounded-xl border border-slate-200 bg-white overflow-hidden flex flex-col ${
-    outerFlex ? "h-full min-h-0" : ""
-  } ${fillColumn && !readerOpen ? "min-h-0 flex-1" : ""} ${className}`.trim();
+  const shellClass = `rounded-xl border border-slate-200 bg-white ${
+    embedInParentScroll ? "overflow-visible" : "overflow-hidden"
+  } flex flex-col ${outerFlex ? "h-full min-h-0" : ""} ${
+    fillColumn && !readerOpen && !embedInParentScroll ? "min-h-0 flex-1" : ""
+  } ${className}`.trim();
 
   const expandedShellClass =
     "fixed inset-x-2 inset-y-4 z-[210] flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white pb-safe shadow-2xl sm:inset-4";

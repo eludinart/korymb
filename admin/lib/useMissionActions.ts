@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { closeMission, validateMission } from "./missionActions";
 import { missionActionLabel } from "./missionLabel";
 import { QK } from "./queryClient";
+
+const FEEDBACK_TTL_MS = 4_500;
 
 /**
  * Actions dirigeant sur une mission (valider / clôturer) avec états
@@ -15,6 +17,12 @@ export function useMissionActions() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!feedback) return;
+    const t = window.setTimeout(() => setFeedback(""), FEEDBACK_TTL_MS);
+    return () => window.clearTimeout(t);
+  }, [feedback]);
 
   const runAction = async (jobId: string, action: (id: string) => Promise<unknown>, successMessage: string) => {
     setBusyId(jobId);

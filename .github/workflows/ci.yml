@@ -28,6 +28,14 @@ jobs:
       - name: Build unified frontend
         run: npm run build
 
+      - name: Install Playwright Chromium
+        run: npx --prefix admin playwright install chromium --with-deps
+
+      - name: Frontend e2e smoke
+        run: npm --prefix admin run test:e2e
+        env:
+          CI: true
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

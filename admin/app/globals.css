@@ -51,12 +51,17 @@ body {
   }
 
   .h-app-panel {
-    height: min(58dvh, calc(100dvh - var(--app-header-offset) - 12rem));
+    height: min(58dvh, calc(100dvh - var(--app-header-offset, 0px) - 12rem));
+  }
+
+  .h-chat-shell {
+    height: calc(100dvh - var(--app-header-offset, 7rem) - 0.75rem);
+    max-height: calc(100dvh - var(--app-header-offset, 7rem) - 0.75rem);
   }
 
   @media (min-width: 1024px) {
     .h-app-panel {
-      height: min(70vh, calc(100dvh - var(--app-header-offset) - 10rem));
+      height: min(70vh, calc(100dvh - var(--app-header-offset, 0px) - 10rem));
     }
   }
 
@@ -227,7 +232,7 @@ body {
   }
 
   .input-field {
-    @apply rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200;
+    @apply min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 sm:text-sm;
   }
 
   /* ── Kind badges (inbox, etc.) ── */
@@ -237,6 +242,14 @@ body {
 
   .kind-badge--hitl {
     @apply bg-violet-100 text-violet-950 ring-violet-300;
+  }
+
+  .kind-badge--action_ticket {
+    @apply bg-orange-100 text-orange-950 ring-orange-300;
+  }
+
+  .kind-badge--crm_follow_up {
+    @apply bg-teal-100 text-teal-950 ring-teal-300;
   }
 
   .kind-badge--cio_question {

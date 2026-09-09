@@ -11,25 +11,49 @@ type Props = {
   onDismissed?: () => void;
 };
 
+function stableInboxKey(item: InboxActionItem, index: number): string {
+  return (
+    item.event_id ||
+    item.job_id ||
+    item.ticket_id ||
+    item.output_id ||
+    item.suggestion_id ||
+    inboxItemKey(item, index)
+  );
+}
+
 export default function InboxTriageMode({ items, onDismissed }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusParam = (searchParams.get("focus") || "").trim();
 
-  const sorted = useMemo(() => sortInboxItems(filterSnoozedItems(items), "priority_desc"), [items]);
+  const [doneKeys, setDoneKeys] = useState<Set<string>>(() => new Set());
+
+  const sorted = useMemo(() => {
+    const base = sortInboxItems(filterSnoozedItems(items), "priority_desc");
+    return base.filter((it, i) => !doneKeys.has(stableInboxKey(it, i)));
+  }, [items, doneKeys]);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     if (!focusParam || !sorted.length) return;
     const idx = sorted.findIndex(
       (it, i) =>
+        it.event_id === focusParam ||
         it.job_id === focusParam ||
+        it.ticket_id === focusParam ||
         it.output_id === focusParam ||
         it.suggestion_id === focusParam ||
         inboxItemKey(it, i) === focusParam,
     );
     if (idx >= 0) setIndex(idx);
   }, [focusParam, sorted]);
+
+  useEffect(() => {
+    if (index > 0 && index >= sorted.length) {
+      setIndex(Math.max(0, sorted.length - 1));
+    }
+  }, [index, sorted.length]);
 
   const current = sorted[index];
   const total = sorted.length;
@@ -47,14 +71,22 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
     router.push("/inbox");
   }, [router]);
 
+  const markCurrentDoneLocally = useCallback(() => {
+    if (!current) return;
+    const key = stableInboxKey(current, index);
+    setDoneKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, [current, index]);
+
   const snoozeCurrent = useCallback(() => {
     if (!current) return;
     snoozeInboxItem(current, index, 24);
-    if (index >= total - 1) {
-      setIndex(Math.max(0, index - 1));
-    }
+    markCurrentDoneLocally();
     onDismissed?.();
-  }, [current, index, total, onDismissed]);
+  }, [current, index, markCurrentDoneLocally, onDismissed]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -101,14 +133,14 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/70 backdrop-blur-sm">
-      <header className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3 sm:px-6">
         <div>
           <p className="text-xs font-bold uppercase tracking-widest text-violet-300">Mode triage</p>
           <p className="text-sm font-semibold text-white">
             {index + 1} / {total}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-300">
+        <div className="hidden flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-300 md:flex">
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">J</kbd> suivant
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">K</kbd> précédent
           <kbd className="rounded bg-white/10 px-1.5 py-0.5">S</kbd> reporter
@@ -117,7 +149,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
         <button
           type="button"
           onClick={exitTriage}
-          className="rounded-xl border border-white/20 px-3 py-1.5 text-sm font-bold text-white hover:bg-white/10"
+          className="touch-target rounded-xl border border-white/20 px-4 text-sm font-bold text-white hover:bg-white/10"
         >
           Quitter
         </button>
@@ -127,30 +159,28 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
         <div className="w-full max-w-2xl">
           {current ? (
             <InboxActionCard
-              key={inboxItemKey(current, index)}
+              key={stableInboxKey(current, index)}
               item={current}
               defaultExpanded
               onDismissed={() => {
+                markCurrentDoneLocally();
                 onDismissed?.();
-                if (index >= sorted.length - 1) {
-                  setIndex(Math.max(0, index - 1));
-                }
               }}
             />
           ) : null}
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
+          <div className="mt-4 flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-center">
             <button
               type="button"
               disabled={index <= 0}
               onClick={goPrev}
-              className="rounded-xl border-2 border-white/30 bg-white/10 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+              className="touch-target rounded-xl border-2 border-white/30 bg-white/10 px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               ← Précédent
             </button>
             <button
               type="button"
               onClick={snoozeCurrent}
-              className="rounded-xl border-2 border-amber-300/50 bg-amber-500/20 px-4 py-2 text-sm font-bold text-amber-100"
+              className="touch-target rounded-xl border-2 border-amber-300/50 bg-amber-500/20 px-4 text-sm font-bold text-amber-100"
             >
               Reporter 24 h
             </button>
@@ -158,7 +188,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
               type="button"
               disabled={index >= total - 1}
               onClick={goNext}
-              className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-40"
+              className="touch-target rounded-xl bg-violet-600 px-4 text-sm font-bold text-white disabled:opacity-40"
             >
               Suivant →
             </button>

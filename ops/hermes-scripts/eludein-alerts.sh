@@ -64,6 +64,18 @@ if [[ "${LLM_KEY_FAIL:-0}" =~ ^[0-9]+$ ]] && [[ "$LLM_KEY_FAIL" -gt 0 ]]; then
   add_alert "$LLM_KEY_FAIL mission(s) en échec (clé API LLM manquante) — https://korymb.eludein.art/configuration"
 fi
 
+# --- Tickets d'action pending >24h ---
+ACT_STALE="$("$SCRIPTS/korymb-sql.sh" "
+SELECT COUNT(*) FROM action_tickets
+WHERE workspace_id='ws-default-legacy'
+  AND status='pending'
+  AND created_at < DATE_SUB(UTC_TIMESTAMP(), INTERVAL 24 HOUR)
+LIMIT 1
+" 2>/dev/null | tail -1 || echo 0)"
+if [[ "${ACT_STALE:-0}" =~ ^[0-9]+$ ]] && [[ "$ACT_STALE" -gt 0 ]]; then
+  add_alert "$ACT_STALE envoi(s) en attente de validation >24h — https://korymb.eludein.art/inbox"
+fi
+
 # --- Coût LLM 24h (seuil 5 USD) ---
 COST_24H="$("$SCRIPTS/korymb-sql.sh" "
 SELECT ROUND(COALESCE(SUM(cost_usd),0),2) FROM llm_usage_events

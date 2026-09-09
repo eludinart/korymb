@@ -6,6 +6,7 @@ import { useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
+import BriefingCommercialPanel from "../../components/director/BriefingCommercialPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import GestionShortcuts from "../../components/gestion/GestionShortcuts";
 import {
@@ -123,8 +124,56 @@ function BriefingPageContent() {
         {b ? (
           <>
             <ExecutiveBriefHero data={b} userName={userName} />
+            <BriefingCommercialPanel data={b.commercial} />
             <GestionShortcuts />
             <MissionQuickLaunch compact />
+
+            {(b.unconsulted_results || []).length > 0 ? (
+              <SectionCard title="Résultats à reprendre">
+                <p className="mb-3 text-sm text-slate-600">
+                  Missions terminées (ou en attente de validation) dont vous n&apos;avez pas encore ouvert le
+                  résultat. Rouvrez-les pour reprendre là où vous les avez laissées.
+                </p>
+                <ul className="space-y-3">
+                  {(b.unconsulted_results || []).map(
+                    (m: {
+                      job_id: string;
+                      mission?: string;
+                      status?: string;
+                      result_surface?: string | null;
+                      updated_at?: string;
+                    }) => (
+                      <li
+                        key={m.job_id}
+                        className="flex flex-col gap-2 rounded-xl border-2 border-amber-200 bg-amber-50/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-base font-bold text-slate-900">
+                            {missionTitleLabel(m.mission, 100) || m.job_id}
+                          </p>
+                          <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                            {String(m.status || "") === "awaiting_validation"
+                              ? "Validation en attente"
+                              : String(m.status || "").startsWith("error")
+                                ? "Échec — à consulter"
+                                : "Résultat non consulté"}
+                          </p>
+                          {m.result_surface ? (
+                            <p className="mt-1 line-clamp-2 text-sm text-slate-600">{m.result_surface}</p>
+                          ) : null}
+                        </div>
+                        <Link
+                          href={`/missions?job=${encodeURIComponent(m.job_id)}`}
+                          className="btn-link-primary shrink-0"
+                        >
+                          Reprendre →
+                        </Link>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </SectionCard>
+            ) : null}
 
             {(b.missions_running || []).length > 0 ? (
               <SectionCard title="Missions en cours">

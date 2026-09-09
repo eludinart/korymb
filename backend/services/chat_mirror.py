@@ -7,10 +7,42 @@ from services.agents import agents_def, FLEUR_CONTEXT
 
 _MIRROR_FALLBACK_CLOSING = (
     "Je lance l'exploration en arrière-plan — vous serez notifié dans ce fil "
-    "et via la cloche dès que la synthèse est prête."
+    "et via la cloche dès que la synthèse est prête (souvent en quelques minutes)."
 )
 
 _SENTENCE_END = re.compile(r"[.!?…»\"]\s*$|\)\s*$")
+
+# Délais inventés par le LLM (« d'ici 2h », « sous 30 min ») — trompeurs car le job finit souvent bien avant.
+_FAKE_ETA = re.compile(
+    r"(?i)"
+    r"(?:\bd['’]ici\b|\bsous\b|\bdans\b|\ben\s+moins\s+de\b|\bavant\b)\s+"
+    r"(?:environ\s+|env\.\s+|approx(?:imativement)?\s+)?"
+    r"(?:\d+\s*(?:h(?:eures?)?|min(?:utes?)?|mn|jours?)|"
+    r"(?:une?|deux|trois|quelques)\s+(?:heure|heures|minute|minutes|jour|jours))"
+    r"(?:\s*(?:environ|max(?:imum)?))?"
+)
+
+
+def _strip_fake_eta(text: str) -> str:
+    """Retire les ETA fictives du miroir (ex. « Je finalise d'ici 2h »)."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    t = re.sub(
+        r"(?i)\b(je\s+(?:finalise|termine|prépare|livrerai|livre|propose)[^.!?\n]*?)"
+        r"(?:\bd['’]ici\b|\bsous\b|\bdans\b)\s+"
+        r"(?:environ\s+)?"
+        r"(?:\d+\s*(?:h(?:eures?)?|min(?:utes?)?)|(?:une?|deux|trois)\s+heures?)"
+        r"([^.!?\n]*)",
+        r"\1\2",
+        t,
+    )
+    t = _FAKE_ETA.sub("", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    t = re.sub(r" +\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    t = re.sub(r"\s+([,;:.])", r"\1", t)
+    return t.strip()
 
 
 def _line_looks_incomplete(line: str) -> bool:
@@ -34,7 +66,7 @@ def _line_looks_incomplete(line: str) -> bool:
 
 def finalize_mirror_ack(text: str) -> str:
     """Évite les accusés de réception coupés en plein milieu (limite tokens LLM)."""
-    t = (text or "").strip()
+    t = _strip_fake_eta((text or "").strip())
     if not t:
         return t
 
@@ -64,12 +96,13 @@ def finalize_mirror_ack(text: str) -> str:
         else:
             fixed.append(ln)
     t = "\n".join(fixed).strip()
+    t = _strip_fake_eta(t)
 
     if t and not _SENTENCE_END.search(t):
         t = t.rstrip(":-— ") + "."
 
     tail_window = t[-320:]
-    if not re.search(r"notifi|cloche|synthèse.*prête|prévenu|seras prévenu", tail_window, re.I):
+    if not re.search(r"notifi|cloche|synthèse.*prête|prévenu|seras prévenu|dès que", tail_window, re.I):
         t = f"{t}\n\n{_MIRROR_FALLBACK_CLOSING}" if t else _MIRROR_FALLBACK_CLOSING
 
     return t.strip()
@@ -91,7 +124,10 @@ def generate_mirror_ack(message: str) -> str:
             "Réponse **courte** (80 à 120 mots max), en français :\n"
             "- 1 phrase : reformulation du besoin.\n"
             "- 2 ou 3 puces « - » : ce que tu lances (pas plus).\n"
-            "- 1 phrase finale complète : tâche de fond + notification chat et cloche.\n"
+            "- 1 phrase finale complète : travail en arrière-plan + notification chat et cloche "
+            "**dès que c'est prêt** (souvent quelques minutes).\n"
+            "Interdit : inventer un délai (« d'ici 2h », « sous 30 min », « dans 1 heure ») — "
+            "le travail finit souvent bien plus tôt ; dis seulement « dès que c'est prêt ».\n"
             "Interdit : notes de bas de page, parenthèses en italique, section « Prochaine étape » longue, "
             "séparateur ---, mention d'agents mobilisés, listes numérotées longues.\n"
             "Chaque phrase et puce doit se terminer correctement (point ou ponctuation)."

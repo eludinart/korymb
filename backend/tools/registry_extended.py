@@ -55,10 +55,12 @@ EXTENDED_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "canva": ("create_canva_design",),
     "pinterest": ("create_pinterest_pin",),
     "messaging": ("send_discord_message", "send_telegram_message", "trigger_webhook"),
+    "cms": ("wordpress_create_post",),
 }
 
 EXTENDED_EXECUTE_GATED: frozenset[str] = frozenset({
     "send_gmail",
+    "create_calendar_event",
     "reply_social_comment",
     "send_whatsapp_message",
     "crm_create_contact",
@@ -66,6 +68,7 @@ EXTENDED_EXECUTE_GATED: frozenset[str] = frozenset({
     "send_discord_message",
     "send_telegram_message",
     "trigger_webhook",
+    "wordpress_create_post",
 })
 
 EXTENDED_TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -340,7 +343,33 @@ EXTENDED_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["text"],
         },
     },
+    {
+        "name": "wordpress_create_post",
+        "description": (
+            "Prépare un article WordPress (brouillon). La publication réelle attend la validation dirigeant."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "content": {"type": "string", "description": "HTML ou texte de l'article"},
+                "excerpt": {"type": "string"},
+            },
+            "required": ["title", "content"],
+        },
+    },
 ]
+
+
+def _run_wp_create(inp: dict[str, Any]) -> str:
+    from tools.wordpress import run_wordpress_create_post
+
+    return run_wordpress_create_post(
+        str(inp.get("title", "")),
+        str(inp.get("content", "") or inp.get("html", "")),
+        str(inp.get("excerpt", "") or ""),
+        str(inp.get("status") or "draft"),
+    )
 
 
 def dispatch_extended_tool(name: str, inp: dict[str, Any]) -> str | None:
@@ -423,6 +452,7 @@ def dispatch_extended_tool(name: str, inp: dict[str, Any]) -> str | None:
         "text_to_speech": lambda: run_text_to_speech(
             str(inp.get("text", "")), str(inp.get("voice", "") or "")
         ),
+        "wordpress_create_post": lambda: _run_wp_create(inp),
     }
     fn = handlers.get(name)
     if fn is None:

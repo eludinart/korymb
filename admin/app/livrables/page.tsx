@@ -143,7 +143,7 @@ function DeliverableCard({
         type="button"
         onClick={() => onDismiss(item)}
         disabled={dismissBusy}
-        className="absolute right-2 top-2 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        className="absolute right-2 top-2 z-10 touch-target flex items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
         aria-label={`Retirer ${item.title} de la bibliothèque`}
         title="Retirer de la bibliothèque"
       >

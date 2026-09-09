@@ -44,7 +44,7 @@ copy backend\.env.local.example backend\.env.local
 # .env.local force KORYMB_DB_ENGINE=mariadb, host 127.0.0.1, port 3307
 ```
 
-Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health` : `database.engine` = `mariadb`, `database.connected` = `true`.
+Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health/database` : `database.engine` = `mariadb`, `database.connected` = `true`.
 
 ### 3) Run app
 
@@ -86,7 +86,9 @@ Useful individual commands:
 - `npm run start`: start unified Next.js frontend.
 - `npm run check:backend`: compile-check backend python files.
 - `npm run verify:api`: health probe for backend endpoint.
+- `npm run smoke:p0`: public HTTP check of Korymb, Fleur, Hermes, and MariaDB.
 - `npm run smoke:deploy -- --app-url <front-url> --backend-url <api-url>`: post-deploy smoke test.
+- `npm --prefix admin run test:e2e`: Playwright smoke (build required unless a server already listens on :3000).
 
 ## Documentation
 

@@ -79,6 +79,8 @@ from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
 from routers.core_auth import router as core_auth_router
 from routers.core_business import router as core_business_router
+from routers.core_actions import router as core_actions_router
+from routers.core_telegram import router as core_telegram_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -91,6 +93,15 @@ _KORYMB_BACKEND_DIR = Path(__file__).resolve().parent
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    try:
+        from routers.core_jobs import cleanup_orphan_active_jobs
+
+        cleaned = cleanup_orphan_active_jobs(include_awaiting=False)
+        n = int(cleaned.get("count") or 0)
+        if n:
+            logger.info("Réconciliation démarrage : %s processus fantôme(s) annulé(s)", n)
+    except Exception:
+        logger.exception("Réconciliation des jobs fantômes au démarrage impossible")
     from scheduler import create_scheduler, register_db_tasks, set_scheduler
     _scheduler = create_scheduler()
     set_scheduler(_scheduler)
@@ -153,6 +164,8 @@ app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
 app.include_router(core_auth_router)
 app.include_router(core_business_router)
+app.include_router(core_actions_router)
+app.include_router(core_telegram_router)
 
 
 @app.middleware("http")

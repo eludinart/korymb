@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from database import (
+    _user_validated_set,
     get_hitl_gate,
     list_autonomous_outputs,
     list_director_notifications,
@@ -22,7 +23,10 @@ from runtime_sse import enqueue_job_sse_event
 def _priority_score(kind: str) -> int:
     return {
         "hitl": 0,
+        "action_ticket": 0,
+        "crm_follow_up": 0,
         "cio_question": 1,
+        "mission_error": 1,
         "closure": 2,
         "learning_suggestion": 3,
         "scheduler_output": 4,
@@ -34,7 +38,10 @@ def _sla_days(kind: str) -> int:
     """Délai cible (jours) avant considérer l'item en retard."""
     return {
         "hitl": 1,
+        "action_ticket": 1,
+        "crm_follow_up": 0,
         "cio_question": 2,
+        "mission_error": 1,
         "closure": 3,
         "quality": 1,
         "learning_suggestion": 7,
@@ -68,12 +75,27 @@ def _days_open_since(iso_ts: str | None) -> int:
 def _progress_label(kind: str) -> str:
     return {
         "hitl": "Validation dirigeant requise",
+        "action_ticket": "Envoi réel — validation requise",
+        "crm_follow_up": "Relance commerciale du jour",
         "cio_question": "Réponse dirigeant attendue",
+        "mission_error": "Mission en échec — à traiter ou clôturer",
         "closure": "Mission terminée — clôture en attente",
         "quality": "Contrôle qualité bloquant",
-        "learning_suggestion": "Suggestion d'apprentissage à arbitrer",
-        "scheduler_output": "Proposition autonome à approuver",
+        "learning_suggestion": "Suggestion d'apprentissage",
+        "scheduler_output": "Proposition autonome à arbitrer",
     }.get(kind, "Action requise")
+
+
+def _is_chat_followup(row: dict) -> bool:
+    """Suites CIO rattachées à une mission parent (évite le double affichage clôture)."""
+    src = str(row.get("source") or "").strip().lower()
+    if src != "chat":
+        return False
+    return bool(str(row.get("parent_job_id") or "").strip())
+
+
+def _status_is_error(status: str) -> bool:
+    return str(status or "").strip().lower().startswith("error")
 
 
 def _urgency_level(days_open: int, sla_days: int) -> str:
@@ -163,16 +185,18 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 job_id=item.get("job_id"),
                 output_id=item.get("output_id"),
                 suggestion_id=item.get("suggestion_id"),
+                ticket_id=item.get("ticket_id"),
+                event_id=item.get("event_id"),
             )
             return key in dismissed
         except ValueError:
             return False
 
     for row in jobs:
-        if str(row.get("source") or "") == "chat":
-            continue
         jid = row.get("id")
         st = str(row.get("status") or "")
+        # Suites chat rattachées : HITL / questions CIO restent visibles, pas la clôture (le parent porte le rituel).
+        skip_closure = _is_chat_followup(row)
         if st == "awaiting_validation":
             gate = get_hitl_gate(jid) or {"gate": row.get("hitl_gate") or {}}
             hk = _hitl_kind_from_gate(gate)
@@ -184,10 +208,11 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "hitl_kind": hk,
+                "primary_cta": "Valider et lancer" if hk == "cio_plan" else "Valider",
                 "gate_preview": _gate_preview(gate),
                 "priority_score": _priority_score("hitl"),
             }, job_row=row))
-        elif st == "completed" and not row.get("user_validated_at"):
+        elif st == "completed" and not _user_validated_set(row) and not skip_closure:
             items.append(_enrich_inbox_item({
                 "kind": "closure",
                 "job_id": jid,
@@ -196,6 +221,21 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "priority_score": _priority_score("closure"),
+                "source": row.get("source"),
+            }, job_row=row))
+        elif _status_is_error(st) and not _user_validated_set(row) and not skip_closure:
+            err_detail = st[6:].strip() if st.lower().startswith("error:") else st
+            mission = str(row.get("mission") or "").strip()
+            items.append(_enrich_inbox_item({
+                "kind": "mission_error",
+                "job_id": jid,
+                "title": (err_detail or mission or "Mission en échec")[:200],
+                "mission": mission[:160],
+                "status": st,
+                "created_at": row.get("updated_at"),
+                "updated_at": row.get("updated_at"),
+                "priority_score": _priority_score("mission_error"),
+                "source": row.get("source"),
             }, job_row=row))
         elif st == "quality_blocked":
             items.append(_enrich_inbox_item({
@@ -255,6 +295,40 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         }))
 
     try:
+        from services.action_queue import list_actions
+
+        for ticket in list_actions(status="pending", limit=40):
+            payload = ticket.get("payload") if isinstance(ticket.get("payload"), dict) else {}
+            action_kind = str(ticket.get("kind") or "")
+            contact_id = str(payload.get("contact_id") or "").strip() or None
+            items.append(_enrich_inbox_item({
+                "kind": "action_ticket",
+                "ticket_id": ticket.get("id"),
+                "job_id": ticket.get("job_id") or None,
+                "action_kind": action_kind,
+                "title": ticket.get("title") or "Action à valider",
+                "summary": ticket.get("summary") or "",
+                "preview_url": ticket.get("preview_url") or None,
+                "payload": payload,
+                "contact_id": contact_id,
+                "primary_cta": (
+                    "Approuver et envoyer"
+                    if action_kind == "email"
+                    else "Valider et créer"
+                    if action_kind == "calendar"
+                    else "Valider et publier"
+                    if action_kind in ("wordpress", "social")
+                    else "Valider"
+                ),
+                "status": ticket.get("status"),
+                "created_at": ticket.get("created_at"),
+                "updated_at": ticket.get("updated_at"),
+                "priority_score": _priority_score("action_ticket"),
+            }))
+    except Exception:
+        pass
+
+    try:
         for out in list_autonomous_outputs(status="pending", limit=20):
             meta = _parse_proposal_meta(str(out.get("content") or ""))
             item = _enrich_inbox_item({
@@ -273,6 +347,45 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
     except Exception:
         pass
 
+    try:
+        from services.business_db import list_due_crm_follow_ups
+
+        for ev in list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=30):
+            contact = ev.get("contact") if isinstance(ev.get("contact"), dict) else None
+            contact_name = str((contact or {}).get("name") or "").strip()
+            title = str(ev.get("title") or "Relance CRM")
+            if contact_name and contact_name not in title:
+                display = f"{title} — {contact_name}"
+            else:
+                display = title
+            outreach = str((contact or {}).get("outreach_suggestions") or "").strip()
+            items.append(_enrich_inbox_item({
+                "kind": "crm_follow_up",
+                "event_id": ev.get("id"),
+                "contact_id": ev.get("contact_id") or (contact or {}).get("id"),
+                "title": display[:160],
+                "summary": (outreach[:400] if outreach else str(ev.get("notes") or "")[:400]),
+                "starts_at": ev.get("starts_at"),
+                "overdue": bool(ev.get("overdue")),
+                "primary_cta": (
+                    "Préparer l'e-mail"
+                    if (contact or {}).get("email")
+                    else "Ouvrir la fiche"
+                ),
+                "payload": {
+                    "contact_email": (contact or {}).get("email") or "",
+                    "contact_name": contact_name,
+                    "outreach_suggestions": outreach,
+                    "notes": ev.get("notes") or "",
+                },
+                "status": ev.get("status"),
+                "created_at": ev.get("starts_at") or ev.get("created_at"),
+                "updated_at": ev.get("updated_at") or ev.get("starts_at"),
+                "priority_score": _priority_score("crm_follow_up"),
+            }))
+    except Exception:
+        pass
+
     items.sort(key=lambda x: (x.get("priority_score", 9), str(x.get("updated_at") or "")))
     visible = [i for i in items if not _is_dismissed(i)]
     return {"items": visible[:limit], "total": len(visible)}
@@ -281,6 +394,10 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
 def _priority_label(item: dict) -> str:
     kind = str(item.get("kind") or "")
     title = str(item.get("title") or item.get("mission") or "").strip()
+    if kind == "action_ticket":
+        return f"Valider l'envoi — {title[:80]}" if title else "Valider une action préparée"
+    if kind == "crm_follow_up":
+        return f"Relance due — {title[:80]}" if title else "Relance commerciale due"
     if kind == "hitl":
         hk = str(item.get("hitl_kind") or "")
         if hk == "cio_plan":
@@ -288,6 +405,8 @@ def _priority_label(item: dict) -> str:
         return f"Validation requise — {title[:80]}" if title else "Validation dirigeant requise"
     if kind == "cio_question":
         return title[:120] if title else "Répondre au CIO"
+    if kind == "mission_error":
+        return f"Échec mission — {title[:80]}" if title else "Mission en échec"
     if kind == "closure":
         return f"Clôturer la mission — {title[:80]}" if title else "Clôturer une mission terminée"
     if kind == "scheduler_output":
@@ -301,10 +420,12 @@ def _priority_label(item: dict) -> str:
 
 def _priority_href(item: dict) -> str:
     kind = str(item.get("kind") or "")
+    tid = str(item.get("ticket_id") or "").strip()
     jid = str(item.get("job_id") or "").strip()
     oid = str(item.get("output_id") or "").strip()
     sid = str(item.get("suggestion_id") or "").strip()
-    focus = jid or oid or sid
+    eid = str(item.get("event_id") or "").strip()
+    focus = tid or jid or oid or sid or eid
     if focus:
         return f"/inbox?triage=1&focus={focus}"
     return "/inbox?triage=1"
@@ -320,7 +441,14 @@ def _build_top_priorities(
     remaining = max(0, limit - len(out))
     for item in inbox_items[:remaining]:
         out.append({
-            "id": str(item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
+            "id": str(
+                item.get("ticket_id")
+                or item.get("event_id")
+                or item.get("job_id")
+                or item.get("output_id")
+                or item.get("suggestion_id")
+                or len(out)
+            ),
             "label": _priority_label(item),
             "href": _priority_href(item),
             "kind": item.get("kind"),
@@ -416,8 +544,15 @@ def _build_executive_summary(
     budget: dict,
     analytics: dict,
     llm_blocker: str | None = None,
+    commercial: dict | None = None,
+    unconsulted_count: int = 0,
 ) -> str:
     parts: list[str] = []
+    counts = (commercial or {}).get("counts") if isinstance(commercial, dict) else {}
+    counts = counts if isinstance(counts, dict) else {}
+    follow_ups = int(counts.get("follow_ups_due_today") or 0)
+    stale_quotes = int(counts.get("stale_quotes") or 0)
+
     if llm_blocker:
         parts.append("clé LLM manquante — corriger dans Configuration avant de lancer une mission")
     if inbox_total > 0:
@@ -429,6 +564,21 @@ def _build_executive_summary(
         parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
     elif not llm_blocker:
         parts.append("Aucune action urgente — votre file est vide")
+
+    if unconsulted_count > 0:
+        parts.append(
+            f"{unconsulted_count} résultat{'s' if unconsulted_count > 1 else ''} de mission "
+            f"pas encore consulté{'s' if unconsulted_count > 1 else ''}"
+        )
+
+    if follow_ups > 0:
+        parts.append(
+            f"{follow_ups} relance{'s' if follow_ups > 1 else ''} commerciale{'s' if follow_ups > 1 else ''} due{'s' if follow_ups > 1 else ''} aujourd'hui"
+        )
+    if stale_quotes > 0:
+        parts.append(
+            f"{stale_quotes} devis envoyé{'s' if stale_quotes > 1 else ''} sans réponse (>7 j)"
+        )
 
     if budget.get("budget_exceeded"):
         parts.append("budget journalier dépassé")
@@ -450,7 +600,6 @@ def _build_executive_summary(
     if len(parts) == 1:
         return first[0].upper() + first[1:] + "."
     return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
-
 
 def _ritual_status(inbox_total: int, budget: dict, *, llm_ready: bool = True) -> str:
     if not llm_ready:
@@ -512,6 +661,22 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
             "kind": "config",
             "urgency": "critical",
         })
+    commercial: dict[str, Any] = {}
+    try:
+        from services.business_db import get_commercial_morning_snapshot
+
+        commercial = get_commercial_morning_snapshot()
+    except Exception:
+        commercial = {"counts": {}, "follow_ups_due_today": [], "stale_quotes": [], "weak_contacts": []}
+
+    unconsulted: list[dict[str, Any]] = []
+    try:
+        from database import list_unconsulted_result_jobs
+
+        unconsulted = list_unconsulted_result_jobs(limit=12)
+    except Exception:
+        unconsulted = []
+
     executive_summary = _build_executive_summary(
         inbox_total=inbox["total"],
         hitl_count=len(hitl_pending),
@@ -519,6 +684,8 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         budget=budget_block,
         analytics=analytics,
         llm_blocker=str(llm_readiness.get("blocker") or "") or None,
+        commercial=commercial,
+        unconsulted_count=len(unconsulted),
     )
 
     return {
@@ -536,10 +703,13 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "recent_errors": recent_errors,
         "decisions_today": inbox["items"][:5],
         "inbox_total": inbox["total"],
+        "commercial": commercial,
         "missions_running": [
             {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
             for j in running[:10]
         ],
+        "unconsulted_results": unconsulted,
+        "unconsulted_results_count": len(unconsulted),
         "hitl_pending_count": len(hitl_pending),
         "closures_pending_count": len(closures),
         "scheduler_pending_count": len(scheduler_pending),
@@ -605,10 +775,22 @@ def plan_diff(from_plan: dict, to_plan: dict) -> dict:
     for key in set(list(fst.keys()) + list(tst.keys())):
         if fst.get(key) != tst.get(key):
             changed_tasks.append({"key": key, "before": fst.get(key), "after": tst.get(key)})
+    synthese_before = str(fp.get("synthese_attendue") or "")
+    synthese_after = str(tp.get("synthese_attendue") or "")
+    agents_added = sorted(ta - fa)
+    agents_removed = sorted(fa - ta)
+    has_changes = bool(
+        agents_added
+        or agents_removed
+        or changed_tasks
+        or synthese_before.strip() != synthese_after.strip()
+    )
     return {
-        "agents_added": sorted(ta - fa),
-        "agents_removed": sorted(fa - ta),
-        "synthese_before": str(fp.get("synthese_attendue") or ""),
-        "synthese_after": str(tp.get("synthese_attendue") or ""),
+        "agents_added": agents_added,
+        "agents_removed": agents_removed,
+        "synthese_before": synthese_before,
+        "synthese_after": synthese_after,
+        "synthese_changed": synthese_before.strip() != synthese_after.strip(),
         "sous_taches_changed": changed_tasks,
+        "has_changes": has_changes,
     }

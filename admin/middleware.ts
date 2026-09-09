@@ -15,11 +15,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim();
-  const secret =
-    process.env.KORYMB_AGENT_SECRET?.trim() ||
-    process.env.AGENT_API_SECRET?.trim() ||
-    (process.env.NODE_ENV !== "production" ? process.env.NEXT_PUBLIC_KORYMB_AGENT_SECRET?.trim() : "");
-  if (!token && !secret) {
+  // Session utilisateur uniquement. Le secret agent (KORYMB_AGENT_SECRET) sert au
+  // proxy serveur → FastAPI, pas à contourner le login navigateur.
+  if (!token) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname);
     return NextResponse.redirect(login);

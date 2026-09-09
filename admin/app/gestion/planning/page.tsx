@@ -78,13 +78,13 @@ export default function GestionPlanningPage() {
                   {projectLabel(undefined, ev.project_id, projects.data || [])}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/gestion/planning/${ev.id}`} className="text-xs font-medium text-violet-800 hover:underline">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                <Link href={`/gestion/planning/${ev.id}`} className="touch-target inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-900">
                   Modifier
                 </Link>
                 <button
                   type="button"
-                  className="text-xs font-medium text-red-700 hover:underline"
+                  className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800"
                   onClick={() => {
                     if (window.confirm("Supprimer ce créneau ?")) remove.mutate(ev.id);
                   }}

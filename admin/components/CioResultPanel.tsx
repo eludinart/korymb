@@ -91,7 +91,7 @@ export default function CioResultPanel({
             defaultOpen={false}
             className="mx-auto mt-4 max-w-3xl rounded-xl border border-slate-200 bg-white"
             triggerClassName="px-3 py-2.5"
-            panelClassName="max-h-48 overflow-y-auto border-t border-slate-100 px-3 py-3 text-sm text-slate-700"
+            panelClassName="border-t border-slate-100 px-3 py-3 text-sm text-slate-700"
           >
             <AgentMessageMarkdown source={missionTitle} className="text-sm [&_p]:my-1.5" />
           </SimpleAccordion>
@@ -123,7 +123,7 @@ export default function CioResultPanel({
           defaultOpen={false}
           className="border-b border-violet-100/80 bg-white/60"
           triggerClassName="px-4 py-2.5 sm:px-5"
-          panelClassName="max-h-48 overflow-y-auto border-t border-violet-50 px-4 py-3 text-sm text-slate-700 sm:px-5"
+          panelClassName="border-t border-violet-50 px-4 py-3 text-sm text-slate-700 sm:px-5"
         >
           <AgentMessageMarkdown source={missionTitle} className="text-sm [&_p]:my-1.5" />
         </SimpleAccordion>
@@ -137,8 +137,8 @@ export default function CioResultPanel({
           </p>
           <div
             className={`mt-4 rounded-xl border border-violet-100/80 bg-white px-4 py-4 shadow-inner ${
-              embedded ? "" : "max-h-[min(70vh,42rem)] overflow-y-auto"
-            } ${model.jsonExecutive ? "" : proseDecision}`}
+              model.jsonExecutive ? "" : proseDecision
+            }`}
           >
             {model.jsonExecutive ? (
               <CioJsonExecutiveView executive={model.jsonExecutive} />
@@ -191,7 +191,7 @@ export default function CioResultPanel({
                     Afficher
                   </button>
                 </div>
-                <div className="mt-2 max-h-40 overflow-hidden rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2">
+                <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2">
                   <AgentMessageMarkdown source={item.body} className="text-[12px] text-slate-800" />
                 </div>
               </li>
@@ -207,7 +207,7 @@ export default function CioResultPanel({
           defaultOpen={false}
           className="border-b border-slate-200 bg-slate-50/50"
           triggerClassName="px-4 py-3 sm:px-5"
-          panelClassName="max-h-[min(40vh,22rem)] overflow-y-auto border-t border-slate-200 px-4 py-4 sm:px-5"
+          panelClassName="border-t border-slate-200 px-4 py-4 sm:px-5"
         >
           <BilanAgentList items={model.operationalBilan} />
         </SimpleAccordion>
@@ -220,7 +220,7 @@ export default function CioResultPanel({
           defaultOpen={false}
           className="bg-slate-50/80"
           triggerClassName="px-4 py-3 sm:px-5"
-          panelClassName={`max-h-[min(65vh,32rem)] overflow-y-auto border-t border-slate-200 px-4 py-4 sm:px-5 ${proseDetail}`}
+          panelClassName={`border-t border-slate-200 px-4 py-4 sm:px-5 ${proseDetail}`}
         >
           {model.preamble ? (
             <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">

@@ -74,13 +74,13 @@ export default function GestionDevisPage() {
                       : ""}
                   </p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <Link href={`/gestion/devis/${q.id}`} className="btn-secondary text-xs">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
+                  <Link href={`/gestion/devis/${q.id}`} className="btn-secondary w-full justify-center text-sm sm:w-auto">
                     Modifier
                   </Link>
                   <button
                     type="button"
-                    className="btn-primary text-xs"
+                    className="btn-primary w-full justify-center text-sm sm:w-auto"
                     disabled={tiimeRequest.isPending}
                     onClick={() => tiimeRequest.mutate(q.id)}
                   >

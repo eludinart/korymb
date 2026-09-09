@@ -10,6 +10,16 @@ def test_health_ok(client):
     assert body["service"] == "korymb-backend"
     assert "version" in body
     assert "database" in body
+    # /health est un liveness : pas de SELECT 1 (connected reste null).
+    assert body["database"]["connected"] is None
+
+
+def test_health_database_connected(client):
+    r = client.get("/health/database")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["database"]["connected"] is True
 
 
 def test_llm_public_shape(client):

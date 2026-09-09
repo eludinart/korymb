@@ -4,6 +4,7 @@ import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import ChatAgentMacaron from "./ChatAgentMacaron";
 import ChatMessageDeliverables from "./ChatMessageDeliverables";
+import RealJobProgressBar, { progressToneForStatus } from "../RealJobProgressBar";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
 import type { DriveArtifact } from "../../lib/types";
@@ -27,6 +28,8 @@ type Props = {
   onSend: () => void;
   pending: boolean;
   backgroundJobCount?: number;
+  /** Progression réelle agrégée des jobs en arrière-plan (0–100). */
+  backgroundProgress?: { percent: number; label: string; status?: string } | null;
   className?: string;
   agentLabels?: Record<string, string>;
   onPatchMessage?: (id: string, patch: Partial<ChatMsg>) => void;
@@ -48,6 +51,7 @@ export default function ChatShell({
   onSend,
   pending,
   backgroundJobCount = 0,
+  backgroundProgress = null,
   className = "",
   agentLabels = {},
   onPatchMessage,
@@ -63,7 +67,7 @@ export default function ChatShell({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pending, backgroundJobCount]);
+  }, [messages, pending, backgroundJobCount, backgroundProgress?.percent]);
 
   useEffect(() => {
     for (const m of messages) {
@@ -110,15 +114,25 @@ export default function ChatShell({
     <div className={`mx-auto flex min-h-0 w-full flex-col ${className || "h-[calc(100dvh-10rem)]"}`}>
       {backgroundJobCount > 0 ? (
         <div
-          className="mx-4 mt-3 flex shrink-0 items-center gap-2 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm text-violet-950"
+          className="mx-4 mt-3 shrink-0 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm text-violet-950"
           role="status"
           aria-live="polite"
         >
-          <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-violet-600" />
-          <span>
-            {backgroundJobCount} exploration{backgroundJobCount > 1 ? "s" : ""} en arrière-plan — vous serez notifié
-            à la fin.
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-violet-600" />
+            <span>
+              {backgroundJobCount} exploration{backgroundJobCount > 1 ? "s" : ""} en arrière-plan — notification
+              dès que c&apos;est prêt.
+            </span>
+          </div>
+          {backgroundProgress ? (
+            <RealJobProgressBar
+              className="mt-2"
+              percent={backgroundProgress.percent}
+              label={backgroundProgress.label}
+              tone={progressToneForStatus(backgroundProgress.status)}
+            />
+          ) : null}
         </div>
       ) : null}
 
@@ -175,7 +189,7 @@ export default function ChatShell({
 
       {canConvertToMission && onConvertToMission ? (
         <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-4 py-2.5">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+          <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <p className="text-xs text-slate-500 sm:text-sm">
               Approfondir ce sujet avec toute l&apos;équipe multi-agents ?
             </p>
@@ -183,7 +197,7 @@ export default function ChatShell({
               type="button"
               onClick={onConvertToMission}
               disabled={convertBusy}
-              className="shrink-0 rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-50 disabled:opacity-50"
+              className="touch-target w-full shrink-0 rounded-2xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-50 disabled:opacity-50 sm:w-auto"
             >
               {convertBusy ? "Lancement…" : "Lancer en mission →"}
             </button>

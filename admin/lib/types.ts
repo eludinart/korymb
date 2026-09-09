@@ -79,6 +79,8 @@ export type Job = {
   latest_chat_followup?: LatestChatFollowup | null;
   deliverables_ui?: DeliverablesUiState;
   drive_artifacts?: DriveArtifact[];
+  /** true si un thread serveur exécute réellement ce job (false = fantôme). */
+  execution_live?: boolean | null;
 };
 
 /** Fichier déposé sur Google Drive (export auto ou outil agent). */

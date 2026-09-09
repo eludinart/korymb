@@ -62,6 +62,20 @@ async function main() {
       throw new Error("backend /health returned invalid JSON.");
     }
     console.log(`[smoke] backend revision: ${String(data.revision || data.version || "unknown")}`);
+
+    const dbRes = await fetch(`${backendUrl}/health/database`, { redirect: "follow", cache: "no-store" });
+    if (!dbRes.ok) {
+      throw new Error(`backend /health/database: HTTP ${dbRes.status}`);
+    }
+    const dbBody = await dbRes.json().catch(() => ({}));
+    if (dbBody?.database?.connected !== true) {
+      throw new Error(
+        `backend /health/database: expected connected=true, got ${JSON.stringify(dbBody?.database || dbBody)}`,
+      );
+    }
+    console.log(
+      `[smoke] OK backend /health/database: engine=${String(dbBody.database.engine || "?")} connected=true`,
+    );
   } else {
     console.log("[smoke] backend check skipped (no --backend-url).");
   }

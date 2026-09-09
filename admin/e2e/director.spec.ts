@@ -1,19 +1,9 @@
-# Playwright E2E — parcours dirigeant
-# npm --prefix admin run test:e2e
-
 import { test, expect } from "@playwright/test";
 
-test("briefing répond", async ({ page }) => {
-  await page.goto("http://127.0.0.1:3000/briefing");
-  await expect(page.getByRole("heading", { name: /Briefing dirigeant/i })).toBeVisible();
-});
-
-test("inbox actionnable répond", async ({ page }) => {
-  await page.goto("http://127.0.0.1:3000/inbox");
-  await expect(page.getByRole("heading", { name: /Inbox dirigeant/i })).toBeVisible();
-});
-
-test("playbooks administration", async ({ page }) => {
-  await page.goto("http://127.0.0.1:3000/administration/playbooks");
-  await expect(page.getByRole("heading", { name: /Playbooks métier/i })).toBeVisible();
+test("cockpit dirigeant reste derrière le login", async ({ page }) => {
+  for (const path of ["/dashboard", "/missions", "/administration/playbooks", "/gestion"]) {
+    await page.goto(path);
+    await expect(page, path).toHaveURL(/\/login/);
+    await expect(page.getByRole("heading", { name: /^Connexion$/i })).toBeVisible();
+  }
 });

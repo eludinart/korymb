@@ -36,6 +36,7 @@ type BriefingRitual = {
     alert?: boolean;
   };
   missions_running?: { job_id: string; mission?: string }[];
+  unconsulted_results_count?: number;
 };
 
 type Props = {
@@ -67,6 +68,7 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
   const memory = data.memory_highlights || [];
   const inboxTotal = Number(data.inbox_total ?? 0);
   const running = data.missions_running || [];
+  const unconsultedCount = Number(data.unconsulted_results_count ?? 0);
   const status = data.ritual_status || "clear";
   const llm = data.llm_readiness || {};
   const recentErrors = data.recent_errors || [];
@@ -134,6 +136,9 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
           {Number(budget.cost_week_usd || 0).toFixed(2)}
           {budget.budget_exceeded || budget.alert ? " · Alerte budget active" : ""}
           {running.length > 0 ? ` · ${running.length} mission(s) en cours` : ""}
+          {unconsultedCount > 0
+            ? ` · ${unconsultedCount} résultat(s) non consulté(s)`
+            : ""}
         </p>
         {llm.ready === false && llm.blocker ? (
           <p className="mt-2 text-sm font-bold">

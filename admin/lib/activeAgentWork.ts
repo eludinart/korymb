@@ -239,7 +239,14 @@ export function scoreActiveJobPriority(job: ActiveAgentJob): number {
 
 export function pickPrimaryActiveJob(jobs: ActiveAgentJob[]): ActiveAgentJob | null {
   if (!jobs.length) return null;
-  return [...jobs].sort((a, b) => scoreActiveJobPriority(b) - scoreActiveJobPriority(a))[0] ?? null;
+  return (
+    [...jobs].sort((a, b) => {
+      const liveA = a.execution_live === false ? 0 : 1;
+      const liveB = b.execution_live === false ? 0 : 1;
+      if (liveB !== liveA) return liveB - liveA;
+      return scoreActiveJobPriority(b) - scoreActiveJobPriority(a);
+    })[0] ?? null
+  );
 }
 
 function toolCreatesDeliverable(toolHint: string): boolean {
@@ -428,7 +435,21 @@ export function resolveAgentActivity(job: ActiveAgentJob, nowMs: number = Date.n
   const lastMs = lastEventTimestamp(job);
   const lastType = String(job.last_event_type || "");
   if (lastMs === undefined) {
-    return { state: "working", working: true, label: "Agents au travail", freshness: "Activité en cours" };
+    // Thread mémoire présent : démarrage possible. Sinon : ne pas afficher « agents au travail ».
+    if (job.execution_live === true) {
+      return {
+        state: "between",
+        working: true,
+        label: "Démarrage",
+        freshness: "Thread actif — premier signal en attente",
+      };
+    }
+    return {
+      state: "stalled",
+      working: false,
+      label: "Sans signal",
+      freshness: "Marqué en cours en base, mais aucune activité observée",
+    };
   }
   const ageSeconds = Math.max(0, (nowMs - lastMs) / 1000);
   const fresh = formatAge(ageSeconds);

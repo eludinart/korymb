@@ -3,21 +3,25 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import CioArbitrageQuestionRow from "../CioArbitrageQuestionRow";
+import CioArbitrageQuestionnaire from "../CioArbitrageQuestionnaire";
 import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import {
-  useCioAnswerAndResume,
+  useCioAnswersAndResume,
   useHitlResolve,
+  useActionResolve,
   useInboxDismiss,
   useLearningResolve,
   useQualityOverride,
   useSchedulerApprove,
   useSchedulerReject,
+  useCloseMission,
   useValidateMission,
+  usePrepareCrmFollowUp,
+  useCompleteCrmFollowUp,
 } from "../../lib/missionActions";
 import InboxMetaStrip from "./InboxMetaStrip";
 
@@ -26,6 +30,8 @@ export type InboxActionItem = {
   job_id?: string;
   output_id?: string;
   suggestion_id?: string;
+  ticket_id?: string;
+  event_id?: string;
   title?: string;
   mission?: string;
   status?: string;
@@ -41,6 +47,30 @@ export type InboxActionItem = {
   priority_rank?: number;
   questions?: string[];
   hitl_kind?: string;
+  action_kind?: string;
+  primary_cta?: string;
+  contact_id?: string;
+  summary?: string;
+  preview_url?: string;
+  overdue?: boolean;
+  starts_at?: string;
+  payload?: {
+    to?: string;
+    subject?: string;
+    body?: string;
+    tool?: string;
+    summary?: string;
+    start_at?: string;
+    end_at?: string;
+    caption?: string;
+    content?: string;
+    platform?: string;
+    contact_id?: string;
+    contact_email?: string;
+    contact_name?: string;
+    outreach_suggestions?: string;
+    notes?: string;
+  };
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
   proposal_meta?: {
     why_now?: string;
@@ -62,8 +92,9 @@ type Props = {
 };
 
 export default function InboxActionCard({ item, defaultExpanded = false, onDismissed }: Props) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [expanded, setExpanded] = useState(defaultExpanded || item.kind === "action_ticket");
   const [hidden, setHidden] = useState(false);
+  const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
   const jobId = item.job_id || "";
 
   const jobAnswersQuery = useQuery({
@@ -90,43 +121,94 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const [cioResumeJobId, setCioResumeJobId] = useState<string | null>(null);
 
   const hitlResolve = useHitlResolve(jobId);
-  const cioAnswerMut = useCioAnswerAndResume(jobId, {
+  const actionResolve = useActionResolve();
+  const cioAnswerMut = useCioAnswersAndResume(jobId, {
     onSuccess: (resumeJobId) => {
       setCioResumeJobId(resumeJobId);
       void jobAnswersQuery.refetch();
     },
   });
-  const validateMut = useValidateMission(jobId);
+  const hideFromInbox = () => {
+    setHidden(true);
+    onDismissed?.();
+  };
+  const showChainThenHide = (data: { chain?: { steps?: string[] } } | undefined) => {
+    const steps = data?.chain?.steps;
+    if (Array.isArray(steps) && steps.length) {
+      setChainFeedback(steps.map(String));
+      window.setTimeout(() => hideFromInbox(), 1600);
+    } else {
+      hideFromInbox();
+    }
+  };
+  const validateMut = useValidateMission(jobId, hideFromInbox);
+  const closeMut = useCloseMission(jobId, hideFromInbox);
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
   const qualityMut = useQualityOverride(jobId);
-  const dismissMut = useInboxDismiss(() => {
-    setHidden(true);
-    onDismissed?.();
+  const dismissMut = useInboxDismiss(hideFromInbox);
+  const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
+    showChainThenHide(data as { chain?: { steps?: string[] } });
   });
+  const completeFollowUpMut = useCompleteCrmFollowUp(hideFromInbox);
 
   const busy =
     hitlResolve.isPending ||
+    actionResolve.isPending ||
     cioAnswerMut.isPending ||
     validateMut.isPending ||
+    closeMut.isPending ||
     schedApprove.isPending ||
     schedReject.isPending ||
     learningMut.isPending ||
     qualityMut.isPending ||
-    dismissMut.isPending;
+    dismissMut.isPending ||
+    prepareFollowUpMut.isPending ||
+    completeFollowUpMut.isPending;
 
-  const onCioSubmit = async (question: string, answer: string) => {
-    if (!answer.trim()) return;
-    await cioAnswerMut.mutateAsync({ answer: answer.trim(), question });
+  const approveActionTicket = () => {
+    if (!item.ticket_id) return;
+    actionResolve.mutate(
+      { ticketId: item.ticket_id, decision: "approve" },
+      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+    );
+  };
+
+  const approveCioPlan = () => {
+    if (!jobId) return;
+    hitlResolve.mutate(
+      { decision: "approve" },
+      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+    );
+  };
+
+  const isCioPlanHitl = item.kind === "hitl" && item.hitl_kind === "cio_plan";
+
+  const actionPrimaryLabel =
+    item.primary_cta ||
+    (item.action_kind === "calendar"
+      ? "Valider et créer"
+      : item.action_kind === "wordpress" || item.action_kind === "social"
+        ? "Valider et publier"
+        : "Approuver et envoyer");
+
+  const cioPrimaryLabel = item.primary_cta || "Valider et lancer";
+
+  const onCioValidate = async (answers: Array<{ question: string; answer: string }>) => {
+    if (!answers.length) return;
+    await cioAnswerMut.mutateAsync(answers);
   };
 
   const [rejectReason, setRejectReason] = useState("");
 
   const kindLabel: Record<string, string> = {
     hitl: "HITL",
+    action_ticket: "Envoi",
+    crm_follow_up: "Relance",
     cio_question: "Question CIO",
     closure: "Clôture",
+    mission_error: "Échec",
     scheduler_output: "Approbation",
     learning_suggestion: "Apprentissage",
     quality: "Qualité",
@@ -134,8 +216,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const kindBadgeClass: Record<string, string> = {
     hitl: "kind-badge kind-badge--hitl",
+    action_ticket: "kind-badge kind-badge--action_ticket",
+    crm_follow_up: "kind-badge kind-badge--crm_follow_up",
     cio_question: "kind-badge kind-badge--cio_question",
     closure: "kind-badge kind-badge--closure",
+    mission_error: "kind-badge kind-badge--quality",
     scheduler_output: "kind-badge kind-badge--scheduler_output",
     learning_suggestion: "kind-badge kind-badge--learning_suggestion",
     quality: "kind-badge kind-badge--quality",
@@ -153,14 +238,64 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       : undefined);
 
   if (hidden) return null;
+  if (chainFeedback) {
+    return (
+      <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
+        <p className="text-sm font-bold text-emerald-900">Fait — chaîne terminée</p>
+        <ul className="mt-2 space-y-1">
+          {chainFeedback.map((step) => (
+            <li key={step} className="text-sm font-medium text-emerald-800">
+              ✓ {step}
+            </li>
+          ))}
+        </ul>
+      </li>
+    );
+  }
 
-  const onDismiss = () => {
+  const markClosureDone = () => {
+    if (item.kind === "closure" && jobId) {
+      validateMut.mutate();
+      return;
+    }
+    if (item.kind === "mission_error" && jobId) {
+      closeMut.mutate();
+      return;
+    }
     void dismissMut.mutateAsync({
       kind: item.kind,
       job_id: item.job_id,
       output_id: item.output_id,
       suggestion_id: item.suggestion_id,
+      ticket_id: item.ticket_id,
+      event_id: item.event_id,
     });
+  };
+
+  const onDismiss = markClosureDone;
+  const isClosureKind = item.kind === "closure" || item.kind === "mission_error";
+  const isCrmFollowUp = item.kind === "crm_follow_up" && Boolean(item.event_id);
+  const hasFollowUpEmail = Boolean(item.payload?.contact_email || item.payload?.to);
+  const doneLabel =
+    item.kind === "mission_error"
+      ? closeMut.isPending
+        ? "Clôture…"
+        : "Marquer comme terminé"
+      : validateMut.isPending
+        ? "Validation…"
+        : "Marquer comme terminé";
+
+  const markFollowUpDone = () => {
+    if (!item.event_id) return;
+    completeFollowUpMut.mutate({ eventId: item.event_id, snoozeDays: 0 });
+  };
+  const snoozeFollowUp = () => {
+    if (!item.event_id) return;
+    completeFollowUpMut.mutate({ eventId: item.event_id, snoozeDays: 3 });
+  };
+  const prepareFollowUp = () => {
+    if (!item.event_id) return;
+    prepareFollowUpMut.mutate(item.event_id);
   };
 
   return (
@@ -169,9 +304,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
         type="button"
         onClick={onDismiss}
         disabled={busy}
-        className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-        aria-label="Supprimer cette décision"
-        title="Supprimer — ne plus afficher"
+        className="absolute right-3 top-3 z-10 touch-target flex items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+        aria-label={isClosureKind ? "Marquer comme terminé" : "Supprimer cette décision"}
+        title={isClosureKind ? "Marquer comme terminé — ne plus afficher" : "Supprimer — ne plus afficher"}
       >
         ×
       </button>
@@ -236,35 +371,221 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </p>
           ) : null}
         </div>
-        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
-          <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary px-4 py-2.5 text-sm">
-            {expanded ? "Réduire" : "Agir maintenant"}
-          </button>
+        <div className="flex w-full shrink-0 flex-row flex-wrap gap-2 sm:w-auto sm:flex-col">
+          {item.kind === "action_ticket" && item.ticket_id ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={approveActionTicket}
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
+              title="Exécuter l'action et enchaîner CRM / relance si applicable"
+            >
+              {actionResolve.isPending ? "Exécution…" : actionPrimaryLabel}
+            </button>
+          ) : null}
+          {isCrmFollowUp ? (
+            <>
+              {hasFollowUpEmail ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={prepareFollowUp}
+                  className="btn-success flex-1 px-4 text-sm sm:flex-none"
+                  title="Préparer un brouillon e-mail à valider dans l'inbox"
+                >
+                  {prepareFollowUpMut.isPending ? "Préparation…" : item.primary_cta || "Préparer l'e-mail"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={markFollowUpDone}
+                className="btn-primary flex-1 px-4 text-sm sm:flex-none"
+                title="Marquer la relance comme faite"
+              >
+                {completeFollowUpMut.isPending ? "…" : "Fait"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={snoozeFollowUp}
+                className="btn-link-secondary flex-1 text-center sm:flex-none"
+                title="Reporter de 3 jours"
+              >
+                +3 j
+              </button>
+            </>
+          ) : null}
+          {isCioPlanHitl && jobId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={approveCioPlan}
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
+              title="Valider le plan CIO et relancer la mission"
+            >
+              {hitlResolve.isPending ? "Lancement…" : cioPrimaryLabel}
+            </button>
+          ) : null}
+          {isClosureKind && jobId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={markClosureDone}
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
+              title="Clôturer la mission et la retirer de l'inbox"
+            >
+              {doneLabel}
+            </button>
+          ) : null}
+          {item.kind === "action_ticket" || isCioPlanHitl || isCrmFollowUp ? (
+            <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-link-secondary flex-1 text-center sm:flex-none">
+              {expanded ? "Réduire" : isCioPlanHitl ? "Voir le plan" : isCrmFollowUp ? "Contexte" : "Voir le contenu"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary flex-1 px-4 text-sm sm:flex-none">
+              {expanded ? "Réduire" : "Agir"}
+            </button>
+          )}
           {jobId ? (
-            <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-secondary text-center">
-              Ouvrir mission
+            <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-secondary flex-1 text-center sm:flex-none">
+              Mission
             </Link>
           ) : null}
-          <button
-            type="button"
-            onClick={onDismiss}
-            disabled={busy}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
-            title="Retirer cette décision de votre briefing et inbox"
-          >
-            {dismissMut.isPending ? "Suppression…" : "Supprimer"}
-          </button>
+          {(item.contact_id || item.payload?.contact_id) && (item.kind === "action_ticket" || isCrmFollowUp) ? (
+            <Link
+              href={`/gestion/contacts/${encodeURIComponent(item.contact_id || item.payload?.contact_id || "")}`}
+              className="btn-link-secondary flex-1 text-center sm:flex-none"
+            >
+              Fiche CRM
+            </Link>
+          ) : null}
+          {!isClosureKind && item.kind !== "action_ticket" && !isCioPlanHitl && !isCrmFollowUp ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={busy}
+              className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
+              title="Retirer cette décision de votre briefing et inbox"
+            >
+              {dismissMut.isPending ? "Suppression…" : "Supprimer"}
+            </button>
+          ) : null}
         </div>
       </div>
 
       {expanded ? (
         <div className="mt-4 border-t-2 border-violet-100 pt-4">
+          {isCrmFollowUp ? (
+            <div className="space-y-3">
+              {item.overdue ? (
+                <p className="text-sm font-bold text-amber-800">En retard par rapport au créneau prévu</p>
+              ) : null}
+              {item.starts_at ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Créneau :</span> {item.starts_at}
+                </p>
+              ) : null}
+              {item.payload?.contact_email ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">E-mail :</span> {item.payload.contact_email}
+                </p>
+              ) : (
+                <p className="text-sm text-amber-800">Pas d&apos;e-mail sur la fiche — complétez le contact ou marquez fait.</p>
+              )}
+              {item.summary ? (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.summary}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
+          {item.kind === "action_ticket" && item.ticket_id ? (
+            <div className="space-y-3">
+              {item.payload?.to ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">À :</span> {item.payload.to}
+                </p>
+              ) : null}
+              {item.payload?.subject ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Objet :</span> {item.payload.subject}
+                </p>
+              ) : null}
+              {item.payload?.start_at ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Créneau :</span> {item.payload.start_at}
+                  {item.payload.end_at ? ` → ${item.payload.end_at}` : ""}
+                </p>
+              ) : null}
+              {item.payload?.platform ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Plateforme :</span> {item.payload.platform}
+                </p>
+              ) : null}
+              {item.preview_url ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Aperçu :</span>{" "}
+                  <a href={item.preview_url} target="_blank" rel="noreferrer" className="text-violet-800 underline">
+                    {item.preview_url}
+                  </a>
+                </p>
+              ) : null}
+              {item.payload?.body || item.payload?.caption || item.payload?.content ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.payload.body || item.payload.caption || item.payload.content}
+                </pre>
+              ) : item.summary ? (
+                <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.summary}
+                </pre>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={approveActionTicket}
+                  className="btn-success"
+                >
+                  {actionResolve.isPending ? "Exécution…" : actionPrimaryLabel}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    actionResolve.mutate(
+                      { ticketId: item.ticket_id!, decision: "reject" },
+                      { onSuccess: () => hideFromInbox() },
+                    )
+                  }
+                  className="btn-danger"
+                >
+                  Rejeter
+                </button>
+              </div>
+              {item.action_kind === "email" ? (
+                <p className="text-xs text-slate-500">
+                  Un clic envoie l&apos;e-mail, journalise le CRM si le destinataire est connu, et planifie une relance J+7 dans Gestion → Planning.
+                </p>
+              ) : null}
+              {item.action_kind === "social" || item.action_kind === "wordpress" ? (
+                <p className="text-xs text-slate-500">
+                  Un clic publie le contenu et planifie un suivi (mesurer / relayer) dans Gestion → Planning.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           {item.kind === "hitl" && jobId ? (
             <div className="space-y-3">
               {item.hitl_kind === "cio_plan" && hitlQuery.data ? (
                 <>
                   <PlanDiffPanel jobId={jobId} compact />
-                  <CioPlanHitlPanel jobId={jobId} hitl={hitlQuery.data?.hitl ?? hitlQuery.data} />
+                  <CioPlanHitlPanel
+                    jobId={jobId}
+                    hitl={hitlQuery.data?.hitl ?? hitlQuery.data}
+                    onResolved={(data) => showChainThenHide(data)}
+                  />
                 </>
               ) : hitlQuery.data ? (
                 <MissionHitlResolver jobId={jobId} hitl={hitlQuery.data} />
@@ -276,20 +597,12 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
           {item.kind === "cio_question" && jobId ? (
             <div className="space-y-3">
-              {cioQuestions.length > 0 ? (
-                <ol className="space-y-2.5">
-                  {cioQuestions.map((q, i) => (
-                    <CioArbitrageQuestionRow
-                      key={`${i}-${q.slice(0, 40)}`}
-                      index={i}
-                      question={q}
-                      savedAnswer={questionAnswers[q.trim()]}
-                      busy={cioAnswerMut.isPending}
-                      onSubmit={(answer) => onCioSubmit(q, answer)}
-                    />
-                  ))}
-                </ol>
-              ) : null}
+              <CioArbitrageQuestionnaire
+                questions={cioQuestions}
+                savedAnswers={questionAnswers}
+                busy={cioAnswerMut.isPending}
+                onValidateAndLaunch={onCioValidate}
+              />
               {cioResumeJobId ? (
                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-violet-500 align-middle" />
@@ -303,9 +616,31 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           ) : null}
 
           {item.kind === "closure" && jobId ? (
-            <button type="button" disabled={busy} onClick={() => validateMut.mutate()} className="btn-success">
-              {validateMut.isPending ? "Validation…" : "Valider mission"}
-            </button>
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600">
+                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer de l’inbox.
+              </p>
+              <button type="button" disabled={busy} onClick={markClosureDone} className="btn-success">
+                {doneLabel}
+              </button>
+            </div>
+          ) : null}
+
+          {item.kind === "mission_error" && jobId ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={markClosureDone}
+                className="btn-success"
+                title="Clôturer cette mission en échec (archivage dirigeant)"
+              >
+                {doneLabel}
+              </button>
+              <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
+                Voir la mission →
+              </Link>
+            </div>
           ) : null}
 
           {item.kind === "quality" && jobId ? (
@@ -382,7 +717,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </div>
           ) : null}
 
-          {[hitlResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
+          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
             .map((err, i) => (
               <p key={i} className="mt-2 text-xs text-red-700">
