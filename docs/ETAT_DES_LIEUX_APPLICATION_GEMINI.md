@@ -1,5 +1,7 @@
 # Etat des lieux complet - korymb (brief IA pour Gemini)
 
+> **Obsolète (sept. 2026).** Plusieurs constats sont faux aujourd'hui : pytest est dans la CI, `backend/main.py` délègue aux routers, le front unique est Next.js. Pour l'état courant de l'écosystème (Korymb, Fleur, Hermes) et le contrôle P0 : `docs/ADMINISTRATION.md` + `npm run smoke:p0`.
+
 ## 1) Objectif du document
 
 Ce document sert de base de travail pour une IA (Gemini) afin de:
