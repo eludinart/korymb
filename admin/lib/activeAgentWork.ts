@@ -435,7 +435,21 @@ export function resolveAgentActivity(job: ActiveAgentJob, nowMs: number = Date.n
   const lastMs = lastEventTimestamp(job);
   const lastType = String(job.last_event_type || "");
   if (lastMs === undefined) {
-    return { state: "working", working: true, label: "Agents au travail", freshness: "Activité en cours" };
+    // Thread mémoire présent : démarrage possible. Sinon : ne pas afficher « agents au travail ».
+    if (job.execution_live === true) {
+      return {
+        state: "between",
+        working: true,
+        label: "Démarrage",
+        freshness: "Thread actif — premier signal en attente",
+      };
+    }
+    return {
+      state: "stalled",
+      working: false,
+      label: "Sans signal",
+      freshness: "Marqué en cours en base, mais aucune activité observée",
+    };
   }
   const ageSeconds = Math.max(0, (nowMs - lastMs) / 1000);
   const fresh = formatAge(ageSeconds);

@@ -65,7 +65,8 @@ export function loadConversations(): ChatConversation[] {
 
 export function saveConversations(conversations: ChatConversation[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(INDEX_KEY, JSON.stringify(conversations));
+  const sorted = [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  localStorage.setItem(INDEX_KEY, JSON.stringify(sorted));
 }
 
 export function getActiveConversationId(): string | null {

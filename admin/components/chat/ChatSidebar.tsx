@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import type { ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
 
@@ -13,15 +14,17 @@ type Props = {
   className?: string;
 };
 
-function formatRelative(ts: number): string {
+/** Date + heure toujours visibles (fr-FR). */
+function formatDateTime(ts: number): string {
   const d = new Date(ts);
-  const now = new Date();
-  const sameDay =
-    d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  if (sameDay) {
-    return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
-  }
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+  if (!Number.isFinite(d.getTime())) return "—";
+  const date = d.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return `${date} ${time}`;
 }
 
 export default function ChatSidebar({
@@ -33,6 +36,11 @@ export default function ChatSidebar({
   onDelete,
   className = "",
 }: Props) {
+  const sorted = useMemo(
+    () => [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)),
+    [conversations],
+  );
+
   const pendingByConv = new Map<string, PendingChatJob[]>();
   for (const j of pendingJobs) {
     const list = pendingByConv.get(j.conversationId) || [];
@@ -56,10 +64,10 @@ export default function ChatSidebar({
       </div>
 
       <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
-        {conversations.length === 0 ? (
+        {sorted.length === 0 ? (
           <li className="px-2 py-6 text-center text-xs text-slate-500">Aucune conversation pour l&apos;instant.</li>
         ) : (
-          conversations.map((c) => {
+          sorted.map((c) => {
             const active = c.id === activeId;
             const pending = pendingByConv.get(c.id) || [];
             const working = pending.length > 0;
@@ -88,9 +96,13 @@ export default function ChatSidebar({
                       >
                         {c.title}
                       </p>
-                      <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
-                        {formatRelative(c.updatedAt)}
-                      </span>
+                      <time
+                        dateTime={new Date(c.updatedAt).toISOString()}
+                        className="shrink-0 text-right text-[10px] leading-tight tabular-nums text-slate-400"
+                        title={formatDateTime(c.updatedAt)}
+                      >
+                        {formatDateTime(c.updatedAt)}
+                      </time>
                     </div>
 
                     {working ? (

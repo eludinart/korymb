@@ -21,6 +21,7 @@ from database import (
     list_jobs as db_list_jobs,
     job_set_user_validated,
     job_close_mission_by_user,
+    job_mark_result_consulted,
     delete_mission_session,
     merge_job_deliverables_ui,
     update_job,
@@ -321,6 +322,9 @@ def close_mission_by_user_body(payload: ValidateMissionPayload):
     return close_mission_by_user_impl(jid)
 
 
+_ACTIVE_JOB_STATUSES = frozenset({"running", "pending", "awaiting_validation", "paused"})
+
+
 @router.get("/jobs/summary", dependencies=[Depends(resolve_tenant)])
 def list_jobs_summary_route(limit: int = 80):
     from database import list_jobs_summary as db_list_jobs_summary
@@ -333,10 +337,16 @@ def list_jobs_cards_route(limit: int = 80):
     """Liste légère pour cartes missions / historique (résultat tronqué, pas de thread/events/plan)."""
     from database import list_jobs_cards_light
 
-    return {"jobs": list_jobs_cards_light(limit=limit)}
-
-
-_ACTIVE_JOB_STATUSES = frozenset({"running", "pending", "awaiting_validation", "paused"})
+    rows = list_jobs_cards_light(limit=limit)
+    for row in rows:
+        jid = str(row.get("job_id") or "")
+        st = str(row.get("status") or "")
+        if st in _ACTIVE_JOB_STATUSES:
+            mem = active_jobs.get(jid)
+            row["execution_live"] = bool(mem and str(mem.get("status") or "") in _ACTIVE_JOB_STATUSES)
+        else:
+            row["execution_live"] = None
+    return {"jobs": rows}
 
 
 def _event_preview(ev: dict) -> str:
@@ -457,20 +467,32 @@ def list_active_jobs_route():
 @router.post("/jobs/cleanup-orphans", dependencies=[Depends(resolve_tenant)])
 def cleanup_orphan_jobs_route():
     """Annule en base les jobs « running » sans thread actif (fantômes après redémarrage)."""
+    return cleanup_orphan_active_jobs(include_awaiting=True)
+
+
+def cleanup_orphan_active_jobs(*, include_awaiting: bool = False) -> dict:
+    """
+    Réconcilie la base avec la mémoire vive.
+    Au démarrage : running/pending seulement (conserve HITL / pause).
+    Depuis le bandeau : peut aussi nettoyer awaiting_validation / paused.
+    """
     from database import list_orphan_active_job_rows
 
     live_ids = set(active_jobs.keys())
     cleaned: list[str] = []
     msg = (
         "## Mission interrompue\n\n"
-        "Processus fantôme nettoyé depuis le bandeau (plus actif côté serveur)."
+        "Processus fantôme nettoyé (plus actif côté serveur — souvent après un redémarrage)."
     )
+    allowed = {"running", "pending"}
+    if include_awaiting:
+        allowed |= {"awaiting_validation", "paused"}
     for row in list_orphan_active_job_rows(limit=80):
         jid = str(row.get("id") or "")
         if not jid or jid in live_ids:
             continue
         st = str(row.get("status") or "")
-        if st not in ("running", "pending", "awaiting_validation", "paused"):
+        if st not in allowed:
             continue
         update_job(
             jid,
@@ -508,6 +530,9 @@ def list_jobs_light_route(limit: int = 50):
             break
         ti = int(j.get("tokens_in") or 0)
         to = int(j.get("tokens_out") or 0)
+        jid = str(j.get("id") or "")
+        mem = active_jobs.get(jid)
+        live = bool(mem and str(mem.get("status") or "") in _ACTIVE_JOB_STATUSES)
         out.append({
             "job_id": j.get("id"),
             "agent": j.get("agent"),
@@ -520,6 +545,7 @@ def list_jobs_light_route(limit: int = 50):
             "tokens_total": ti + to,
             "cost_usd": round((ti * pin + to * pout) / 1_000_000, 5),
             "user_validated_at": j.get("user_validated_at"),
+            "execution_live": live if str(j.get("status") or "") in _ACTIVE_JOB_STATUSES else None,
         })
     return {"jobs": out}
 
@@ -629,6 +655,20 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
 @router.post("/jobs/{job_id}/validate-mission", dependencies=[Depends(resolve_tenant)])
 def validate_mission_by_user(job_id: str):
     return validate_mission_by_user_impl(job_id)
+
+
+@router.post("/jobs/{job_id}/result-consulted", dependencies=[Depends(resolve_tenant)])
+def mark_job_result_consulted(job_id: str):
+    """Marque le résultat de la mission comme consulté (briefing « à reprendre »)."""
+    jid = _norm_job_id(job_id)
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    out = job_mark_result_consulted(jid)
+    if not out:
+        raise HTTPException(status_code=404, detail="Job introuvable.")
+    if jid in active_jobs:
+        active_jobs[jid]["result_consulted_at"] = out.get("result_consulted_at")
+    return out
 
 
 @router.post("/jobs/{job_id}/close-mission", dependencies=[Depends(resolve_tenant)])

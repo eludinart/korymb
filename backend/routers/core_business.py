@@ -21,6 +21,7 @@ from services.business_db import (
     apply_outreach_from_job,
     build_contact_exploration_mission,
     build_contact_outreach_mission,
+    complete_crm_follow_up,
     create_calendar_event,
     create_contact,
     create_external_invoice,
@@ -46,6 +47,7 @@ from services.business_db import (
     list_interactions,
     list_projects,
     list_quotes,
+    prepare_follow_up_email_ticket,
     rebalance_all_contacts_notes_outreach,
     rebalance_contact_notes_outreach,
     reject_enrichment_proposal,
@@ -775,3 +777,32 @@ async def business_delete_event(event_id: str):
     if not delete_calendar_event(event_id):
         raise HTTPException(404, detail="Événement introuvable")
     return {"deleted": True}
+
+
+class CrmFollowUpCompleteBody(BaseModel):
+    snooze_days: int = Field(0, ge=0, le=30)
+
+
+@router.post("/business/events/{event_id}/prepare-follow-up-email", dependencies=[Depends(resolve_tenant)])
+async def business_prepare_follow_up_email(event_id: str):
+    """Prépare un ticket e-mail HITL depuis une relance planning due."""
+    result = prepare_follow_up_email_ticket(event_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Impossible de préparer la relance",
+        )
+    return result
+
+
+@router.post("/business/events/{event_id}/complete-follow-up", dependencies=[Depends(resolve_tenant)])
+async def business_complete_follow_up(event_id: str, body: CrmFollowUpCompleteBody | None = None):
+    """Marque une relance CRM comme faite, ou la reporte (snooze_days)."""
+    snooze = int((body.snooze_days if body else 0) or 0)
+    result = complete_crm_follow_up(event_id, snooze_days=snooze)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Impossible de clôturer la relance",
+        )
+    return result

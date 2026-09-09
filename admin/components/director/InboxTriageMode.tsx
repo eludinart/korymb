@@ -13,6 +13,7 @@ type Props = {
 
 function stableInboxKey(item: InboxActionItem, index: number): string {
   return (
+    item.event_id ||
     item.job_id ||
     item.ticket_id ||
     item.output_id ||
@@ -38,6 +39,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
     if (!focusParam || !sorted.length) return;
     const idx = sorted.findIndex(
       (it, i) =>
+        it.event_id === focusParam ||
         it.job_id === focusParam ||
         it.ticket_id === focusParam ||
         it.output_id === focusParam ||

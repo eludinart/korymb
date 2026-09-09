@@ -21,6 +21,8 @@ import {
   useSchedulerReject,
   useCloseMission,
   useValidateMission,
+  usePrepareCrmFollowUp,
+  useCompleteCrmFollowUp,
 } from "../../lib/missionActions";
 import InboxMetaStrip from "./InboxMetaStrip";
 
@@ -30,6 +32,7 @@ export type InboxActionItem = {
   output_id?: string;
   suggestion_id?: string;
   ticket_id?: string;
+  event_id?: string;
   title?: string;
   mission?: string;
   status?: string;
@@ -50,6 +53,8 @@ export type InboxActionItem = {
   contact_id?: string;
   summary?: string;
   preview_url?: string;
+  overdue?: boolean;
+  starts_at?: string;
   payload?: {
     to?: string;
     subject?: string;
@@ -62,6 +67,10 @@ export type InboxActionItem = {
     content?: string;
     platform?: string;
     contact_id?: string;
+    contact_email?: string;
+    contact_name?: string;
+    outreach_suggestions?: string;
+    notes?: string;
   };
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
   proposal_meta?: {
@@ -140,6 +149,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const learningMut = useLearningResolve();
   const qualityMut = useQualityOverride(jobId);
   const dismissMut = useInboxDismiss(hideFromInbox);
+  const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
+    showChainThenHide(data as { chain?: { steps?: string[] } });
+  });
+  const completeFollowUpMut = useCompleteCrmFollowUp(hideFromInbox);
 
   const busy =
     hitlResolve.isPending ||
@@ -151,7 +164,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     schedReject.isPending ||
     learningMut.isPending ||
     qualityMut.isPending ||
-    dismissMut.isPending;
+    dismissMut.isPending ||
+    prepareFollowUpMut.isPending ||
+    completeFollowUpMut.isPending;
 
   const approveActionTicket = () => {
     if (!item.ticket_id) return;
@@ -191,6 +206,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const kindLabel: Record<string, string> = {
     hitl: "HITL",
     action_ticket: "Envoi",
+    crm_follow_up: "Relance",
     cio_question: "Question CIO",
     closure: "Clôture",
     mission_error: "Échec",
@@ -202,6 +218,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const kindBadgeClass: Record<string, string> = {
     hitl: "kind-badge kind-badge--hitl",
     action_ticket: "kind-badge kind-badge--action_ticket",
+    crm_follow_up: "kind-badge kind-badge--crm_follow_up",
     cio_question: "kind-badge kind-badge--cio_question",
     closure: "kind-badge kind-badge--closure",
     mission_error: "kind-badge kind-badge--quality",
@@ -252,11 +269,14 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       output_id: item.output_id,
       suggestion_id: item.suggestion_id,
       ticket_id: item.ticket_id,
+      event_id: item.event_id,
     });
   };
 
   const onDismiss = markClosureDone;
   const isClosureKind = item.kind === "closure" || item.kind === "mission_error";
+  const isCrmFollowUp = item.kind === "crm_follow_up" && Boolean(item.event_id);
+  const hasFollowUpEmail = Boolean(item.payload?.contact_email || item.payload?.to);
   const doneLabel =
     item.kind === "mission_error"
       ? closeMut.isPending
@@ -265,6 +285,19 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       : validateMut.isPending
         ? "Validation…"
         : "Marquer comme terminé";
+
+  const markFollowUpDone = () => {
+    if (!item.event_id) return;
+    completeFollowUpMut.mutate({ eventId: item.event_id, snoozeDays: 0 });
+  };
+  const snoozeFollowUp = () => {
+    if (!item.event_id) return;
+    completeFollowUpMut.mutate({ eventId: item.event_id, snoozeDays: 3 });
+  };
+  const prepareFollowUp = () => {
+    if (!item.event_id) return;
+    prepareFollowUpMut.mutate(item.event_id);
+  };
 
   return (
     <li className="action-card relative list-none">
@@ -351,6 +384,39 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               {actionResolve.isPending ? "Exécution…" : actionPrimaryLabel}
             </button>
           ) : null}
+          {isCrmFollowUp ? (
+            <>
+              {hasFollowUpEmail ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={prepareFollowUp}
+                  className="btn-success flex-1 px-4 text-sm sm:flex-none"
+                  title="Préparer un brouillon e-mail à valider dans l'inbox"
+                >
+                  {prepareFollowUpMut.isPending ? "Préparation…" : item.primary_cta || "Préparer l'e-mail"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={busy}
+                onClick={markFollowUpDone}
+                className="btn-primary flex-1 px-4 text-sm sm:flex-none"
+                title="Marquer la relance comme faite"
+              >
+                {completeFollowUpMut.isPending ? "…" : "Fait"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={snoozeFollowUp}
+                className="btn-link-secondary flex-1 text-center sm:flex-none"
+                title="Reporter de 3 jours"
+              >
+                +3 j
+              </button>
+            </>
+          ) : null}
           {isCioPlanHitl && jobId ? (
             <button
               type="button"
@@ -373,9 +439,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               {doneLabel}
             </button>
           ) : null}
-          {item.kind === "action_ticket" || isCioPlanHitl ? (
+          {item.kind === "action_ticket" || isCioPlanHitl || isCrmFollowUp ? (
             <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-link-secondary flex-1 text-center sm:flex-none">
-              {expanded ? "Réduire" : isCioPlanHitl ? "Voir le plan" : "Voir le contenu"}
+              {expanded ? "Réduire" : isCioPlanHitl ? "Voir le plan" : isCrmFollowUp ? "Contexte" : "Voir le contenu"}
             </button>
           ) : (
             <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary flex-1 px-4 text-sm sm:flex-none">
@@ -387,7 +453,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               Mission
             </Link>
           ) : null}
-          {(item.contact_id || item.payload?.contact_id) && item.kind === "action_ticket" ? (
+          {(item.contact_id || item.payload?.contact_id) && (item.kind === "action_ticket" || isCrmFollowUp) ? (
             <Link
               href={`/gestion/contacts/${encodeURIComponent(item.contact_id || item.payload?.contact_id || "")}`}
               className="btn-link-secondary flex-1 text-center sm:flex-none"
@@ -395,7 +461,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               Fiche CRM
             </Link>
           ) : null}
-          {!isClosureKind && item.kind !== "action_ticket" && !isCioPlanHitl ? (
+          {!isClosureKind && item.kind !== "action_ticket" && !isCioPlanHitl && !isCrmFollowUp ? (
             <button
               type="button"
               onClick={onDismiss}
@@ -411,6 +477,30 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
       {expanded ? (
         <div className="mt-4 border-t-2 border-violet-100 pt-4">
+          {isCrmFollowUp ? (
+            <div className="space-y-3">
+              {item.overdue ? (
+                <p className="text-sm font-bold text-amber-800">En retard par rapport au créneau prévu</p>
+              ) : null}
+              {item.starts_at ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">Créneau :</span> {item.starts_at}
+                </p>
+              ) : null}
+              {item.payload?.contact_email ? (
+                <p className="text-sm text-slate-700">
+                  <span className="font-semibold">E-mail :</span> {item.payload.contact_email}
+                </p>
+              ) : (
+                <p className="text-sm text-amber-800">Pas d&apos;e-mail sur la fiche — complétez le contact ou marquez fait.</p>
+              )}
+              {item.summary ? (
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
+                  {item.summary}
+                </pre>
+              ) : null}
+            </div>
+          ) : null}
           {item.kind === "action_ticket" && item.ticket_id ? (
             <div className="space-y-3">
               {item.payload?.to ? (

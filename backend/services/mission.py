@@ -2394,6 +2394,12 @@ def orchestrate_coordinateur_mission(
         if chat_mode and not resultats
         else ""
     )
+    relevance_mandate = (
+        "\n\nAncrage obligatoire : commence par reformuler en une phrase la demande exacte du dirigeant, "
+        "puis réponds UNIQUEMENT à cette demande. Interdit de digresser vers d'autres sujets (tarot, "
+        "partenariats, roadmap…) s'ils n'ont pas été demandés. Si le contexte est insuffisant, dis-le "
+        "plutôt que d'inventer un livrable à côté de la plaque."
+    )
     contact_table_mandate = (
         _CONTACT_TABLE_MANDATE_SUFFIX
         if _mission_wants_contact_table(f"{mission_txt}\n{root_mission_label}")
@@ -2426,7 +2432,7 @@ def orchestrate_coordinateur_mission(
             },
         )
         result, ti3, to3 = llm_turn(
-            system_prompt + chat_tail + synth_grounding,
+            system_prompt + chat_tail + relevance_mandate + synth_grounding,
             synthese_user + contact_table_mandate,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
@@ -2436,7 +2442,7 @@ def orchestrate_coordinateur_mission(
     else:
         solo_questions_suffix = "" if chat_mode else _render_orchestration_prompt("cio_synthesis_solo_suffix", {})
         result, ti3, to3 = llm_turn(
-            system_prompt + chat_tail + chat_solo_honesty + synth_grounding,
+            system_prompt + chat_tail + chat_solo_honesty + relevance_mandate + synth_grounding,
             mission_txt + solo_questions_suffix + contact_table_mandate,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",

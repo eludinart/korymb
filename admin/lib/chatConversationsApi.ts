@@ -30,7 +30,10 @@ export async function fetchChatConversationsFromServer(): Promise<ChatConversati
   const { data } = await requestJson("/chat/conversations", { headers: agentHeaders(), retries: 1 });
   const list = (data as { conversations?: unknown[] })?.conversations;
   if (!Array.isArray(list)) return [];
-  return list.map((r) => fromServerRow(r as Record<string, unknown>)).filter((c) => c.id);
+  return list
+    .map((r) => fromServerRow(r as Record<string, unknown>))
+    .filter((c) => c.id)
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
 }
 
 export async function persistChatConversationToServer(conv: ChatConversation): Promise<void> {

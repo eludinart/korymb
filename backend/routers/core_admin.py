@@ -35,6 +35,7 @@ class InboxDismissBody(BaseModel):
     output_id: str | None = Field(None, max_length=64)
     suggestion_id: str | None = Field(None, max_length=64)
     ticket_id: str | None = Field(None, max_length=64)
+    event_id: str | None = Field(None, max_length=64)
 
     @field_validator("job_id", mode="before")
     @classmethod
@@ -176,6 +177,7 @@ def admin_inbox_dismiss(body: InboxDismissBody):
             output_id=body.output_id,
             suggestion_id=body.suggestion_id,
             ticket_id=body.ticket_id,
+            event_id=body.event_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

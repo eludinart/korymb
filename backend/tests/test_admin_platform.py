@@ -121,8 +121,123 @@ def test_admin_briefing(client):
     assert "top_priorities" in body
     assert isinstance(body["top_priorities"], list)
     assert "memory_highlights" in body
+    assert "unconsulted_results" in body
+    assert isinstance(body["unconsulted_results"], list)
     assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert")
+    assert "commercial" in body
+    assert "counts" in body["commercial"]
 
+
+def test_admin_inbox_crm_follow_up_and_prepare(client):
+    from datetime import datetime
+
+    from services.business_db import create_calendar_event, create_contact
+
+    contact = create_contact(name="Prospect Relance", email="relance@example.com")
+    today = datetime.utcnow().replace(hour=10, minute=0, second=0, microsecond=0)
+    event = create_calendar_event(
+        title=f"Relance — {contact['name']}",
+        starts_at=today.isoformat(),
+        ends_at=(today.replace(minute=30)).isoformat(),
+        contact_id=contact["id"],
+        event_type="autre",
+        notes="Suite devis",
+    )
+    inbox = client.get("/admin/inbox")
+    assert inbox.status_code == 200
+    item = next(
+        i
+        for i in inbox.json()["items"]
+        if i.get("kind") == "crm_follow_up" and i.get("event_id") == event["id"]
+    )
+    assert "Relance" in (item.get("title") or "")
+    assert item.get("primary_cta")
+
+    prepared = client.post(f"/business/events/{event['id']}/prepare-follow-up-email")
+    assert prepared.status_code == 200, prepared.text
+    body = prepared.json()
+    assert body.get("success") is True
+    assert body.get("ticket", {}).get("id")
+    assert any("Brouillon" in s or "e-mail" in s.lower() for s in (body.get("chain") or {}).get("steps") or [])
+
+    inbox2 = client.get("/admin/inbox")
+    assert not any(
+        i.get("kind") == "crm_follow_up" and i.get("event_id") == event["id"] for i in inbox2.json()["items"]
+    )
+    assert any(
+        i.get("kind") == "action_ticket" and i.get("ticket_id") == body["ticket"]["id"]
+        for i in inbox2.json()["items"]
+    )
+
+
+def test_admin_inbox_dismiss_crm_follow_up(client):
+    from datetime import datetime
+
+    from services.business_db import create_calendar_event, create_contact
+
+    contact = create_contact(name="Dismiss Relance", email="dismiss-relance@example.com")
+    today = datetime.utcnow().replace(hour=11, minute=0, second=0, microsecond=0)
+    event = create_calendar_event(
+        title="Relance — Dismiss",
+        starts_at=today.isoformat(),
+        contact_id=contact["id"],
+        event_type="autre",
+    )
+    dismiss = client.post(
+        "/admin/inbox/dismiss",
+        json={"kind": "crm_follow_up", "event_id": event["id"]},
+    )
+    assert dismiss.status_code == 200
+    assert dismiss.json().get("dismiss_key") == f"crm_follow_up:{event['id']}"
+    inbox = client.get("/admin/inbox")
+    assert not any(
+        i.get("kind") == "crm_follow_up" and i.get("event_id") == event["id"] for i in inbox.json()["items"]
+    )
+
+
+def test_complete_crm_follow_up_snooze(client):
+    from datetime import datetime
+
+    from services.business_db import create_calendar_event, get_calendar_event
+
+    today = datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0)
+    event = create_calendar_event(
+        title="Mesurer / republier — test",
+        starts_at=today.isoformat(),
+        event_type="autre",
+    )
+    done = client.post(
+        f"/business/events/{event['id']}/complete-follow-up",
+        json={"snooze_days": 3},
+    )
+    assert done.status_code == 200, done.text
+    assert done.json().get("snoozed_days") == 3
+    updated = get_calendar_event(event["id"])
+    assert updated and updated.get("status") == "planned"
+    assert str(updated.get("starts_at") or "") > today.isoformat()
+
+
+def test_unconsulted_results_mark_and_briefing(client):
+    from database import save_job, update_job
+
+    save_job("uncons01", "coordinateur", "Mission résultat non lu", source="mission")
+    update_job("uncons01", "completed", "## Synthèse\nTout va bien", [], 0, 0)
+
+    briefing = client.get("/admin/briefing?period=today")
+    assert briefing.status_code == 200
+    items = briefing.json().get("unconsulted_results") or []
+    assert any(i.get("job_id") == "uncons01" for i in items)
+
+    marked = client.post("/jobs/uncons01/result-consulted")
+    assert marked.status_code == 200
+    assert marked.json().get("result_consulted_at")
+    again = client.post("/jobs/uncons01/result-consulted")
+    assert again.status_code == 200
+    assert again.json().get("already") is True
+
+    briefing2 = client.get("/admin/briefing?period=today")
+    items2 = briefing2.json().get("unconsulted_results") or []
+    assert not any(i.get("job_id") == "uncons01" for i in items2)
 
 def test_chat_conversations_crud(client):
     cid = "conv-test-01"

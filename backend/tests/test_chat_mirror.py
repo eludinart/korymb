@@ -46,3 +46,15 @@ def test_finalize_mirror_ack_keeps_complete_text():
 def test_finalize_mirror_ack_appends_closing_when_missing():
     out = finalize_mirror_ack("Je m'occupe de votre demande sur les exports clients.")
     assert "arrière-plan" in out.lower() or "notifi" in out.lower()
+
+
+def test_finalize_mirror_ack_strips_fake_two_hour_eta():
+    raw = (
+        "Je lance l'analyse en arrière-plan.\n\n"
+        "Je finalise ces éléments d'ici 2h et vous propose un premier jet pour validation, "
+        "avec notification en chat et alerte cloche."
+    )
+    out = finalize_mirror_ack(raw)
+    assert "2h" not in out.lower()
+    assert "d'ici" not in out.lower() and "d’ici" not in out.lower()
+    assert "notifi" in out.lower() or "cloche" in out.lower()

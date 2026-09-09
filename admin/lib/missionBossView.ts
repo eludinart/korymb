@@ -98,8 +98,15 @@ export function collectMissionClusterJobIds<T extends MissionClusterJob>(
 
 export type { BossJobLike } from "@/lib/types";
 
-export function missionStatusMeta(status?: string | null): { label: string; className: string } {
+export function missionStatusMeta(
+  status?: string | null,
+  opts?: { executionLive?: boolean | null },
+): { label: string; className: string } {
   const s = String(status || "unknown").toLowerCase();
+  const live = opts?.executionLive;
+  if ((s === "running" || s === "in_progress" || s === "pending") && live === false) {
+    return { label: "Interrompue", className: "bg-slate-200 text-slate-800 ring-1 ring-slate-300" };
+  }
   if (s === "running" || s === "in_progress")
     return { label: "En cours", className: "bg-amber-100 text-amber-950 ring-1 ring-amber-200" };
   if (s === "completed")

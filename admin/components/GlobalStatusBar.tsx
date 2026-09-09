@@ -152,8 +152,10 @@ export default function GlobalStatusBar() {
     </p>
   ) : null;
 
-  const jobList = (jobs.data || []) as Array<{ status?: string; cost_usd?: number }>;
-  const running = jobList.filter((j) => j.status === "running").length;
+  const jobList = (jobs.data || []) as Array<{ status?: string; cost_usd?: number; execution_live?: boolean | null }>;
+  const running = jobList.filter(
+    (j) => j.status === "running" && j.execution_live !== false,
+  ).length;
   const completed = jobList.filter((j) => j.status === "completed").length;
   const failed = jobList.filter((j) => String(j.status || "").startsWith("error")).length;
   const totalJobs = jobList.length;

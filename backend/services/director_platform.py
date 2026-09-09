@@ -24,6 +24,7 @@ def _priority_score(kind: str) -> int:
     return {
         "hitl": 0,
         "action_ticket": 0,
+        "crm_follow_up": 0,
         "cio_question": 1,
         "mission_error": 1,
         "closure": 2,
@@ -38,6 +39,7 @@ def _sla_days(kind: str) -> int:
     return {
         "hitl": 1,
         "action_ticket": 1,
+        "crm_follow_up": 0,
         "cio_question": 2,
         "mission_error": 1,
         "closure": 3,
@@ -74,12 +76,13 @@ def _progress_label(kind: str) -> str:
     return {
         "hitl": "Validation dirigeant requise",
         "action_ticket": "Envoi réel — validation requise",
+        "crm_follow_up": "Relance commerciale du jour",
         "cio_question": "Réponse dirigeant attendue",
         "mission_error": "Mission en échec — à traiter ou clôturer",
         "closure": "Mission terminée — clôture en attente",
         "quality": "Contrôle qualité bloquant",
-        "learning_suggestion": "Suggestion d'apprentissage à arbitrer",
-        "scheduler_output": "Proposition autonome à approuver",
+        "learning_suggestion": "Suggestion d'apprentissage",
+        "scheduler_output": "Proposition autonome à arbitrer",
     }.get(kind, "Action requise")
 
 
@@ -183,6 +186,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 output_id=item.get("output_id"),
                 suggestion_id=item.get("suggestion_id"),
                 ticket_id=item.get("ticket_id"),
+                event_id=item.get("event_id"),
             )
             return key in dismissed
         except ValueError:
@@ -343,6 +347,45 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
     except Exception:
         pass
 
+    try:
+        from services.business_db import list_due_crm_follow_ups
+
+        for ev in list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=30):
+            contact = ev.get("contact") if isinstance(ev.get("contact"), dict) else None
+            contact_name = str((contact or {}).get("name") or "").strip()
+            title = str(ev.get("title") or "Relance CRM")
+            if contact_name and contact_name not in title:
+                display = f"{title} — {contact_name}"
+            else:
+                display = title
+            outreach = str((contact or {}).get("outreach_suggestions") or "").strip()
+            items.append(_enrich_inbox_item({
+                "kind": "crm_follow_up",
+                "event_id": ev.get("id"),
+                "contact_id": ev.get("contact_id") or (contact or {}).get("id"),
+                "title": display[:160],
+                "summary": (outreach[:400] if outreach else str(ev.get("notes") or "")[:400]),
+                "starts_at": ev.get("starts_at"),
+                "overdue": bool(ev.get("overdue")),
+                "primary_cta": (
+                    "Préparer l'e-mail"
+                    if (contact or {}).get("email")
+                    else "Ouvrir la fiche"
+                ),
+                "payload": {
+                    "contact_email": (contact or {}).get("email") or "",
+                    "contact_name": contact_name,
+                    "outreach_suggestions": outreach,
+                    "notes": ev.get("notes") or "",
+                },
+                "status": ev.get("status"),
+                "created_at": ev.get("starts_at") or ev.get("created_at"),
+                "updated_at": ev.get("updated_at") or ev.get("starts_at"),
+                "priority_score": _priority_score("crm_follow_up"),
+            }))
+    except Exception:
+        pass
+
     items.sort(key=lambda x: (x.get("priority_score", 9), str(x.get("updated_at") or "")))
     visible = [i for i in items if not _is_dismissed(i)]
     return {"items": visible[:limit], "total": len(visible)}
@@ -353,6 +396,8 @@ def _priority_label(item: dict) -> str:
     title = str(item.get("title") or item.get("mission") or "").strip()
     if kind == "action_ticket":
         return f"Valider l'envoi — {title[:80]}" if title else "Valider une action préparée"
+    if kind == "crm_follow_up":
+        return f"Relance due — {title[:80]}" if title else "Relance commerciale due"
     if kind == "hitl":
         hk = str(item.get("hitl_kind") or "")
         if hk == "cio_plan":
@@ -379,7 +424,8 @@ def _priority_href(item: dict) -> str:
     jid = str(item.get("job_id") or "").strip()
     oid = str(item.get("output_id") or "").strip()
     sid = str(item.get("suggestion_id") or "").strip()
-    focus = tid or jid or oid or sid
+    eid = str(item.get("event_id") or "").strip()
+    focus = tid or jid or oid or sid or eid
     if focus:
         return f"/inbox?triage=1&focus={focus}"
     return "/inbox?triage=1"
@@ -389,7 +435,14 @@ def _build_top_priorities(inbox_items: list[dict], *, limit: int = 3) -> list[di
     out: list[dict] = []
     for item in inbox_items[:limit]:
         out.append({
-            "id": str(item.get("ticket_id") or item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
+            "id": str(
+                item.get("ticket_id")
+                or item.get("event_id")
+                or item.get("job_id")
+                or item.get("output_id")
+                or item.get("suggestion_id")
+                or len(out)
+            ),
             "label": _priority_label(item),
             "href": _priority_href(item),
             "kind": item.get("kind"),
@@ -441,8 +494,15 @@ def _build_executive_summary(
     running_count: int,
     budget: dict,
     analytics: dict,
+    commercial: dict | None = None,
+    unconsulted_count: int = 0,
 ) -> str:
     parts: list[str] = []
+    counts = (commercial or {}).get("counts") if isinstance(commercial, dict) else {}
+    counts = counts if isinstance(counts, dict) else {}
+    follow_ups = int(counts.get("follow_ups_due_today") or 0)
+    stale_quotes = int(counts.get("stale_quotes") or 0)
+
     if inbox_total > 0:
         dec = f"{inbox_total} décision{'s' if inbox_total > 1 else ''} en attente"
         if hitl_count > 0:
@@ -452,6 +512,21 @@ def _build_executive_summary(
         parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
     else:
         parts.append("Aucune action urgente — votre file est vide")
+
+    if unconsulted_count > 0:
+        parts.append(
+            f"{unconsulted_count} résultat{'s' if unconsulted_count > 1 else ''} de mission "
+            f"pas encore consulté{'s' if unconsulted_count > 1 else ''}"
+        )
+
+    if follow_ups > 0:
+        parts.append(
+            f"{follow_ups} relance{'s' if follow_ups > 1 else ''} commerciale{'s' if follow_ups > 1 else ''} due{'s' if follow_ups > 1 else ''} aujourd'hui"
+        )
+    if stale_quotes > 0:
+        parts.append(
+            f"{stale_quotes} devis envoyé{'s' if stale_quotes > 1 else ''} sans réponse (>7 j)"
+        )
 
     if budget.get("budget_exceeded"):
         parts.append("budget journalier dépassé")
@@ -473,7 +548,6 @@ def _build_executive_summary(
     if len(parts) == 1:
         return first[0].upper() + first[1:] + "."
     return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
-
 
 def _ritual_status(inbox_total: int, budget: dict) -> str:
     if budget.get("budget_exceeded"):
@@ -522,12 +596,30 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "budget_exceeded": bool(tokens_summary.get("budget_exceeded")),
         "alert": bool(tokens_summary.get("alert")),
     }
+    commercial: dict[str, Any] = {}
+    try:
+        from services.business_db import get_commercial_morning_snapshot
+
+        commercial = get_commercial_morning_snapshot()
+    except Exception:
+        commercial = {"counts": {}, "follow_ups_due_today": [], "stale_quotes": [], "weak_contacts": []}
+
+    unconsulted: list[dict[str, Any]] = []
+    try:
+        from database import list_unconsulted_result_jobs
+
+        unconsulted = list_unconsulted_result_jobs(limit=12)
+    except Exception:
+        unconsulted = []
+
     executive_summary = _build_executive_summary(
         inbox_total=inbox["total"],
         hitl_count=len(hitl_pending),
         running_count=len(running),
         budget=budget_block,
         analytics=analytics,
+        commercial=commercial,
+        unconsulted_count=len(unconsulted),
     )
 
     return {
@@ -539,10 +631,13 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "ritual_status": _ritual_status(inbox["total"], budget_block),
         "decisions_today": inbox["items"][:5],
         "inbox_total": inbox["total"],
+        "commercial": commercial,
         "missions_running": [
             {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
             for j in running[:10]
         ],
+        "unconsulted_results": unconsulted,
+        "unconsulted_results_count": len(unconsulted),
         "hitl_pending_count": len(hitl_pending),
         "closures_pending_count": len(closures),
         "scheduler_pending_count": len(scheduler_pending),

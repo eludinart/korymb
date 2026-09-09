@@ -248,6 +248,10 @@ body {
     @apply bg-orange-100 text-orange-950 ring-orange-300;
   }
 
+  .kind-badge--crm_follow_up {
+    @apply bg-teal-100 text-teal-950 ring-teal-300;
+  }
+
   .kind-badge--cio_question {
     @apply bg-amber-100 text-amber-950 ring-amber-300;
   }

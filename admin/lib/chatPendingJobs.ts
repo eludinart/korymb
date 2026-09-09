@@ -7,6 +7,10 @@ export type PendingChatJob = {
   linkedParentJobId?: string;
   /** Aperçu de la question posée (bandeau latéral). */
   userPreview?: string;
+  /** Progression réelle (équipe / jalons), pas une ETA. */
+  progressPercent?: number;
+  progressLabel?: string;
+  progressStatus?: string;
 };
 
 const STORAGE_KEY = "korymb-chat-pending-jobs-v1";
@@ -40,6 +44,16 @@ export function addPendingChatJob(job: PendingChatJob) {
 
 export function removePendingChatJob(jobId: string) {
   savePendingChatJobs(loadPendingChatJobs().filter((j) => j.jobId !== jobId));
+}
+
+export function updatePendingChatJobProgress(
+  jobId: string,
+  patch: Pick<PendingChatJob, "progressPercent" | "progressLabel" | "progressStatus">,
+) {
+  const list = loadPendingChatJobs();
+  const next = list.map((j) => (j.jobId === jobId ? { ...j, ...patch } : j));
+  savePendingChatJobs(next);
+  return next;
 }
 
 export function pendingJobsForConversation(conversationId: string): PendingChatJob[] {

@@ -107,12 +107,24 @@ export async function closeMission(jobId: string) {
   return data;
 }
 
+/** Marque le résultat comme consulté (retire la mission de « à reprendre » au briefing). */
+export async function markMissionResultConsulted(jobId: string) {
+  const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/result-consulted`, {
+    method: "POST",
+    headers: agentHeaders(),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { job_id?: string; result_consulted_at?: string; already?: boolean };
+}
+
 export async function dismissInboxItem(item: {
   kind: string;
   job_id?: string;
   output_id?: string;
   suggestion_id?: string;
   ticket_id?: string;
+  event_id?: string;
 }) {
   const { res, data } = await requestJson("/admin/inbox/dismiss", {
     method: "POST",
@@ -123,11 +135,39 @@ export async function dismissInboxItem(item: {
       output_id: item.output_id || null,
       suggestion_id: item.suggestion_id || null,
       ticket_id: item.ticket_id || null,
+      event_id: item.event_id || null,
     }),
     expectOk: false,
   });
   if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
   return data;
+}
+
+export async function prepareCrmFollowUpEmail(eventId: string) {
+  const { res, data } = await requestJson(
+    `/business/events/${encodeURIComponent(eventId)}/prepare-follow-up-email`,
+    {
+      method: "POST",
+      headers: agentHeaders(),
+      expectOk: false,
+    },
+  );
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { success?: boolean; ticket?: { id?: string }; chain?: { steps?: string[] } };
+}
+
+export async function completeCrmFollowUp(eventId: string, snoozeDays = 0) {
+  const { res, data } = await requestJson(
+    `/business/events/${encodeURIComponent(eventId)}/complete-follow-up`,
+    {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ snooze_days: snoozeDays }),
+      expectOk: false,
+    },
+  );
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { success?: boolean; event?: unknown; snoozed_days?: number };
 }
 
 export async function schedulerApprove(outputId: string, launchMode?: "supervised" | "autonomous") {
@@ -358,7 +398,31 @@ export function useInboxDismiss(onSuccess?: () => void) {
       output_id?: string;
       suggestion_id?: string;
       ticket_id?: string;
+      event_id?: string;
     }) => dismissInboxItem(item),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
+      onSuccess?.();
+    },
+  });
+}
+
+export function usePrepareCrmFollowUp(onSuccess?: (data: unknown) => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (eventId: string) => prepareCrmFollowUpEmail(eventId),
+    onSuccess: (data) => {
+      invalidateMissionQueries(qc);
+      onSuccess?.(data);
+    },
+  });
+}
+
+export function useCompleteCrmFollowUp(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ eventId, snoozeDays = 0 }: { eventId: string; snoozeDays?: number }) =>
+      completeCrmFollowUp(eventId, snoozeDays),
     onSuccess: () => {
       invalidateMissionQueries(qc);
       onSuccess?.();

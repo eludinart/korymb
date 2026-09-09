@@ -217,6 +217,8 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'")
     if "user_validated_at" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN user_validated_at TEXT")
+    if "result_consulted_at" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN result_consulted_at TEXT")
     if "mission_config_json" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN mission_config_json TEXT NOT NULL DEFAULT '{}'")
     if "mission_thread_json" not in cols:
@@ -1990,6 +1992,78 @@ def job_set_user_validated(job_id: str) -> bool:
         return cur.rowcount > 0
 
 
+def job_mark_result_consulted(job_id: str) -> dict | None:
+    """Horodate la première consultation du résultat par le dirigeant (idempotent)."""
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid:
+        return None
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_jobs_columns(conn)
+        row = conn.execute(
+            "SELECT id, result_consulted_at FROM jobs WHERE id = ? AND workspace_id = ?",
+            (jid, _ws()),
+        ).fetchone()
+        if not row:
+            return None
+        existing = row["result_consulted_at"]
+        if existing and str(existing).strip():
+            return {"job_id": jid, "result_consulted_at": str(existing), "already": True}
+        conn.execute(
+            "UPDATE jobs SET result_consulted_at = ? WHERE id = ? AND workspace_id = ?",
+            (now, jid, _ws()),
+        )
+        conn.commit()
+    return {"job_id": jid, "result_consulted_at": now, "already": False}
+
+
+def list_unconsulted_result_jobs(*, limit: int = 15) -> list[dict]:
+    """
+    Missions dont le résultat est prêt mais pas encore ouvert par le dirigeant.
+    Exclut le chat et les suites chat rattachées (parent_job_id + source chat).
+    """
+    lim = max(1, min(int(limit or 15), 40))
+    with get_conn() as conn:
+        _ensure_jobs_columns(conn)
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, parent_job_id, updated_at, created_at, "
+            "result_surface, user_validated_at, result_consulted_at "
+            "FROM jobs WHERE workspace_id=? "
+            "AND (result_consulted_at IS NULL OR TRIM(result_consulted_at) = '') "
+            "AND LOWER(TRIM(COALESCE(source, ''))) != 'chat' "
+            "AND ( "
+            "  LOWER(TRIM(COALESCE(status, ''))) = 'completed' "
+            "  OR LOWER(TRIM(COALESCE(status, ''))) = 'awaiting_validation' "
+            "  OR LOWER(TRIM(COALESCE(status, ''))) LIKE 'error%' "
+            ") "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (_ws(), lim * 3),
+        ).fetchall()
+    out: list[dict] = []
+    for raw in rows or []:
+        row = dict(raw)
+        src = str(row.get("source") or "").strip().lower()
+        parent = str(row.get("parent_job_id") or "").strip()
+        if src == "chat" and parent:
+            continue
+        out.append(
+            {
+                "job_id": row.get("id"),
+                "agent": row.get("agent"),
+                "mission": (row.get("mission") or "")[:200],
+                "status": row.get("status"),
+                "source": row.get("source"),
+                "updated_at": row.get("updated_at"),
+                "created_at": row.get("created_at"),
+                "result_surface": (row.get("result_surface") or "")[:240] or None,
+                "user_validated_at": row.get("user_validated_at"),
+            }
+        )
+        if len(out) >= lim:
+            break
+    return out
+
+
 def _user_validated_set(row: dict | Any) -> bool:
     uv = row.get("user_validated_at") if isinstance(row, dict) else row["user_validated_at"]
     return bool(uv and str(uv).strip())
@@ -3150,15 +3224,19 @@ def make_inbox_dismiss_key(
     output_id: str | None = None,
     suggestion_id: str | None = None,
     ticket_id: str | None = None,
+    event_id: str | None = None,
 ) -> str:
     k = (kind or "").strip()
     jid = _norm_job_id(job_id)
     oid = (output_id or "").strip()[:64]
     sid = (suggestion_id or "").strip()[:64]
     tid = (ticket_id or "").strip()[:64]
+    eid = (event_id or "").strip()[:64]
     if k == "action_ticket" and tid:
         return f"action_ticket:{tid}"
-    if k in ("hitl", "cio_question", "closure", "quality") and jid:
+    if k == "crm_follow_up" and eid:
+        return f"crm_follow_up:{eid}"
+    if k in ("hitl", "cio_question", "closure", "quality", "mission_error") and jid:
         return f"{k}:{jid}"
     if k == "scheduler_output" and oid:
         return f"scheduler_output:{oid}"
@@ -3191,6 +3269,7 @@ def dismiss_inbox_item(
     output_id: str | None = None,
     suggestion_id: str | None = None,
     ticket_id: str | None = None,
+    event_id: str | None = None,
 ) -> dict:
     """Masque un élément inbox/briefing pour le dirigeant (persistant)."""
     key = make_inbox_dismiss_key(
@@ -3199,8 +3278,9 @@ def dismiss_inbox_item(
         output_id=output_id,
         suggestion_id=suggestion_id,
         ticket_id=ticket_id,
+        event_id=event_id,
     )
-    ref = (ticket_id or job_id or output_id or suggestion_id or "").strip()[:64]
+    ref = (event_id or ticket_id or job_id or output_id or suggestion_id or "").strip()[:64]
     now = datetime.utcnow().isoformat()
     wid = _ws()
     with get_conn() as conn:

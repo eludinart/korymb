@@ -2242,6 +2242,270 @@ def delete_calendar_event(event_id: str) -> bool:
         return bool(getattr(cur, "rowcount", 0))
 
 
+# ── Relances CRM (créneaux auto e-mail / social) ───────────────────────────────
+
+_CRM_FOLLOW_UP_PREFIXES = (
+    "relance —",
+    "relance -",
+    "relance –",
+    "mesurer / republier",
+    "relayer l'article",
+    "relayer l’article",
+)
+
+
+def is_crm_follow_up_title(title: str) -> bool:
+    t = (title or "").strip().lower()
+    if not t:
+        return False
+    if t.startswith("relance"):
+        return True
+    return any(t.startswith(p) for p in _CRM_FOLLOW_UP_PREFIXES)
+
+
+def _day_bounds_utc(day: datetime | None = None) -> tuple[str, str]:
+    base = day or datetime.utcnow()
+    start = base.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=1) - timedelta(microseconds=1)
+    return start.isoformat(), end.isoformat()
+
+
+def list_due_crm_follow_ups(
+    *,
+    include_overdue: bool = True,
+    days_ahead: int = 0,
+    limit: int = 40,
+) -> list[dict]:
+    """
+    Créneaux planning issus du chaînage (Relance / Mesurer / Relayer),
+    dus aujourd'hui (et en retard si include_overdue), status planned|confirmed.
+    """
+    today_start, today_end = _day_bounds_utc()
+    if days_ahead > 0:
+        end_dt = datetime.fromisoformat(today_start) + timedelta(days=days_ahead + 1) - timedelta(microseconds=1)
+        to_at = end_dt.isoformat()
+    else:
+        to_at = today_end
+    from_at = "1970-01-01T00:00:00" if include_overdue else today_start
+    rows = list_calendar_events(from_at=from_at, to_at=to_at, limit=max(limit * 3, 80))
+    out: list[dict] = []
+    for ev in rows:
+        if str(ev.get("status") or "") not in ("planned", "confirmed"):
+            continue
+        if not is_crm_follow_up_title(str(ev.get("title") or "")):
+            continue
+        starts = str(ev.get("starts_at") or "")
+        # days_ahead=0 → uniquement jusqu'à fin de journée (déjà borné par to_at)
+        if days_ahead == 0 and not include_overdue and starts < today_start:
+            continue
+        item = dict(ev)
+        contact = None
+        cid = str(ev.get("contact_id") or "").strip()
+        if cid:
+            contact = get_contact(cid)
+        item["contact"] = (
+            {
+                "id": contact.get("id"),
+                "name": contact.get("name"),
+                "email": contact.get("email"),
+                "outreach_suggestions": contact.get("outreach_suggestions") or "",
+                "reachability": contact.get("reachability"),
+            }
+            if contact
+            else None
+        )
+        item["overdue"] = bool(starts and starts < today_start)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def prepare_follow_up_email_ticket(event_id: str) -> dict[str, Any]:
+    """Crée un ticket e-mail HITL depuis une relance planning, puis marque le créneau fait."""
+    from services.action_queue import enqueue_action
+
+    event = get_calendar_event(event_id)
+    if not event:
+        return {"success": False, "error": "Créneau introuvable.", "status_code": 404}
+    if not is_crm_follow_up_title(str(event.get("title") or "")):
+        return {"success": False, "error": "Ce créneau n'est pas une relance CRM auto.", "status_code": 400}
+    if str(event.get("status") or "") not in ("planned", "confirmed"):
+        return {"success": False, "error": "Créneau déjà traité.", "status_code": 409}
+
+    contact = None
+    cid = str(event.get("contact_id") or "").strip()
+    if cid:
+        contact = get_contact(cid)
+    to = str((contact or {}).get("email") or "").strip()
+    if not to:
+        return {
+            "success": False,
+            "error": "Aucun e-mail sur la fiche contact — complétez la fiche ou marquez la relance comme faite.",
+            "status_code": 422,
+            "contact_id": cid or None,
+        }
+
+    name = str((contact or {}).get("name") or to).strip()
+    outreach = str((contact or {}).get("outreach_suggestions") or "").strip()
+    notes = str(event.get("notes") or "").strip()
+    subject = f"Suite à notre échange — {name}"[:160]
+    body_parts = []
+    if outreach:
+        body_parts.append(outreach[:3500])
+    elif notes:
+        body_parts.append(
+            "Bonjour,\n\n"
+            f"Je reviens vers vous suite à mon précédent message.\n\n"
+            f"(Contexte relance : {notes[:800]})\n\n"
+            "Bien cordialement"
+        )
+    else:
+        body_parts.append(
+            f"Bonjour {name},\n\n"
+            "Je me permets de revenir vers vous suite à notre précédent échange.\n\n"
+            "Bien cordialement"
+        )
+    body = body_parts[0]
+    ticket = enqueue_action(
+        kind="email",
+        title=f"E-mail — Relance {name}"[:120],
+        summary=f"À : {to}\nObjet : {subject}\n\n{body}"[:800],
+        payload={
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "tool": "send_email",
+            "contact_id": str(contact.get("id") or ""),
+            "agent_key": "commercial",
+            "source_event_id": event_id,
+        },
+        source="crm_follow_up",
+    )
+    update_calendar_event(event_id, status="done")
+    return {
+        "success": True,
+        "ticket": ticket,
+        "event": get_calendar_event(event_id),
+        "chain": {
+            "steps": [
+                "Brouillon e-mail préparé dans l'inbox",
+                "Créneau relance marqué comme fait",
+            ],
+        },
+    }
+
+
+def complete_crm_follow_up(event_id: str, *, snooze_days: int = 0) -> dict[str, Any]:
+    """Marque la relance faite, ou la reporte de N jours."""
+    event = get_calendar_event(event_id)
+    if not event:
+        return {"success": False, "error": "Créneau introuvable.", "status_code": 404}
+    if snooze_days and snooze_days > 0:
+        days = max(1, min(30, int(snooze_days)))
+        start = datetime.utcnow().replace(hour=9, minute=0, second=0, microsecond=0) + timedelta(days=days)
+        end = start + timedelta(minutes=30)
+        updated = update_calendar_event(
+            event_id,
+            starts_at=start.isoformat(),
+            ends_at=end.isoformat(),
+            status="planned",
+        )
+        return {"success": True, "event": updated, "snoozed_days": days}
+    updated = update_calendar_event(event_id, status="done")
+    return {"success": True, "event": updated}
+
+
+def get_commercial_morning_snapshot() -> dict[str, Any]:
+    """Tableau de bord commercial du matin pour le briefing."""
+    due_today = list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=20)
+    tomorrow_start = (datetime.utcnow() + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_end = tomorrow_start + timedelta(days=1) - timedelta(microseconds=1)
+    tomorrow_rows = list_calendar_events(
+        from_at=tomorrow_start.isoformat(),
+        to_at=tomorrow_end.isoformat(),
+        limit=80,
+    )
+    due_tomorrow = [
+        e
+        for e in tomorrow_rows
+        if str(e.get("status") or "") in ("planned", "confirmed")
+        and is_crm_follow_up_title(str(e.get("title") or ""))
+    ]
+
+    stale_quotes: list[dict] = []
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    for q in list_quotes(status="sent", limit=80):
+        ts = _parse_iso_loose(str(q.get("updated_at") or q.get("created_at") or ""))
+        if ts and ts <= cutoff:
+            stale_quotes.append(
+                {
+                    "id": q.get("id"),
+                    "quote_number": q.get("quote_number"),
+                    "title": q.get("title"),
+                    "total_cents": q.get("total_cents"),
+                    "contact_id": q.get("contact_id"),
+                    "updated_at": q.get("updated_at") or q.get("created_at"),
+                    "days_stale": max(0, (datetime.utcnow() - ts).days),
+                }
+            )
+    stale_quotes.sort(key=lambda x: int(x.get("days_stale") or 0), reverse=True)
+    stale_quotes = stale_quotes[:8]
+
+    weak_contacts: list[dict] = []
+    for c in list_contacts(status="active", limit=120):
+        reach = c.get("reachability") if isinstance(c.get("reachability"), dict) else contact_reachability(c)
+        level = str((reach or {}).get("level") or "")
+        if level not in ("partial", "unreachable"):
+            continue
+        weak_contacts.append(
+            {
+                "id": c.get("id"),
+                "name": c.get("name"),
+                "email": c.get("email"),
+                "contact_type": c.get("contact_type"),
+                "reachability": reach,
+            }
+        )
+        if len(weak_contacts) >= 8:
+            break
+
+    return {
+        "follow_ups_due_today": [
+            {
+                "id": e.get("id"),
+                "title": e.get("title"),
+                "starts_at": e.get("starts_at"),
+                "overdue": bool(e.get("overdue")),
+                "contact_id": e.get("contact_id"),
+                "contact_name": (e.get("contact") or {}).get("name") if isinstance(e.get("contact"), dict) else None,
+                "has_email": bool(((e.get("contact") or {}) if isinstance(e.get("contact"), dict) else {}).get("email")),
+            }
+            for e in due_today
+        ],
+        "follow_ups_due_tomorrow_count": len(due_tomorrow),
+        "stale_quotes": stale_quotes,
+        "weak_contacts": weak_contacts,
+        "counts": {
+            "follow_ups_due_today": len(due_today),
+            "follow_ups_overdue": sum(1 for e in due_today if e.get("overdue")),
+            "follow_ups_due_tomorrow": len(due_tomorrow),
+            "stale_quotes": len(stale_quotes),
+            "weak_contacts": len(weak_contacts),
+        },
+    }
+
+
+def _parse_iso_loose(raw: str) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        s = raw[:-1] if raw.endswith("Z") else raw
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
 # ── Overview ──────────────────────────────────────────────────────────────────
 
 def get_business_overview() -> dict[str, Any]:

@@ -54,12 +54,12 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 
 | Zone | Rôle |
 |------|------|
-| **Briefing** (`/briefing`) | Vue du jour : décisions, missions actives, budget, analytics 24h |
+| **Briefing** (`/briefing`) | Vue du jour : décisions, **commercial du matin** (relances, devis, joignabilité), missions actives, budget |
 | **Dashboard** | Tableau de bord opérationnel |
 | **Missions** (`/missions`) | Lancer, suivre, valider des missions multi-agents |
 | **Mission guidée / nouvelle** | Création de mission (cadrage puis exécution) |
 | **Chat** | Dialogue avec le dirigeant (cadrage ou échanges) |
-| **Inbox** (`/inbox`) | File d’attente dirigeant : validations HITL, clôtures, questions, scheduler, qualité |
+| **Inbox** (`/inbox`) | File d’attente dirigeant : validations HITL, **relances CRM dues**, clôtures, questions, scheduler, qualité |
 | **Livrables** | Bibliothèque des livrables produits |
 | **Historique** | Missions et jobs passés |
 | **Configuration** | Provider LLM, modèle, paramètres runtime (sans secrets en clair côté UI) |
@@ -83,6 +83,7 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 |------|----------------|---------------------------|-----------|
 | **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job — **Valider et lancer** enchaîne validation + reprise des sous-agents |
 | **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL). **E-mail** : envoi + journal CRM + relance J+7. **Social / WordPress** : publish + suivi mesurer/relayer J+3 dans Planning. |
+| **Relance CRM** | créneau Planning (`Relance —…` / Mesurer / Relayer) · inbox `kind: crm_follow_up` · `POST /business/events/{id}/prepare-follow-up-email` | Relances dues du jour (et en retard) | Prépare un ticket e-mail HITL, ou marque fait / report +3 j. Remonte aussi dans le **briefing commercial**. |
 
 Les outils `send_email`, `send_gmail`, `create_calendar_event`, posts Meta, `wordpress_create_post` **n’exécutent plus en live** : ils créent un ticket. WordPress (si configuré) crée d’abord un **brouillon** ; l’approbation passe en `publish`. Après un e-mail réellement envoyé, Korymb journalise une interaction CRM (`gestion_log_interaction`).
 
@@ -273,4 +274,4 @@ curl -s https://api-korymb.eludein.art/health
 
 ---
 
-*Dernière mise à jour : septembre 2026 — file d’actions HITL (e-mail, agenda, social, WordPress) + bot Telegram dédié.*
+*Dernière mise à jour : septembre 2026 — chaînage HITL + relances CRM dans l’inbox + briefing commercial du matin.*

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -33,7 +33,7 @@ import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../.
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { cioAnswerAndResume } from "../../lib/missionActions";
+import { cioAnswerAndResume, markMissionResultConsulted } from "../../lib/missionActions";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
@@ -217,6 +217,25 @@ function MissionsContent() {
     queryKey: ["job-detail-live", selected],
     forceFastPoll: Boolean(cioResumeLiveId),
   });
+
+  const consultedJobRef = useRef<string | null>(null);
+  useEffect(() => {
+    const jobId = selected ? String(selected) : "";
+    if (!jobId || !detail.data) return;
+    const st = String(detail.data.status || "").toLowerCase();
+    const ready =
+      st === "completed" || st === "awaiting_validation" || st.startsWith("error");
+    if (!ready) return;
+    if (consultedJobRef.current === jobId) return;
+    consultedJobRef.current = jobId;
+    void markMissionResultConsulted(jobId)
+      .then(() => {
+        void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      })
+      .catch(() => {
+        consultedJobRef.current = null;
+      });
+  }, [selected, detail.data, qc]);
 
   const detailRefreshError = detail.isError
     ? detail.error instanceof Error
