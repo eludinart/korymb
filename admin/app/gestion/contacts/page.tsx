@@ -75,7 +75,7 @@ export default function GestionContactsPage() {
         accent="emerald"
         badge="Contacts"
         title="Contacts & relations"
-        description="Base CRM Élude In Art — coachs, thérapeutes, clients, partenaires. Les agents enrichissent automatiquement les fiches et journalisent leurs actions."
+        description="Base CRM Élude In Art — coachs, thérapeutes, clients, partenaires. Les agents proposent des enrichissements à valider ; rien n’est écrit tout seul."
         actions={
           <Link href="/gestion/contacts/nouveau" className="btn-primary">
             + Nouveau contact

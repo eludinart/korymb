@@ -296,7 +296,7 @@ async def business_rebalance_one_contact_notes(contact_id: str):
 
 
 class ExplorationFillBody(BaseModel):
-    apply: bool = True
+    apply: bool = False
 
 
 class ExploreContactBody(BaseModel):
@@ -409,7 +409,7 @@ async def business_fill_contact_from_exploration(
     """Remplit la fiche contact depuis le résultat de la dernière exploration."""
     if not get_contact(contact_id):
         raise HTTPException(404, detail="Contact introuvable")
-    apply = True if body is None else bool(body.apply)
+    apply = False if body is None else bool(body.apply)
     result = fill_contact_from_exploration(contact_id, apply=apply)
     if not result:
         raise HTTPException(404, detail="Contact introuvable")

@@ -148,6 +148,8 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "company": {"type": "string"},
                 "instagram": {"type": "string"},
                 "facebook": {"type": "string"},
+                "youtube": {"type": "string"},
+                "resalib": {"type": "string"},
                 "notes_append": {
                     "type": "string",
                     "description": (
@@ -461,7 +463,7 @@ def _do_propose_enrichment(inp: dict[str, Any]) -> str:
         if inp.get(key):
             proposed[key] = str(inp.get(key)).strip()
     socials: dict[str, str] = {}
-    for key in ("instagram", "facebook"):
+    for key in ("instagram", "facebook", "youtube", "resalib"):
         if inp.get(key):
             socials[key] = str(inp.get(key)).strip()
     if socials:

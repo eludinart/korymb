@@ -213,7 +213,7 @@ export const businessApi = {
       updated_at?: string;
     };
   },
-  fillContactFromExploration: async (id: string, apply = true) => {
+  fillContactFromExploration: async (id: string, apply = false) => {
     const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/exploration/fill`, {
       method: "POST",
       headers: agentHeaders(),

@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-BACKEND_VERSION = "3.0.9"
+BACKEND_VERSION = "3.0.11"
 
 _dir = Path(__file__).resolve().parent
 try:

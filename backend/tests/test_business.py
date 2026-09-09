@@ -380,3 +380,88 @@ Canal : email contact@ + LinkedIn. Offre : module pro coachs.
     assert again.json()["reason"] == "already_applied_for_job"
 
 
+def test_extract_contact_fields_ignores_unlabeled_noise():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    noisy = """
+Sources consultées : https://www.google.com/search?q=marie+dupont
+Un homonyme :  jean.autre@pagesjaunes.fr et https://www.facebook.com/gaming/xyz
+Téléphone d'un voisin : 04 94 00 00 00
+
+### 1. Données de contact
+| Champ | Valeur |
+| Email | non trouvé |
+| Site web | https://www.google.com/search?q=test |
+| LinkedIn | https://fr.linkedin.com/in/marie-cible |
+"""
+    fields = extract_contact_fields_from_exploration(noisy)
+    assert "email" not in fields
+    assert "phone" not in fields
+    assert "website" not in fields
+    assert fields.get("linkedin_url", "").endswith("/in/marie-cible") or "marie-cible" in str(
+        fields.get("linkedin_url") or ""
+    )
+
+
+def test_fill_exploration_defaults_to_proposal_not_write(client):
+    contact = client.post("/business/contacts", json={"name": "NoAutoWrite"}).json()
+    cid = contact["id"]
+    sample = """
+### 1. Données de contact
+| Champ | Valeur |
+| Email | sure@cible.test |
+| Site web | https://www.cible.test |
+"""
+    from database import save_job, update_job
+
+    jid = "fillprop01ab"
+    save_job(jid, "commercial", "explore", source=f"contact_explore:{cid}")
+    update_job(jid, status="completed", result=sample)
+
+    fill = client.post(f"/business/contacts/{cid}/exploration/fill", json={"apply": False})
+    assert fill.status_code == 200, fill.text
+    body = fill.json()
+    assert body["applied"] is False
+    pending = client.get(f"/business/contacts/{cid}/enrichment-proposals?status=pending")
+    assert pending.status_code == 200
+    assert len(pending.json()["proposals"]) == 1
+    fresh = client.get(f"/business/contacts/{cid}").json()
+    assert not fresh.get("email")
+
+
+def test_website_must_belong_to_contact():
+    from services.business_db import sanitize_proposed_against_contact, website_belongs_to_contact
+
+    contact = {"name": "Sophie Carniaux", "company": "Galerie de l'Atelier"}
+    assert website_belongs_to_contact("https://www.sophiecarniaux.fr", contact) is True
+    assert website_belongs_to_contact("https://eludein.art", contact) is False
+    assert website_belongs_to_contact("https://app-fleurdamours.eludein.art", contact) is False
+    assert website_belongs_to_contact("https://www.resalib.fr/praticien/56942-sophie-carniaux", contact) is False
+    assert website_belongs_to_contact("https://www.levaretvous.com/events/atelier", contact) is False
+    cleaned = sanitize_proposed_against_contact(
+        contact,
+        {"website": "https://eludein.art", "email": "sophiecarniaux@gmail.com", "phone": "+33617471590"},
+    )
+    assert "website" not in cleaned
+    assert cleaned["email"] == "sophiecarniaux@gmail.com"
+
+
+def test_extract_drops_signature_website():
+    from services.business_db import extract_contact_fields_from_exploration, sanitize_proposed_against_contact
+
+    sample = """
+### 1. Données de contact
+| Champ | Valeur |
+| Email | sophiecarniaux@gmail.com |
+| Site web | https://eludein.art |
+
+Bien à vous,
+Éric
+[eludein.art](https://eludein.art)
+"""
+    fields = extract_contact_fields_from_exploration(sample)
+    assert "website" not in fields
+    contact = {"name": "Sophie Carniaux"}
+    assert "website" not in sanitize_proposed_against_contact(contact, {"website": "https://eludein.art", "email": fields["email"]})
+
+

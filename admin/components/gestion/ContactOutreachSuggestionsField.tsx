@@ -12,9 +12,10 @@ type Props = {
   contactId: string;
   value: string;
   onChange: (next: string) => void;
+  readOnly?: boolean;
 };
 
-export default function ContactOutreachSuggestionsField({ contactId, value, onChange }: Props) {
+export default function ContactOutreachSuggestionsField({ contactId, value, onChange, readOnly = false }: Props) {
   const qc = useQueryClient();
   const [feedback, setFeedback] = useState("");
   const appliedJobRef = useRef<string | null>(null);
@@ -79,12 +80,16 @@ export default function ContactOutreachSuggestionsField({ contactId, value, onCh
   return (
     <div className="sm:col-span-2 space-y-2">
       <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <span className="font-medium text-slate-700">Suggestions pour le contacter</span>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Angle d’approche, canal, accroche, offre — approfondi à partir des missions / interactions passées.
-          </p>
-        </div>
+        {readOnly ? (
+          <p className="text-xs text-slate-500">Approfondir l’approche commerciale (mission, sans modifier la fiche ici).</p>
+        ) : (
+          <div>
+            <span className="font-medium text-slate-700">Suggestions pour le contacter</span>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Angle d’approche, canal, accroche, offre — approfondi à partir des missions / interactions passées.
+            </p>
+          </div>
+        )}
         <button
           type="button"
           className="btn-primary text-sm"
@@ -98,13 +103,15 @@ export default function ContactOutreachSuggestionsField({ contactId, value, onCh
         </button>
       </div>
 
-      <textarea
-        className="input-field mt-1 w-full"
-        rows={5}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Ex. : email perso + accroche intelligence collective…"
-      />
+      {readOnly ? null : (
+        <textarea
+          className="input-field mt-1 w-full"
+          rows={5}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Ex. : email perso + accroche intelligence collective…"
+        />
+      )}
 
       {active ? (
         <AlertBox tone="success" title="Suggestions avancées">

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import ContactEnrichmentValue from "./ContactEnrichmentValue";
 import { AlertBox, LoadingLine } from "../ui/PageChrome";
 import { businessApi, type BizContact, type ContactEnrichmentProposal } from "../../lib/business";
 import {
@@ -12,6 +13,7 @@ import {
   formatProposedValue,
   getContactReachability,
 } from "../../lib/contactReachability";
+import { defaultEnrichmentSelected, enrichmentFieldCaution } from "../../lib/contactFieldTrust";
 
 type Props = {
   contact: BizContact;
@@ -51,7 +53,7 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
   const proposedKeys = useMemo(() => Object.keys(proposal?.proposed || {}), [proposal]);
 
   const fillFromExploration = useMutation({
-    mutationFn: () => businessApi.fillContactFromExploration(contact.id, true),
+    mutationFn: () => businessApi.fillContactFromExploration(contact.id, false),
     onSuccess: (data) => {
       if (data.applied) {
         const keys = Object.keys(data.fields || {});
@@ -62,8 +64,10 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
         );
       } else if (data.skipped && data.reason === "already_applied_for_job") {
         setFeedback("Cette exploration a déjà été appliquée à la fiche.");
+      } else if (data.proposal) {
+        setFeedback("Proposition extraite — coche uniquement ce qui est sûr, puis applique.");
       } else if (data.skipped) {
-        setFeedback(`Pas d'écriture automatique (${data.reason || "inconnu"}).`);
+        setFeedback(`Pas de proposition (${data.reason || "inconnu"}).`);
       } else {
         setFeedback("Proposition créée — valide le diff ci-dessous.");
       }
@@ -84,31 +88,33 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
     }
     if (selectionProposalId === proposal.id) return;
     const next: Record<string, boolean> = {};
-    for (const k of Object.keys(proposal.proposed || {})) next[k] = true;
+    for (const k of Object.keys(proposal.proposed || {})) {
+      next[k] = defaultEnrichmentSelected(contact, k, proposal.proposed[k]);
+    }
     setSelected(next);
     setSelectionProposalId(proposal.id);
   }, [proposal, selectionProposalId]);
 
-  // Remplit auto seulement si la fiche n'est pas déjà complète.
+  // Extrait une proposition à valider (jamais d'écriture auto sur la fiche).
   useEffect(() => {
-    if (isComplete) return;
     const jobId = exploration.data?.job_id;
     if (!jobId) return;
     if (exploration.data?.status !== "completed") return;
     if (!exploration.data?.can_fill) return;
+    if (proposal) return;
     if (autoFilledJobRef.current === jobId) return;
     if (fillFromExploration.isPending) return;
     autoFilledJobRef.current = jobId;
     fillFromExploration.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutate once per completed job
-  }, [exploration.data?.job_id, exploration.data?.status, exploration.data?.can_fill, isComplete]);
+  }, [exploration.data?.job_id, exploration.data?.status, exploration.data?.can_fill, proposal]);
 
   const explore = useMutation({
     mutationFn: (force: boolean) => businessApi.exploreContact(contact.id, force),
     onSuccess: (data) => {
       setFeedback(
         data.job_id
-          ? `Exploration lancée (#${data.job_id}). La fiche sera remplie à la fin.`
+          ? `Exploration lancée (#${data.job_id}). Tu valideras les champs trouvés avant écriture.`
           : data.message || "Exploration lancée.",
       );
       setShowFullResult(false);
@@ -198,7 +204,7 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
             Annuler
           </button>
         ) : null}
-        {canFill && !isComplete ? (
+        {canFill ? (
           <button
             type="button"
             className="btn-success"
@@ -209,13 +215,13 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
               fillFromExploration.mutate();
             }}
           >
-            {fillFromExploration.isPending ? "Remplissage…" : "Remplir la fiche"}
+            {fillFromExploration.isPending ? "Extraction…" : "Extraire une proposition"}
           </button>
         ) : null}
         <p className="text-xs text-slate-600">
           {isComplete
             ? "Exploration optionnelle — utile pour réseaux / annuaires, pas pour re-remplir l’essentiel."
-            : "Recherche email, tél, site, adresse, réseaux — puis écriture sur la fiche."}
+            : "Recherche email, tél, site, adresse, réseaux — puis proposition à valider (rien n’est écrit tout seul)."}
         </p>
       </div>
 
@@ -244,7 +250,7 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
           {exploreJobId ? ` (#${exploreJobId})` : ""}.
           {isComplete
             ? " La fiche est déjà complète — le résultat servira surtout à vérifier / enrichir."
-            : " La fiche sera remplie automatiquement à la fin."}
+            : " Tu valideras les champs trouvés avant qu’ils soient écrits sur la fiche."}
           {exploreJobId ? (
             <>
               {" "}
@@ -256,14 +262,14 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
         </AlertBox>
       ) : null}
 
-      {fillFromExploration.isPending ? <LoadingLine label="Écriture des infos sur la fiche…" /> : null}
+      {fillFromExploration.isPending ? <LoadingLine label="Extraction de la proposition (sans écriture)…" /> : null}
 
       {!exploreActive && exploreResult ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-4">
           <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="text-sm font-extrabold text-emerald-950">
-                {alreadyFilled ? "Résultat appliqué à la fiche" : "Résultat trouvé"}
+                {alreadyFilled ? "Résultat déjà validé sur la fiche" : "Résultat trouvé — à vérifier"}
               </p>
               <p className="mt-0.5 text-xs text-emerald-900">
                 Mission #{exploreJobId}
@@ -306,6 +312,7 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
               <p className="mt-0.5 text-xs text-amber-900">
                 {proposal.summary || "Enrichissement proposé par l'agent Commercial"}
                 {proposal.job_id ? ` · mission #${proposal.job_id}` : ""}
+                {" — les cases douteuses sont décochées."}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -334,6 +341,15 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
               const current = currentContactValue(contact, key);
               const next = formatProposedValue(key, proposed);
               const changed = current !== next && next !== "—";
+              const caution = enrichmentFieldCaution(contact, key, proposed);
+              const currentRaw =
+                key === "socials"
+                  ? contact.socials || {}
+                  : key === "notes_append"
+                    ? ""
+                    : key === "outreach_suggestions"
+                      ? contact.outreach_suggestions || ""
+                      : (contact as Record<string, unknown>)[key];
               return (
                 <li
                   key={key}
@@ -351,17 +367,41 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
                     </span>
                   </label>
                   <div className="min-w-0 text-sm">
-                    <p className="text-slate-500">
-                      Actuel : <span className="text-slate-800">{current}</span>
-                    </p>
-                    <p className={changed ? "font-semibold text-emerald-900" : "text-slate-700"}>
-                      Proposé : {next}
-                    </p>
+                    <div className="text-slate-500">
+                      <span className="text-[11px] font-bold uppercase tracking-wide">Actuel</span>
+                      <div className="mt-0.5 text-slate-800">
+                        <ContactEnrichmentValue field={key} value={currentRaw} />
+                      </div>
+                    </div>
+                    <div className={`mt-2 ${changed ? "text-emerald-950" : "text-slate-700"}`}>
+                      <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-800">Proposé</span>
+                      <div className="mt-0.5">
+                        <ContactEnrichmentValue field={key} value={proposed} />
+                      </div>
+                    </div>
+                    {caution ? <p className="mt-1 text-xs font-medium text-amber-800">{caution}</p> : null}
                   </div>
                 </li>
               );
             })}
           </ul>
+          {proposal.sources?.length ? (
+            <p className="mt-3 text-xs text-slate-600">
+              Sources :{" "}
+              {proposal.sources.slice(0, 8).map((src, i) => (
+                <span key={`${src}-${i}`}>
+                  {i > 0 ? " · " : null}
+                  {/^https?:\/\//i.test(src) ? (
+                    <a href={src} target="_blank" rel="noreferrer" className="underline">
+                      {src.replace(/^https?:\/\//, "").slice(0, 48)}
+                    </a>
+                  ) : (
+                    src
+                  )}
+                </span>
+              ))}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

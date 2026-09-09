@@ -807,6 +807,7 @@ def create_enrichment_proposal(
         clean_socials = {str(k): str(v).strip() for k, v in socials.items() if str(v or "").strip()}
         if clean_socials:
             clean_proposed["socials"] = clean_socials
+    clean_proposed = sanitize_proposed_against_contact(contact, clean_proposed)
     if not clean_proposed:
         return None
 
@@ -845,6 +846,9 @@ def _hydrate_enrichment_proposal(row: dict) -> dict:
     out = dict(row)
     out["proposed"] = _parse_json_dict(out.pop("proposed_json", "{}"))
     out["sources"] = _parse_json_list(out.pop("sources_json", "[]"))
+    contact = get_contact(str(out.get("contact_id") or ""))
+    if contact and isinstance(out.get("proposed"), dict):
+        out["proposed"] = sanitize_proposed_against_contact(contact, out["proposed"])
     return out
 
 
@@ -897,12 +901,162 @@ _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 _PHONE_RE = re.compile(r"(?:\+33|0)\s*[1-9](?:[\s./-]?\d{2}){4}")
 _URL_RE = re.compile(r"https?://[^\s)|>\]]+", re.I)
 _POSTAL_CITY_RE = re.compile(r"\b(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\- ]{1,40})", re.I)
+_EMPTY_EXTRACT = re.compile(
+    r"^(?:n/?a|n\.a\.?|none|null|inconnu[e]?|introuvable|manquant|"
+    r"non\s+(?:trouv[ée]|identifi[ée]|disponible)|pas\s+trouv|"
+    r"—|-|\.{2,}|\(manquant\)|\(aucun(?:e)?\))$",
+    re.I,
+)
 
 
 def _clean_md_value(raw: str) -> str:
     text = _MD_LINK_RE.sub(r"\1", str(raw or "").strip())
     text = text.strip(" `\"'")
     return text.strip()
+
+
+def _is_empty_extracted(val: str) -> bool:
+    compact = re.sub(r"\s+", " ", str(val or "").strip())
+    if not compact:
+        return True
+    if _EMPTY_EXTRACT.match(compact):
+        return True
+    low = compact.lower()
+    return low.startswith("non trouvé") or low.startswith("non identifi")
+
+
+def _host_of(url: str) -> str:
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url if "://" in url else f"https://{url}")
+        host = (parsed.hostname or "").lower()
+        return host[4:] if host.startswith("www.") else host
+    except Exception:
+        return ""
+
+
+_OWN_SITE_SUFFIXES = ("eludein.art",)
+_DIRECTORY_HOSTS = (
+    "resalib.fr",
+    "doctolib.fr",
+    "medoucine.com",
+    "psychologie.com",
+    "lesmedecinesdouces.fr",
+    "pagesjaunes.fr",
+    "societe.com",
+    "infogreffe.fr",
+    "pappers.fr",
+    "levaretvous.com",
+    "superprof.fr",
+    "treatwell.fr",
+    "wikipedia.org",
+    "data.gouv.fr",
+    "linkedin.com",
+    "instagram.com",
+    "facebook.com",
+    "fb.com",
+    "youtube.com",
+    "youtu.be",
+)
+_GENERIC_IDENTITY_TOKENS = frozenset({
+    "cabinet", "sarl", "sas", "eurl", "sasu", "auto", "france", "contact",
+    "email", "siret", "societe", "société", "entreprise", "entrepreneur",
+    "individuel", "individuelle", "therapeute", "thérapeute", "coach",
+    "atelier", "galerie", "studio", "espace", "centre",
+})
+
+
+def _fold_ident(text: str) -> str:
+    import unicodedata
+
+    raw = unicodedata.normalize("NFD", str(text or "").lower())
+    return "".join(ch for ch in raw if unicodedata.category(ch) != "Mn")
+
+
+def _host_matches_suffixes(host: str, suffixes: tuple[str, ...]) -> bool:
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
+def _is_own_site(host: str) -> bool:
+    return _host_matches_suffixes(host, _OWN_SITE_SUFFIXES)
+
+
+def _is_directory_host(host: str) -> bool:
+    return _host_matches_suffixes(host, _DIRECTORY_HOSTS)
+
+
+def _is_junk_url(url: str, *, kind: str = "website") -> bool:
+    host = _host_of(url)
+    low = url.lower()
+    if "/search?" in low or "/search/" in low:
+        return True
+    if any(host == h or host.endswith("." + h) for h in ("google.com", "bing.com", "tavily.com", "duckduckgo.com")):
+        return True
+    if kind == "website" and (_is_own_site(host) or _is_directory_host(host)):
+        return True
+    if kind == "facebook" and "/gaming/" in low:
+        return True
+    return False
+
+
+_GENERIC_NAME_TAILS = frozenset({"corp", "ltd", "inc", "gmbh", "sas", "sarl", "eurl", "sasu"})
+
+
+def distinctive_identity_tokens(contact: dict | None) -> list[str]:
+    """Nom de famille (ou raison sociale) — pas le prénom ni les formes juridiques."""
+    if not isinstance(contact, dict):
+        return []
+    name_parts = [p for p in re.split(r"[^a-z0-9]+", _fold_ident(str(contact.get("name") or ""))) if len(p) >= 4]
+    if len(name_parts) >= 2 and name_parts[-1] in _GENERIC_NAME_TAILS:
+        name_parts = name_parts[:-1]
+    elif len(name_parts) >= 2:
+        name_parts = name_parts[1:]
+    company = _fold_ident(str(contact.get("company") or ""))
+    company_parts: list[str] = []
+    if "siret" not in company and "entrepreneur" not in company:
+        company_parts = [
+            p
+            for p in re.split(r"[^a-z0-9]+", company)
+            if len(p) >= 5 and p not in _GENERIC_IDENTITY_TOKENS
+        ]
+    out: list[str] = []
+    for tok in name_parts + company_parts:
+        if tok not in _GENERIC_IDENTITY_TOKENS and tok not in out:
+            out.append(tok)
+    return out
+
+
+def website_belongs_to_contact(url: str, contact: dict | None) -> bool:
+    """True seulement si l'URL peut être le site du contact (pas Élude In Art, pas un annuaire)."""
+    if not str(url or "").strip():
+        return False
+    if _is_junk_url(url, kind="website"):
+        return False
+    host = _host_of(url)
+    if not host or _is_own_site(host) or _is_directory_host(host):
+        return False
+    tokens = distinctive_identity_tokens(contact)
+    if not tokens:
+        return True
+    blob = _fold_ident(host + " " + url)
+    return any(tok in blob for tok in tokens)
+
+
+def sanitize_proposed_against_contact(contact: dict | None, proposed: dict[str, Any]) -> dict[str, Any]:
+    """Retire les champs extraits qui n'appartiennent clairement pas au contact."""
+    if not isinstance(proposed, dict):
+        return {}
+    out = dict(proposed)
+    website = str(out.get("website") or "").strip()
+    if website and not website_belongs_to_contact(website, contact):
+        out.pop("website", None)
+    email = str(out.get("email") or "").strip()
+    if email and "@" in email:
+        domain = email.split("@")[-1].lower()
+        if _is_own_site(domain) or domain in {"pagesjaunes.fr", "tavily.com"}:
+            out.pop("email", None)
+    return out
 
 
 def _split_address_parts(address: str) -> dict[str, str]:
@@ -952,13 +1106,16 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
 
     def _set(key: str, value: str) -> None:
         val = _clean_md_value(value)
-        if not val or "non identifi" in val.lower():
+        if not val or _is_empty_extracted(val):
             return
         if key == "email":
             m = _EMAIL_RE.search(val)
             if not m:
                 return
             val = m.group(0)
+            domain = val.split("@")[-1].lower()
+            if domain in {"pagesjaunes.fr", "example.com", "tavily.com", "google.com"}:
+                return
         elif key == "phone":
             m = _PHONE_RE.search(val.replace("(0)", " "))
             if m:
@@ -979,6 +1136,8 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
             elif key == "facebook" and re.fullmatch(r"@?[A-Za-z0-9.]{2,80}", val):
                 val = f"https://www.facebook.com/{val.lstrip('@')}"
             else:
+                return
+            if _is_junk_url(val, kind=key):
                 return
         elif key == "city":
             # "Paris / Antibes" → première ville
@@ -1027,60 +1186,7 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 _set(key, value)
                 break
 
-    # Fallback regex si tableau incomplet
-    if "email" not in proposed:
-        m = _EMAIL_RE.search(text)
-        if m:
-            proposed["email"] = m.group(0)
-    if "phone" not in proposed:
-        m = _PHONE_RE.search(text)
-        if m:
-            _set("phone", m.group(0))
-    if "website" not in proposed:
-        for url in _URL_RE.findall(text):
-            low = url.lower()
-            if any(
-                x in low
-                for x in (
-                    "linkedin.",
-                    "instagram.com",
-                    "facebook.com",
-                    "fb.com",
-                    "youtube.com",
-                    "youtu.be",
-                    "resalib.",
-                    "doctolib.",
-                    "pagesjaunes.",
-                    "annuaire-entreprises.",
-                )
-            ):
-                continue
-            proposed["website"] = url.rstrip(".,;)")
-            break
-    if "linkedin_url" not in proposed:
-        for url in _URL_RE.findall(text):
-            if "linkedin." in url.lower():
-                proposed["linkedin_url"] = url.rstrip(".,;)")
-                break
-    if "instagram" not in proposed:
-        for url in _URL_RE.findall(text):
-            if "instagram.com" in url.lower():
-                proposed["instagram"] = url.rstrip(".,;)")
-                break
-    if "facebook" not in proposed:
-        for url in _URL_RE.findall(text):
-            low = url.lower()
-            if "facebook.com" in low or "fb.com" in low:
-                # Ignore gaming / ads junk when possible
-                if "/gaming/" in low:
-                    continue
-                proposed["facebook"] = url.rstrip(".,;)")
-                break
-    if "resalib" not in proposed:
-        for url in _URL_RE.findall(text):
-            if "resalib" in url.lower():
-                proposed["resalib"] = url.rstrip(".,;)")
-                break
+    # Pas de fallback « premier e-mail / URL du document » : trop d'homonymes et de sources.
 
     if "address" in proposed and ("city" not in proposed or "postal_code" not in proposed):
         parts = _split_address_parts(str(proposed["address"]))
@@ -1280,6 +1386,7 @@ def fill_contact_from_exploration(
         contact = get_contact(contact_id) or contact
         body = str(result if result is not None else job.get("result") or "").strip()
         extracted = extract_contact_fields_from_exploration(body)
+        extracted = sanitize_proposed_against_contact(contact, extracted)
         patched = False
         if extracted.get("outreach_suggestions") and not str(contact.get("outreach_suggestions") or "").strip():
             append_outreach_suggestions(
@@ -1306,6 +1413,7 @@ def fill_contact_from_exploration(
 
     body = str(result if result is not None else job.get("result") or "").strip()
     extracted = extract_contact_fields_from_exploration(body)
+    extracted = sanitize_proposed_against_contact(contact, extracted)
     sources_raw = extracted.pop("_sources", None)
     sources = sources_raw if isinstance(sources_raw, list) else []
     if not extracted:
@@ -1402,8 +1510,11 @@ def apply_enrichment_proposal(
             continue
         if key in CONTACT_PROFILE_FIELDS or key == "company":
             text = str(val or "").strip()
-            if text:
-                patch[key] = text
+            if not text:
+                continue
+            if key == "website" and not website_belongs_to_contact(text, contact):
+                continue
+            patch[key] = text
     if notes_append:
         append_contact_notes(contact_id, notes_append, source="exploration")
     if outreach_block:
@@ -1499,6 +1610,18 @@ def build_contact_exploration_mission(contact: dict) -> str:
         "`notes_append` = **faits uniquement**, `outreach_suggestions` = **comment le contacter**, "
         "`sources` (URLs) et un `summary` court.\n"
         "10. Si Instagram/Facebook/Resalib introuvables : le dire clairement — ne pas inventer d'URL.\n\n"
+        "### Identité (anti-homonyme) — obligatoire\n"
+        "Ne propose un champ **que** s’il appartient **à cette fiche** (même nom + même structure / ville / métier).\n"
+        "- Si plusieurs homonymes : **ne remplis pas** email/tél/réseaux ; dis-le dans `summary`.\n"
+        "- L’e-mail doit coller au site officiel **ou** être une boîte perso clairement liée (LinkedIn / mentions légales).\n"
+        "- Un profil Instagram/Facebook/LinkedIn sans le nom ou la structure dans l’URL/titre = **hors sujet**.\n"
+        "- Pages Jaunes, Google, Tavily, pages de résultats : ce ne sont **pas** le site du contact.\n"
+        "- **Site web (`website`)** : uniquement le **site officiel personnel / cabinet** dont le nom de domaine "
+        "contient le nom (ou la structure). **Interdit** : eludein.art, app-fleurdamours, Resalib, Doctolib, "
+        "Pages Jaunes, articles de blog local, page Facebook. Un annuaire va dans `resalib` / sources, pas dans `website`.\n"
+        "- Les liens de **signature Élude In Art** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
+        "- Interdit : inventer, approximer, recopier le contact d’un homonyme ou d’un cabinet voisin.\n"
+        "- Mieux vaut un champ vide qu’une fausse information.\n\n"
         "### Livrable (structure imposée)\n"
         "Dans l'outil `gestion_propose_contact_enrichment` :\n"
         "- `notes_append` : spécialité, SIRET, contexte métier, sources — **pas** d'angle de vente.\n"

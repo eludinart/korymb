@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
 import ContactOutreachSuggestionsField from "../../../../components/gestion/ContactOutreachSuggestionsField";
+import ContactProfileView from "../../../../components/gestion/ContactProfileView";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi } from "../../../../lib/business";
@@ -13,7 +14,6 @@ import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION
 
 export default function GestionContactEditPage() {
   const { id } = useParams<{ id: string }>();
-  const router = useRouter();
   const qc = useQueryClient();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -32,6 +32,7 @@ export default function GestionContactEditPage() {
   const [tags, setTags] = useState("");
   const [notes, setNotes] = useState("");
   const [outreachSuggestions, setOutreachSuggestions] = useState("");
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
 
   const contact = useQuery({
@@ -99,7 +100,8 @@ export default function GestionContactEditPage() {
       void qc.invalidateQueries({ queryKey: ["business-contacts"] });
       void qc.invalidateQueries({ queryKey: ["business-contact", id] });
       void qc.invalidateQueries({ queryKey: ["business-overview"] });
-      router.push("/gestion/contacts");
+      setEditing(false);
+      setError("");
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -129,11 +131,20 @@ export default function GestionContactEditPage() {
       <PageHeader
         accent="emerald"
         badge="Contacts"
-        title={`Modifier — ${contact.data.name}`}
+        title={contact.data.name}
         description={`Créé le ${formatDateTime(contact.data.created_at)}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
             <ContactReachabilityBadge contact={contact.data} />
+            {editing ? (
+              <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>
+                Annuler
+              </button>
+            ) : (
+              <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>
+                Modifier la fiche
+              </button>
+            )}
             <Link href="/gestion/contacts" className="btn-link-secondary">
               ← Retour à la liste
             </Link>
@@ -145,7 +156,18 @@ export default function GestionContactEditPage() {
         <ContactEnrichmentPanel contact={contact.data} />
       </SectionCard>
 
-      <SectionCard title="Fiche contact">
+      <SectionCard title={editing ? "Modifier la fiche" : "Fiche contact"}>
+        {!editing ? (
+          <div className="space-y-5">
+            <ContactProfileView contact={contact.data} />
+            <ContactOutreachSuggestionsField
+              contactId={id}
+              value={contact.data.outreach_suggestions || ""}
+              onChange={setOutreachSuggestions}
+              readOnly
+            />
+          </div>
+        ) : (
         <form
           className="grid gap-3 sm:grid-cols-2"
           onSubmit={(e) => {
@@ -248,12 +270,13 @@ export default function GestionContactEditPage() {
             <button type="submit" className="btn-primary" disabled={save.isPending}>
               {save.isPending ? "Enregistrement…" : "Enregistrer les modifications"}
             </button>
-            <Link href="/gestion/contacts" className="btn-secondary">
+            <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>
               Annuler
-            </Link>
+            </button>
             {error ? <p className="text-sm text-red-700">{error}</p> : null}
           </div>
         </form>
+        )}
       </SectionCard>
 
       <SectionCard title="Historique des interactions">
