@@ -150,6 +150,9 @@ def test_business_contact_reachability_and_enrichment(client):
     assert body["reachability"]["level"] == "complete"
     assert body["reachability"]["score"] >= 45
 
+    blocked = client.post(f"/business/contacts/{cid}/explore")
+    assert blocked.status_code == 409
+
     upd = client.put(
         f"/business/contacts/{cid}",
         json={"email": "", "website": "", "phone": "", "linkedin_url": ""},
@@ -247,6 +250,85 @@ def test_business_contact_exploration_endpoint(client):
     row = client.get(f"/business/contacts/{contact['id']}/exploration")
     assert row.status_code == 200
     assert row.json()["job_id"] == job_id
+
+
+def test_rebalance_notes_moves_approach_angle(client):
+    create = client.post(
+        "/business/contacts",
+        json={
+            "name": "Split Notes",
+            "notes": (
+                "Thérapeute familiale à Brignoles. Source : Pages Jaunes. "
+                "Angle d'approche : intégrer le Tarot Fleur d'ÅmÔurs dans ses ateliers parents-ados."
+            ),
+        },
+    )
+    assert create.status_code == 200
+    # create_contact split déjà à la création
+    body = create.json()
+    assert "Thérapeute familiale" in body["notes"]
+    assert "Angle d'approche" not in body["notes"]
+    assert "Tarot" in (body.get("outreach_suggestions") or "")
+
+    # Remélange volontairement puis rebalance
+    cid = body["id"]
+    client.put(
+        f"/business/contacts/{cid}",
+        json={
+            "notes": "Faits métier. Angle d'approche : proposer un atelier découverte.",
+            "outreach_suggestions": "",
+        },
+    )
+    reb = client.post(f"/business/contacts/{cid}/rebalance-notes")
+    assert reb.status_code == 200
+    assert reb.json()["changed"] is True
+    c = reb.json()["contact"]
+    assert c["notes"] == "Faits métier"
+    assert "atelier découverte" in c["outreach_suggestions"]
+
+    batch = client.post("/business/contacts/rebalance-notes")
+    assert batch.status_code == 200
+    assert batch.json()["scanned"] >= 1
+
+
+def test_outreach_suggestions_launch_and_apply(client):
+    contact = client.post(
+        "/business/contacts",
+        json={
+            "name": "Outreach Target",
+            "email": "out@example.com",
+            "notes": "Coach systémique Var.",
+            "outreach_suggestions": "Angle d'approche : premier contact LinkedIn.",
+        },
+    ).json()
+    cid = contact["id"]
+
+    launch = client.post(f"/business/contacts/{cid}/outreach")
+    assert launch.status_code == 200
+    job_id = launch.json()["job_id"]
+
+    status = client.get(f"/business/contacts/{cid}/outreach")
+    assert status.status_code == 200
+    assert status.json()["job_id"] == job_id
+
+    from database import update_job
+
+    update_job(
+        job_id,
+        status="completed",
+        result=(
+            "### Suggestions avancées\n"
+            "- **Canal :** email perso\n"
+            "- **Accroche :** cartographie relationnelle parents-ados\n"
+            "- **Prochaine action :** proposer un atelier découverte de 90 min\n"
+        ),
+    )
+
+    apply = client.post(f"/business/contacts/{cid}/outreach/apply")
+    assert apply.status_code == 200, apply.text
+    assert apply.json()["applied"] is True
+    updated = apply.json()["contact"]
+    assert "atelier découverte" in (updated.get("outreach_suggestions") or "").lower()
 
 
 def test_fill_contact_from_exploration_result(client, monkeypatch):

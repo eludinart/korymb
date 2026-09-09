@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
+import ContactOutreachSuggestionsField from "../../../../components/gestion/ContactOutreachSuggestionsField";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi } from "../../../../lib/business";
@@ -233,19 +234,11 @@ export default function GestionContactEditPage() {
             <p className="mt-0.5 text-xs text-slate-500">Faits : spécialité, SIRET, contexte métier, sources — pas l’angle de vente.</p>
             <textarea className="input-field mt-1 w-full" rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Suggestions pour le contacter</span>
-            <p className="mt-0.5 text-xs text-slate-500">
-              Angle d’approche, canal, accroche, offre — approfondi à partir des missions / interactions passées.
-            </p>
-            <textarea
-              className="input-field mt-1 w-full"
-              rows={5}
-              value={outreachSuggestions}
-              onChange={(e) => setOutreachSuggestions(e.target.value)}
-              placeholder="Ex. : email perso + accroche intelligence collective…"
-            />
-          </label>
+          <ContactOutreachSuggestionsField
+            contactId={id}
+            value={outreachSuggestions}
+            onChange={setOutreachSuggestions}
+          />
           {contact.data.verified_at ? (
             <p className="sm:col-span-2 text-xs text-emerald-800">
               Dernière validation enrichissement : {formatDateTime(contact.data.verified_at)}

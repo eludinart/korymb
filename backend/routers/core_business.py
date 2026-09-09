@@ -18,7 +18,9 @@ from services.business_db import (
     PROJECT_TYPES,
     QUOTE_STATUSES,
     apply_enrichment_proposal,
+    apply_outreach_from_job,
     build_contact_exploration_mission,
+    build_contact_outreach_mission,
     create_calendar_event,
     create_contact,
     create_external_invoice,
@@ -44,6 +46,8 @@ from services.business_db import (
     list_interactions,
     list_projects,
     list_quotes,
+    rebalance_all_contacts_notes_outreach,
+    rebalance_contact_notes_outreach,
     reject_enrichment_proposal,
     update_calendar_event,
     update_contact,
@@ -277,8 +281,34 @@ async def business_delete_contact(contact_id: str):
     return {"deleted": True}
 
 
+@router.post("/business/contacts/rebalance-notes", dependencies=[Depends(resolve_tenant)])
+async def business_rebalance_contacts_notes():
+    """Sépare notes factuelles / suggestions d'approche sur tous les contacts."""
+    return rebalance_all_contacts_notes_outreach()
+
+
+@router.post("/business/contacts/{contact_id}/rebalance-notes", dependencies=[Depends(resolve_tenant)])
+async def business_rebalance_one_contact_notes(contact_id: str):
+    result = rebalance_contact_notes_outreach(contact_id)
+    if not result:
+        raise HTTPException(404, detail="Contact introuvable")
+    return result
+
+
+class ExplorationFillBody(BaseModel):
+    apply: bool = True
+
+
+class ExploreContactBody(BaseModel):
+    force: bool = False
+
+
 @router.post("/business/contacts/{contact_id}/explore", dependencies=[Depends(resolve_tenant)])
-async def business_explore_contact(contact_id: str, background_tasks: BackgroundTasks):
+async def business_explore_contact(
+    contact_id: str,
+    background_tasks: BackgroundTasks,
+    body: ExploreContactBody | None = None,
+):
     """Lance une mission Commercial d'exploration détaillée (proposition avant écriture)."""
     import uuid
 
@@ -287,6 +317,17 @@ async def business_explore_contact(contact_id: str, background_tasks: Background
     contact = get_contact(contact_id)
     if not contact:
         raise HTTPException(404, detail="Contact introuvable")
+
+    force = bool(body.force) if body else False
+    reach = contact.get("reachability") if isinstance(contact.get("reachability"), dict) else {}
+    if str(reach.get("level") or "") == "complete" and not force:
+        raise HTTPException(
+            409,
+            detail=(
+                "Fiche déjà complète (email + autre canal). "
+                "Pas d'exploration automatique — passe force=true pour relancer quand même."
+            ),
+        )
 
     mission = build_contact_exploration_mission(contact)
     job_id = uuid.uuid4().hex[:12]
@@ -311,6 +352,7 @@ async def business_explore_contact(contact_id: str, background_tasks: Background
         "status": "accepted",
         "agent": "commercial",
         "reachability": contact.get("reachability"),
+        "forced": force,
         "message": "Exploration lancée — le Commercial proposera un enrichissement à valider.",
     }
 
@@ -359,10 +401,6 @@ async def business_get_contact_exploration(contact_id: str):
     }
 
 
-class ExplorationFillBody(BaseModel):
-    apply: bool = True
-
-
 @router.post("/business/contacts/{contact_id}/exploration/fill", dependencies=[Depends(resolve_tenant)])
 async def business_fill_contact_from_exploration(
     contact_id: str,
@@ -379,6 +417,101 @@ async def business_fill_contact_from_exploration(
         raise HTTPException(404, detail="Aucune exploration trouvée pour ce contact")
     if result.get("skipped") and result.get("reason") == "no_fields_extracted":
         raise HTTPException(400, detail="Impossible d'extraire des champs depuis le résultat d'exploration")
+    return result
+
+
+@router.post("/business/contacts/{contact_id}/outreach", dependencies=[Depends(resolve_tenant)])
+async def business_launch_contact_outreach(contact_id: str, background_tasks: BackgroundTasks):
+    """Lance une mission Commercial de suggestions d'approche avancées."""
+    import uuid
+
+    from services.mission import _mission_config_from_payload, _schedule_mission_execution
+
+    contact = get_contact(contact_id)
+    if not contact:
+        raise HTTPException(404, detail="Contact introuvable")
+
+    mission = build_contact_outreach_mission(contact)
+    job_id = uuid.uuid4().hex[:12]
+    mcfg = _mission_config_from_payload({
+        "require_user_validation": False,
+        "cio_plan_hitl_enabled": False,
+        "cio_questions_enabled": False,
+        "mode": "agent",
+    })
+    _schedule_mission_execution(
+        background_tasks,
+        job_id,
+        "commercial",
+        mission,
+        {"contact_id": contact_id, "outreach": True},
+        f"contact_outreach:{contact_id}",
+        mission_config=mcfg,
+    )
+    return {
+        "contact_id": contact_id,
+        "job_id": job_id,
+        "status": "accepted",
+        "agent": "commercial",
+        "message": "Suggestions avancées lancées — le Commercial approfondira l'approche.",
+    }
+
+
+@router.get("/business/contacts/{contact_id}/outreach", dependencies=[Depends(resolve_tenant)])
+async def business_get_contact_outreach(contact_id: str):
+    """Dernière mission de suggestions d'approche pour ce contact."""
+    from database import get_job, get_latest_job_by_source
+
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+
+    job = get_latest_job_by_source(f"contact_outreach:{contact_id}")
+    if not job:
+        return {
+            "contact_id": contact_id,
+            "job_id": None,
+            "status": None,
+            "result": None,
+            "can_apply": False,
+            "already_applied": False,
+        }
+
+    fresh = get_job(str(job.get("id") or "")) or job
+    result = str(fresh.get("result") or "").strip()
+    jid = str(fresh.get("id") or "")
+    already = any(
+        str(p.get("job_id") or "") == jid
+        and isinstance(p.get("proposed"), dict)
+        and p["proposed"].get("outreach_suggestions")
+        for p in list_enrichment_proposals(contact_id=contact_id, status="applied", limit=30)
+    )
+    status = str(fresh.get("status") or "")
+    can_apply = bool(result) and status in {"completed", "done", "success"} and not already
+    return {
+        "contact_id": contact_id,
+        "job_id": fresh.get("id"),
+        "status": fresh.get("status"),
+        "agent": fresh.get("agent"),
+        "result": result or None,
+        "can_apply": can_apply,
+        "already_applied": already,
+        "created_at": fresh.get("created_at"),
+        "updated_at": fresh.get("updated_at"),
+    }
+
+
+@router.post("/business/contacts/{contact_id}/outreach/apply", dependencies=[Depends(resolve_tenant)])
+async def business_apply_contact_outreach(contact_id: str):
+    """Écrit les suggestions avancées sur la fiche (append outreach_suggestions)."""
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    result = apply_outreach_from_job(contact_id)
+    if not result:
+        raise HTTPException(404, detail="Contact introuvable")
+    if result.get("skipped") and result.get("reason") == "no_outreach_job":
+        raise HTTPException(404, detail="Aucune mission de suggestions trouvée")
+    if result.get("skipped") and result.get("reason") == "no_outreach_extracted":
+        raise HTTPException(400, detail="Impossible d'extraire des suggestions depuis le livrable")
     return result
 
 

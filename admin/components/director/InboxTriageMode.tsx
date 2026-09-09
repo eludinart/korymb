@@ -11,12 +11,27 @@ type Props = {
   onDismissed?: () => void;
 };
 
+function stableInboxKey(item: InboxActionItem, index: number): string {
+  return (
+    item.job_id ||
+    item.ticket_id ||
+    item.output_id ||
+    item.suggestion_id ||
+    inboxItemKey(item, index)
+  );
+}
+
 export default function InboxTriageMode({ items, onDismissed }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusParam = (searchParams.get("focus") || "").trim();
 
-  const sorted = useMemo(() => sortInboxItems(filterSnoozedItems(items), "priority_desc"), [items]);
+  const [doneKeys, setDoneKeys] = useState<Set<string>>(() => new Set());
+
+  const sorted = useMemo(() => {
+    const base = sortInboxItems(filterSnoozedItems(items), "priority_desc");
+    return base.filter((it, i) => !doneKeys.has(stableInboxKey(it, i)));
+  }, [items, doneKeys]);
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
@@ -31,6 +46,12 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
     );
     if (idx >= 0) setIndex(idx);
   }, [focusParam, sorted]);
+
+  useEffect(() => {
+    if (index > 0 && index >= sorted.length) {
+      setIndex(Math.max(0, sorted.length - 1));
+    }
+  }, [index, sorted.length]);
 
   const current = sorted[index];
   const total = sorted.length;
@@ -48,14 +69,22 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
     router.push("/inbox");
   }, [router]);
 
+  const markCurrentDoneLocally = useCallback(() => {
+    if (!current) return;
+    const key = stableInboxKey(current, index);
+    setDoneKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  }, [current, index]);
+
   const snoozeCurrent = useCallback(() => {
     if (!current) return;
     snoozeInboxItem(current, index, 24);
-    if (index >= total - 1) {
-      setIndex(Math.max(0, index - 1));
-    }
+    markCurrentDoneLocally();
     onDismissed?.();
-  }, [current, index, total, onDismissed]);
+  }, [current, index, markCurrentDoneLocally, onDismissed]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -128,14 +157,12 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
         <div className="w-full max-w-2xl">
           {current ? (
             <InboxActionCard
-              key={inboxItemKey(current, index)}
+              key={stableInboxKey(current, index)}
               item={current}
               defaultExpanded
               onDismissed={() => {
+                markCurrentDoneLocally();
                 onDismissed?.();
-                if (index >= sorted.length - 1) {
-                  setIndex(Math.max(0, index - 1));
-                }
               }}
             />
           ) : null}

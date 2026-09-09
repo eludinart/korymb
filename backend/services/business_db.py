@@ -369,6 +369,10 @@ def create_contact(
 ) -> dict:
     cid = _new_id("ctc")
     now = _now()
+    facts, outreach = split_factual_notes_and_outreach(notes)
+    if outreach and not (outreach_suggestions or "").strip():
+        outreach_suggestions = outreach
+    notes = facts
     with get_conn() as conn:
         _ensure_biz_contacts_columns(conn)
         conn.execute(
@@ -442,10 +446,20 @@ def append_contact_notes(contact_id: str, block: str, *, source: str = "agent") 
     contact = get_contact(contact_id)
     if not contact:
         return None
+    facts, outreach = split_factual_notes_and_outreach(block or "")
     stamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M")
     prefix = f"\n\n--- {stamp} ({source}) ---\n"
-    new_notes = (contact.get("notes") or "").rstrip() + prefix + (block or "").strip()
-    return update_contact(contact_id, notes=new_notes)
+    patch: dict[str, Any] = {}
+    if facts.strip():
+        patch["notes"] = (contact.get("notes") or "").rstrip() + prefix + facts.strip()
+    if outreach.strip():
+        out_prefix = f"\n\n--- {stamp} ({source}) ---\n"
+        patch["outreach_suggestions"] = (
+            (contact.get("outreach_suggestions") or "").rstrip() + out_prefix + outreach.strip()
+        )
+    if not patch:
+        return contact
+    return update_contact(contact_id, **patch)
 
 
 def append_outreach_suggestions(contact_id: str, block: str, *, source: str = "agent") -> dict | None:
@@ -460,6 +474,91 @@ def append_outreach_suggestions(contact_id: str, block: str, *, source: str = "a
     prefix = f"\n\n--- {stamp} ({source}) ---\n"
     new_val = (contact.get("outreach_suggestions") or "").rstrip() + prefix + text
     return update_contact(contact_id, outreach_suggestions=new_val)
+
+
+_OUTREACH_SPLIT_RE = re.compile(
+    r"(?is)(?:^|\n+)\s*((?:Angle d['’]approche(?:\s+possible)?|"
+    r"Notes pour l['’]approche|"
+    r"Suggestion(?:s)? d['’]approche|"
+    r"Approche commerciale|"
+    r"Comment le contacter)\s*:\s*)",
+)
+
+
+def split_factual_notes_and_outreach(notes: str) -> tuple[str, str]:
+    """Sépare faits CRM et angle commercial mélangés dans un même texte."""
+    text = str(notes or "").strip()
+    if not text:
+        return "", ""
+    m = _OUTREACH_SPLIT_RE.search(text)
+    if not m:
+        # Phrase embarquée sans retour ligne : « …collective. Angle d'approche : … »
+        m2 = re.search(r"(?i)(\s+)(Angle d['’]approche(?:\s+possible)?\s*:)", text)
+        if m2:
+            facts = text[: m2.start(2)].strip().rstrip(".")
+            outreach = text[m2.start(2) :].strip()
+            return facts, outreach
+        return text, ""
+    facts = text[: m.start()].strip()
+    outreach = text[m.start(1) :].strip() if m.lastindex else text[m.start() :].strip()
+    return facts, outreach
+
+
+def rebalance_contact_notes_outreach(contact_id: str) -> dict[str, Any] | None:
+    """Déplace les angles d'approche encore présents dans `notes` vers `outreach_suggestions`."""
+    contact = get_contact(contact_id)
+    if not contact:
+        return None
+    notes = str(contact.get("notes") or "")
+    facts, moved = split_factual_notes_and_outreach(notes)
+    if not moved or moved.strip() == notes.strip():
+        # Rien à déplacer (pas d'angle détecté, ou tout le texte est déjà de l'outreach seul)
+        if not moved:
+            return {"contact": contact, "changed": False, "moved": False}
+        # Si notes = uniquement outreach, vide notes et pousse vers suggestions
+        facts, moved = "", notes.strip()
+
+    existing_out = str(contact.get("outreach_suggestions") or "").strip()
+    moved_clean = moved.strip()
+    # Déduplique si déjà présent
+    if existing_out and (
+        moved_clean.lower() in existing_out.lower()
+        or existing_out.lower() in moved_clean.lower()
+    ):
+        new_out = existing_out
+    elif existing_out:
+        new_out = existing_out.rstrip() + "\n\n--- (extrait notes) ---\n" + moved_clean
+    else:
+        new_out = moved_clean
+
+    updated = update_contact(
+        contact_id,
+        notes=facts.strip(),
+        outreach_suggestions=new_out,
+    )
+    return {"contact": updated, "changed": True, "moved": True}
+
+
+def rebalance_all_contacts_notes_outreach(*, limit: int = 500) -> dict[str, Any]:
+    """Passe batch : sépare notes / suggestions sur tous les contacts."""
+    rows = list_contacts(limit=limit)
+    changed = 0
+    scanned = 0
+    examples: list[dict[str, str]] = []
+    for row in rows:
+        scanned += 1
+        cid = str(row.get("id") or "")
+        if not cid:
+            continue
+        result = rebalance_contact_notes_outreach(cid)
+        if result and result.get("changed"):
+            changed += 1
+            if len(examples) < 8:
+                examples.append({
+                    "id": cid,
+                    "name": str((result.get("contact") or {}).get("name") or row.get("name") or ""),
+                })
+    return {"scanned": scanned, "changed": changed, "examples": examples}
 
 
 def get_contact_outreach_context(contact_id: str, *, limit_interactions: int = 12) -> dict[str, Any]:
@@ -1407,6 +1506,159 @@ def build_contact_exploration_mission(contact: dict) -> str:
         "en **approfondissant** ce qui a déjà été suggéré ou fait.\n"
         "- Puis un court résumé dirigeant."
     )
+
+
+def build_contact_outreach_mission(contact: dict) -> str:
+    """Consigne mission Commercial : suggestions d'approche avancées uniquement."""
+    ctx = get_contact_outreach_context(str(contact.get("id") or ""))
+    socials = contact.get("socials") if isinstance(contact.get("socials"), dict) else {}
+    prior_bits: list[str] = []
+    if ctx.get("outreach_suggestions"):
+        prior_bits.append("**Suggestions déjà sur la fiche :**\n" + str(ctx["outreach_suggestions"])[:1600])
+    for s in (ctx.get("prior_suggestions") or [])[:5]:
+        if s and s != ctx.get("outreach_suggestions"):
+            prior_bits.append(f"- Déjà évoqué : {str(s)[:450]}")
+    for m in (ctx.get("related_missions") or [])[:4]:
+        prior_bits.append(
+            f"- Mission `{m.get('job_id')}` ({m.get('status')}) :\n{(m.get('preview') or '')[:800]}"
+        )
+    for it in (ctx.get("interactions") or [])[:6]:
+        prior_bits.append(
+            f"- Interaction {it.get('type')} : {it.get('summary') or ''} — {str(it.get('details') or '')[:280]}"
+        )
+    history = "\n\n".join(prior_bits) if prior_bits else "(aucun historique riche — pose une première stratégie solide)"
+
+    return (
+        f"## Suggestions d'approche avancées — contact `{contact.get('id')}`\n\n"
+        f"**Nom :** {contact.get('name') or '—'}\n"
+        f"**Société :** {contact.get('company') or '—'}\n"
+        f"**Type :** {contact.get('contact_type') or '—'}\n"
+        f"**Email / tél :** {contact.get('email') or '—'} / {contact.get('phone') or '—'}\n"
+        f"**Site / LinkedIn :** {contact.get('website') or '—'} / {contact.get('linkedin_url') or '—'}\n"
+        f"**Réseaux :** {json.dumps(socials, ensure_ascii=False) if socials else '(aucun)'}\n"
+        f"**Notes factuelles :** {(contact.get('notes') or '(aucune)')[:900]}\n\n"
+        "### Historique (missions, interactions, suggestions déjà faites)\n"
+        f"{history}\n\n"
+        "### Objectif\n"
+        "Produire des **suggestions avancées** pour contacter ce prospect — **sans** modifier email/tél/site. "
+        "Tu dois **approfondir** ce qui existe déjà : ne pas reformuler la même phrase ; proposer une stratégie "
+        "plus concrète (canal, accroche, offre, timing, objection, prochaine action).\n\n"
+        "### Contraintes\n"
+        "1. `gestion_search_contacts` pour confirmer la fiche si besoin.\n"
+        "2. Recherche web légère seulement si elle enrichit l'angle (pas une exploration CRM complète).\n"
+        "3. **Ne pas** appeler `gestion_upsert_contact` / `gestion_update_contact`.\n"
+        "4. **OBLIGATOIRE** : `gestion_propose_contact_enrichment` avec uniquement :\n"
+        f"   - `contact_id` = `{contact.get('id')}`\n"
+        "   - `outreach_suggestions` = texte structuré (markdown court)\n"
+        "   - `summary` = 1–2 phrases pour le dirigeant\n"
+        "   - pas de `notes_append` sauf fait vraiment nouveau et utile\n\n"
+        "### Structure attendue de `outreach_suggestions`\n"
+        "- **Canal prioritaire** (email / LinkedIn / tél / autre) + pourquoi\n"
+        "- **Accroche** adaptée au métier (Tarot Fleur d'ÅmÔurs, maïeutique)\n"
+        "- **Offre / format** (atelier, module pro, démo, partenariat…)\n"
+        "- **Ce qui change vs suggestions précédentes** (approfondissement explicite)\n"
+        "- **Prochaine action** concrète (1 phrase)\n"
+    )
+
+
+def apply_outreach_from_job(
+    contact_id: str,
+    *,
+    job_id: str | None = None,
+    result: str | None = None,
+) -> dict[str, Any] | None:
+    """Applique les suggestions d'une mission outreach (source contact_outreach:…)."""
+    contact = get_contact(contact_id)
+    if not contact:
+        return None
+
+    from database import get_job, get_latest_job_by_source
+
+    job = get_job(str(job_id)) if job_id else None
+    if not job:
+        job = get_latest_job_by_source(f"contact_outreach:{contact_id}")
+    if not job:
+        return {
+            "contact": contact,
+            "applied": False,
+            "skipped": True,
+            "reason": "no_outreach_job",
+        }
+
+    jid = str(job.get("id") or "")
+    status = str(job.get("status") or "")
+    if status not in {"completed", "done", "success"}:
+        return {
+            "contact": contact,
+            "applied": False,
+            "skipped": True,
+            "reason": f"job_status_{status or 'unknown'}",
+            "job_id": jid,
+        }
+
+    already = [
+        p
+        for p in list_enrichment_proposals(contact_id=contact_id, status="applied", limit=30)
+        if str(p.get("job_id") or "") == jid
+        and isinstance(p.get("proposed"), dict)
+        and p["proposed"].get("outreach_suggestions")
+    ]
+    if already:
+        return {
+            "contact": contact,
+            "applied": False,
+            "skipped": True,
+            "reason": "already_applied_for_job",
+            "job_id": jid,
+            "proposal": already[0],
+        }
+
+    body = str(result if result is not None else job.get("result") or "").strip()
+    extracted = extract_contact_fields_from_exploration(body)
+    outreach = str(extracted.get("outreach_suggestions") or "").strip()
+    if not outreach:
+        # Livrable souvent 100 % suggestions : prendre le corps hors tables de contact
+        cleaned = "\n".join(
+            ln for ln in body.splitlines()
+            if not ln.strip().startswith("|") and not ln.strip().startswith("---")
+        ).strip()
+        outreach = cleaned[:4000]
+    if not outreach:
+        return {
+            "contact": contact,
+            "applied": False,
+            "skipped": True,
+            "reason": "no_outreach_extracted",
+            "job_id": jid,
+        }
+
+    proposal = create_enrichment_proposal(
+        contact_id=contact_id,
+        proposed={"outreach_suggestions": outreach},
+        sources=extracted.get("_sources") if isinstance(extracted.get("_sources"), list) else [],
+        summary="Suggestions d'approche avancées",
+        job_id=jid,
+        agent_key="commercial",
+    )
+    if not proposal:
+        append_outreach_suggestions(contact_id, outreach, source="suggestions_avancees")
+        return {
+            "contact": get_contact(contact_id),
+            "applied": True,
+            "skipped": False,
+            "job_id": jid,
+            "fields": {"outreach_suggestions": outreach},
+        }
+
+    applied = apply_enrichment_proposal(str(proposal["id"]), fields=["outreach_suggestions"])
+    return {
+        "contact": (applied or {}).get("contact") or get_contact(contact_id),
+        "applied": bool(applied),
+        "skipped": False,
+        "job_id": jid,
+        "proposal": (applied or {}).get("proposal") or proposal,
+        "fields": {"outreach_suggestions": outreach},
+    }
 
 
 def delete_contact(contact_id: str) -> bool:

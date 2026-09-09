@@ -116,16 +116,17 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       void jobAnswersQuery.refetch();
     },
   });
-  const validateMut = useValidateMission(jobId);
-  const closeMut = useCloseMission(jobId);
+  const hideFromInbox = () => {
+    setHidden(true);
+    onDismissed?.();
+  };
+  const validateMut = useValidateMission(jobId, hideFromInbox);
+  const closeMut = useCloseMission(jobId, hideFromInbox);
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
   const qualityMut = useQualityOverride(jobId);
-  const dismissMut = useInboxDismiss(() => {
-    setHidden(true);
-    onDismissed?.();
-  });
+  const dismissMut = useInboxDismiss(hideFromInbox);
 
   const busy =
     hitlResolve.isPending ||
@@ -181,7 +182,15 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   if (hidden) return null;
 
-  const onDismiss = () => {
+  const markClosureDone = () => {
+    if (item.kind === "closure" && jobId) {
+      validateMut.mutate();
+      return;
+    }
+    if (item.kind === "mission_error" && jobId) {
+      closeMut.mutate();
+      return;
+    }
     void dismissMut.mutateAsync({
       kind: item.kind,
       job_id: item.job_id,
@@ -191,6 +200,17 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     });
   };
 
+  const onDismiss = markClosureDone;
+  const isClosureKind = item.kind === "closure" || item.kind === "mission_error";
+  const doneLabel =
+    item.kind === "mission_error"
+      ? closeMut.isPending
+        ? "Clôture…"
+        : "Marquer comme terminé"
+      : validateMut.isPending
+        ? "Validation…"
+        : "Marquer comme terminé";
+
   return (
     <li className="action-card relative list-none">
       <button
@@ -198,8 +218,8 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
         onClick={onDismiss}
         disabled={busy}
         className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-        aria-label="Supprimer cette décision"
-        title="Supprimer — ne plus afficher"
+        aria-label={isClosureKind ? "Marquer comme terminé" : "Supprimer cette décision"}
+        title={isClosureKind ? "Marquer comme terminé — ne plus afficher" : "Supprimer — ne plus afficher"}
       >
         ×
       </button>
@@ -265,6 +285,17 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           ) : null}
         </div>
         <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto">
+          {isClosureKind && jobId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={markClosureDone}
+              className="btn-success px-4 py-2.5 text-sm"
+              title="Clôturer la mission et la retirer de l'inbox"
+            >
+              {doneLabel}
+            </button>
+          ) : null}
           <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary px-4 py-2.5 text-sm">
             {expanded ? "Réduire" : "Agir maintenant"}
           </button>
@@ -273,15 +304,17 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               Ouvrir mission
             </Link>
           ) : null}
-          <button
-            type="button"
-            onClick={onDismiss}
-            disabled={busy}
-            className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
-            title="Retirer cette décision de votre briefing et inbox"
-          >
-            {dismissMut.isPending ? "Suppression…" : "Supprimer"}
-          </button>
+          {!isClosureKind ? (
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={busy}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
+              title="Retirer cette décision de votre briefing et inbox"
+            >
+              {dismissMut.isPending ? "Suppression…" : "Supprimer"}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -413,9 +446,14 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           ) : null}
 
           {item.kind === "closure" && jobId ? (
-            <button type="button" disabled={busy} onClick={() => validateMut.mutate()} className="btn-success">
-              {validateMut.isPending ? "Validation…" : "Valider mission"}
-            </button>
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600">
+                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer de l’inbox.
+              </p>
+              <button type="button" disabled={busy} onClick={markClosureDone} className="btn-success">
+                {doneLabel}
+              </button>
+            </div>
           ) : null}
 
           {item.kind === "mission_error" && jobId ? (
@@ -423,11 +461,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => closeMut.mutate()}
+                onClick={markClosureDone}
                 className="btn-success"
                 title="Clôturer cette mission en échec (archivage dirigeant)"
               >
-                {closeMut.isPending ? "Clôture…" : "Clôturer l'échec"}
+                {doneLabel}
               </button>
               <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-primary text-sm">
                 Voir la mission →
@@ -509,7 +547,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </div>
           ) : null}
 
-          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
+          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
             .map((err, i) => (
               <p key={i} className="mt-2 text-xs text-red-700">

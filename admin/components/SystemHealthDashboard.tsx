@@ -228,28 +228,37 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <HealthDot tone={healthToneForCpuPercent(cpu)} label="Charge CPU" />
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">CPU</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">CPU · occupé</p>
           </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{cpu != null ? `${cpu.toFixed(0)} %` : "—"}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">
+            {cpu != null ? `${cpu.toFixed(0)} %` : "—"}
+            {cpu != null ? <span className="ms-1.5 text-sm font-medium text-slate-500">occupé</span> : null}
+          </p>
           <p className="mt-1 text-xs text-slate-500">Cœurs : {String(system?.cpu_count ?? "—")}</p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2">
             <HealthDot tone={healthToneForMemoryPercent(memPct)} label="Mémoire vive" />
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Mémoire</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Mémoire · occupée</p>
           </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{memPct != null ? `${memPct.toFixed(0)} %` : "—"}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">
+            {memPct != null ? `${memPct.toFixed(0)} %` : "—"}
+            {memPct != null ? <span className="ms-1.5 text-sm font-medium text-slate-500">occupée</span> : null}
+          </p>
           <p className="mt-1 text-xs text-slate-500">
-            Dispo. {formatBytes(mem?.available_bytes != null ? Number(mem.available_bytes) : undefined)} /{" "}
+            Libre {formatBytes(mem?.available_bytes != null ? Number(mem.available_bytes) : undefined)} /{" "}
             {formatBytes(mem?.total_bytes != null ? Number(mem.total_bytes) : undefined)}
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:col-span-2 lg:col-span-1">
           <div className="flex items-center gap-2">
             <HealthDot tone={healthToneForDiskPercent(diskPct)} label="Disque" />
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Disque</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Disque · occupé</p>
           </div>
-          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{diskPct != null ? `${diskPct.toFixed(1)} %` : "—"}</p>
+          <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">
+            {diskPct != null ? `${diskPct.toFixed(1)} %` : "—"}
+            {diskPct != null ? <span className="ms-1.5 text-sm font-medium text-slate-500">occupé</span> : null}
+          </p>
           <p className="mt-1 truncate text-xs text-slate-500" title={String(disk?.path || "")}>
             Libre {formatBytes(disk?.free_bytes != null ? Number(disk.free_bytes) : undefined)} ·{" "}
             {String(disk?.path || "—")}

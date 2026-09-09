@@ -180,10 +180,11 @@ export const businessApi = {
       headers: agentHeaders(),
     });
   },
-  exploreContact: async (id: string) => {
+  exploreContact: async (id: string, force = false) => {
     const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/explore`, {
       method: "POST",
       headers: agentHeaders(),
+      body: JSON.stringify({ force }),
       timeoutMs: 20_000,
     });
     return data as {
@@ -191,6 +192,7 @@ export const businessApi = {
       job_id: string;
       status: string;
       message?: string;
+      forced?: boolean;
       reachability?: ContactReachability;
     };
   },
@@ -226,6 +228,47 @@ export const businessApi = {
       job_id?: string;
       fields?: Record<string, unknown>;
       proposal?: ContactEnrichmentProposal;
+    };
+  },
+  launchOutreachSuggestions: async (id: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/outreach`, {
+      method: "POST",
+      headers: agentHeaders(),
+      timeoutMs: 20_000,
+    });
+    return data as {
+      contact_id: string;
+      job_id: string;
+      status: string;
+      message?: string;
+    };
+  },
+  getOutreachSuggestionsJob: async (id: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/outreach`, {
+      headers: agentHeaders(),
+    });
+    return data as {
+      contact_id: string;
+      job_id: string | null;
+      status: string | null;
+      result?: string | null;
+      can_apply?: boolean;
+      already_applied?: boolean;
+    };
+  },
+  applyOutreachSuggestions: async (id: string) => {
+    const { data } = await requestJson(`/business/contacts/${encodeURIComponent(id)}/outreach/apply`, {
+      method: "POST",
+      headers: agentHeaders(),
+      timeoutMs: 20_000,
+    });
+    return data as {
+      contact?: BizContact;
+      applied: boolean;
+      skipped: boolean;
+      reason?: string;
+      job_id?: string;
+      fields?: Record<string, unknown>;
     };
   },
   listEnrichmentProposals: async (contactId: string, status = "pending") => {

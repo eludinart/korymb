@@ -10,6 +10,7 @@ import {
   contactFieldLabel,
   currentContactValue,
   formatProposedValue,
+  getContactReachability,
 } from "../../lib/contactReachability";
 
 type Props = {
@@ -24,7 +25,11 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [selectionProposalId, setSelectionProposalId] = useState<string | null>(null);
   const [showFullResult, setShowFullResult] = useState(false);
+  const [forceExplore, setForceExplore] = useState(false);
   const autoFilledJobRef = useRef<string | null>(null);
+
+  const reach = getContactReachability(contact);
+  const isComplete = reach.level === "complete";
 
   const exploration = useQuery({
     queryKey: ["contact-exploration", contact.id],
@@ -84,8 +89,9 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
     setSelectionProposalId(proposal.id);
   }, [proposal, selectionProposalId]);
 
-  // Dès qu'une exploration est terminée avec des infos, remplit la fiche une fois.
+  // Remplit auto seulement si la fiche n'est pas déjà complète.
   useEffect(() => {
+    if (isComplete) return;
     const jobId = exploration.data?.job_id;
     if (!jobId) return;
     if (exploration.data?.status !== "completed") return;
@@ -95,10 +101,10 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
     autoFilledJobRef.current = jobId;
     fillFromExploration.mutate();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mutate once per completed job
-  }, [exploration.data?.job_id, exploration.data?.status, exploration.data?.can_fill]);
+  }, [exploration.data?.job_id, exploration.data?.status, exploration.data?.can_fill, isComplete]);
 
   const explore = useMutation({
-    mutationFn: () => businessApi.exploreContact(contact.id),
+    mutationFn: (force: boolean) => businessApi.exploreContact(contact.id, force),
     onSuccess: (data) => {
       setFeedback(
         data.job_id
@@ -106,6 +112,7 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
           : data.message || "Exploration lancée.",
       );
       setShowFullResult(false);
+      setForceExplore(false);
       autoFilledJobRef.current = null;
       void qc.invalidateQueries({ queryKey: ["contact-exploration", contact.id] });
       void qc.invalidateQueries({ queryKey: ["business-interactions", contact.id] });
@@ -152,19 +159,46 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
 
   return (
     <div className="space-y-4">
+      {isComplete && !exploreActive ? (
+        <AlertBox tone="success" title="Fiche déjà complète">
+          Email et canal de contact présents — pas d&apos;exploration systématique.
+          Tu peux forcer une nouvelle recherche seulement si tu veux vérifier / compléter (réseaux, Resalib…).
+        </AlertBox>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={explore.isPending || exploreActive}
-          onClick={() => {
-            setFeedback("");
-            explore.mutate();
-          }}
-        >
-          {explore.isPending || exploreActive ? "Exploration en cours…" : "Explorer en détail"}
-        </button>
-        {canFill ? (
+        {isComplete && !forceExplore ? (
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={explore.isPending || exploreActive}
+            onClick={() => setForceExplore(true)}
+          >
+            Forcer une exploration…
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={explore.isPending || exploreActive}
+            onClick={() => {
+              setFeedback("");
+              explore.mutate(isComplete);
+            }}
+          >
+            {explore.isPending || exploreActive
+              ? "Exploration en cours…"
+              : isComplete
+                ? "Lancer quand même"
+                : "Explorer en détail"}
+          </button>
+        )}
+        {forceExplore && isComplete && !exploreActive ? (
+          <button type="button" className="btn-link-secondary text-xs" onClick={() => setForceExplore(false)}>
+            Annuler
+          </button>
+        ) : null}
+        {canFill && !isComplete ? (
           <button
             type="button"
             className="btn-success"
@@ -179,7 +213,9 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
           </button>
         ) : null}
         <p className="text-xs text-slate-600">
-          Recherche email, tél, site, adresse, réseaux — puis écriture sur la fiche.
+          {isComplete
+            ? "Exploration optionnelle — utile pour réseaux / annuaires, pas pour re-remplir l’essentiel."
+            : "Recherche email, tél, site, adresse, réseaux — puis écriture sur la fiche."}
         </p>
       </div>
 
@@ -205,7 +241,10 @@ export default function ContactEnrichmentPanel({ contact }: Props) {
       {exploreActive ? (
         <AlertBox tone="success" title="Recherche en cours">
           Le Commercial analyse le contact
-          {exploreJobId ? ` (#${exploreJobId})` : ""}. La fiche sera remplie automatiquement à la fin.
+          {exploreJobId ? ` (#${exploreJobId})` : ""}.
+          {isComplete
+            ? " La fiche est déjà complète — le résultat servira surtout à vérifier / enrichir."
+            : " La fiche sera remplie automatiquement à la fin."}
           {exploreJobId ? (
             <>
               {" "}

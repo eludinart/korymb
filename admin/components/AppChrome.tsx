@@ -15,7 +15,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     <>
       <CommandPalette />
       <header className="app-header-bar">
-        <div className="flex w-full min-w-0 items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
+        <div className="flex w-full min-w-0 items-start gap-2 px-3 py-2.5 sm:gap-3 sm:px-5 sm:py-3 lg:px-6 xl:px-8">
           <div className="min-w-0 flex-1">
             <p className="app-brand">Korymb</p>
             <div className="mt-0.5 hidden sm:block">
@@ -36,9 +36,11 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               </p>
             ) : null}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <AuthBar />
-            <NotificationBell />
+          <div className="flex min-w-0 items-start justify-end gap-1.5 sm:gap-2">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <AuthBar />
+              <NotificationBell />
+            </div>
             <AppNav />
           </div>
         </div>
