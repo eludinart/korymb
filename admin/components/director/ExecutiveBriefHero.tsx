@@ -21,7 +21,13 @@ type BriefingRitual = {
   executive_summary?: string;
   top_priorities?: ExecutivePriority[];
   memory_highlights?: MemoryHighlight[];
-  ritual_status?: "clear" | "decisions_needed" | "budget_alert" | string;
+  ritual_status?: "clear" | "decisions_needed" | "budget_alert" | "config_blocked" | string;
+  llm_readiness?: {
+    ready?: boolean;
+    provider?: string | null;
+    blocker?: string | null;
+  };
+  recent_errors?: { job_id?: string; mission?: string; error?: string }[];
   inbox_total?: number;
   budget?: {
     cost_today_usd?: number;
@@ -62,14 +68,18 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
   const inboxTotal = Number(data.inbox_total ?? 0);
   const running = data.missions_running || [];
   const status = data.ritual_status || "clear";
+  const llm = data.llm_readiness || {};
+  const recentErrors = data.recent_errors || [];
   const budget = data.budget || {};
 
   const statusBanner =
-    status === "budget_alert"
-      ? "border-amber-300 bg-amber-50 text-amber-950"
-      : status === "decisions_needed"
-        ? "border-violet-300 bg-violet-50 text-violet-950"
-        : "border-emerald-200 bg-emerald-50/80 text-emerald-950";
+    status === "config_blocked"
+      ? "border-rose-300 bg-rose-50 text-rose-950"
+      : status === "budget_alert"
+        ? "border-amber-300 bg-amber-50 text-amber-950"
+        : status === "decisions_needed"
+          ? "border-violet-300 bg-violet-50 text-violet-950"
+          : "border-emerald-200 bg-emerald-50/80 text-emerald-950";
 
   const name = greetingName(userName);
 
@@ -85,6 +95,14 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
             <p className="mt-1 text-sm capitalize text-slate-500">{formatDateFr()}</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            {llm.ready === false ? (
+              <Link
+                href="/configuration"
+                className="inline-flex items-center rounded-2xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-rose-800"
+              >
+                Ajouter la clé LLM
+              </Link>
+            ) : null}
             {inboxTotal > 0 ? (
               <Link
                 href="/inbox?triage=1"
@@ -117,7 +135,27 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
           {budget.budget_exceeded || budget.alert ? " · Alerte budget active" : ""}
           {running.length > 0 ? ` · ${running.length} mission(s) en cours` : ""}
         </p>
+        {llm.ready === false && llm.blocker ? (
+          <p className="mt-2 text-sm font-bold">
+            {llm.blocker}. Ouvrez Configuration, collez la clé du fournisseur actif
+            {llm.provider ? ` (${llm.provider})` : ""}, puis relancez.
+          </p>
+        ) : null}
       </div>
+
+      {recentErrors.length > 0 ? (
+        <div className="px-5 pt-4 sm:px-8">
+          <h3 className="text-xs font-extrabold uppercase tracking-widest text-rose-700">Échecs récents</h3>
+          <ul className="mt-2 space-y-1.5">
+            {recentErrors.map((err) => (
+              <li key={String(err.job_id || err.error)} className="text-sm text-slate-700">
+                <span className="font-bold text-slate-900">{err.mission || err.job_id} :</span>{" "}
+                {err.error || "échec"}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {priorities.length > 0 ? (
         <div className="px-5 py-5 sm:px-8">

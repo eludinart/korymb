@@ -310,9 +310,15 @@ def _priority_href(item: dict) -> str:
     return "/inbox?triage=1"
 
 
-def _build_top_priorities(inbox_items: list[dict], *, limit: int = 3) -> list[dict]:
-    out: list[dict] = []
-    for item in inbox_items[:limit]:
+def _build_top_priorities(
+    inbox_items: list[dict],
+    *,
+    extra: list[dict] | None = None,
+    limit: int = 3,
+) -> list[dict]:
+    out: list[dict] = list(extra or [])
+    remaining = max(0, limit - len(out))
+    for item in inbox_items[:remaining]:
         out.append({
             "id": str(item.get("job_id") or item.get("output_id") or item.get("suggestion_id") or len(out)),
             "label": _priority_label(item),
@@ -359,6 +365,49 @@ def _memory_highlights(limit: int = 3) -> list[dict]:
         return []
 
 
+def _llm_readiness() -> dict[str, Any]:
+    """Provider actif + présence de clé. Ne jamais renvoyer la clé."""
+    try:
+        from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
+        from runtime_settings import merge_with_env
+
+        cfg = merge_with_env()
+        provider = normalize_llm_provider(None, cfg)
+        if is_chat_completions_provider(provider, cfg):
+            try:
+                chat_completions_settings(cfg, provider)
+            except RuntimeError as exc:
+                return {"ready": False, "provider": provider, "blocker": str(exc)[:180]}
+        elif provider == "anthropic":
+            key = str(cfg.get("anthropic_api_key") or "").strip()
+            if not key:
+                return {
+                    "ready": False,
+                    "provider": provider,
+                    "blocker": "ANTHROPIC_API_KEY manquant (env ou configuration runtime)",
+                }
+        return {"ready": True, "provider": provider, "blocker": None}
+    except Exception:
+        return {"ready": True, "provider": None, "blocker": None}
+
+
+def _recent_error_jobs(jobs: list[dict], *, limit: int = 3) -> list[dict]:
+    out: list[dict] = []
+    for job in jobs:
+        status = str(job.get("status") or "")
+        if not status.startswith("error"):
+            continue
+        msg = status[5:].strip(" :")[:160]
+        out.append({
+            "job_id": job.get("id"),
+            "mission": str(job.get("mission") or "")[:80],
+            "error": msg,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _build_executive_summary(
     *,
     inbox_total: int,
@@ -366,8 +415,11 @@ def _build_executive_summary(
     running_count: int,
     budget: dict,
     analytics: dict,
+    llm_blocker: str | None = None,
 ) -> str:
     parts: list[str] = []
+    if llm_blocker:
+        parts.append("clé LLM manquante — corriger dans Configuration avant de lancer une mission")
     if inbox_total > 0:
         dec = f"{inbox_total} décision{'s' if inbox_total > 1 else ''} en attente"
         if hitl_count > 0:
@@ -375,7 +427,7 @@ def _build_executive_summary(
         parts.append(dec + " bloquent l'avancement")
     elif running_count > 0:
         parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
-    else:
+    elif not llm_blocker:
         parts.append("Aucune action urgente — votre file est vide")
 
     if budget.get("budget_exceeded"):
@@ -400,7 +452,9 @@ def _build_executive_summary(
     return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
 
 
-def _ritual_status(inbox_total: int, budget: dict) -> str:
+def _ritual_status(inbox_total: int, budget: dict, *, llm_ready: bool = True) -> str:
+    if not llm_ready:
+        return "config_blocked"
     if budget.get("budget_exceeded"):
         return "budget_alert"
     if inbox_total > 0:
@@ -447,21 +501,39 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "budget_exceeded": bool(tokens_summary.get("budget_exceeded")),
         "alert": bool(tokens_summary.get("alert")),
     }
+    llm_readiness = _llm_readiness()
+    recent_errors = _recent_error_jobs(jobs)
+    extra_priorities: list[dict] = []
+    if not llm_readiness.get("ready"):
+        extra_priorities.append({
+            "id": "llm-blocker",
+            "label": "Ajouter la clé LLM — les missions échouent sans elle",
+            "href": "/configuration",
+            "kind": "config",
+            "urgency": "critical",
+        })
     executive_summary = _build_executive_summary(
         inbox_total=inbox["total"],
         hitl_count=len(hitl_pending),
         running_count=len(running),
         budget=budget_block,
         analytics=analytics,
+        llm_blocker=str(llm_readiness.get("blocker") or "") or None,
     )
 
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
         "executive_summary": executive_summary,
-        "top_priorities": _build_top_priorities(inbox["items"]),
+        "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
         "memory_highlights": _memory_highlights(),
-        "ritual_status": _ritual_status(inbox["total"], budget_block),
+        "ritual_status": _ritual_status(
+            inbox["total"],
+            budget_block,
+            llm_ready=bool(llm_readiness.get("ready")),
+        ),
+        "llm_readiness": llm_readiness,
+        "recent_errors": recent_errors,
         "decisions_today": inbox["items"][:5],
         "inbox_total": inbox["total"],
         "missions_running": [

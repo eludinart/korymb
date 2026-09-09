@@ -91,7 +91,46 @@ def test_admin_briefing(client):
     assert "top_priorities" in body
     assert isinstance(body["top_priorities"], list)
     assert "memory_highlights" in body
-    assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert")
+    assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert", "config_blocked")
+    assert "llm_readiness" in body
+    assert "ready" in body["llm_readiness"]
+    assert "recent_errors" in body
+    assert isinstance(body["recent_errors"], list)
+
+
+def test_admin_briefing_llm_blocker(client, monkeypatch):
+    monkeypatch.setattr(
+        "services.director_platform._llm_readiness",
+        lambda: {
+            "ready": False,
+            "provider": "mistral",
+            "blocker": "MISTRAL_API_KEY manquant (env ou fichier runtime_settings.json)",
+        },
+    )
+    r = client.get("/admin/briefing?period=today")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ritual_status"] == "config_blocked"
+    assert body["llm_readiness"]["ready"] is False
+    assert any(p.get("id") == "llm-blocker" for p in body["top_priorities"])
+    assert "clé llm" in (body["executive_summary"] or "").lower()
+    assert "/configuration" in (body["top_priorities"][0].get("href") or "")
+
+
+def test_admin_briefing_recent_errors(client):
+    save_job("errkey01", "coordinateur", "Mission test clé", source="test")
+    update_job(
+        "errkey01",
+        "error: MISTRAL_API_KEY manquant (env ou fichier runtime_settings.json)",
+        None,
+        [],
+        0,
+        0,
+    )
+    r = client.get("/admin/briefing?period=today")
+    assert r.status_code == 200
+    errors = r.json()["recent_errors"]
+    assert any("MISTRAL_API_KEY" in str(e.get("error") or "") for e in errors)
 
 
 def test_chat_conversations_crud(client):
