@@ -412,12 +412,19 @@ def resolve_action(
     from services.action_executor import execute_ticket, result_is_success
 
     executing = get_action(tid) or ticket
+    chain: dict[str, Any] | None = None
     try:
-        result_text = execute_ticket(executing)
+        exec_out = execute_ticket(executing)
+        if isinstance(exec_out, tuple):
+            result_text, chain = exec_out
+        else:
+            # Compat si un mock de test renvoie encore une str
+            result_text, chain = str(exec_out), None
     except Exception as exc:
         logger.exception("Action execute failed for %s", tid)
         result_text = f"Erreur exécution : {exc}"
         ok = False
+        chain = None
     else:
         ok = result_is_success(result_text)
 
@@ -429,7 +436,12 @@ def resolve_action(
             "WHERE id=? AND workspace_id=?",
             (new_status, done_at if ok else None, None if ok else str(result_text)[:2000], done_at, tid, wid),
         )
-        _append_event(conn, tid, new_status, {"source": source, "result": str(result_text)[:800]})
+        _append_event(
+            conn,
+            tid,
+            new_status,
+            {"source": source, "result": str(result_text)[:800], "chain": chain or {}},
+        )
         conn.commit()
     updated = get_action(tid)
     if not ok:
@@ -438,9 +450,10 @@ def resolve_action(
             "ticket": updated,
             "result": result_text,
             "error": result_text,
+            "chain": chain,
             "status_code": 502,
         }
-    return {"success": True, "ticket": updated, "result": result_text, "error": None}
+    return {"success": True, "ticket": updated, "result": result_text, "error": None, "chain": chain}
 
 
 def ensure_sandbox_execute_on() -> None:

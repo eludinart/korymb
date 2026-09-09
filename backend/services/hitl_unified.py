@@ -28,7 +28,7 @@ def resolve_hitl(
         feedback=feedback,
     )
     if not result.get("success") or not langgraph_resume:
-        return result
+        return _attach_cio_chain(result)
     try:
         from graph.engine import use_langgraph_execution
         from graph.runner import resume_mission_graph
@@ -39,4 +39,32 @@ def resolve_hitl(
             resume_mission_graph(job_id, payload)
     except Exception as exc:
         logger.warning("LangGraph resume after HITL failed for %s: %s", job_id, exc)
+    return _attach_cio_chain(result)
+
+
+def _attach_cio_chain(result: dict[str, Any]) -> dict[str, Any]:
+    """Ajoute un récap chaîne pour l'inbox (valider + lancer)."""
+    if not result.get("success"):
+        return result
+    dec = str(result.get("decision") or "").strip().lower()
+    if dec == "reject":
+        result["chain"] = {
+            "launched": False,
+            "steps": ["Plan CIO rejeté — mission annulée"],
+            "new_status": result.get("new_status"),
+        }
+        return result
+    if dec not in ("approve", "amend"):
+        return result
+    steps = (
+        ["Plan CIO amendé et validé", "Mission relancée — délégation en cours"]
+        if dec == "amend"
+        else ["Plan CIO validé", "Mission relancée — les sous-agents démarrent"]
+    )
+    result["chain"] = {
+        "launched": True,
+        "steps": steps,
+        "new_status": result.get("new_status") or "running",
+        "job_id": result.get("job_id"),
+    }
     return result

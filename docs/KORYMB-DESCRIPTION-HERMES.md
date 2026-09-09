@@ -81,8 +81,8 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 
 | File | Statut / table | Ce que le dirigeant valide | Exécution |
 |------|----------------|---------------------------|-----------|
-| **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job |
-| **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL) |
+| **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job — **Valider et lancer** enchaîne validation + reprise des sous-agents |
+| **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL). **E-mail** : envoi + journal CRM + relance J+7. **Social / WordPress** : publish + suivi mesurer/relayer J+3 dans Planning. |
 
 Les outils `send_email`, `send_gmail`, `create_calendar_event`, posts Meta, `wordpress_create_post` **n’exécutent plus en live** : ils créent un ticket. WordPress (si configuré) crée d’abord un **brouillon** ; l’approbation passe en `publish`. Après un e-mail réellement envoyé, Korymb journalise une interaction CRM (`gestion_log_interaction`).
 

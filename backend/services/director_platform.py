@@ -204,6 +204,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "created_at": row.get("updated_at"),
                 "updated_at": row.get("updated_at"),
                 "hitl_kind": hk,
+                "primary_cta": "Valider et lancer" if hk == "cio_plan" else "Valider",
                 "gate_preview": _gate_preview(gate),
                 "priority_score": _priority_score("hitl"),
             }, job_row=row))
@@ -294,15 +295,27 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
 
         for ticket in list_actions(status="pending", limit=40):
             payload = ticket.get("payload") if isinstance(ticket.get("payload"), dict) else {}
+            action_kind = str(ticket.get("kind") or "")
+            contact_id = str(payload.get("contact_id") or "").strip() or None
             items.append(_enrich_inbox_item({
                 "kind": "action_ticket",
                 "ticket_id": ticket.get("id"),
                 "job_id": ticket.get("job_id") or None,
-                "action_kind": ticket.get("kind"),
+                "action_kind": action_kind,
                 "title": ticket.get("title") or "Action à valider",
                 "summary": ticket.get("summary") or "",
                 "preview_url": ticket.get("preview_url") or None,
                 "payload": payload,
+                "contact_id": contact_id,
+                "primary_cta": (
+                    "Approuver et envoyer"
+                    if action_kind == "email"
+                    else "Valider et créer"
+                    if action_kind == "calendar"
+                    else "Valider et publier"
+                    if action_kind in ("wordpress", "social")
+                    else "Valider"
+                ),
                 "status": ticket.get("status"),
                 "created_at": ticket.get("created_at"),
                 "updated_at": ticket.get("updated_at"),

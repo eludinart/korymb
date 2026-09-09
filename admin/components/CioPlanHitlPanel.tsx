@@ -18,9 +18,10 @@ type HitlBlock = {
 type Props = {
   jobId: string;
   hitl: HitlBlock | Record<string, unknown> | null | undefined;
+  onResolved?: (data: { chain?: { steps?: string[] } }) => void;
 };
 
-export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
+export default function CioPlanHitlPanel({ jobId, hitl, onResolved }: Props) {
   const qc = useQueryClient();
   const normalized = useMemo(() => normalizeHitlBlock(hitl), [hitl]);
   const gate = (normalized?.gate || {}) as Record<string, unknown>;
@@ -66,6 +67,7 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
     void qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
     void qc.invalidateQueries({ queryKey: ["inbox-hitl", jobId] });
     void qc.invalidateQueries({ queryKey: QK.jobsCards });
+    void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
   };
 
   const mut = useMutation({
@@ -80,10 +82,11 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
         const msg = formatHttpApiErrorPayload(data) || res.statusText || "Erreur";
         throw new Error(msg);
       }
-      return data;
+      return data as { chain?: { steps?: string[] } };
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidate();
+      onResolved?.(data);
     },
   });
 
@@ -119,8 +122,8 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
       <div>
         <p className="text-sm font-semibold text-violet-950">Validation du plan CIO (avant délégation)</p>
         <p className="mt-1 text-xs leading-relaxed text-violet-900/90">
-          Le CIO a proposé un plan de délégation. Lisez la synthèse et les sous-tâches ci-dessous, puis approuvez pour
-          lancer les sous-agents, modifiez le plan (JSON), ou rejetez pour arrêter la mission.
+          Le CIO a proposé un plan de délégation. Approuvez pour lancer les sous-agents, ou ouvrez le détail pour
+          amender / rejeter.
         </p>
         {missionLabel ? (
           <p className="mt-2 rounded-lg border border-violet-100 bg-white/80 px-2.5 py-1.5 text-xs text-slate-700">
@@ -177,7 +180,7 @@ export default function CioPlanHitlPanel({ jobId, hitl }: Props) {
           onClick={() => void onApprove()}
           className="rounded-lg bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40"
         >
-          Approuver le plan
+          Valider et lancer
         </button>
         <button
           type="button"

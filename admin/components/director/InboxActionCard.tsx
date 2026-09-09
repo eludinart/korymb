@@ -46,6 +46,8 @@ export type InboxActionItem = {
   questions?: string[];
   hitl_kind?: string;
   action_kind?: string;
+  primary_cta?: string;
+  contact_id?: string;
   summary?: string;
   preview_url?: string;
   payload?: {
@@ -59,6 +61,7 @@ export type InboxActionItem = {
     caption?: string;
     content?: string;
     platform?: string;
+    contact_id?: string;
   };
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
   proposal_meta?: {
@@ -83,6 +86,7 @@ type Props = {
 export default function InboxActionCard({ item, defaultExpanded = false, onDismissed }: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded || item.kind === "action_ticket");
   const [hidden, setHidden] = useState(false);
+  const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
   const jobId = item.job_id || "";
 
   const jobAnswersQuery = useQuery({
@@ -120,6 +124,15 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     setHidden(true);
     onDismissed?.();
   };
+  const showChainThenHide = (data: { chain?: { steps?: string[] } } | undefined) => {
+    const steps = data?.chain?.steps;
+    if (Array.isArray(steps) && steps.length) {
+      setChainFeedback(steps.map(String));
+      window.setTimeout(() => hideFromInbox(), 1600);
+    } else {
+      hideFromInbox();
+    }
+  };
   const validateMut = useValidateMission(jobId, hideFromInbox);
   const closeMut = useCloseMission(jobId, hideFromInbox);
   const schedApprove = useSchedulerApprove();
@@ -139,6 +152,34 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     learningMut.isPending ||
     qualityMut.isPending ||
     dismissMut.isPending;
+
+  const approveActionTicket = () => {
+    if (!item.ticket_id) return;
+    actionResolve.mutate(
+      { ticketId: item.ticket_id, decision: "approve" },
+      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+    );
+  };
+
+  const approveCioPlan = () => {
+    if (!jobId) return;
+    hitlResolve.mutate(
+      { decision: "approve" },
+      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+    );
+  };
+
+  const isCioPlanHitl = item.kind === "hitl" && item.hitl_kind === "cio_plan";
+
+  const actionPrimaryLabel =
+    item.primary_cta ||
+    (item.action_kind === "calendar"
+      ? "Valider et créer"
+      : item.action_kind === "wordpress" || item.action_kind === "social"
+        ? "Valider et publier"
+        : "Approuver et envoyer");
+
+  const cioPrimaryLabel = item.primary_cta || "Valider et lancer";
 
   const onCioSubmit = async (question: string, answer: string) => {
     if (!answer.trim()) return;
@@ -181,6 +222,20 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       : undefined);
 
   if (hidden) return null;
+  if (chainFeedback) {
+    return (
+      <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
+        <p className="text-sm font-bold text-emerald-900">Fait — chaîne terminée</p>
+        <ul className="mt-2 space-y-1">
+          {chainFeedback.map((step) => (
+            <li key={step} className="text-sm font-medium text-emerald-800">
+              ✓ {step}
+            </li>
+          ))}
+        </ul>
+      </li>
+    );
+  }
 
   const markClosureDone = () => {
     if (item.kind === "closure" && jobId) {
@@ -285,6 +340,28 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           ) : null}
         </div>
         <div className="flex w-full shrink-0 flex-row flex-wrap gap-2 sm:w-auto sm:flex-col">
+          {item.kind === "action_ticket" && item.ticket_id ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={approveActionTicket}
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
+              title="Exécuter l'action et enchaîner CRM / relance si applicable"
+            >
+              {actionResolve.isPending ? "Exécution…" : actionPrimaryLabel}
+            </button>
+          ) : null}
+          {isCioPlanHitl && jobId ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={approveCioPlan}
+              className="btn-success flex-1 px-4 text-sm sm:flex-none"
+              title="Valider le plan CIO et relancer la mission"
+            >
+              {hitlResolve.isPending ? "Lancement…" : cioPrimaryLabel}
+            </button>
+          ) : null}
           {isClosureKind && jobId ? (
             <button
               type="button"
@@ -296,15 +373,29 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               {doneLabel}
             </button>
           ) : null}
-          <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary flex-1 px-4 text-sm sm:flex-none">
-            {expanded ? "Réduire" : "Agir"}
-          </button>
+          {item.kind === "action_ticket" || isCioPlanHitl ? (
+            <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-link-secondary flex-1 text-center sm:flex-none">
+              {expanded ? "Réduire" : isCioPlanHitl ? "Voir le plan" : "Voir le contenu"}
+            </button>
+          ) : (
+            <button type="button" onClick={() => setExpanded((v) => !v)} className="btn-primary flex-1 px-4 text-sm sm:flex-none">
+              {expanded ? "Réduire" : "Agir"}
+            </button>
+          )}
           {jobId ? (
             <Link href={`/missions?job=${encodeURIComponent(jobId)}`} className="btn-link-secondary flex-1 text-center sm:flex-none">
               Mission
             </Link>
           ) : null}
-          {!isClosureKind ? (
+          {(item.contact_id || item.payload?.contact_id) && item.kind === "action_ticket" ? (
+            <Link
+              href={`/gestion/contacts/${encodeURIComponent(item.contact_id || item.payload?.contact_id || "")}`}
+              className="btn-link-secondary flex-1 text-center sm:flex-none"
+            >
+              Fiche CRM
+            </Link>
+          ) : null}
+          {!isClosureKind && item.kind !== "action_ticket" && !isCioPlanHitl ? (
             <button
               type="button"
               onClick={onDismiss}
@@ -364,21 +455,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() =>
-                    actionResolve.mutate(
-                      { ticketId: item.ticket_id!, decision: "approve" },
-                      { onSuccess: () => setHidden(true) },
-                    )
-                  }
+                  onClick={approveActionTicket}
                   className="btn-success"
                 >
-                  {actionResolve.isPending
-                    ? "Exécution…"
-                    : item.action_kind === "calendar"
-                      ? "Valider et créer"
-                      : item.action_kind === "wordpress" || item.action_kind === "social"
-                        ? "Valider et publier"
-                        : "Valider et envoyer"}
+                  {actionResolve.isPending ? "Exécution…" : actionPrimaryLabel}
                 </button>
                 <button
                   type="button"
@@ -386,7 +466,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   onClick={() =>
                     actionResolve.mutate(
                       { ticketId: item.ticket_id!, decision: "reject" },
-                      { onSuccess: () => setHidden(true) },
+                      { onSuccess: () => hideFromInbox() },
                     )
                   }
                   className="btn-danger"
@@ -394,6 +474,16 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   Rejeter
                 </button>
               </div>
+              {item.action_kind === "email" ? (
+                <p className="text-xs text-slate-500">
+                  Un clic envoie l&apos;e-mail, journalise le CRM si le destinataire est connu, et planifie une relance J+7 dans Gestion → Planning.
+                </p>
+              ) : null}
+              {item.action_kind === "social" || item.action_kind === "wordpress" ? (
+                <p className="text-xs text-slate-500">
+                  Un clic publie le contenu et planifie un suivi (mesurer / relayer) dans Gestion → Planning.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -402,7 +492,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               {item.hitl_kind === "cio_plan" && hitlQuery.data ? (
                 <>
                   <PlanDiffPanel jobId={jobId} compact />
-                  <CioPlanHitlPanel jobId={jobId} hitl={hitlQuery.data?.hitl ?? hitlQuery.data} />
+                  <CioPlanHitlPanel
+                    jobId={jobId}
+                    hitl={hitlQuery.data?.hitl ?? hitlQuery.data}
+                    onResolved={(data) => showChainThenHide(data)}
+                  />
                 </>
               ) : hitlQuery.data ? (
                 <MissionHitlResolver jobId={jobId} hitl={hitlQuery.data} />

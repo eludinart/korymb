@@ -140,6 +140,8 @@ function MissionsContent() {
 
   const openMission = (jobId: string) => {
     setSelected(jobId);
+    setFeedback("");
+    setError("");
     const p = new URLSearchParams(searchParams.toString());
     p.set("job", jobId);
     router.replace(`/missions?${p.toString()}`);
@@ -500,11 +502,26 @@ function MissionsContent() {
         ) : null}
       <div className="grid w-full min-w-0 max-w-full gap-4 lg:grid-cols-[minmax(320px,1fr)_minmax(280px,0.75fr)]">
         <div className="min-w-0 space-y-3">
-        {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
+        {error ? (
+          <div className="flex items-start gap-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="min-w-0 flex-1 break-words">{error}</p>
+            <button type="button" onClick={() => setError("")} className="shrink-0 font-bold text-red-500 hover:text-red-800" aria-label="Fermer">
+              ×
+            </button>
+          </div>
+        ) : null}
         {feedback ? (
-          <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            {feedback}
-          </p>
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            <p className="min-w-0 flex-1 break-words">{feedback}</p>
+            <button
+              type="button"
+              onClick={() => setFeedback("")}
+              className="shrink-0 font-bold text-emerald-600 hover:text-emerald-900"
+              aria-label="Fermer"
+            >
+              ×
+            </button>
+          </div>
         ) : null}
         {jobs.isPending && !jobs.isError ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
         {jobs.isError ? (
@@ -620,13 +637,6 @@ function MissionsContent() {
             ) : null}
           </div>
         </div>
-        {error ? <p className="text-sm text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p> : null}
-        {feedback ? (
-          <p className="break-words text-sm text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
-            {feedback}
-          </p>
-        ) : null}
-
         {showConversationSidebar ? (
           <div className="mobile-tab-bar lg:hidden">
             <button

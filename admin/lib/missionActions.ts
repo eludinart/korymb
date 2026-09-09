@@ -220,18 +220,25 @@ export function useActionResolve(onSuccess?: () => void) {
     }) => resolveActionTicket(ticketId, { decision, comment }),
     onSuccess: () => {
       invalidateMissionQueries(qc);
+      void qc.invalidateQueries({ queryKey: ["business-contacts"] });
+      void qc.invalidateQueries({ queryKey: ["business-events"] });
+      void qc.invalidateQueries({ queryKey: ["business-overview"] });
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
       onSuccess?.();
     },
   });
 }
 
-export function useHitlResolve(jobId: string, onSuccess?: () => void) {
+export function useHitlResolve(jobId: string, onSuccess?: (data?: unknown) => void) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Parameters<typeof hitlResolve>[1]) => hitlResolve(jobId, body),
-    onSuccess: () => {
+    onSuccess: (data) => {
       invalidateMissionQueries(qc, jobId);
-      onSuccess?.();
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      onSuccess?.(data);
     },
   });
 }

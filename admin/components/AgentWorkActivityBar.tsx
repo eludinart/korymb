@@ -325,6 +325,12 @@ export default function AgentWorkActivityBar() {
   const [controlFeedback, setControlFeedback] = useState("");
 
   useEffect(() => {
+    if (!controlFeedback) return;
+    const t = window.setTimeout(() => setControlFeedback(""), 4_500);
+    return () => window.clearTimeout(t);
+  }, [controlFeedback]);
+
+  useEffect(() => {
     const stored = readCollapsedPreference();
     if (stored !== null) setExpanded(!stored);
   }, []);

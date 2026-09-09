@@ -146,6 +146,126 @@ def test_approve_executes_email(client, monkeypatch):
     assert again.status_code == 409
 
 
+def test_approve_social_chains_follow_up(client, monkeypatch):
+    monkeypatch.setattr(
+        "tools.run_post_instagram",
+        lambda caption, image_url="": "✅ Post Instagram publié",
+    )
+    create = client.post(
+        "/actions",
+        json={
+            "kind": "social",
+            "title": "Instagram — Agapé",
+            "payload": {
+                "platform": "instagram",
+                "tool": "post_instagram",
+                "caption": "Carte Agapé — invitation douce.",
+            },
+        },
+    )
+    tid = create.json()["id"]
+    resolved = client.post(f"/actions/{tid}/resolve", json={"decision": "approve"})
+    assert resolved.status_code == 200, resolved.text
+    chain = resolved.json().get("chain") or {}
+    assert chain.get("published") is True
+    assert chain.get("follow_up", {}).get("id")
+    assert any("publié" in s.lower() for s in (chain.get("steps") or []))
+
+    from services.business_db import list_calendar_events
+
+    events = list_calendar_events(limit=20)
+    assert any(e.get("id") == chain["follow_up"]["id"] for e in events)
+
+
+def test_cio_plan_approve_returns_launch_chain(client):
+    from database import job_set_awaiting_hitl, save_job
+
+    save_job("ciochain1", "coordinateur", "Mission éditeurs", source="test")
+    assert job_set_awaiting_hitl(
+        "ciochain1",
+        {
+            "kind": "cio_plan",
+            "mission": "Mission éditeurs",
+            "plan_public": {"synthese_attendue": "Cartographier", "sous_taches": {"commercial": "Lister"}},
+        },
+    )
+    inbox = client.get("/admin/inbox")
+    assert inbox.status_code == 200
+    item = next(
+        i
+        for i in inbox.json()["items"]
+        if i.get("job_id") == "ciochain1" and i.get("kind") == "hitl"
+    )
+    assert item.get("hitl_kind") == "cio_plan"
+    assert item.get("primary_cta") == "Valider et lancer"
+
+    resolved = client.post("/jobs/ciochain1/hitl/resolve", json={"decision": "approve"})
+    assert resolved.status_code == 200, resolved.text
+    body = resolved.json()
+    assert body.get("success") is True
+    assert body.get("new_status") == "running"
+    chain = body.get("chain") or {}
+    assert chain.get("launched") is True
+    assert any("relancée" in s.lower() or "relancee" in s.lower() for s in (chain.get("steps") or []))
+
+
+def test_approve_email_chains_crm_and_follow_up(client, monkeypatch):
+    """Approuver un e-mail : envoi + journal CRM + créneau relance planning."""
+    from services.business_db import create_contact, list_calendar_events, list_interactions
+
+    contact = create_contact(
+        name="Coach Relance",
+        email="relance@example.com",
+        contact_type="prospect",
+        tags=["coach"],
+    )
+    cid = contact["id"]
+
+    monkeypatch.setattr("services.action_executor._gmail_configured", lambda: False)
+    monkeypatch.setattr(
+        "tools.run_send_email",
+        lambda to, subject, body: f"✅ Email envoyé à {to}",
+    )
+
+    create = client.post(
+        "/actions",
+        json={
+            "kind": "email",
+            "title": "E-mail — Relance module",
+            "payload": {
+                "to": "relance@example.com",
+                "subject": "Module Pro",
+                "body": "Bonjour, suite à notre échange.",
+                "contact_id": cid,
+                "follow_up_days": 7,
+            },
+        },
+    )
+    assert create.status_code == 200, create.text
+    tid = create.json()["id"]
+
+    resolved = client.post(f"/actions/{tid}/resolve", json={"decision": "approve", "source": "inbox"})
+    assert resolved.status_code == 200, resolved.text
+    body = resolved.json()
+    assert body["success"] is True
+    assert body["ticket"]["status"] == "executed"
+    chain = body.get("chain") or {}
+    assert chain.get("sent") is True
+    assert chain.get("crm_logged") is True
+    assert chain.get("contact_id") == cid
+    assert chain.get("follow_up", {}).get("id")
+    assert any("envoyé" in s.lower() for s in (chain.get("steps") or []))
+
+    interactions = list_interactions(contact_id=cid, limit=10)
+    assert any(i.get("interaction_type") == "email" for i in interactions)
+
+    events = list_calendar_events(limit=20)
+    assert any(
+        (e.get("id") == chain["follow_up"]["id"]) or ("Relance" in (e.get("title") or ""))
+        for e in events
+    )
+
+
 def test_reject_does_not_send(client, monkeypatch):
     monkeypatch.setattr(
         "tools.run_send_email",
