@@ -127,7 +127,7 @@ export function ticketActionLabel(actionKind: string, primaryCta?: string): stri
 
 export function inboxItemsForJob(items: InboxHint[] | undefined, jobId: string): InboxHint[] {
   const id = normalizeJobId(jobId);
-  if (!id || !items?.length) return [];
+  if (!id || !Array.isArray(items) || !items.length) return [];
   return items.filter((it) => normalizeJobId(it.job_id) === id);
 }
 

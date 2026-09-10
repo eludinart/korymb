@@ -16,6 +16,7 @@ import {
 } from "../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { filterSnoozedItems } from "../../lib/inboxSnooze";
+import { asInboxItems, fetchAdminInboxItems } from "../../lib/inboxQuery";
 import { DIRECTOR_QUEUE_EMPTY, DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL, DIRECTOR_QUEUE_TITLE } from "../../lib/directorQueue";
 import { closeInboxBulk } from "../../lib/missionActions";
 
@@ -27,16 +28,13 @@ function InboxPageContent() {
 
   const inbox = useQuery({
     queryKey: ["admin-inbox"],
-    queryFn: async () => {
-      const { data } = await requestJson("/admin/inbox?limit=100", { headers: agentHeaders(), retries: 2 });
-      return (data.items || []) as InboxActionItem[];
-    },
+    queryFn: () => fetchAdminInboxItems(100),
     refetchInterval: 60_000,
     staleTime: 45_000,
     refetchOnWindowFocus: false,
   });
 
-  const items = filterSnoozedItems(inbox.data || []);
+  const items = filterSnoozedItems(asInboxItems(inbox.data));
   const pending = items.length;
   const overdueCount = items.filter((i) => Number(i.days_overdue ?? 0) > 0).length;
   const closableCount = items.filter((i) => i.kind === "closure" || i.kind === "mission_error").length;

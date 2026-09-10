@@ -28,7 +28,6 @@ import MissionsArchivesList from "../../components/missions/MissionsArchivesList
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
-import type { InboxActionItem } from "../../components/director/InboxActionCard";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
@@ -37,6 +36,7 @@ import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../.
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { fetchAdminInboxItems, asInboxItems } from "../../lib/inboxQuery";
 import { cioAnswersAndResume, markMissionResultConsulted, resolveActionTicket } from "../../lib/missionActions";
 import { inboxItemsForJob } from "../../lib/missionDailyUx";
 import { QK } from "../../lib/queryClient";
@@ -94,17 +94,14 @@ function MissionsContent() {
 
   const inboxQuery = useQuery({
     queryKey: ["admin-inbox"],
-    queryFn: async () => {
-      const { data } = await requestJson("/admin/inbox?limit=100", { headers: agentHeaders(), retries: 1 });
-      return data as { items?: InboxActionItem[] };
-    },
+    queryFn: () => fetchAdminInboxItems(100),
     staleTime: 15_000,
     refetchInterval: (query) => {
       if (query.state.fetchStatus === "fetching") return false;
       return adaptivePollInterval(20_000, 45_000);
     },
   });
-  const inboxItems = useMemo(() => inboxQuery.data?.items || [], [inboxQuery.data]);
+  const inboxItems = useMemo(() => asInboxItems(inboxQuery.data), [inboxQuery.data]);
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
   const missionRows = useMemo(

@@ -29,10 +29,11 @@ export function snoozeInboxItem(item: InboxActionItem, idx: number, hours = 24):
 }
 
 export function filterSnoozedItems(items: InboxActionItem[]): InboxActionItem[] {
+  const list = Array.isArray(items) ? items : [];
   const now = Date.now();
   const active = new Set(loadSnoozes().filter((e) => e.until > now).map((e) => e.key));
-  if (!active.size) return items;
-  return items.filter((item, idx) => !active.has(inboxItemKey(item, idx)));
+  if (!active.size) return list;
+  return list.filter((item, idx) => !active.has(inboxItemKey(item, idx)));
 }
 
 export function clearExpiredSnoozes() {

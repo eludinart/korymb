@@ -17,7 +17,11 @@ export default function PlaybooksPage() {
   const qc = useQueryClient();
   const playbooks = useQuery({
     queryKey: ["playbooks"],
-    queryFn: async () => (await requestJson("/playbooks", { headers: agentHeaders() })).data.playbooks as Playbook[],
+    queryFn: async () => {
+      const { data } = await requestJson("/playbooks", { headers: agentHeaders() });
+      const list = (data as { playbooks?: unknown })?.playbooks;
+      return Array.isArray(list) ? (list as Playbook[]) : [];
+    },
   });
 
   const launch = useMutation({
@@ -37,12 +41,13 @@ export default function PlaybooksPage() {
     },
   });
 
+  const list = Array.isArray(playbooks.data) ? playbooks.data : [];
   const grouped = {
-    studio: (playbooks.data || []).filter((p) => p.category === "studio"),
-    fleur: (playbooks.data || []).filter((p) => p.category === "fleur"),
-    sivana: (playbooks.data || []).filter((p) => p.category === "sivana"),
-    ops: (playbooks.data || []).filter((p) => p.category === "ops"),
-    generic: (playbooks.data || []).filter((p) => !p.category || p.category === "generic"),
+    studio: list.filter((p) => p.category === "studio"),
+    fleur: list.filter((p) => p.category === "fleur"),
+    sivana: list.filter((p) => p.category === "sivana"),
+    ops: list.filter((p) => p.category === "ops"),
+    generic: list.filter((p) => !p.category || p.category === "generic"),
   };
 
   return (

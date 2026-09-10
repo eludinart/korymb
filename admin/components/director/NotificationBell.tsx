@@ -78,7 +78,7 @@ export default function NotificationBell() {
         `/admin/notifications?unread_only=${unreadOnly ? "true" : "false"}&limit=50`,
         { headers: agentHeaders(), retries: 1 },
       );
-      return (data.items || []) as DirectorNotification[];
+      return Array.isArray(data.items) ? (data.items as DirectorNotification[]) : [];
     },
     refetchInterval: open ? 15000 : 30000,
   });
@@ -139,8 +139,9 @@ export default function NotificationBell() {
     return () => window.clearTimeout(t);
   }, [copyHint]);
 
-  const unreadCount = (notifs.data || []).filter((n) => !n.read_at).length;
-  const badgeCount = filter === "unread" ? notifs.data?.length || 0 : unreadCount;
+  const list = Array.isArray(notifs.data) ? notifs.data : [];
+  const unreadCount = list.filter((n) => !n.read_at).length;
+  const badgeCount = filter === "unread" ? list.length : unreadCount;
 
   const markRead = async (id: string): Promise<boolean> => {
     try {
@@ -282,12 +283,12 @@ export default function NotificationBell() {
       <ul className={`overflow-auto ${isNarrow ? "flex-1 pb-safe" : "max-h-[min(70vh,24rem)]"}`}>
         {notifs.isLoading ? (
           <li className="px-4 py-6 text-center text-sm text-slate-500">Chargement…</li>
-        ) : (notifs.data || []).length === 0 ? (
+        ) : list.length === 0 ? (
           <li className="px-4 py-6 text-center text-sm font-medium text-slate-600">
             {filter === "unread" ? "Aucune notification non lue." : "Aucune notification récente."}
           </li>
         ) : (
-          notifs.data!.map((n) => (
+          list.map((n) => (
             <NotificationItemRow
               key={n.id}
               notification={n}
