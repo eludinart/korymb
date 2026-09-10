@@ -96,6 +96,19 @@ Problèmes courants :
 - **Port déjà occupé** : le script libère les ports lui-même au démarrage ; il suffit de le relancer.
 - **Next.js introuvable** : lancer `npm --prefix admin install`.
 
+## Déploiement Coolify (avant de pousser)
+
+Le `Dockerfile` exécute `npm run build`, qui lance d’abord `tools/check-next-suspense.mjs` puis `next build`.
+
+Avant un push destiné à la prod :
+
+```powershell
+node tools/check-next-suspense.mjs
+npm --prefix admin run build
+```
+
+Toute page `app/**/page.tsx` qui utilise `useSearchParams` doit encapsuler son contenu dans `<Suspense>` (comme `/missions` ou `/inbox`), sinon le prerender Next 15 échoue sur Coolify.
+
 ## Notes d'implémentation
 
 - Backend et frontend tournent en **processus détachés** (pas en jobs PowerShell) : les jobs PS coupent uvicorn sous charge, et Next quitte après la première compilation s'il reste attaché au terminal parent.
