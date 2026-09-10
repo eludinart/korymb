@@ -15,6 +15,7 @@ type ConfigSuggestion = {
   status: string;
   created_at: string;
   payload?: Record<string, unknown>;
+  applyable?: boolean;
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -22,6 +23,9 @@ const KIND_LABELS: Record<string, string> = {
   orchestration: "Orchestration",
   budget: "Budget",
   llm: "LLM",
+  crm_write: "CRM (chat)",
+  platform_spec: "Spec plateforme",
+  behavior: "Comportement",
   misc: "Divers",
 };
 
@@ -68,7 +72,7 @@ export default function RecommandationsPage() {
   });
 
   const resolveMutation = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "dismiss" | "acknowledge" }) => {
+    mutationFn: async ({ id, decision }: { id: string; decision: "dismiss" | "acknowledge" | "apply" }) => {
       await requestJson(`/admin/config-suggestions/${id}/resolve`, {
         method: "POST",
         headers: agentHeaders(),
@@ -87,20 +91,11 @@ export default function RecommandationsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Recommandations système</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Observations issues des missions et de la santé outils. Aucune modification automatique de la configuration
-          — appliquez les changements manuellement dans{" "}
+          Recos d&apos;intégration à traiter dans{" "}
           <Link href="/administration/integrations" className="text-violet-700 underline">
             Intégrations
           </Link>
-          ,{" "}
-          <Link href="/administration/comportements" className="text-violet-700 underline">
-            Comportements
-          </Link>{" "}
-          ou{" "}
-          <Link href="/administration/orchestration" className="text-violet-700 underline">
-            Orchestration
-          </Link>
-          .
+          . Propositions CRM, specs et réglages allowlistés : bouton Appliquer dans Décisions ou ici.
         </p>
       </div>
 
@@ -172,6 +167,16 @@ export default function RecommandationsPage() {
               </div>
               {s.status === "pending" ? (
                 <div className="flex shrink-0 gap-2">
+                  {s.applyable ? (
+                    <button
+                      type="button"
+                      onClick={() => resolveMutation.mutate({ id: s.id, decision: "apply" })}
+                      disabled={resolveMutation.isPending}
+                      className="rounded-xl bg-violet-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-800"
+                    >
+                      Appliquer
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => resolveMutation.mutate({ id: s.id, decision: "acknowledge" })}
