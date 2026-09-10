@@ -23,8 +23,10 @@ const KIND_LABELS: Record<string, string> = {
   chat_result: "Chat",
   chat_error: "Chat · erreur",
   hitl: "Validation CIO",
+  studio_stale: "Studio",
   scheduler_output: "Approbation",
   learning_suggestion: "Apprentissage",
+  email_reply: "Courrier",
   info: "Information",
   test: "Test",
 };
@@ -33,8 +35,10 @@ const KIND_STYLES: Record<string, string> = {
   chat_result: "bg-violet-100 text-violet-900",
   chat_error: "bg-red-100 text-red-900",
   hitl: "bg-amber-100 text-amber-950",
+  studio_stale: "bg-violet-100 text-violet-950",
   scheduler_output: "bg-sky-100 text-sky-950",
   learning_suggestion: "bg-emerald-100 text-emerald-950",
+  email_reply: "bg-teal-100 text-teal-950",
   info: "bg-slate-100 text-slate-800",
 };
 
@@ -64,11 +68,17 @@ function primaryLabel(kind: string, href: string): string {
   const k = kind.toLowerCase();
   if (k === "chat_result") return "Ouvrir le chat";
   if (k === "chat_error") return "Voir dans le chat";
-  if (k === "hitl") return "Décider (inbox)";
+  if (k === "hitl") return "Décider";
+  if (k === "studio_stale") return "Ouvrir le Studio";
   if (k === "scheduler_output") return "Voir les approbations";
-  if (k === "learning_suggestion") return "Traiter (inbox)";
+  if (k === "learning_suggestion") {
+    if (href.includes("/administration/memory")) return "Voir la mémoire";
+    return "Ouvrir Décisions";
+  }
+  if (k === "email_reply") return "Ouvrir le courrier";
+  if (href.includes("/gestion/courrier")) return "Ouvrir le courrier";
   if (href.includes("/missions")) return "Ouvrir la mission";
-  if (href.includes("/inbox")) return "Ouvrir l'inbox";
+  if (href.includes("/inbox")) return "Ouvrir Décisions";
   if (href.includes("/chat")) return "Ouvrir le chat";
   return "Ouvrir";
 }
@@ -99,7 +109,7 @@ export function buildNotificationActions(n: DirectorNotification): NotificationA
       add("chat", "Conversation", chatHref);
       add("mission", "Mission liée", `/missions?job=${jobId}`);
     } else if (kind === "hitl" || kind === "learning_suggestion") {
-      add("inbox", "Inbox", `/inbox?job=${jobId}`);
+      add("inbox", "Décisions", `/inbox?job=${jobId}`);
       add("mission", "Mission", `/missions?job=${jobId}`);
     } else if (!actionUrl.includes(`/missions?job=${jobId}`)) {
       add("mission", "Mission", `/missions?job=${jobId}`);

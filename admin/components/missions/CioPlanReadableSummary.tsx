@@ -18,7 +18,7 @@ export default function CioPlanReadableSummary({ plan, className = "" }: Props) 
   if (!syn && !agents.length && !subEntries.length) {
     return (
       <p className={`rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 ${className}`}>
-        Plan CIO non chargé — rafraîchissez la page ou rouvrez la mission depuis l&apos;inbox.
+        Plan CIO non chargé — rafraîchissez la page ou rouvrez la mission depuis Décisions.
       </p>
     );
   }

@@ -24,7 +24,7 @@ export default function InboxMetaStrip({ item }: Props) {
         <span className={`h-2 w-2 shrink-0 rounded-full ${urgencyClass[urgency] || urgencyClass.ok}`} aria-hidden />
         P{priorityRank}
       </span>
-      <span title="Date d'apparition dans votre inbox">
+      <span title="Date d'apparition dans Décisions">
         Depuis le {formatInboxDate(item.created_at || item.updated_at)}
       </span>
       <span className="text-slate-500">·</span>

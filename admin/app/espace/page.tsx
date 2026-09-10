@@ -77,9 +77,10 @@ export default function EspacePage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="text-2xl font-extrabold text-slate-900">Mon espace Korymb</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">Équipe et espaces</h1>
         <p className="mt-1 text-sm text-slate-600">
-          Espace actuel : <strong>{me?.workspace?.name || "—"}</strong>
+          Inviter des opérateurs et créer d’autres espaces Korymb. Espace actuel :{" "}
+          <strong>{me?.workspace?.name || "—"}</strong>
         </p>
       </header>
 

@@ -10,7 +10,9 @@ export type CommercialMorningSnapshot = {
     stale_quotes?: number;
     weak_contacts?: number;
     email_threads_open?: number;
+    email_threads_needs_reply?: number;
     email_threads_replied_recent?: number;
+    email_drafts_pending?: number;
   };
   follow_ups_due_today?: Array<{
     id?: string;
@@ -60,7 +62,8 @@ export default function BriefingCommercialPanel({ data }: Props) {
     Number(counts.follow_ups_due_today || 0) +
     Number(counts.stale_quotes || 0) +
     Number(counts.weak_contacts || 0) +
-    Number(counts.email_threads_open || openMails.length || 0);
+    Number(counts.email_threads_open || openMails.length || 0) +
+    Number(counts.email_threads_needs_reply || 0);
   if (totalSignal === 0 && !Number(counts.follow_ups_due_tomorrow || 0)) {
     return (
       <section
@@ -74,8 +77,14 @@ export default function BriefingCommercialPanel({ data }: Props) {
           Rien d&apos;urgent côté CRM — aucune relance due, devis sentinelle ni fiche injoignable.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
+          <Link href="/gestion/studio" className="btn-link-secondary text-sm">
+            Studio
+          </Link>
+          <Link href="/gestion/courrier" className="btn-link-secondary text-sm">
+            Courrier
+          </Link>
           <Link href="/inbox?triage=1" className="btn-link-secondary text-sm">
-            Inbox
+            Décisions
           </Link>
           <Link href="/gestion/devis" className="btn-link-secondary text-sm">
             Devis
@@ -99,11 +108,11 @@ export default function BriefingCommercialPanel({ data }: Props) {
             Commercial du matin
           </h2>
           <p className="mt-0.5 text-sm text-teal-900/80">
-            Relances dues, devis sans réponse, fiches à compléter — votre tableau de bord avant l&apos;inbox.
+            Relances dues, devis sans réponse, fiches à compléter — votre tableau de bord avant les décisions.
           </p>
         </div>
-        <Link href="/inbox?triage=1" className="btn-success text-xs sm:text-sm">
-          Traiter les relances →
+        <Link href="/gestion/courrier" className="btn-success text-xs sm:text-sm">
+          Ouvrir le courrier →
         </Link>
       </div>
 
@@ -151,7 +160,7 @@ export default function BriefingCommercialPanel({ data }: Props) {
                       href={`/inbox?triage=1&focus=${encodeURIComponent(ev.id)}`}
                       className="btn-link-primary text-xs"
                     >
-                      Inbox
+                      Décisions
                     </Link>
                   ) : null}
                   {ev.contact_id ? (
@@ -224,14 +233,9 @@ export default function BriefingCommercialPanel({ data }: Props) {
                 <span className="truncate text-sm font-semibold text-slate-900">
                   {t.subject || t.to_email || "Fil e-mail"}
                 </span>
-                {t.contact_id ? (
-                  <Link
-                    href={`/gestion/contacts/${encodeURIComponent(t.contact_id)}`}
-                    className="btn-link-secondary text-xs"
-                  >
-                    Fiche
-                  </Link>
-                ) : null}
+                <Link href="/gestion/courrier" className="btn-link-secondary text-xs">
+                  Courrier
+                </Link>
               </li>
             ))}
           </ul>

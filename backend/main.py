@@ -81,12 +81,25 @@ from routers.core_auth import router as core_auth_router
 from routers.core_business import router as core_business_router
 from routers.core_actions import router as core_actions_router
 from routers.core_telegram import router as core_telegram_router
+from routers.core_storefront import router as core_storefront_router
+from routers.core_studio import router as core_studio_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
 _PROCESS_STARTED_AT = time.time()
 
 _KORYMB_BACKEND_DIR = Path(__file__).resolve().parent
+
+
+def _run_studio_stale_queue() -> None:
+    try:
+        from services.studio import notify_stale_studio_pieces_everywhere
+
+        n = notify_stale_studio_pieces_everywhere()
+        if n:
+            logger.info("Studio : %s rappel(s) de publication envoyé(s)", n)
+    except Exception:
+        logger.exception("Rappel Studio (file de publication) en échec")
 
 
 # ── App FastAPI ────────────────────────────────────────────────────────────────
@@ -107,6 +120,18 @@ async def lifespan(app: FastAPI):
     set_scheduler(_scheduler)
     if _scheduler is not None:
         register_db_tasks(_scheduler)
+        try:
+            _scheduler.add_job(
+                _run_studio_stale_queue,
+                "interval",
+                hours=1,
+                id="korymb-studio-stale-queue",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+            )
+        except Exception:
+            logger.exception("Rappel Studio (file de publication) non enregistré")
         _scheduler.start()
         logger.info("Scheduler autonome démarré")
     logger.info("Korymb backend démarré — build %s", BACKEND_VERSION)
@@ -166,6 +191,8 @@ app.include_router(core_auth_router)
 app.include_router(core_business_router)
 app.include_router(core_actions_router)
 app.include_router(core_telegram_router)
+app.include_router(core_storefront_router)
+app.include_router(core_studio_router)
 
 
 @app.middleware("http")

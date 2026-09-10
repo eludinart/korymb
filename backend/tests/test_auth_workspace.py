@@ -32,6 +32,63 @@ def test_auth_register_login_and_me(client):
     assert login.json().get("token")
 
 
+def test_login_audience_separates_operator_and_subscriber(client):
+    client.post(
+        "/auth/register",
+        json={
+            "email": "ops-login@example.com",
+            "password": "secretpass123",
+            "workspace_name": "Ops Login",
+        },
+    )
+    patch = client.post(
+        "/auth/login",
+        json={"email": "ops-login@example.com", "password": "secretpass123", "audience": "operator"},
+    )
+    assert patch.status_code == 200, patch.text
+    slug = patch.json()["workspace"]["slug"]
+    client.patch(
+        "/storefront/settings",
+        headers={"Authorization": f"Bearer {patch.json()['token']}"},
+        json={"public_enabled": True},
+    )
+    sub = client.post(
+        "/auth/register-subscriber",
+        json={
+            "email": "part-login@example.com",
+            "password": "secretpass123",
+            "workspace_slug": slug,
+        },
+    )
+    assert sub.status_code == 200, sub.text
+    wrong_op = client.post(
+        "/auth/login",
+        json={"email": "part-login@example.com", "password": "secretpass123", "audience": "operator"},
+    )
+    assert wrong_op.status_code == 403
+    wrong_sub = client.post(
+        "/auth/login",
+        json={
+            "email": "ops-login@example.com",
+            "password": "secretpass123",
+            "audience": "subscriber",
+            "workspace_id": slug,
+        },
+    )
+    assert wrong_sub.status_code == 403
+    ok_sub = client.post(
+        "/auth/login",
+        json={
+            "email": "part-login@example.com",
+            "password": "secretpass123",
+            "audience": "subscriber",
+            "workspace_id": slug,
+        },
+    )
+    assert ok_sub.status_code == 200
+    assert ok_sub.json().get("role") == "subscriber"
+
+
 def test_workspace_job_isolation(client):
     reg_a = client.post(
         "/auth/register",
@@ -67,3 +124,34 @@ def test_workspace_job_isolation(client):
     rows = payload.get("jobs") if isinstance(payload, dict) else payload
     ids_b = {str(j.get("id") or j.get("job_id") or "") for j in rows if isinstance(j, dict)}
     assert job_id not in ids_b
+
+
+def test_user_can_change_password(client):
+    reg = client.post(
+        "/auth/register",
+        json={
+            "email": "mdp-change@example.com",
+            "password": "secretpass123",
+            "display_name": "Mdp",
+            "workspace_name": "Mdp WS",
+        },
+    )
+    token = reg.json()["token"]
+    auth = {"Authorization": f"Bearer {token}"}
+    bad = client.patch(
+        "/auth/profile",
+        headers=auth,
+        json={"current_password": "wrongpass1", "new_password": "nouveau123"},
+    )
+    assert bad.status_code == 400
+    ok = client.patch(
+        "/auth/profile",
+        headers=auth,
+        json={"current_password": "secretpass123", "new_password": "nouveau123"},
+    )
+    assert ok.status_code == 200, ok.text
+    login = client.post(
+        "/auth/login",
+        json={"email": "mdp-change@example.com", "password": "nouveau123"},
+    )
+    assert login.status_code == 200, login.text

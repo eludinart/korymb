@@ -73,6 +73,22 @@ export function toDatetimeLocalValue(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+/** ISO ou YYYY-MM-DD → valeur `date`. */
+export function toDateInputValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const raw = String(iso).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function isMatiereEvent(ev: { nature?: string; resource_type?: string; event_type?: string } | null | undefined): boolean {
+  if (!ev) return false;
+  return Boolean(ev.resource_type) || ev.nature === "matiere" || ev.event_type === "ressource" || ev.event_type === "jalon";
+}
+
 export const PROJECT_TYPE_LABELS: Record<string, string> = {
   seance: "Séance",
   stage: "Stage",
@@ -103,8 +119,75 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   stage: "Stage",
   atelier: "Atelier",
   visio: "Visio",
+  jalon: "Date cible — étape sans rendez-vous",
+  ressource: "Document, vidéo ou podcast",
   autre: "Autre",
 };
+
+/** Libellés longs (formulaires). */
+export const EVENT_NATURE_LABELS: Record<string, string> = {
+  presence: "Rendez-vous — séance, atelier ou visio",
+  matiere: "Contenu à ouvrir — document, vidéo ou podcast",
+};
+
+/** Libellés courts (calendrier, listes). */
+export const EVENT_NATURE_SHORT_LABELS: Record<string, string> = {
+  presence: "Rendez-vous",
+  matiere: "Documents & vidéos",
+};
+
+export const EVENT_NATURE_HINT =
+  "Les rendez-vous apparaissent dans « Mes séances ». Les documents et vidéos apparaissent dans « Mes ressources ».";
+
+export const EVENT_TYPE_HINT =
+  "Pour un fichier à partager, choisissez « Document, vidéo ou podcast ». Une date cible est un rappel au calendrier, sans séance.";
+
+const PRESENCE_EVENT_TYPES = ["seance", "stage", "atelier", "visio", "autre"];
+const MATIERE_EVENT_TYPES = ["ressource", "jalon", "autre"];
+
+export function eventTypeOptionsForNature(nature: string): string[] {
+  return nature === "matiere" ? [...MATIERE_EVENT_TYPES] : [...PRESENCE_EVENT_TYPES];
+}
+
+export function coerceEventTypeForNature(nature: string, eventType: string): string {
+  const allowed = eventTypeOptionsForNature(nature);
+  if (allowed.includes(eventType)) return eventType;
+  return nature === "matiere" ? "ressource" : "seance";
+}
+
+export const EVENT_RESOURCE_TYPE_LABELS: Record<string, string> = {
+  video: "Vidéo",
+  podcast: "Podcast",
+  document: "Document",
+};
+
+export const EVENT_MODALITY_LABELS: Record<string, string> = {
+  presentiel: "Présentiel",
+  visio: "À distance (visio)",
+  async: "À consulter en autonomie (vidéo, podcast, document)",
+};
+
+export type EventVisibility = "internal" | "selected" | "participants" | "public";
+
+export const EVENT_VISIBILITY_LABELS: Record<EventVisibility, string> = {
+  internal: "Interne",
+  selected: "Participants choisis",
+  participants: "Tous les inscrits",
+  public: "Public (sans compte)",
+};
+
+export const EVENT_VISIBILITY_OPTIONS: { id: EventVisibility; label: string; hint: string }[] = [
+  { id: "internal", label: "Interne", hint: "Visible seulement dans le planning Korymb." },
+  { id: "selected", label: "Participants choisis", hint: "Uniquement les comptes participants cochés (pas les fiches CRM)." },
+  { id: "participants", label: "Tous les inscrits", hint: "Tous les participants actifs (inscription validée ou invitation acceptée)." },
+  { id: "public", label: "Public", hint: "Vitrine, même sans compte — non inscrits inclus." },
+];
+
+export function visibilityFromEvent(ev: { visibility?: string; is_public?: boolean } | null | undefined): EventVisibility {
+  const raw = (ev?.visibility || "").trim();
+  if (raw === "internal" || raw === "selected" || raw === "participants" || raw === "public") return raw;
+  return ev?.is_public ? "participants" : "internal";
+}
 
 export const INTERACTION_TYPE_LABELS: Record<string, string> = {
   prospection: "Prospection",

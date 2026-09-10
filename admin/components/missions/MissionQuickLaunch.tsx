@@ -74,13 +74,22 @@ export default function MissionQuickLaunch({ compact = false, className = "" }: 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-extrabold text-slate-900">Lancer en un clic</h3>
         {!compact ? (
-          <button
-            type="button"
-            onClick={() => router.push("/missions?create=1")}
-            className="text-xs font-bold text-violet-700 hover:underline"
-          >
-            Mission personnalisée →
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push("/gestion/playbooks")}
+              className="text-xs font-bold text-violet-700 hover:underline"
+            >
+              Tous les playbooks →
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/missions?create=1")}
+              className="text-xs font-bold text-violet-700 hover:underline"
+            >
+              Mission personnalisée →
+            </button>
+          </div>
         ) : null}
       </div>
       {error ? <p className="mt-2 text-sm font-semibold text-red-700">{error}</p> : null}

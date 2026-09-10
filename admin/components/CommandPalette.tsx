@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../lib/api";
 import { QK } from "../lib/queryClient";
+import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
 import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS } from "../lib/gestionNav";
 import type { Job } from "../lib/types";
+import type { AuthMeResponse } from "../lib/authSession";
 
 type Command = {
   id: string;
@@ -41,6 +43,17 @@ function CommandPaletteInner() {
     staleTime: 30_000,
   });
 
+  const me = useQuery({
+    queryKey: ["auth-me-palette"],
+    queryFn: async () => {
+      const r = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!r.ok) return null;
+      return r.json() as Promise<AuthMeResponse>;
+    },
+    enabled: open,
+    staleTime: 300_000,
+  });
+
   const baseCommands: Command[] = useMemo(() => {
     const gestionNav: Command[] = GESTION_NAV_LINKS.map((link) => ({
       id: `gestion-${link.href}`,
@@ -56,16 +69,40 @@ function CommandPaletteInner() {
       href: action.href,
       group: "Actions gestion",
     }));
+    const slug = me.data?.workspace?.slug || "";
+    const espaceCommands: Command[] = slug
+      ? [
+          {
+            id: "espace-participant",
+            label: "Espace participant",
+            hint: "Ce que voient les inscrits à la vitrine",
+            href: `/a/${encodeURIComponent(slug)}`,
+            group: "Navigation",
+          },
+        ]
+      : [];
     return [
       { id: "briefing", label: "Briefing du jour", href: "/briefing", group: "Navigation" },
+      ...espaceCommands,
       ...gestionNav,
       ...gestionActions,
-      { id: "triage", label: "Traiter l'inbox (mode triage)", href: "/inbox?triage=1", group: "Actions IA" },
-      { id: "inbox", label: "Inbox dirigeant", href: "/inbox", group: "Navigation" },
+      {
+        id: "triage",
+        label: "Traiter les décisions (mode triage)",
+        hint: DIRECTOR_QUEUE_HINT,
+        href: `${DIRECTOR_QUEUE_HREF}?triage=1`,
+        group: "Actions IA",
+      },
+      {
+        id: "inbox",
+        label: DIRECTOR_QUEUE_LABEL,
+        hint: DIRECTOR_QUEUE_HINT,
+        href: DIRECTOR_QUEUE_HREF,
+        group: "Navigation",
+      },
       { id: "missions", label: "Missions", href: "/missions", group: "Navigation" },
       { id: "mission-new", label: "Lancer une mission", href: "/missions?create=1", group: "Actions IA" },
       { id: "chat", label: "Chat dirigeant", href: "/chat", group: "Navigation" },
-      { id: "livrables", label: "Bibliothèque livrables", href: "/livrables", group: "Navigation" },
       { id: "dashboard", label: "Vue agents", href: "/dashboard", group: "Navigation" },
       {
         id: "budget",
@@ -74,7 +111,7 @@ function CommandPaletteInner() {
         group: "Administration",
       },
     ];
-  }, []);
+  }, [me.data?.workspace?.slug]);
 
   const jobCommands: Command[] = useMemo(() => {
     const rows = (jobs.data || []).filter((j) => String(j.source || "") !== "chat").slice(0, 12);

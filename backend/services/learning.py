@@ -9,7 +9,15 @@ logger = logging.getLogger(__name__)
 
 _SAFE_AUTO_APPLY_MAX_CHARS = 800
 _FULL_AUTO_APPLY_MAX_CHARS = 2000
-_SYSTEM_MEMORY_KEYS = frozenset({"auto_summary", "auto_summary_updated_at", "drive_workspace"})
+_SYSTEM_MEMORY_KEYS = frozenset(
+    {
+        "auto_summary",
+        "auto_summary_updated_at",
+        "drive_workspace",
+        "enterprise_facts",
+        "memory_compacted_at",
+    }
+)
 
 
 def _heuristic_learning(job: dict) -> dict:
@@ -76,8 +84,14 @@ def can_auto_apply_learning(payload: dict, *, mode: str | None = None) -> tuple[
         return False, "prompt_tweaks"
 
     memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
-    if not memory_updates:
+    facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
+    if not memory_updates and not facts:
         return False, "no_memory_updates"
+
+    # Brand kit vitrine : données déjà saisies par le dirigeant → auto en safe/full
+    source = str(payload.get("source") or "").strip()
+    if source == "storefront_sync" and apply_mode in {"safe", "full"}:
+        return True, "ok"
 
     from database import _memory_context_allowed_keys
 
@@ -101,10 +115,25 @@ def apply_learning_payload_to_memory(payload: dict, *, snapshot_comment: str) ->
 
     memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
     normalized = normalize_learning_memory_updates(memory_updates)
-    if not normalized:
+    facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
+    if not normalized and not facts:
         return {}
     snapshot_memory_history(comment=snapshot_comment)
-    merge_enterprise_contexts(normalized)
+    if normalized:
+        merge_enterprise_contexts(normalized)
+    if facts:
+        try:
+            from services.memory_inbox import merge_enterprise_facts
+
+            merge_enterprise_facts(facts)
+        except Exception:
+            logger.exception("merge_enterprise_facts during learning apply failed")
+    try:
+        from services.memory_inbox import maybe_compact_on_memory_touch
+
+        maybe_compact_on_memory_touch()
+    except Exception:
+        logger.exception("compaction after learning apply failed")
     return normalized
 
 
@@ -128,7 +157,8 @@ def try_auto_apply_learning(suggestion_id: str, payload: dict) -> bool:
 
 def trigger_learning_on_validate(job_id: str) -> dict | None:
     """Crée une suggestion d'apprentissage ; applique automatiquement si le mode le permet."""
-    from database import get_job, insert_learning_suggestion
+    from database import get_job
+    from services.memory_inbox import propose_memory_suggestion
 
     row = get_job(job_id)
     if not row:
@@ -139,39 +169,26 @@ def trigger_learning_on_validate(job_id: str) -> dict | None:
             payload = _llm_extract_learning(row) or payload
         except Exception:
             logger.exception("LLM learning extraction failed for %s", job_id)
-    sug = insert_learning_suggestion(job_id, payload)
-    sid = str(sug.get("id") or "")
-    auto_applied = try_auto_apply_learning(sid, payload) if sid else False
-    try:
-        from services.director_platform import emit_director_notification
-
-        if auto_applied:
-            emit_director_notification(
-                kind="learning_suggestion",
-                title=str(payload.get("title") or "Apprentissage appliqué"),
-                body="Suggestion mémoire appliquée automatiquement (mode apprentissage).",
-                job_id=job_id,
-                action_url=f"/administration/memory",
-            )
-        else:
-            emit_director_notification(
-                kind="learning_suggestion",
-                title=str(payload.get("title") or "Suggestion d'apprentissage"),
-                body="Nouvelle suggestion à approuver depuis l'inbox.",
-                job_id=job_id,
-                action_url=f"/inbox?job={job_id}",
-            )
-    except Exception:
-        logger.exception("Director notification for learning failed")
+    sug = propose_memory_suggestion(
+        title=str(payload.get("title") or "Apprentissage mission"),
+        learnings=payload.get("learnings") if isinstance(payload.get("learnings"), list) else [],
+        suggested_memory_keys=payload.get("suggested_memory_keys")
+        if isinstance(payload.get("suggested_memory_keys"), dict)
+        else {},
+        suggested_prompt_tweaks=payload.get("suggested_prompt_tweaks")
+        if isinstance(payload.get("suggested_prompt_tweaks"), list)
+        else [],
+        source="mission_validate",
+        job_id=job_id,
+        source_ref=job_id,
+        notify=True,
+    )
     try:
         from services.config_suggestions import scan_config_suggestions
 
         scan_config_suggestions(job_id=job_id)
     except Exception:
         logger.exception("config_suggestions scan after validate failed for %s", job_id)
-    if auto_applied and isinstance(sug, dict):
-        sug = dict(sug)
-        sug["status"] = "auto_applied"
     return sug
 
 

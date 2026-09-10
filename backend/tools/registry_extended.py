@@ -56,6 +56,12 @@ EXTENDED_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "pinterest": ("create_pinterest_pin",),
     "messaging": ("send_discord_message", "send_telegram_message", "trigger_webhook"),
     "cms": ("wordpress_create_post",),
+    "studio": (
+        "create_branded_pdf",
+        "create_podcast_episode",
+        "generate_video",
+        "post_linkedin",
+    ),
 }
 
 EXTENDED_EXECUTE_GATED: frozenset[str] = frozenset({
@@ -69,6 +75,7 @@ EXTENDED_EXECUTE_GATED: frozenset[str] = frozenset({
     "send_telegram_message",
     "trigger_webhook",
     "wordpress_create_post",
+    "post_linkedin",
 })
 
 EXTENDED_TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -358,6 +365,68 @@ EXTENDED_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["title", "content"],
         },
     },
+    {
+        "name": "create_branded_pdf",
+        "description": (
+            "Crée un PDF brandé Élude In Art (titre + corps markdown) et l'enregistre comme fichier ressource. "
+            "Retourne un file_id (rfil-…) à republier ensuite dans l'espace participant via le Studio."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "body": {"type": "string", "description": "Contenu markdown ou texte"},
+                "subtitle": {"type": "string"},
+            },
+            "required": ["title", "body"],
+        },
+    },
+    {
+        "name": "create_podcast_episode",
+        "description": (
+            "Synthétise un script parlé en MP3 (ElevenLabs ou OpenAI TTS) et l'enregistre comme ressource. "
+            "Retourne un file_id. La publication dans l'espace se fait depuis le Studio après relecture."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "script": {"type": "string", "description": "Texte à voix haute"},
+                "voice": {"type": "string"},
+            },
+            "required": ["title", "script"],
+        },
+    },
+    {
+        "name": "generate_video",
+        "description": (
+            "Génère un clip court (Replicate Kling/MiniMax, fal.ai ou Runway) à partir d'un prompt visuel. "
+            "Provider et modèle lus dans la config (VIDEO_GEN_PROVIDER / VIDEO_GEN_MODEL), jamais figés."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Description visuelle du clip"},
+                "duration_seconds": {"type": "integer", "description": "2 à 12 secondes"},
+                "aspect_ratio": {"type": "string", "description": "9:16 (défaut) ou 16:9"},
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "name": "post_linkedin",
+        "description": (
+            "Prépare un post LinkedIn. La publication réelle attend la validation dirigeant (Décisions)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "image_url": {"type": "string"},
+            },
+            "required": ["text"],
+        },
+    },
 ]
 
 
@@ -369,6 +438,49 @@ def _run_wp_create(inp: dict[str, Any]) -> str:
         str(inp.get("content", "") or inp.get("html", "")),
         str(inp.get("excerpt", "") or ""),
         str(inp.get("status") or "draft"),
+    )
+
+
+def _run_pdf(inp: dict[str, Any]) -> str:
+    from tools.studio import run_create_branded_pdf
+
+    return run_create_branded_pdf(
+        str(inp.get("title", "")),
+        str(inp.get("body", "") or inp.get("content", "")),
+        str(inp.get("subtitle", "") or ""),
+    )
+
+
+def _run_podcast(inp: dict[str, Any]) -> str:
+    from tools.studio import run_create_podcast_episode
+
+    return run_create_podcast_episode(
+        str(inp.get("title", "")),
+        str(inp.get("script", "") or inp.get("text", "")),
+        str(inp.get("voice", "") or ""),
+    )
+
+
+def _run_video(inp: dict[str, Any]) -> str:
+    from tools.studio import run_generate_video
+
+    try:
+        duration = int(inp.get("duration_seconds") or 5)
+    except (TypeError, ValueError):
+        duration = 5
+    return run_generate_video(
+        str(inp.get("prompt", "")),
+        duration,
+        str(inp.get("aspect_ratio", "") or "9:16"),
+    )
+
+
+def _run_linkedin(inp: dict[str, Any]) -> str:
+    from tools.studio import run_post_linkedin
+
+    return run_post_linkedin(
+        str(inp.get("text", "") or inp.get("message", "") or inp.get("caption", "")),
+        str(inp.get("image_url", "") or ""),
     )
 
 
@@ -453,6 +565,10 @@ def dispatch_extended_tool(name: str, inp: dict[str, Any]) -> str | None:
             str(inp.get("text", "")), str(inp.get("voice", "") or "")
         ),
         "wordpress_create_post": lambda: _run_wp_create(inp),
+        "create_branded_pdf": lambda: _run_pdf(inp),
+        "create_podcast_episode": lambda: _run_podcast(inp),
+        "generate_video": lambda: _run_video(inp),
+        "post_linkedin": lambda: _run_linkedin(inp),
     }
     fn = handlers.get(name)
     if fn is None:

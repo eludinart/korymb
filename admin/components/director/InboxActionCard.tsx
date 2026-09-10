@@ -24,6 +24,7 @@ import {
   useCompleteCrmFollowUp,
 } from "../../lib/missionActions";
 import InboxMetaStrip from "./InboxMetaStrip";
+import { EmailAttachmentList } from "../gestion/EmailAttachments";
 
 export type InboxActionItem = {
   kind: string;
@@ -70,6 +71,7 @@ export type InboxActionItem = {
     contact_name?: string;
     outreach_suggestions?: string;
     notes?: string;
+    attachments?: Array<{ id?: string; filename?: string; mime?: string; size?: number }>;
   };
   gate_preview?: { synthese_attendue?: string; agents?: string[]; sous_taches_count?: number };
   proposal_meta?: {
@@ -83,6 +85,9 @@ export type InboxActionItem = {
     source_label?: string;
   };
   learnings?: string[];
+  suggested_memory_keys?: Record<string, string>;
+  memory_source?: string;
+  source_ref?: string;
 };
 
 type Props = {
@@ -391,7 +396,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   disabled={busy}
                   onClick={prepareFollowUp}
                   className="btn-success flex-1 px-4 text-sm sm:flex-none"
-                  title="Préparer un brouillon e-mail à valider dans l'inbox"
+                  title="Préparer un brouillon e-mail à valider dans Décisions"
                 >
                   {prepareFollowUpMut.isPending ? "Préparation…" : item.primary_cta || "Préparer l'e-mail"}
                 </button>
@@ -433,7 +438,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               disabled={busy}
               onClick={markClosureDone}
               className="btn-success flex-1 px-4 text-sm sm:flex-none"
-              title="Clôturer la mission et la retirer de l'inbox"
+              title="Clôturer la mission et la retirer des décisions"
             >
               {doneLabel}
             </button>
@@ -466,7 +471,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               onClick={onDismiss}
               disabled={busy}
               className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
-              title="Retirer cette décision de votre briefing et inbox"
+              title="Retirer cette décision de votre briefing et de Décisions"
             >
               {dismissMut.isPending ? "Suppression…" : "Supprimer"}
             </button>
@@ -539,6 +544,21 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                 <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800">
                   {item.summary}
                 </pre>
+              ) : null}
+              {item.action_kind === "email" && (item.payload?.attachments || []).length ? (
+                <div>
+                  <p className="text-xs font-semibold text-slate-600">Pièces jointes</p>
+                  <EmailAttachmentList
+                    attachments={(item.payload?.attachments || [])
+                      .filter((a) => a.id && a.filename)
+                      .map((a) => ({
+                        id: String(a.id),
+                        filename: String(a.filename),
+                        mime: a.mime,
+                        size: a.size,
+                      }))}
+                  />
+                </div>
               ) : null}
               <div className="flex flex-wrap gap-2">
                 <button
@@ -618,7 +638,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           {item.kind === "closure" && jobId ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-600">
-                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer de l’inbox.
+                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer des décisions.
               </p>
               <button type="button" disabled={busy} onClick={markClosureDone} className="btn-success">
                 {doneLabel}
@@ -647,7 +667,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             <button
               type="button"
               disabled={busy}
-              onClick={() => qualityMut.mutate("Override dirigeant depuis inbox")}
+              onClick={() => qualityMut.mutate("Override dirigeant depuis Décisions")}
               className="btn-primary"
             >
               {qualityMut.isPending ? "Override…" : "Override qualité"}
@@ -691,11 +711,36 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
           {item.kind === "learning_suggestion" && item.suggestion_id ? (
             <div className="space-y-2">
-              {(item.learnings || []).slice(0, 3).map((l, i) => (
+              {item.memory_source ? (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                  Source :{" "}
+                  {item.memory_source === "crm_enrichment"
+                    ? "CRM"
+                    : item.memory_source === "storefront_sync"
+                      ? "Vitrine"
+                      : item.memory_source === "mission_validate"
+                        ? "Mission validée"
+                        : item.memory_source}
+                </p>
+              ) : null}
+              {(item.learnings || []).slice(0, 4).map((l, i) => (
                 <p key={i} className="text-xs text-slate-600">
                   • {l}
                 </p>
               ))}
+              {item.suggested_memory_keys && Object.keys(item.suggested_memory_keys).length > 0 ? (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/80 px-2.5 py-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Écriture mémoire</p>
+                  {Object.entries(item.suggested_memory_keys)
+                    .slice(0, 4)
+                    .map(([k, v]) => (
+                      <p key={k} className="mt-1 text-xs text-slate-700">
+                        <span className="font-semibold">{k}</span> — {String(v).slice(0, 180)}
+                        {String(v).length > 180 ? "…" : ""}
+                      </p>
+                    ))}
+                </div>
+              ) : null}
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -703,7 +748,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   onClick={() => learningMut.mutate({ suggestionId: item.suggestion_id!, decision: "approve" })}
                   className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
                 >
-                  Approuver
+                  Intégrer à la mémoire
                 </button>
                 <button
                   type="button"
@@ -711,7 +756,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   onClick={() => learningMut.mutate({ suggestionId: item.suggestion_id!, decision: "reject" })}
                   className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
                 >
-                  Rejeter
+                  Ignorer
                 </button>
               </div>
             </div>

@@ -99,6 +99,69 @@ def test_learning_auto_apply_safe(monkeypatch):
     assert learn.try_auto_apply_learning("s2", payload_tweaks) is False
 
 
+def test_storefront_sync_auto_applies_in_safe_mode(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import sync_storefront_brand_to_memory, get_enterprise_facts
+    from database import merge_enterprise_contexts
+
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    merge_enterprise_contexts({"global": "Ancien contexte."})
+    sug = sync_storefront_brand_to_memory(
+        {
+            "name": "Élude In Art",
+            "slug": "eludein",
+            "tagline": "Cartographie relationnelle",
+            "location": "Tourves",
+            "offers": [{"title": "Atelier"}],
+            "intro": "Pratique ancrée.",
+        }
+    )
+    assert sug is not None
+    assert sug.get("status") == "auto_applied"
+    facts = get_enterprise_facts()
+    assert facts.get("brand") == "Élude In Art"
+    assert "Atelier" in (facts.get("offers") or [])
+
+
+def test_compact_enterprise_memory_heuristic(monkeypatch):
+    from database import merge_enterprise_contexts, get_enterprise_memory
+    from services.memory_inbox import compact_enterprise_memory_if_needed, MEMORY_COMPACT_TRIGGER_CHARS
+
+    blob = ("Fait important.\n" + ("ligne répétée sur le même sujet.\n" * 400))
+    assert len(blob) > MEMORY_COMPACT_TRIGGER_CHARS
+    merge_enterprise_contexts({"global": blob, "memory_compacted_at": "2020-01-01T00:00:00"})
+    report = compact_enterprise_memory_if_needed(force=True)
+    assert report.get("compacted") is True
+    mem = get_enterprise_memory()
+    assert len(mem["contexts"]["global"]) < len(blob)
+
+
+def test_chat_active_memory_includes_facts():
+    from database import merge_enterprise_contexts
+    from services.memory_inbox import merge_enterprise_facts, build_chat_active_memory_block
+
+    merge_enterprise_contexts({"global": "Priorité : ateliers Sïvåñà."})
+    merge_enterprise_facts({"brand": "Élude In Art", "location": "Tourves"})
+    block = build_chat_active_memory_block()
+    assert "Élude In Art" in block
+    assert "ateliers" in block.lower() or "Sïvåñà" in block or "Priorité" in block
+
+
+def test_propose_from_crm_creates_pending_when_auto_off(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_from_crm_enrichment
+
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "off")
+    sug = propose_from_crm_enrichment(
+        contact={"id": "ctc-1", "name": "Camille", "company": "Studio Nord", "contact_type": "prospect", "city": "Aix"}
+    )
+    assert sug is not None
+    assert sug.get("status") == "pending"
+    payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
+    assert payload.get("source") == "crm_enrichment"
+    assert "commercial" in (payload.get("suggested_memory_keys") or {})
+
+
 def test_config_suggestions_dedup(monkeypatch):
     from services import config_suggestions as cs
 

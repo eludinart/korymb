@@ -5,8 +5,12 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
-import { businessApi, type BizContact, type BizProject } from "../../../../lib/business";
-import { EVENT_STATUS_LABELS, EVENT_TYPE_LABELS, toDatetimeLocalValue } from "../../_shared";
+import { businessApi, type BizContact, type BizProject, type EmailAttachment } from "../../../../lib/business";
+import { CoverImageField } from "../../../../components/gestion/CoverImageField";
+import { ResourceFileField } from "../../../../components/gestion/ResourceFileField";
+import EventAccessFields from "../../../../components/gestion/EventAccessFields";
+import EventKindFields from "../../../../components/gestion/EventKindFields";
+import { EVENT_MODALITY_LABELS, EVENT_RESOURCE_TYPE_LABELS, EVENT_STATUS_LABELS, toDatetimeLocalValue, visibilityFromEvent, type EventVisibility } from "../../_shared";
 
 export default function GestionPlanningEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -21,6 +25,15 @@ export default function GestionPlanningEditPage() {
   const [projectId, setProjectId] = useState("");
   const [location, setLocation] = useState("");
   const [notes, setNotes] = useState("");
+  const [visibility, setVisibility] = useState<EventVisibility>("internal");
+  const [audienceIds, setAudienceIds] = useState<string[]>([]);
+  const [modality, setModality] = useState("");
+  const [nature, setNature] = useState("presence");
+  const [resourceType, setResourceType] = useState("");
+  const [resourceUrl, setResourceUrl] = useState("");
+  const [resourceFile, setResourceFile] = useState<EmailAttachment | null>(null);
+  const [coverFile, setCoverFile] = useState<EmailAttachment | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
   const [error, setError] = useState("");
   const [hydrated, setHydrated] = useState(false);
 
@@ -31,6 +44,7 @@ export default function GestionPlanningEditPage() {
   });
   const contacts = useQuery({ queryKey: ["business-contacts"], queryFn: () => businessApi.listContacts() });
   const projects = useQuery({ queryKey: ["business-projects"], queryFn: () => businessApi.listProjects() });
+  const participants = useQuery({ queryKey: ["storefront-participants"], queryFn: () => businessApi.listParticipants() });
 
   useEffect(() => {
     if (!event.data || hydrated) return;
@@ -44,6 +58,31 @@ export default function GestionPlanningEditPage() {
     setProjectId(ev.project_id || "");
     setLocation(ev.location || "");
     setNotes(ev.notes || "");
+    setVisibility(visibilityFromEvent(ev));
+    setAudienceIds(ev.audience_user_ids?.length ? ev.audience_user_ids : ev.audience_contact_ids || []);
+    setModality(ev.modality || "");
+    setNature(ev.nature === "matiere" || ev.resource_type ? "matiere" : "presence");
+    setResourceType(ev.resource_type || "");
+    setResourceUrl(ev.resource_url || "");
+    setResourceFile(
+      ev.resource_file_id
+        ? {
+            id: ev.resource_file_id,
+            filename: ev.resource_filename || "fichier",
+            mime: ev.resource_file_mime,
+            size: ev.resource_file_size,
+          }
+        : null,
+    );
+    setCoverFile(
+      ev.cover_file_id
+        ? {
+            id: ev.cover_file_id,
+            filename: ev.cover_filename || "cover",
+            mime: ev.cover_mime,
+          }
+        : null,
+    );
     setHydrated(true);
   }, [event.data, hydrated]);
 
@@ -59,6 +98,15 @@ export default function GestionPlanningEditPage() {
         project_id: projectId || null,
         location: location.trim(),
         notes: notes.trim(),
+        visibility,
+        audience_contact_ids: [],
+        audience_user_ids: visibility === "selected" ? audienceIds : [],
+        modality: resourceType && !modality ? "async" : modality,
+        nature: resourceType ? "matiere" : nature,
+        resource_type: resourceType,
+        resource_url: resourceUrl.trim(),
+        resource_file_id: resourceType ? resourceFile?.id || "" : "",
+        cover_file_id: coverFile?.id || "",
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["business-events"] });
@@ -95,6 +143,7 @@ export default function GestionPlanningEditPage() {
         accent="emerald"
         badge="Planning"
         title={`Modifier — ${event.data.title}`}
+        description="Rendez-vous (séance, atelier, visio) ou contenu à ouvrir (document, vidéo, podcast)."
         actions={
           <Link href="/gestion/planning" className="btn-link-secondary">
             ← Retour à l&apos;agenda
@@ -111,6 +160,10 @@ export default function GestionPlanningEditPage() {
               setError("Le titre est obligatoire.");
               return;
             }
+            if (visibility === "selected" && audienceIds.length === 0) {
+              setError("Cochez au moins un participant actif pour un accès nominatif.");
+              return;
+            }
             save.mutate();
           }}
         >
@@ -118,16 +171,13 @@ export default function GestionPlanningEditPage() {
             <span className="font-medium text-slate-700">Titre *</span>
             <input className="input-field mt-1 w-full" value={title} onChange={(e) => setTitle(e.target.value)} required />
           </label>
-          <label className="block text-sm">
-            <span className="font-medium text-slate-700">Type</span>
-            <select className="input-field mt-1 w-full" value={eventType} onChange={(e) => setEventType(e.target.value)}>
-              {Object.entries(EVENT_TYPE_LABELS).map(([k, v]) => (
-                <option key={k} value={k}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </label>
+          <EventKindFields
+            nature={nature}
+            eventType={eventType}
+            onNature={setNature}
+            onEventType={setEventType}
+            onClearResource={() => setResourceType("")}
+          />
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Statut</span>
             <select className="input-field mt-1 w-full" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -147,15 +197,16 @@ export default function GestionPlanningEditPage() {
             <input type="datetime-local" className="input-field mt-1 w-full" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} />
           </label>
           <label className="block text-sm">
-            <span className="font-medium text-slate-700">Contact</span>
+            <span className="font-medium text-slate-700">Fiche CRM (optionnel)</span>
             <select className="input-field mt-1 w-full" value={contactId} onChange={(e) => setContactId(e.target.value)}>
-              <option value="">— Aucun —</option>
+              <option value="">— Aucune —</option>
               {(contacts.data || []).map((c: BizContact) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
             </select>
+            <span className="mt-1 block text-xs text-slate-500">Prospect ou client lié au créneau. Ce n’est pas un participant.</span>
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Projet</span>
@@ -172,13 +223,74 @@ export default function GestionPlanningEditPage() {
             <span className="font-medium text-slate-700">Lieu</span>
             <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} />
           </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Modalité</span>
+            <select className="input-field mt-1 w-full" value={modality} onChange={(e) => setModality(e.target.value)}>
+              <option value="">— Non précisée —</option>
+              {Object.entries(EVENT_MODALITY_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </label>
+          <EventAccessFields
+            visibility={visibility}
+            onVisibility={setVisibility}
+            audienceIds={audienceIds}
+            onAudienceIds={setAudienceIds}
+            participants={participants.data || []}
+          />
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Fichier à partager</span>
+            <select
+              className="input-field mt-1 w-full"
+              value={resourceType}
+              onChange={(e) => {
+                const v = e.target.value;
+                setResourceType(v);
+                if (v) {
+                  setNature("matiere");
+                  setEventType((prev) => (prev === "jalon" ? prev : "ressource"));
+                  if (!modality) setModality("async");
+                }
+              }}
+            >
+              <option value="">— Aucun fichier —</option>
+              {Object.entries(EVENT_RESOURCE_TYPE_LABELS).map(([k, v]) => (
+                <option key={k} value={k}>
+                  {v}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-slate-500">
+              Uniquement si les personnes doivent ouvrir un document, une vidéo ou un podcast. Pas besoin pour un rendez-vous.
+            </span>
+          </label>
+          {resourceType ? (
+            <div className="sm:col-span-2 space-y-3">
+              <ResourceFileField file={resourceFile} onFile={setResourceFile} onBusy={setFileBusy} disabled={save.isPending} />
+              <label className="block text-sm">
+                <span className="font-medium text-slate-700">Lien externe (optionnel)</span>
+                <input
+                  className="input-field mt-1 w-full"
+                  value={resourceUrl}
+                  onChange={(e) => setResourceUrl(e.target.value)}
+                  placeholder="https://… YouTube, Drive, page web…"
+                />
+              </label>
+            </div>
+          ) : null}
+          <div className="sm:col-span-2">
+            <CoverImageField file={coverFile} onFile={setCoverFile} onBusy={setFileBusy} disabled={save.isPending} />
+          </div>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Notes</span>
             <textarea className="input-field mt-1 w-full" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </label>
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
-            <button type="submit" className="btn-primary" disabled={save.isPending}>
-              {save.isPending ? "Enregistrement…" : "Enregistrer les modifications"}
+            <button type="submit" className="btn-primary" disabled={save.isPending || fileBusy}>
+              {save.isPending || fileBusy ? "Enregistrement…" : "Enregistrer les modifications"}
             </button>
             <Link href="/gestion/planning" className="btn-secondary">
               Annuler

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PROXY_UNPROTECTED, resolveProxySecret } from "../../../../lib/proxySecret";
+import { isProxyUnprotected, resolveProxySecret } from "../../../../lib/proxySecret";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
@@ -12,6 +12,9 @@ function upstreamTimeoutMs(joinedPath: string): number {
   const p = joinedPath.toLowerCase();
   if (p === "health" || p === "health/live" || p === "health/database" || p === "llm") return 8_000;
   if (p.startsWith("admin/reprise")) return 90_000;
+  if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
+  if (p.includes("emails/suggest-replies")) return 60_000;
+  if (p.includes("emails/send")) return 60_000;
   if (p === "tokens" || p === "jobs/light") return 15_000;
   if (p.startsWith("jobs/") && p.includes("log_offset")) return 60_000;
   return 30_000;
@@ -26,7 +29,7 @@ function withSecretHeaders(request: NextRequest, joinedPath: string, secret: str
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
     if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
-  } else if (!PROXY_UNPROTECTED.has(joinedPath) && secret) {
+  } else if (!isProxyUnprotected(joinedPath) && secret) {
     headers.set("X-Agent-Secret", secret);
   }
   return headers;
@@ -47,7 +50,7 @@ async function proxy(request: NextRequest, path: string[]) {
       { status: 503 },
     );
   }
-  if (!PROXY_UNPROTECTED.has(joinedPath)) {
+  if (!isProxyUnprotected(joinedPath)) {
     const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
     if (!token && !secret) {
       return NextResponse.json(

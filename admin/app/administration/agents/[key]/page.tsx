@@ -126,7 +126,7 @@ export default function AdministrationAgentDetailPage() {
     const fromAdmin = adminAgents.data
       ? [...new Set((adminAgents.data || []).flatMap((a) => a.tools || []))].filter(Boolean)
       : [];
-    const base = ["web", "linkedin", "email", "instagram", "facebook", "drive"];
+    const base = ["web", "linkedin", "email", "instagram", "facebook", "drive", "media", "cms", "studio", "canva", "youtube", "pinterest"];
     return [...new Set([...base, ...fromAdmin])].sort();
   })();
 

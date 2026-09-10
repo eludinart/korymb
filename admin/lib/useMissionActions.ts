@@ -46,10 +46,10 @@ export function useMissionActions() {
 
   const onCloseMission = (jobId: string, mission?: string | null) => {
     const ok = window.confirm(
-      "Clôturer cette mission ?\n\nVous la considérez terminée : elle ne sera plus modifiable (poursuite CIO désactivée). Les livrables restent consultables.",
+      "Terminer cette mission ?\n\nVous la considérez close : la poursuite CIO sera désactivée. Les livrables restent consultables.",
     );
     if (!ok) return Promise.resolve();
-    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
+    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » terminée.`);
   };
 
   return { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission };

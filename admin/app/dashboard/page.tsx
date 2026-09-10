@@ -193,7 +193,7 @@ export default function DashboardPage() {
             <PageLink href="/gestion">Gestion entreprise</PageLink>
             <PageLink href="/missions?create=quick">Nouvelle mission</PageLink>
             <PageLink href="/inbox" variant="secondary">
-              Inbox
+              Décisions
             </PageLink>
           </>
         }

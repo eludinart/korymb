@@ -178,8 +178,20 @@ def maybe_refresh_mission_summary() -> None:
         cached = contexts.get("auto_summary", "")
         summary_at = contexts.get("auto_summary_updated_at", "")
         if isinstance(cached, str) and cached.strip() and not _summary_is_stale(summary_at):
+            try:
+                from services.memory_inbox import maybe_compact_on_memory_touch
+
+                maybe_compact_on_memory_touch()
+            except Exception:
+                pass
             return
         summarize_mission_history()
+        try:
+            from services.memory_inbox import maybe_compact_on_memory_touch
+
+            maybe_compact_on_memory_touch()
+        except Exception:
+            pass
     except Exception:
         logger.exception("maybe_refresh_mission_summary")
 
@@ -250,15 +262,24 @@ def active_memory_prompt(
     blocks: list[str] = []
 
     if isinstance(global_context, str) and global_context.strip():
-        blocks.append(f"Contexte global entreprise:\n{global_context[:3500]}")
+        blocks.append(f"Contexte global entreprise:\n{global_context[:2000]}")
     if isinstance(agent_context, str) and agent_context.strip():
-        blocks.append(f"Contexte specifique role {agent_key}:\n{agent_context[:3500]}")
+        blocks.append(f"Contexte specifique role {agent_key}:\n{agent_context[:2000]}")
+
+    try:
+        from services.memory_inbox import format_enterprise_facts_prompt
+
+        facts_blk = format_enterprise_facts_prompt(max_chars=800)
+        if facts_blk:
+            blocks.insert(0, facts_blk)
+    except Exception:
+        pass
 
     # Résumé auto ou liste brute selon disponibilité
     if use_summary:
         auto_summary = contexts.get("auto_summary", "") if isinstance(contexts, dict) else ""
         if isinstance(auto_summary, str) and auto_summary.strip():
-            blocks.append(f"Résumé mémoriel des missions passées (auto-généré) :\n{auto_summary[:2000]}")
+            blocks.append(f"Résumé mémoriel des missions passées (auto-généré) :\n{auto_summary[:1600]}")
         elif snap.recent_jobs_digest:
             rows = [
                 f"- {clip_mission_title(str(row.get('mission') or ''), 90) or f'Mission {row.get('id')}'} "

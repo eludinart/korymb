@@ -4,9 +4,12 @@ Tokens dédiés par service (GOOGLE_GMAIL_ACCESS_TOKEN, etc.) ou fallback GOOGLE
 """
 from __future__ import annotations
 
+import hashlib
+import html
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -122,29 +125,34 @@ def run_send_gmail(
     in_reply_to: str = "",
     references: str = "",
     thread_id: str = "",
+    attachments: list[dict[str, Any]] | None = None,
 ) -> str:
     to_addr = (to or "").strip()
     subj = (subject or "").strip()
     text = (body or "").strip()
+    files = [a for a in (attachments or []) if isinstance(a, dict)]
     if not to_addr or not subj:
         return "Destinataire et objet requis."
+    att_note = f"\nPièces jointes : {len(files)}" if files else ""
     try:
-        hdrs = _google_headers("gmail")
-    except RuntimeError as e:
-        return _sim("Gmail", f"À : {to_addr}\nObjet : {subj}\n\n{text[:600]}")
+        _google_headers("gmail")
+    except RuntimeError:
+        return _sim("Gmail", f"À : {to_addr}\nObjet : {subj}\n\n{text[:600]}{att_note}")
     import base64
     import secrets
-    from email.mime.text import MIMEText
 
-    msg = MIMEText(text, "plain", "utf-8")
-    msg["to"] = to_addr
-    msg["subject"] = subj
+    from services.email_files import build_email_message
+
     rfc_mid = f"<korymb-{secrets.token_hex(10)}@eludein.art>"
-    msg["Message-ID"] = rfc_mid
-    reply_to = (in_reply_to or "").strip()
-    if reply_to:
-        msg["In-Reply-To"] = reply_to
-        msg["References"] = (references or reply_to).strip()
+    msg = build_email_message(
+        to=to_addr,
+        subject=subj,
+        body=text,
+        attachments=files,
+        in_reply_to=in_reply_to,
+        references=references,
+        message_id=rfc_mid,
+    )
     raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
     payload: dict[str, Any] = {"raw": raw}
     gmail_thread = (thread_id or "").strip()
@@ -155,7 +163,7 @@ def run_send_gmail(
             "POST",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
             json_body=payload,
-            timeout=25,
+            timeout=60 if files else 25,
         )
         r.raise_for_status()
         data = r.json() or {}
@@ -217,13 +225,137 @@ def _header_map(payload: dict | None) -> dict[str, str]:
     return out
 
 
+def _b64url_decode_bytes(data: str) -> bytes:
+    import base64
+
+    raw = (data or "").strip()
+    if not raw:
+        return b""
+    padded = raw + "=" * ((4 - len(raw) % 4) % 4)
+    try:
+        return base64.urlsafe_b64decode(padded.encode("ascii"))
+    except Exception:
+        return b""
+
+
+def _b64url_decode(data: str) -> str:
+    try:
+        return _b64url_decode_bytes(data).decode("utf-8", "replace")
+    except Exception:
+        return ""
+
+
+def _html_to_text(raw: str) -> str:
+    text = re.sub(r"(?is)<(script|style)[\s\S]*?</\1>", "", raw or "")
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p>", "\n\n", text)
+    text = re.sub(r"(?i)</div>", "\n", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return re.sub(r"[ \t]{2,}", " ", text).strip()
+
+
+def extract_gmail_plain_text(payload: dict | None) -> str:
+    """Texte brut depuis un payload Gmail (text/plain prioritaire)."""
+    if not isinstance(payload, dict):
+        return ""
+    mime = str(payload.get("mimeType") or "").lower()
+    body = payload.get("body") if isinstance(payload.get("body"), dict) else {}
+    data = str((body or {}).get("data") or "")
+    parts = payload.get("parts") if isinstance(payload.get("parts"), list) else []
+    if mime.startswith("text/plain") and data:
+        return _b64url_decode(data).strip()
+    plain = ""
+    html_text = ""
+    for part in parts:
+        if not isinstance(part, dict):
+            continue
+        part_mime = str(part.get("mimeType") or "").lower()
+        nested = extract_gmail_plain_text(part)
+        if part_mime.startswith("text/plain") and nested and not plain:
+            plain = nested
+        elif part_mime.startswith("text/html") and nested and not html_text:
+            html_text = nested
+        elif nested and not plain:
+            plain = nested
+    if plain:
+        return plain
+    if mime.startswith("text/html") and data:
+        return _html_to_text(_b64url_decode(data))
+    return html_text or ( _html_to_text(_b64url_decode(data)) if data else "")
+
+
+def extract_gmail_attachments(payload: dict | None) -> list[dict[str, Any]]:
+    """Métadonnées des PJ Gmail (filename + attachmentId, ou data inline)."""
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def walk(part: dict | None) -> None:
+        if not isinstance(part, dict):
+            return
+        filename = str(part.get("filename") or "").strip()
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        att_id = str((body or {}).get("attachmentId") or "").strip()
+        data = str((body or {}).get("data") or "")
+        mime = str(part.get("mimeType") or "application/octet-stream")
+        size = int((body or {}).get("size") or 0)
+        if filename and (att_id or data):
+            key = att_id or f"{filename}:{size}:{mime}"
+            hid = "gatt-" + hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:20]
+            if hid not in seen:
+                seen.add(hid)
+                item: dict[str, Any] = {
+                    "id": hid,
+                    "filename": filename[:160],
+                    "mime": mime[:160],
+                    "size": size,
+                    "source": "gmail",
+                    "gmail_attachment_id": att_id,
+                }
+                if data and not att_id:
+                    raw = _b64url_decode_bytes(data)
+                    if raw:
+                        try:
+                            from services.email_files import save_upload
+
+                            saved = save_upload(filename=filename, mime=mime, data=raw)
+                            if saved.get("success") and isinstance(saved.get("file"), dict):
+                                item = {**saved["file"], "source": "gmail"}
+                        except Exception:
+                            logger.warning("Inline Gmail attachment save failed", exc_info=True)
+                out.append(item)
+        for child in part.get("parts") or []:
+            if isinstance(child, dict):
+                walk(child)
+
+    walk(payload if isinstance(payload, dict) else None)
+    return out
+
+
+def fetch_gmail_attachment_bytes(gmail_message_id: str, gmail_attachment_id: str) -> bytes:
+    mid = (gmail_message_id or "").strip()
+    att = (gmail_attachment_id or "").strip()
+    if not mid or not att:
+        return b""
+    r = _gmail_request(
+        "GET",
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}/attachments/{att}",
+        timeout=40,
+    )
+    r.raise_for_status()
+    data = r.json() if r.content else {}
+    return _b64url_decode_bytes(str((data or {}).get("data") or ""))
+
+
 def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str, Any]] | str:
     """Messages entrants structurés depuis une adresse (sync prospection)."""
     addr = (from_email or "").strip()
     if not addr:
         return "Adresse e-mail requise."
     try:
-        hdrs = _google_headers("gmail")
+        _google_headers("gmail")
     except RuntimeError as e:
         return str(e)
     try:
@@ -231,9 +363,9 @@ def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str,
             "maxResults": min(int(limit or 15), 25),
             "q": f"from:{addr} in:inbox",
         }
-        r = httpx.get(
+        r = _gmail_request(
+            "GET",
             "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-            headers=hdrs,
             params=params,
             timeout=25,
         )
@@ -241,27 +373,17 @@ def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str,
         ids = [m.get("id") for m in (r.json().get("messages") or []) if m.get("id")]
         out: list[dict[str, Any]] = []
         for mid in ids:
-            r2 = httpx.get(
+            r2 = _gmail_request(
+                "GET",
                 f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}",
-                headers=hdrs,
-                params={
-                    "format": "metadata",
-                    "metadataHeaders": [
-                        "Subject",
-                        "From",
-                        "To",
-                        "Date",
-                        "Message-ID",
-                        "In-Reply-To",
-                        "References",
-                    ],
-                },
+                params={"format": "full"},
                 timeout=20,
             )
             if r2.status_code != 200:
                 continue
             data = r2.json() or {}
-            h = _header_map(data.get("payload") if isinstance(data.get("payload"), dict) else {})
+            payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+            h = _header_map(payload)
             internal = data.get("internalDate")
             created = ""
             if internal is not None:
@@ -269,6 +391,7 @@ def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str,
                     created = datetime.fromtimestamp(int(internal) / 1000, tz=timezone.utc).isoformat()
                 except (TypeError, ValueError, OSError):
                     created = ""
+            body_text = extract_gmail_plain_text(payload) or html.unescape(str(data.get("snippet") or ""))
             out.append(
                 {
                     "gmail_message_id": str(data.get("id") or mid),
@@ -276,15 +399,17 @@ def list_gmail_messages_from(from_email: str, limit: int = 15) -> list[dict[str,
                     "subject": h.get("subject") or "",
                     "from": h.get("from") or addr,
                     "to": h.get("to") or "",
-                    "snippet": str(data.get("snippet") or ""),
+                    "snippet": html.unescape(str(data.get("snippet") or "")),
+                    "body": body_text,
                     "message_id_header": h.get("message-id") or "",
                     "in_reply_to": h.get("in-reply-to") or "",
                     "internal_date": created,
+                    "attachments": extract_gmail_attachments(payload),
                 }
             )
         return out
     except Exception as e:
-        return f"Erreur lecture Gmail : {e}"
+        return f"Erreur lecture Gmail : {e}{_gmail_auth_error_hint(e)}"
 
 
 # ── Calendar ──────────────────────────────────────────────────────────────────

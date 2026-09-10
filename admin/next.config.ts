@@ -36,6 +36,12 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      { source: "/livrables", destination: "/gestion/livrables", permanent: false },
+      { source: "/administration/playbooks", destination: "/gestion/playbooks", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

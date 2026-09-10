@@ -84,10 +84,34 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     has_smtp      = bool(os.getenv("SMTP_HOST", "").strip() and os.getenv("SMTP_USER", "").strip())
     has_brevo     = bool(os.getenv("BREVO_API_KEY", "").strip())
     has_deepl     = bool(os.getenv("DEEPL_API_KEY", "").strip())
-    has_image_gen = bool(
-        os.getenv("IMAGE_GEN_MODEL", "").strip()
-        and (os.getenv("IMAGE_GEN_API_KEY", "").strip() or os.getenv("OPENROUTER_API_KEY", "").strip())
-    )
+    try:
+        from tools.media_engines import catalog_status as _media_status
+
+        _media = _media_status()
+        _media_ready = _media.get("ready") if isinstance(_media.get("ready"), dict) else {}
+        has_image_gen = bool(_media_ready.get("image"))
+        has_tts = bool(_media_ready.get("tts"))
+        has_video = bool(_media_ready.get("video"))
+        image_note = "Clé Mistral (Flux) — pas de clé image dédiée. Pollinations en repli."
+        tts_note = "Chaîne voix : Edge TTS (gratuit) → Pollinations → OpenAI → ElevenLabs."
+        video_note = "Storyboard via Mistral / Pollinations. Clip MP4 si Replicate / fal / Runway."
+    except Exception:
+        has_image_gen = bool(os.getenv("MISTRAL_API_KEY", "").strip())
+        has_tts = bool(
+            os.getenv("ELEVENLABS_API_KEY", "").strip()
+            or os.getenv("TTS_API_KEY", "").strip()
+            or os.getenv("OPENAI_API_KEY", "").strip()
+        )
+        has_video = bool(
+            os.getenv("REPLICATE_API_TOKEN", "").strip()
+            or os.getenv("FAL_KEY", "").strip()
+            or os.getenv("RUNWAY_API_KEY", "").strip()
+            or os.getenv("VIDEO_GEN_API_KEY", "").strip()
+            or os.getenv("MISTRAL_API_KEY", "").strip()
+        )
+        image_note = "Clé Mistral (chat) ou IMAGE_GEN / OpenRouter."
+        tts_note = "TTS_PROVIDER + clé (OpenAI ou ElevenLabs)."
+        video_note = "Storyboard Mistral, ou VIDEO_GEN_PROVIDER + clé pour un clip."
 
     payload = {
         "checked_at": checked,
@@ -150,7 +174,7 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         "generate_image": {
             "ok": has_image_gen,
             "configured": has_image_gen,
-            "note": "IMAGE_GEN_MODEL + clé API (IMAGE_GEN_API_KEY ou OPENROUTER_API_KEY).",
+            "note": image_note,
         },
         "read_pdf": {
             "ok": True,
@@ -265,13 +289,24 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
             "note": "KORYMB_WEBHOOK_URL ou NOTIFICATION_WEBHOOK_URL — n8n/Zapier.",
         },
         "text_to_speech": {
-            "ok": bool(
-                os.getenv("ELEVENLABS_API_KEY", "").strip()
-                or os.getenv("TTS_API_KEY", "").strip()
-                or os.getenv("OPENAI_API_KEY", "").strip()
-            ),
-            "configured": bool(os.getenv("TTS_PROVIDER", "").strip() or os.getenv("ELEVENLABS_API_KEY", "").strip()),
-            "note": "TTS_PROVIDER + clé (OpenAI ou ElevenLabs).",
+            "ok": has_tts,
+            "configured": has_tts,
+            "note": tts_note,
+        },
+        "create_branded_pdf": {
+            "ok": True,
+            "configured": True,
+            "note": "PDF brandé via fpdf2 (police système) — sans clé API.",
+        },
+        "generate_video": {
+            "ok": has_video,
+            "configured": has_video,
+            "note": video_note,
+        },
+        "post_linkedin": {
+            "ok": bool(os.getenv("LINKEDIN_ACCESS_TOKEN", "").strip() and os.getenv("LINKEDIN_AUTHOR_URN", "").strip()),
+            "configured": bool(os.getenv("LINKEDIN_ACCESS_TOKEN", "").strip()),
+            "note": "LINKEDIN_ACCESS_TOKEN + LINKEDIN_AUTHOR_URN — publication HITL.",
         },
     }
     _CACHE["t"] = now

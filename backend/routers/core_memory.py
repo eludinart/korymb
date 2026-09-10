@@ -116,6 +116,17 @@ def memory_restore(snapshot_id: int):
     return {"restored": True, "memory": mem}
 
 
+@router.post("/memory/compact", dependencies=[Depends(resolve_tenant)])
+def memory_compact(force: bool = Query(default=False)):
+    """Compacte les volets mémoire trop longs (snapshot préalable)."""
+    from services.memory_inbox import compact_enterprise_memory_if_needed
+
+    try:
+        return compact_enterprise_memory_if_needed(force=force)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"compact_failed: {exc}") from exc
+
+
 @router.get("/memory/preview", dependencies=[Depends(resolve_tenant)])
 def memory_preview(
     agent_key: str = Query(default="coordinateur"),

@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -548,50 +546,7 @@ def run_trigger_webhook(url: str, payload_json: str = "{}", event_name: str = "k
 
 
 def run_text_to_speech(text: str, voice: str = "") -> str:
-    content = (text or "").strip()
-    if not content:
-        return "text requis."
-    provider = (getenv("TTS_PROVIDER", "") or "openai").strip().lower()
-    voice_id = (voice or getenv("TTS_VOICE", "alloy")).strip()
-    if provider == "elevenlabs":
-        key = getenv("ELEVENLABS_API_KEY", "").strip()
-        vid = getenv("ELEVENLABS_VOICE_ID", voice_id).strip()
-        if not key:
-            return _sim("TTS ElevenLabs", content[:300])
-        try:
-            r = httpx.post(
-                f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
-                headers={"xi-api-key": key, "Content-Type": "application/json"},
-                json={"text": content[:5000], "model_id": getenv("ELEVENLABS_MODEL", "eleven_multilingual_v2")},
-                timeout=60,
-            )
-            r.raise_for_status()
-            out = getenv("TTS_OUTPUT_DIR", "data/tts").strip()
-            Path(out).mkdir(parents=True, exist_ok=True)
-            fname = f"tts_{int(__import__('time').time())}.mp3"
-            fpath = Path(out) / fname
-            fpath.write_bytes(r.content)
-            return f"✅ Audio généré (ElevenLabs) : {fpath}"
-        except Exception as e:
-            return f"Erreur ElevenLabs TTS : {e}"
-    key = (getenv("TTS_API_KEY", "") or getenv("OPENAI_API_KEY", "")).strip()
-    base = (getenv("TTS_BASE_URL", "") or "https://api.openai.com/v1").strip().rstrip("/")
-    model = getenv("TTS_MODEL", "tts-1").strip()
-    if not key:
-        return _sim("TTS", content[:300])
-    try:
-        r = httpx.post(
-            f"{base}/audio/speech",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": model, "voice": voice_id, "input": content[:4096]},
-            timeout=60,
-        )
-        r.raise_for_status()
-        out = getenv("TTS_OUTPUT_DIR", "data/tts").strip()
-        Path(out).mkdir(parents=True, exist_ok=True)
-        fname = f"tts_{int(__import__('time').time())}.mp3"
-        fpath = Path(out) / fname
-        fpath.write_bytes(r.content)
-        return f"✅ Audio généré : {fpath}"
-    except Exception as e:
-        return f"Erreur TTS : {e}"
+    """Voix : Edge TTS (gratuit) → Pollinations → OpenAI → ElevenLabs."""
+    from tools.media_engines import synthesize_speech
+
+    return synthesize_speech(text, voice)

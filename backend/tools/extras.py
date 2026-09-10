@@ -202,55 +202,10 @@ def run_schedule_facebook_post(message: str, publish_at: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def run_generate_image(prompt: str, size: str = "1024x1024") -> str:
-    """
-    Génère une image à partir d'un prompt.
-    Nécessite IMAGE_GEN_MODEL + IMAGE_GEN_API_KEY (ou OPENROUTER_API_KEY).
-    """
-    p = (prompt or "").strip()[:2000]
-    if not p:
-        return "Prompt vide."
-    if not (getenv("IMAGE_GEN_API_KEY") or getenv("OPENROUTER_API_KEY")) or not getenv("IMAGE_GEN_MODEL"):
-        return (
-            "[SIMULATION] Image à générer :\n"
-            f"Prompt : {p}\n"
-            "⚠️ Configure IMAGE_GEN_MODEL et IMAGE_GEN_API_KEY (ou OPENROUTER_API_KEY) dans .env."
-        )
-    try:
-        base = (getenv("IMAGE_GEN_BASE_URL") or getenv("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
-        img_key = getenv("IMAGE_GEN_API_KEY") or getenv("OPENROUTER_API_KEY")
-        url = f"{base}/images/generations"
-        headers = {
-            "Authorization": f"Bearer {img_key}",
-            "Content-Type": "application/json",
-        }
-        referer = getenv("OPENROUTER_HTTP_REFERER")
-        title = getenv("OPENROUTER_APP_TITLE") or "Korymb"
-        if referer:
-            headers["HTTP-Referer"] = referer
-        if title:
-            headers["X-Title"] = title
-        body = {
-            "model": getenv("IMAGE_GEN_MODEL"),
-            "prompt": p,
-            "n": 1,
-            "size": (size or "1024x1024").strip(),
-        }
-        resp = httpx.post(url, headers=headers, json=body, timeout=90)
-        resp.raise_for_status()
-        data = resp.json()
-        items = data.get("data") or []
-        if not items:
-            return f"Réponse image vide : {json.dumps(data)[:400]}"
-        item = items[0]
-        img_url = item.get("url") or ""
-        b64 = item.get("b64_json") or ""
-        if img_url:
-            return f"✅ Image générée ({getenv("IMAGE_GEN_MODEL")}) :\n{img_url}\n\nPrompt : {p}"
-        if b64:
-            return f"✅ Image générée en base64 ({getenv("IMAGE_GEN_MODEL")}, {len(b64)} caractères).\nPrompt : {p}"
-        return f"Format image non reconnu : {json.dumps(item)[:300]}"
-    except Exception as e:
-        return f"Erreur génération image : {e}"
+    """Génère une image : Mistral (clé LLM) → Pollinations → Hugging Face → OpenRouter."""
+    from tools.media_engines import generate_image
+
+    return generate_image(prompt, size)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

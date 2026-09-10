@@ -110,11 +110,11 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
                 href="/inbox?triage=1"
                 className="inline-flex items-center rounded-2xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-violet-800"
               >
-                Traiter l&apos;inbox ({inboxTotal}) — ~2 min
+                Traiter les décisions ({inboxTotal}) — ~2 min
               </Link>
             ) : (
               <span className="inline-flex items-center rounded-2xl border-2 border-emerald-300 bg-emerald-100 px-4 py-2.5 text-sm font-bold text-emerald-900">
-                Inbox vide ✓
+                Aucune décision en attente ✓
               </span>
             )}
             <Link

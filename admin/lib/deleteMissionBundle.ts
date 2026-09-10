@@ -108,7 +108,7 @@ export function confirmDeleteMission(jobId: string, mission?: string | null): bo
   if (typeof window === "undefined") return false;
   const label = missionActionLabel(jobId, mission);
   return window.confirm(
-    `Supprimer définitivement « ${label} » ?\n\nToutes les relances et continuations associées seront effacées (Missions, Inbox, Briefing, livrables).`,
+    `Supprimer définitivement « ${label} » ?\n\nToutes les relances et continuations associées seront effacées (Missions, Décisions, Briefing, livrables).`,
   );
 }
 

@@ -9,7 +9,7 @@ export type InboxSortMode =
 
 export type InboxKindFilter = "all" | InboxActionItem["kind"];
 
-/** Onglets inbox — regroupe les types proches pour le dirigeant. */
+/** Onglets de la file Décisions — regroupe les types proches pour le dirigeant. */
 export type InboxTabId = "all" | "validations" | "cio" | "closures" | "approvals" | "other";
 
 export type InboxDisplayPrefs = {

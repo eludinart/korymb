@@ -59,7 +59,7 @@ def notify_action_ticket(ticket: dict[str, Any]) -> dict[str, Any]:
     else:
         keyboard = {
             "inline_keyboard": [[
-                {"text": "Ouvrir l'inbox", "url": _inbox_url(tid)},
+                {"text": "Ouvrir Décisions", "url": _inbox_url(tid)},
             ]]
         }
     try:

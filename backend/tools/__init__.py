@@ -334,6 +334,29 @@ def run_describe_image(image_url: str, context: str = "") -> str:
         return f"Erreur analyse image : {e}"
 
 
+def _graph_failure(resp: httpx.Response, *, network: str = "Facebook") -> str:
+    """Traduit un 4xx Graph API en message actionnable (sans coller l’URL ni le jeton)."""
+    try:
+        err = (resp.json() or {}).get("error") or {}
+    except Exception:
+        err = {}
+    msg = str(err.get("message") or "").strip()
+    code = err.get("code")
+    expired = code == 190 or "expired" in msg.lower() or "session has expired" in msg.lower()
+    if expired:
+        return (
+            f"Erreur {network} : le jeton a expiré. "
+            "Générez un Page Access Token dans le Graph API Explorer "
+            "(permissions pages_manage_posts, pages_read_engagement), "
+            "puis collez-le dans Administration → Intégrations. "
+            "FACEBOOK_PAGE_ID doit être l’identifiant numérique de la page "
+            "(Paramètres de la page → À propos), pas un fragment de jeton."
+        )
+    if msg:
+        return f"Erreur {network} : {msg}"
+    return f"Erreur {network} : HTTP {resp.status_code}"
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  INSTAGRAM — post + lecture des médias de la page
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -359,14 +382,16 @@ def run_post_instagram(caption: str, image_url: str = "") -> str:
             data=payload,
             timeout=20,
         )
-        r.raise_for_status()
+        if not r.is_success:
+            return _graph_failure(r, network="Instagram")
         container_id = r.json().get("id")
         r2 = httpx.post(
             f"https://graph.facebook.com/v19.0/{ig_account}/media_publish",
             data={"creation_id": container_id, "access_token": ig_token},
             timeout=20,
         )
-        r2.raise_for_status()
+        if not r2.is_success:
+            return _graph_failure(r2, network="Instagram")
         return f"✅ Post Instagram publié (id: {r2.json().get('id')})"
     except Exception as e:
         return f"Erreur Instagram : {e}"
@@ -415,12 +440,18 @@ def run_read_instagram_media(limit: int = 10) -> str:
 
 def run_post_facebook(message: str) -> str:
     fb_token = getenv("FACEBOOK_ACCESS_TOKEN")
-    fb_page = getenv("FACEBOOK_PAGE_ID")
+    fb_page = (getenv("FACEBOOK_PAGE_ID") or "").strip()
     if not fb_token or not fb_page:
         return (
             "[SIMULATION] Post Facebook prêt :\n"
             f"{message}\n"
             "⚠️ Configure FACEBOOK_ACCESS_TOKEN et FACEBOOK_PAGE_ID dans .env pour publier réellement."
+        )
+    if not fb_page.isdigit():
+        return (
+            "Erreur Facebook : FACEBOOK_PAGE_ID n’est pas un identifiant de page "
+            "(attendu : uniquement des chiffres, Paramètres de la page → À propos). "
+            "La valeur actuelle n’est pas un Page ID."
         )
     try:
         r = httpx.post(
@@ -428,7 +459,8 @@ def run_post_facebook(message: str) -> str:
             data={"message": message, "access_token": fb_token},
             timeout=20,
         )
-        r.raise_for_status()
+        if not r.is_success:
+            return _graph_failure(r)
         return f"✅ Post Facebook publié (id: {r.json().get('id')})"
     except Exception as e:
         return f"Erreur Facebook : {e}"
@@ -476,24 +508,30 @@ def run_read_facebook_posts(limit: int = 10) -> str:
 #  EMAIL — SMTP ou simulation
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_send_email(to: str, subject: str, body: str) -> str:
+def run_send_email(to: str, subject: str, body: str, attachments: list | None = None) -> str:
     smtp_host = getenv("SMTP_HOST")
     smtp_user = getenv("SMTP_USER")
     smtp_pass = getenv("SMTP_PASS")
+    files = [a for a in (attachments or []) if isinstance(a, dict)]
+    att_note = f"\nPièces jointes : {len(files)}" if files else ""
     if not smtp_host:
         return (
             f"[SIMULATION] Email prêt :\n"
-            f"À : {to}\nObjet : {subject}\n\n{body}\n\n"
+            f"À : {to}\nObjet : {subject}\n\n{body}{att_note}\n\n"
             "⚠️ Configure SMTP_HOST, SMTP_USER, SMTP_PASS dans .env pour envoyer réellement."
         )
     try:
         import smtplib
-        from email.mime.text import MIMEText
 
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["Subject"] = subject
-        msg["From"] = smtp_user
-        msg["To"] = to
+        from services.email_files import build_email_message
+
+        msg = build_email_message(
+            to=to,
+            subject=subject,
+            body=body,
+            attachments=files,
+            from_addr=smtp_user or "",
+        )
         with smtplib.SMTP_SSL(smtp_host, 465) as s:
             s.login(smtp_user, smtp_pass)
             s.send_message(msg)
@@ -634,6 +672,21 @@ def _markdown_table_to_csv(text: str) -> str | None:
     return buf.getvalue()
 
 
+def _save_local_deliverable(*, filename: str, mime: str, content: str) -> str:
+    """Enregistre un livrable dans l'espace Korymb (disque serveur, scoped workspace)."""
+    from services.resource_files import local_file_href, save_upload
+
+    data = (content or "").encode("utf-8")
+    result = save_upload(filename=filename, mime=mime, data=data)
+    if not result.get("success"):
+        return f"Erreur stockage livrable : {result.get('error') or 'enregistrement impossible'}"
+    f = result.get("file") or {}
+    fid = str(f.get("id") or "")
+    name = str(f.get("filename") or filename)
+    href = local_file_href(fid, inline=True)
+    return f"✅ Fichier enregistré : {name} (id: {fid})\n{href}"
+
+
 def run_create_drive_deliverable(
     title: str,
     content: str,
@@ -642,9 +695,11 @@ def run_create_drive_deliverable(
     folder_id: str = "",
 ) -> str:
     """
-    Crée un livrable sur Google Drive (texte, CSV, Google Sheet ou Google Doc).
+    Enregistre un livrable dans le compte Korymb (CSV / markdown).
+    `folder_id` est ignoré (compat historique de l'outil Drive).
     format_kind : auto | text | csv | sheet | doc
     """
+    _ = folder_id
     title = (title or "").strip()[:200] or "Livrable Korymb"
     body = content or ""
     fk = (format_kind or "auto").strip().lower()
@@ -674,7 +729,7 @@ def run_create_drive_deliverable(
 
         ok, reason = validate_sheet_export_content(body)
         if not ok:
-            return f"Erreur Google Drive : {reason}"
+            return f"Erreur stockage livrable : {reason}"
     try:
         if fk == "sheet":
             csv_body = body
@@ -682,52 +737,21 @@ def run_create_drive_deliverable(
                 parsed = _markdown_table_to_csv(body)
                 if parsed:
                     csv_body = parsed
-            if not title.lower().endswith(".csv"):
-                upload_name = f"{title}.csv" if not title.lower().endswith(".csv") else title
-            else:
-                upload_name = title
-            data = _drive_multipart_upload(
-                filename=upload_name,
-                content=csv_body,
-                source_mime="text/csv",
-                target_mime="application/vnd.google-apps.spreadsheet",
-                folder_id=folder_id,
-                convert=True,
-            )
-        elif fk == "doc":
-            upload_name = title if title.lower().endswith((".md", ".txt")) else f"{title}.md"
-            data = _drive_multipart_upload(
-                filename=upload_name,
-                content=body,
-                source_mime="text/markdown",
-                target_mime="application/vnd.google-apps.document",
-                folder_id=folder_id,
-                convert=True,
-            )
-        elif fk == "csv":
             upload_name = title if title.lower().endswith(".csv") else f"{title}.csv"
-            data = _drive_multipart_upload(
-                filename=upload_name,
-                content=body,
-                source_mime="text/csv",
-                target_mime="text/csv",
-                folder_id=folder_id,
-            )
-        else:
-            upload_name = title if "." in title else f"{title}.md"
-            data = _drive_multipart_upload(
-                filename=upload_name,
-                content=body,
-                source_mime="text/markdown",
-                target_mime="text/markdown",
-                folder_id=folder_id,
-            )
-        fid = data.get("id") or "?"
-        name = data.get("name") or upload_name
-        link = data.get("webViewLink") or ""
-        return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}" if link else f"✅ Fichier Drive créé : {name} (id: {fid})"
+            return _save_local_deliverable(filename=upload_name, mime="text/csv", content=csv_body)
+        if fk == "csv":
+            upload_name = title if title.lower().endswith(".csv") else f"{title}.csv"
+            return _save_local_deliverable(filename=upload_name, mime="text/csv", content=body)
+        if fk == "doc":
+            upload_name = title if title.lower().endswith((".md", ".txt")) else f"{title}.md"
+            return _save_local_deliverable(filename=upload_name, mime="text/markdown", content=body)
+        upload_name = title if "." in title else f"{title}.md"
+        mime = "text/csv" if upload_name.lower().endswith(".csv") else "text/markdown"
+        if upload_name.lower().endswith(".txt"):
+            mime = "text/plain"
+        return _save_local_deliverable(filename=upload_name, mime=mime, content=body)
     except Exception as e:
-        return f"Erreur Google Drive : {e}"
+        return f"Erreur stockage livrable : {e}"
 
 
 def _ascii_fold(s: str) -> str:
@@ -743,6 +767,7 @@ def run_upload_google_drive(
     mime_type: str = "text/plain",
     folder_id: str = "",
 ) -> str:
+    """Enregistre le fichier dans l'espace Korymb (plus d'envoi Google Drive)."""
     fn = (filename or "").strip()[:220]
     if not fn:
         return "Nom de fichier vide."
@@ -755,17 +780,12 @@ def run_upload_google_drive(
             format_kind="sheet",
             folder_id=folder_id,
         )
-    try:
-        data = _drive_multipart_upload(
-            filename=fn,
-            content=body,
-            source_mime=(mime_type or "text/plain").strip() or "text/plain",
-            target_mime=(mime_type or "text/plain").strip() or "text/plain",
-            folder_id=folder_id,
-        )
-        fid = data.get("id") or "?"
-        name = data.get("name") or fn
-        link = data.get("webViewLink") or ""
-        return f"✅ Fichier Drive créé : {name} (id: {fid})\n{link}" if link else f"✅ Fichier Drive créé : {name} (id: {fid})"
-    except Exception as e:
-        return f"Erreur Google Drive : {e}"
+    mime = (mime_type or "text/plain").strip() or "text/plain"
+    if "." not in fn:
+        if mime.startswith("text/csv"):
+            fn = f"{fn}.csv"
+        elif "markdown" in mime:
+            fn = f"{fn}.md"
+        else:
+            fn = f"{fn}.txt"
+    return _save_local_deliverable(filename=fn, mime=mime, content=body)

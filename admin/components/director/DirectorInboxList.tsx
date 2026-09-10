@@ -84,7 +84,7 @@ export default function DirectorInboxList({
       )}
       {limit != null && total > limit ? (
         <p className="mt-3 text-center text-sm font-medium text-violet-800">
-          {total - limit} autre{total - limit > 1 ? "s" : ""} décision{total - limit > 1 ? "s" : ""} — voir l&apos;inbox complète
+          {total - limit} autre{total - limit > 1 ? "s" : ""} décision{total - limit > 1 ? "s" : ""} — voir toutes les décisions
         </p>
       ) : null}
     </>

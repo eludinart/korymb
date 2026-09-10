@@ -558,7 +558,8 @@ def _hydrate_job_row(d: dict) -> dict:
     agents_u = du.get("agents")
     if not isinstance(agents_u, dict):
         agents_u = {}
-    out["deliverables_ui"] = {"agents": agents_u}
+    studio_u = du.get("studio") if isinstance(du.get("studio"), dict) else {}
+    out["deliverables_ui"] = {"agents": agents_u, "studio": studio_u}
     out.pop("deliverables_ui_json", None)
     try:
         da = json.loads(out.get("drive_artifacts_json") or "[]")
@@ -717,23 +718,36 @@ def init_db():
 
 
 def seed_scheduled_task_defaults() -> None:
-    """Tâche de propositions CIO par défaut si aucune n'existe encore."""
+    """Tâches planifiées par défaut si elles n'existent pas encore."""
     tasks = list_scheduled_tasks()
-    if any(str(t.get("task_type") or "") == "mission_proposals" for t in tasks):
-        return
-    create_scheduled_task(
-        name="Propositions CIO automatiques",
-        description="Analyse les missions récentes et propose de nouvelles missions à valider.",
-        task_type="mission_proposals",
-        agent="coordinateur",
-        params={"nb_proposals": 3},
-        schedule_type="interval",
-        schedule_config={"days": 7},
-        enabled=True,
-        requires_approval=False,
-        budget_tokens_per_run=50000,
-        budget_runs_per_day=2,
-    )
+    if not any(str(t.get("task_type") or "") == "mission_proposals" for t in tasks):
+        create_scheduled_task(
+            name="Propositions CIO automatiques",
+            description="Analyse les missions récentes et propose de nouvelles missions à valider.",
+            task_type="mission_proposals",
+            agent="coordinateur",
+            params={"nb_proposals": 3},
+            schedule_type="interval",
+            schedule_config={"days": 7},
+            enabled=True,
+            requires_approval=False,
+            budget_tokens_per_run=50000,
+            budget_runs_per_day=2,
+        )
+    if not any(str(t.get("task_type") or "") == "gmail_prospect_sync" for t in list_scheduled_tasks()):
+        create_scheduled_task(
+            name="Sync Gmail prospection",
+            description="Importe les réponses Gmail des fils CRM ouverts (courrier), sans bouton par contact.",
+            task_type="gmail_prospect_sync",
+            agent="commercial",
+            params={},
+            schedule_type="interval",
+            schedule_config={"minutes": 15},
+            enabled=True,
+            requires_approval=False,
+            budget_tokens_per_run=1,
+            budget_runs_per_day=200,
+        )
 
 
 def seed_playbooks() -> None:
@@ -819,6 +833,73 @@ def seed_playbooks() -> None:
                 "mission": (
                     "Rédiger un post Instagram (et Facebook si pertinent) autour de Fleur d'ÅmÔurs. "
                     "Utiliser post_instagram / post_facebook — aucune publication tant que le dirigeant n'a pas validé."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-article-blog",
+            "name": "Article de blog",
+            "description": "Article SEO Fleur d'ÅmÔurs ; publication WordPress après validation.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un article web Élude In Art / Fleur d'ÅmÔurs (posture non divinatoire). "
+                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pack-social",
+            "name": "Pack réseaux (IG + FB + LinkedIn)",
+            "description": "Un brief, trois déclinaisons. Publication après Décisions.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "À partir d'un même angle Fleur d'ÅmÔurs, produire : "
+                    "1) post Instagram + visuel generate_image, 2) post Facebook plus long, "
+                    "3) post LinkedIn thought-leadership. "
+                    "Utiliser post_instagram, post_facebook, post_linkedin (HITL)."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-podcast",
+            "name": "Épisode podcast",
+            "description": "Script parlé + TTS ElevenLabs/OpenAI, fichier MP3 ressource.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Écrire un script podcast 6–10 min (voix haute, [pause] notées) puis "
+                    "create_podcast_episode. Show notes + citation. Pas de publication sans relecture."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pdf-module",
+            "name": "Document PDF brandé",
+            "description": "Fiche ou module pédagogique en PDF, charte vitrine.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un document pédagogique Fleur d'ÅmÔurs (2–6 pages) puis "
+                    "create_branded_pdf. Marquer #### LIVRABLE — <titre>."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-video-short",
+            "name": "Vidéo courte 9:16",
+            "description": "Script reel + génération vidéo si API branchée, sinon storyboard + miniature.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Script vidéo verticale 15–45 s (hook 2 s, 3 plans, CTA). "
+                    "Si generate_video est configuré, lancer le clip ; sinon storyboard + generate_image miniature."
                 ),
                 "agents": ["community_manager"],
             },
@@ -1801,7 +1882,56 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
             elif isinstance(at, str) and at.strip():
                 merged["accepted_at"] = at.strip()[:64]
         agents[k] = merged
-    payload = {"agents": agents}
+    studio = cur.get("studio") if isinstance(cur.get("studio"), dict) else {}
+    payload = {"agents": agents, "studio": studio}
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET deliverables_ui_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(payload, ensure_ascii=False), now, jid, _ws()),
+        )
+        conn.commit()
+    return get_job(jid)
+
+
+def merge_job_studio_queue(job_id: str, patch: dict[str, Any] | None) -> dict | None:
+    """File Studio (publié / retiré / rappel) dans deliverables_ui.studio — sans écraser les notes agents."""
+    jid = _norm_job_id(job_id)
+    if not jid:
+        return None
+    row = get_job(jid)
+    if not row:
+        return None
+    cur = row.get("deliverables_ui") or {}
+    if not isinstance(cur, dict):
+        cur = {}
+    agents = cur.get("agents") if isinstance(cur.get("agents"), dict) else {}
+    studio = dict(cur.get("studio") or {}) if isinstance(cur.get("studio"), dict) else {}
+    incoming = patch if isinstance(patch, dict) else {}
+    if incoming.get("dismissed_job") is True:
+        studio["dismissed_job"] = True
+    pieces = dict(studio.get("pieces") or {}) if isinstance(studio.get("pieces"), dict) else {}
+    piece_patch = incoming.get("piece") if isinstance(incoming.get("piece"), dict) else None
+    if piece_patch:
+        fid = re.sub(r"[^a-z0-9_]", "", str(piece_patch.get("format_id") or "").strip().lower()[:48])
+        if fid:
+            prev = dict(pieces.get(fid) or {}) if isinstance(pieces.get(fid), dict) else {}
+            state = str(piece_patch.get("state") or "").strip().lower()
+            if state in ("published", "dismissed", "pending"):
+                prev["state"] = state
+            if piece_patch.get("at"):
+                prev["at"] = str(piece_patch.get("at") or "")[:64]
+            if "target" in piece_patch:
+                prev["target"] = str(piece_patch.get("target") or "")[:32]
+            if piece_patch.get("reminded_at"):
+                prev["reminded_at"] = str(piece_patch.get("reminded_at") or "")[:64]
+            if incoming.get("reminded_at"):
+                prev["reminded_at"] = str(incoming.get("reminded_at") or "")[:64]
+            pieces[fid] = prev
+    if incoming.get("reminded_at") and not piece_patch:
+        studio["reminded_at"] = str(incoming.get("reminded_at") or "")[:64]
+    studio["pieces"] = pieces
+    payload = {"agents": agents, "studio": studio}
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
@@ -1813,7 +1943,7 @@ def merge_job_deliverables_ui(job_id: str, agents_patch: dict[str, dict[str, Any
 
 
 def append_job_drive_artifacts(job_id: str, artifacts: list[dict[str, Any]] | None) -> dict | None:
-    """Ajoute des fichiers Drive exportés automatiquement au job."""
+    """Ajoute des fichiers livrables (espace Korymb) au job."""
     jid = _norm_job_id(job_id)
     if not jid or not artifacts:
         return get_job(jid) if jid else None
@@ -2330,7 +2460,13 @@ _CONTEXT_KEYS_LEGACY = frozenset(
 )
 # Champs système persistés dans contexts_json (hors volets métier édités par l’admin).
 _SYSTEM_ENTERPRISE_CONTEXT_KEYS = frozenset(
-    {"auto_summary", "auto_summary_updated_at", "drive_workspace"},
+    {
+        "auto_summary",
+        "auto_summary_updated_at",
+        "drive_workspace",
+        "enterprise_facts",
+        "memory_compacted_at",
+    },
 )
 
 
@@ -2343,7 +2479,25 @@ _CUSTOM_AGENT_RESERVED = frozenset(
     {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable", "auto_summary"},
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
-    {"web", "linkedin", "email", "instagram", "facebook", "drive", "knowledge", "validate", "db", "gestion"},
+    {
+        "web",
+        "linkedin",
+        "email",
+        "instagram",
+        "facebook",
+        "drive",
+        "knowledge",
+        "validate",
+        "db",
+        "gestion",
+        "media",
+        "cms",
+        "studio",
+        "canva",
+        "youtube",
+        "pinterest",
+        "social_auto",
+    },
 )
 
 
@@ -3606,6 +3760,7 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
+            "hitl_gate_json, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
@@ -3614,6 +3769,12 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     for row in rows or []:
         d = dict(row)
         d["job_id"] = str(d.pop("id", "") or "")
+        d["mission_closed_by_user"] = bool(d.get("user_validated_at"))
+        try:
+            gate = json.loads(d.pop("hitl_gate_json", None) or "{}")
+        except (json.JSONDecodeError, TypeError):
+            gate = {}
+        d["hitl_gate"] = gate if isinstance(gate, dict) else {}
         out.append(d)
     return out
 

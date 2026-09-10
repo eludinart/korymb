@@ -75,6 +75,66 @@ body {
 }
 
 @layer components {
+  .practice-root {
+    background: var(--practice-paper, #faf6f0);
+    color: #1c1917;
+    min-height: 100%;
+  }
+
+  .practice-heading {
+    font-family: var(--practice-heading-font, inherit);
+    color: var(--practice-ink, #1c1917);
+  }
+
+  .btn-practice {
+    @apply inline-flex items-center justify-center rounded-2xl px-6 py-3 text-sm font-bold text-white;
+    background: var(--practice-accent, #047857);
+  }
+
+  .btn-practice:hover {
+    background: var(--practice-accent-hover, #065f46);
+  }
+
+  .btn-practice-secondary {
+    @apply inline-flex items-center justify-center rounded-2xl border-2 bg-white px-6 py-3 text-sm font-bold;
+    border-color: var(--practice-soft, #d1fae5);
+    color: var(--practice-ink, #064e3b);
+  }
+
+  .practice-card {
+    @apply rounded-2xl border bg-white;
+    border-color: color-mix(in srgb, var(--practice-accent, #047857) 18%, white);
+    background: var(--practice-surface, #fffdf9);
+  }
+
+  .practice-media-card {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+
+  .practice-media-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px color-mix(in srgb, var(--practice-accent, #047857) 16%, transparent);
+  }
+
+  .practice-media-fallback {
+    background:
+      radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--practice-accent, #047857) 35%, white), transparent 55%),
+      linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--practice-paper, #faf6f0) 40%, white),
+        color-mix(in srgb, var(--practice-accent, #047857) 22%, #fff7ed)
+      );
+  }
+
+  .practice-media-scrim {
+    background: linear-gradient(to top, color-mix(in srgb, var(--practice-ink, #064e3b) 28%, transparent), transparent);
+  }
+
+  .practice-kicker {
+    @apply text-xs font-extrabold uppercase tracking-widest;
+    color: var(--practice-ink, #064e3b);
+  }
+
   /* ── Layout shell ── */
   .page-shell {
     @apply mx-auto w-full min-w-0 px-1 py-2 sm:px-0 sm:py-4;

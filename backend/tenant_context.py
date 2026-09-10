@@ -5,7 +5,26 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal
 
-Role = Literal["admin", "member"]
+Role = Literal["admin", "member", "subscriber"]
+OPERATOR_ROLES: frozenset[str] = frozenset({"admin", "member"})
+ALL_ROLES: frozenset[str] = frozenset({"admin", "member", "subscriber"})
+SUBSCRIBER_PATH_PREFIXES: tuple[str, ...] = ("/auth", "/subscriber")
+
+
+def normalize_role(role: str | None) -> Role:
+    raw = (role or "member").strip()
+    if raw in ALL_ROLES:
+        return raw  # type: ignore[return-value]
+    return "member"
+
+
+def is_operator_role(role: str | None) -> bool:
+    return normalize_role(role) in OPERATOR_ROLES
+
+
+def subscriber_path_allowed(path: str) -> bool:
+    p = path or ""
+    return any(p == prefix or p.startswith(f"{prefix}/") for prefix in SUBSCRIBER_PATH_PREFIXES)
 
 _current_workspace_id: ContextVar[str | None] = ContextVar("workspace_id", default=None)
 _current_user_id: ContextVar[str | None] = ContextVar("user_id", default=None)

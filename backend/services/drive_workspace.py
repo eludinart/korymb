@@ -1,8 +1,8 @@
 """
-Espace Google Drive Korymb — export automatique des livrables opérationnels uniquement.
+Livrables mission — stockage local dans le compte workspace Korymb.
 
-Seuls les tableaux (→ Google Sheet) et les pièces rédactionnelles type courrier
-(→ Google Doc), marquées `#### LIVRABLE — …`, sont déposés sur Drive.
+Seuls les tableaux (→ CSV) et les pièces rédactionnelles type courrier
+(→ markdown), marquées `#### LIVRABLE — …`, sont enregistrés comme fichiers.
 Les synthèses de mission, plans d'action et méta-narration restent dans l'application.
 """
 from __future__ import annotations
@@ -127,8 +127,8 @@ def _table_row_cells(table_md: str) -> list[list[str]]:
 
 def is_placeholder_prospect_table(content: str) -> bool:
     """
-    Détecte les tableaux d'exemple (Dupont/Martin, 1–2 lignes) que le LLM dépose
-    sur Drive au lieu des vraies données de prospection.
+    Détecte les tableaux d'exemple (Dupont/Martin, 1–2 lignes) que le LLM
+    dépose au lieu des vraies données de prospection.
     """
     table = extract_table_only(content) or content
     data_rows = _table_row_cells(table if "|" in table else "")
@@ -176,7 +176,7 @@ def validate_sheet_export_content(content: str) -> tuple[bool, str]:
 
 
 def mission_implies_drive_export(blob: str) -> bool:
-    """True si la mission demande explicitement un fichier livrable sur Drive."""
+    """True si la mission demande explicitement un fichier livrable."""
     t = _ascii_fold(blob or "")
     hints = (
         "google drive",
@@ -310,17 +310,28 @@ def _slug_filename(title: str, max_len: int = 80) -> str:
 
 
 def _parse_upload_result(raw: str) -> dict[str, str] | None:
-    if not raw or "Fichier Drive créé" not in raw:
+    if not raw:
+        return None
+    if re.match(r"(?i)^\s*erreur", raw):
         return None
     m_id = re.search(r"\(id:\s*([^)]+)\)", raw)
-    m_link = re.search(r"(https://(?:drive|docs)\.google\.com/\S+)", raw)
-    m_name = re.search(r"Fichier Drive créé\s*:\s*([^\n(]+)", raw)
+    m_link = re.search(
+        r"((?:https://(?:drive|docs)\.google\.com/\S+)|/api/korymb-bin/business/resource-files/[^\s)]+)",
+        raw,
+    )
+    m_name = re.search(r"Fichier (?:enregistré|Drive créé)\s*:\s*([^\n(]+)", raw)
     if not m_id:
         return None
+    fid = m_id.group(1).strip()
+    link = (m_link.group(1).strip() if m_link else "")
+    if fid.startswith("rfil-") and not link:
+        from services.resource_files import local_file_href
+
+        link = local_file_href(fid, inline=True)
     return {
-        "id": m_id.group(1).strip(),
+        "id": fid,
         "name": (m_name.group(1).strip() if m_name else "Livrable"),
-        "webViewLink": (m_link.group(1).strip() if m_link else ""),
+        "webViewLink": link,
     }
 
 
@@ -456,7 +467,7 @@ def build_drive_workspace_memory_prompt() -> str:
         files = ws.get("files") or []
         if not files:
             return ""
-        lines = ["", "--- Espace Google Drive Korymb (fichiers récents) ---"]
+        lines = ["", "--- Espace fichiers Korymb (récents) ---"]
         fid = str(ws.get("default_folder_id") or "").strip()
         if fid:
             lines.append(f"Dossier racine Korymb (id: {fid}).")
@@ -467,8 +478,8 @@ def build_drive_workspace_memory_prompt() -> str:
             if url:
                 lines.append(f"- {name} : {url}" + (f" — {mission[:80]}" if mission else ""))
         lines.append(
-            "Les livrables fichiers sont déposés automatiquement ici par Korymb. "
-            "Ne cite jamais de lien Drive inventé — uniquement ceux listés ci-dessus ou retournés par un outil."
+            "Les livrables fichiers sont enregistrés dans votre espace Korymb. "
+            "Ne cite jamais de lien de fichier inventé — uniquement ceux listés ci-dessus ou retournés par un outil."
         )
         return "\n".join(lines)
     except Exception:
@@ -506,7 +517,7 @@ def strip_fabricated_drive_links(text: str) -> str:
 def _append_drive_section(text: str, artifacts: list[dict[str, Any]]) -> str:
     if not artifacts:
         return text
-    lines = ["", "---", "", "## Fichiers Google Drive (Korymb)", ""]
+    lines = ["", "---", "", "## Fichiers de votre espace Korymb", ""]
     for a in artifacts:
         name = a.get("name") or "Livrable"
         url = a.get("webViewLink") or ""
@@ -516,7 +527,7 @@ def _append_drive_section(text: str, artifacts: list[dict[str, Any]]) -> str:
         else:
             lines.append(f"- **{name}** ({kind}) — id: `{a.get('id')}`")
     lines.append("")
-    lines.append("*Déposés automatiquement dans votre espace Drive Korymb.*")
+    lines.append("*Enregistrés automatiquement dans votre compte Korymb.*")
     base = (text or "").rstrip()
     return base + "\n" + "\n".join(lines) if base else "\n".join(lines)
 
@@ -546,7 +557,7 @@ def _collect_export_candidates(
                     export_body = better
                     ok, reason = validate_sheet_export_content(export_body)
             if not ok:
-                logger.info("Export Drive ignoré pour « %s » : %s", (title or "")[:60], reason)
+                logger.info("Export livrable ignoré pour « %s » : %s", (title or "")[:60], reason)
                 return
         t = _slug_filename(title)
         if not export_body.strip() or t in seen_titles:
@@ -584,8 +595,8 @@ def finalize_mission_drive_deliverables(
     job_logs: list[str] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """
-    Exporte automatiquement les livrables sur Drive, nettoie les liens fictifs,
-    enrichit la synthèse avec les vrais liens.
+    Enregistre les livrables opérationnels dans l'espace Korymb (disque serveur),
+    nettoie les liens fictifs, enrichit la synthèse avec les vrais liens.
     """
     from tools import run_create_drive_deliverable
 
@@ -596,7 +607,7 @@ def finalize_mission_drive_deliverables(
     cleaned = strip_fabricated_drive_links(synthesis or "")
     existing_ids = _existing_drive_ids_from_events(events)
     if existing_ids:
-        log(f"[korymb] Drive : {len(existing_ids)} fichier(s) déjà créé(s) via outils — export auto complémentaire.")
+        log(f"[korymb] Fichiers : {len(existing_ids)} déjà créé(s) via outils — export auto complémentaire.")
     candidates = _collect_export_candidates(
         mission_txt=mission_txt,
         root_mission_label=root_mission_label,
@@ -607,51 +618,34 @@ def finalize_mission_drive_deliverables(
     blob = f"{mission_txt}\n{root_mission_label}"
     if not candidates and not mission_implies_drive_export(blob):
         return cleaned, []
+    if not candidates:
+        log("[korymb] Livrable fichier attendu mais aucun bloc #### LIVRABLE exportable.")
+        return cleaned, []
 
-    folder_id = resolve_workspace_folder_id()
     artifacts: list[dict[str, Any]] = []
-
-    from tools import _get_google_drive_token
-
-    if not _get_google_drive_token():
-        log(
-            "[korymb] Drive : OAuth Google indisponible (401 / refresh) — "
-            "reconfigurez Google OAuth dans Administration → Intégrations."
-        )
-        log("[korymb] Drive : mission avec livrable fichier attendu mais export auto impossible (vérifiez OAuth Drive).")
-        return cleaned, []
-
-    if not folder_id:
-        log(
-            "[korymb] Drive : aucun dossier cible (GOOGLE_DRIVE_FOLDER_ID) — "
-            "export auto ignoré. Renseignez l'ID dossier dans Intégrations."
-        )
-        return cleaned, []
 
     for c in candidates[:6]:
         title = c["title"]
         body = c["body"]
         fmt = c.get("format_kind") or infer_drive_format(title, body)
-        raw = run_create_drive_deliverable(title, body, format_kind=fmt, folder_id=folder_id)
+        raw = run_create_drive_deliverable(title, body, format_kind=fmt)
         parsed = _parse_upload_result(raw)
         if not parsed:
-            log(f"[korymb] Drive auto-export échec pour « {title[:60]} » : {raw[:180]}")
-            if "401" in str(raw) or "Unauthorized" in str(raw):
-                log("[korymb] Drive : arrêt des exports auto (OAuth expiré).")
-                break
+            log(f"[korymb] Export livrable échec pour « {title[:60]} » : {raw[:180]}")
             continue
         kind = "sheet" if fmt == "sheet" else "doc" if fmt == "doc" else "fichier"
         art = {
             **parsed,
             "kind": kind,
+            "storage": "local",
             "agent": c.get("agent") or "coordinateur",
             "job_id": job_id,
         }
         artifacts.append(art)
-        log(f"[korymb] Drive auto-export : {art.get('name')} → {art.get('webViewLink') or art.get('id')}")
+        log(f"[korymb] Livrable enregistré : {art.get('name')} → {art.get('webViewLink') or art.get('id')}")
 
     if not artifacts and mission_implies_drive_export(blob):
-        log("[korymb] Drive : mission avec livrable fichier attendu mais export auto impossible (vérifiez OAuth Drive).")
+        log("[korymb] Livrable fichier attendu mais aucun fichier n'a pu être enregistré.")
 
     if artifacts and job_id:
         try:

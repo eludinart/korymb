@@ -193,6 +193,7 @@ def complete_email_outcome(
             gmail_thread_id=ids.get("gmail_thread_id") or "",
             message_id_header=rfc_m,
             existing_thread_id=str(payload.get("thread_id") or "") or None,
+            attachments=payload.get("attachments") if isinstance(payload.get("attachments"), list) else [],
         )
         thread = recorded.get("thread") or {}
         message = recorded.get("message") or {}
@@ -287,6 +288,25 @@ def _schedule_email_follow_up(
         return None
 
 
+def _load_send_attachments(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = payload.get("attachments")
+    ids: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict) and item.get("id"):
+                ids.append(str(item["id"]))
+            elif isinstance(item, str) and item.strip():
+                ids.append(item.strip())
+    extra = payload.get("attachment_ids")
+    if isinstance(extra, list):
+        ids.extend(str(x).strip() for x in extra if str(x).strip())
+    if not ids:
+        return []
+    from services.email_files import load_local_files
+
+    return load_local_files(ids)
+
+
 def _execute_email(payload: dict[str, Any]) -> str:
     to = str(payload.get("to") or "").strip()
     subject = str(payload.get("subject") or "").strip()
@@ -298,23 +318,26 @@ def _execute_email(payload: dict[str, Any]) -> str:
     in_reply_to = str(payload.get("in_reply_to") or "").strip()
     references = str(payload.get("references") or "").strip()
     gmail_thread = str(payload.get("gmail_thread_id") or "").strip()
+    files = _load_send_attachments(payload)
     if preferred == "send_gmail" or _gmail_configured():
         from tools.google_api import run_send_gmail
 
-        result = run_send_gmail(
-            to,
-            subject,
-            body,
-            in_reply_to=in_reply_to,
-            references=references,
-            thread_id=gmail_thread,
-        )
+        gmail_kwargs: dict[str, Any] = {
+            "in_reply_to": in_reply_to,
+            "references": references,
+            "thread_id": gmail_thread,
+        }
+        if files:
+            gmail_kwargs["attachments"] = files
+        result = run_send_gmail(to, subject, body, **gmail_kwargs)
         if result_is_success(result):
             return result
         logger.warning("Gmail failed, falling back to SMTP: %s", result[:200])
 
     from tools import run_send_email
 
+    if files:
+        return run_send_email(to, subject, body, attachments=files)
     return run_send_email(to, subject, body)
 
 
@@ -357,7 +380,11 @@ def _execute_social(payload: dict[str, Any]) -> str:
         from tools import run_post_facebook
 
         return run_post_facebook(str(payload.get("message") or caption))
-    return "Erreur: plateforme sociale inconnue (instagram | facebook)."
+    if platform == "linkedin" or "linkedin" in tool:
+        from tools.studio import run_post_linkedin
+
+        return run_post_linkedin(caption, str(payload.get("image_url") or ""))
+    return "Erreur: plateforme sociale inconnue (instagram | facebook | linkedin)."
 
 
 def _execute_wordpress(payload: dict[str, Any]) -> str:

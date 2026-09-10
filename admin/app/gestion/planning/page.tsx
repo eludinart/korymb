@@ -1,31 +1,32 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
+import ActivityCalendar, {
+  rangeForZoom,
+  type CalendarZoom,
+  type NatureFilter,
+} from "../../../components/gestion/ActivityCalendar";
 import { businessApi, type BizEvent } from "../../../lib/business";
-import { EVENT_TYPE_LABELS, contactLabel, formatDateTime, projectLabel } from "../_shared";
+import { EVENT_MODALITY_LABELS, EVENT_NATURE_SHORT_LABELS, EVENT_TYPE_LABELS, EVENT_VISIBILITY_LABELS, contactLabel, formatDateTime, projectLabel, visibilityFromEvent } from "../_shared";
 
 export default function GestionPlanningPage() {
   const qc = useQueryClient();
+  const [zoom, setZoom] = useState<CalendarZoom>("month");
+  const [nature, setNature] = useState<NatureFilter>("all");
+  const [anchor, setAnchor] = useState(() => new Date());
 
-  const weekStart = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.toISOString();
-  }, []);
-  const weekEnd = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 30);
-    return d.toISOString();
-  }, []);
+  const range = useMemo(() => rangeForZoom(anchor, zoom), [anchor, zoom]);
+  const fromIso = range.from.toISOString();
+  const toIso = range.to.toISOString();
 
   const contacts = useQuery({ queryKey: ["business-contacts"], queryFn: () => businessApi.listContacts() });
   const projects = useQuery({ queryKey: ["business-projects"], queryFn: () => businessApi.listProjects() });
   const events = useQuery({
-    queryKey: ["business-events", weekStart],
-    queryFn: () => businessApi.listEvents(weekStart, weekEnd),
+    queryKey: ["business-events", fromIso, toIso],
+    queryFn: () => businessApi.listEvents(fromIso, toIso, 500),
   });
 
   const remove = useMutation({
@@ -36,33 +37,47 @@ export default function GestionPlanningPage() {
     },
   });
 
+  const rows = events.data || [];
+
   return (
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
         badge="Planning"
-        title="Séances & stages"
-        description="Calendrier métier des 30 prochains jours — séances, ateliers, stages SÏvåñà."
+        title="Calendrier d’activité"
+        description="Rendez-vous (séances, ateliers, visio) et documents à ouvrir (PDF, vidéo, podcast) sur le même calendrier. Chaque entrée a un accès : interne, nominatif, inscrits, ou public."
         actions={
           <Link href="/gestion/planning/nouveau" className="btn-primary">
-            + Planifier un créneau
+            + Planifier
           </Link>
         }
       />
 
-      <SectionCard title={`Agenda (${events.data?.length ?? 0} événements)`}>
+      <SectionCard title="Vue calendrier">
         {events.isLoading ? <LoadingLine /> : null}
         {events.isError ? <AlertBox tone="error" title="Erreur">Chargement impossible.</AlertBox> : null}
-        {!events.isLoading && (events.data || []).length === 0 ? (
+        <ActivityCalendar
+          events={rows}
+          zoom={zoom}
+          nature={nature}
+          anchor={anchor}
+          onZoom={setZoom}
+          onNature={setNature}
+          onAnchor={setAnchor}
+        />
+      </SectionCard>
+
+      <SectionCard title={`Liste (${rows.length})`}>
+        {rows.length === 0 && !events.isLoading ? (
           <p className="text-sm text-slate-500">
-            Aucun créneau planifié.{" "}
+            Aucun créneau sur cette période.{" "}
             <Link href="/gestion/planning/nouveau" className="font-medium text-emerald-800 underline">
-              Planifier un créneau
+              Planifier
             </Link>
           </p>
         ) : null}
         <ul className="divide-y divide-slate-100">
-          {(events.data || []).map((ev: BizEvent) => (
+          {rows.map((ev: BizEvent) => (
             <li key={ev.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
               <div>
                 <Link href={`/gestion/planning/${ev.id}`} className="font-semibold text-slate-900 hover:text-emerald-900 hover:underline">
@@ -70,8 +85,12 @@ export default function GestionPlanningPage() {
                 </Link>
                 <p className="text-sm text-slate-600">{formatDateTime(ev.starts_at)}</p>
                 <p className="text-xs text-slate-500">
+                  {EVENT_NATURE_SHORT_LABELS[ev.nature === "matiere" ? "matiere" : "presence"]}
+                  {" · "}
                   {EVENT_TYPE_LABELS[ev.event_type] || ev.event_type}
+                  {ev.modality && EVENT_MODALITY_LABELS[ev.modality] ? ` · ${EVENT_MODALITY_LABELS[ev.modality]}` : ""}
                   {ev.location ? ` · ${ev.location}` : ""}
+                  {` · ${EVENT_VISIBILITY_LABELS[visibilityFromEvent(ev)]}`}
                 </p>
                 <p className="text-xs text-slate-500">
                   {contactLabel(undefined, ev.contact_id, contacts.data || [])} ·{" "}

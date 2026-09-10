@@ -38,7 +38,7 @@ from database import (
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["scheduler"])
 
-ALLOWED_TASK_TYPES = {"mission", "veille", "mission_proposals"}
+ALLOWED_TASK_TYPES = {"mission", "veille", "mission_proposals", "gmail_prospect_sync"}
 ALLOWED_SCHEDULE_TYPES = {"interval", "cron"}
 ALLOWED_OUTPUT_TYPES = {"draft", "article", "comment", "veille_summary", "mission_proposal"}
 

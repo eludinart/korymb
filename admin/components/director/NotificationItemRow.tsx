@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   buildNotificationActions,
   formatNotificationWhen,
@@ -20,6 +21,8 @@ type Props = {
   onDelete: () => void;
 };
 
+type MenuPos = { top: number; left: number; openUp: boolean };
+
 export default function NotificationItemRow({
   notification: n,
   busy = false,
@@ -30,12 +33,155 @@ export default function NotificationItemRow({
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<MenuPos | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
   const actions = buildNotificationActions(n);
   const primary = actions.find((a) => a.primary) || actions[0];
   const secondary = actions.filter((a) => a !== primary);
   const body = String(n.body || "").trim();
   const longBody = body.length > 140;
   const isUnread = !n.read_at;
+
+  useEffect(() => setMounted(true), []);
+
+  useLayoutEffect(() => {
+    if (!menuOpen || !triggerRef.current) {
+      setMenuPos(null);
+      return;
+    }
+    const place = () => {
+      const rect = triggerRef.current!.getBoundingClientRect();
+      const menuWidth = 176;
+      const approxHeight = 220;
+      const openUp = rect.bottom + approxHeight > window.innerHeight - 8;
+      const left = Math.min(
+        Math.max(8, rect.right - menuWidth),
+        window.innerWidth - menuWidth - 8,
+      );
+      const top = openUp ? Math.max(8, rect.top - 6) : rect.bottom + 6;
+      setMenuPos({ top, left, openUp });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") setMenuOpen(false);
+    };
+    const onPointer = (ev: MouseEvent | TouchEvent) => {
+      const target = ev.target as Node | null;
+      if (!target) return;
+      if (triggerRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("touchstart", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("touchstart", onPointer);
+    };
+  }, [menuOpen]);
+
+  const closeMenu = () => setMenuOpen(false);
+
+  const menu =
+    menuOpen && mounted && menuPos
+      ? createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            className="fixed z-[120] min-w-[11rem] rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
+            style={{
+              top: menuPos.openUp ? undefined : menuPos.top,
+              bottom: menuPos.openUp ? window.innerHeight - menuPos.top : undefined,
+              left: menuPos.left,
+            }}
+          >
+            {actions.map((a) => (
+              <button
+                key={`menu-${a.id}`}
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                onClick={() => {
+                  closeMenu();
+                  onNavigate(a.href, true);
+                }}
+              >
+                {a.label}
+              </button>
+            ))}
+            {primary ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                onClick={() => {
+                  closeMenu();
+                  window.open(notificationShareUrl(primary.href), "_blank", "noopener,noreferrer");
+                }}
+              >
+                Nouvel onglet
+              </button>
+            ) : null}
+            {primary ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                onClick={() => {
+                  closeMenu();
+                  const url = notificationShareUrl(primary.href);
+                  void navigator.clipboard?.writeText(url).catch(() => undefined);
+                  onCopyLink(url);
+                }}
+              >
+                Copier le lien
+              </button>
+            ) : null}
+            {n.job_id ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
+                onClick={() => {
+                  closeMenu();
+                  void navigator.clipboard?.writeText(String(n.job_id));
+                  onCopyLink(String(n.job_id));
+                }}
+              >
+                Copier l&apos;id mission
+              </button>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              className="block w-full px-3 py-2.5 text-left text-xs font-medium text-red-800 hover:bg-red-50"
+              onClick={() => {
+                closeMenu();
+                onDelete();
+              }}
+            >
+              Supprimer
+            </button>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <li
@@ -112,100 +258,28 @@ export default function NotificationItemRow({
           Marquer lu
         </button>
 
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onDelete()}
-          className={BTN_DELETE}
-        >
+        <button type="button" disabled={busy} onClick={() => onDelete()} className={BTN_DELETE}>
           {busy ? "…" : "Supprimer"}
         </button>
 
         <div className="relative">
           <button
+            ref={triggerRef}
             type="button"
             disabled={busy}
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
             className="touch-target inline-flex items-center justify-center rounded-lg border border-slate-200 px-2.5 text-xs font-bold text-slate-600 hover:bg-slate-50"
             aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-controls={menuOpen ? menuId : undefined}
             aria-label="Plus d'options"
           >
             ⋯
           </button>
-          {menuOpen ? (
-            <>
-              <button
-                type="button"
-                className="fixed inset-0 z-10 cursor-default"
-                aria-label="Fermer le menu"
-                onClick={() => setMenuOpen(false)}
-              />
-              <div className="absolute right-0 z-20 mt-1 min-w-[10rem] rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
-                {actions.map((a) => (
-                  <button
-                    key={`menu-${a.id}`}
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onNavigate(a.href, true);
-                    }}
-                  >
-                    {a.label}
-                  </button>
-                ))}
-                {primary ? (
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      window.open(notificationShareUrl(primary.href), "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    Nouvel onglet
-                  </button>
-                ) : null}
-                {primary ? (
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      const url = notificationShareUrl(primary.href);
-                      void navigator.clipboard?.writeText(url).catch(() => undefined);
-                      onCopyLink(url);
-                    }}
-                  >
-                    Copier le lien
-                  </button>
-                ) : null}
-                {n.job_id ? (
-                  <button
-                    type="button"
-                    className="block w-full px-3 py-2 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void navigator.clipboard?.writeText(String(n.job_id));
-                      onCopyLink(String(n.job_id));
-                    }}
-                  >
-                    Copier l&apos;id mission
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  className="block w-full px-3 py-2 text-left text-xs font-medium text-red-800 hover:bg-red-50"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onDelete();
-                  }}
-                >
-                  Supprimer
-                </button>
-              </div>
-            </>
-          ) : null}
+          {menu}
         </div>
       </div>
     </li>

@@ -16,6 +16,7 @@ import {
 } from "../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { filterSnoozedItems } from "../../lib/inboxSnooze";
+import { DIRECTOR_QUEUE_EMPTY, DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL, DIRECTOR_QUEUE_TITLE } from "../../lib/directorQueue";
 import { closeInboxBulk } from "../../lib/missionActions";
 
 function InboxPageContent() {
@@ -65,11 +66,11 @@ function InboxPageContent() {
       <PageHeader
         accent="amber"
         badge="Actions requises"
-        title="Inbox dirigeant"
-        description="HITL, questions CIO, clôtures (y compris issues du chat) et approbations — une seule file pour toutes vos décisions."
+        title={DIRECTOR_QUEUE_TITLE}
+        description="HITL, questions CIO, clôtures et approbations — une file de décisions, distincte du courrier."
         actions={
           <>
-            <PageLink href="/inbox?triage=1">Mode triage</PageLink>
+            <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Mode triage</PageLink>
             <PageLink href="/briefing">Briefing</PageLink>
             <PageLink href="/missions" variant="secondary">
               Missions
@@ -80,7 +81,7 @@ function InboxPageContent() {
 
       {!inbox.isLoading && pending > 0 ? (
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <StatCard label="En attente" value={pending} tone="urgent" hint="Mode triage : Ctrl+K → inbox" />
+          <StatCard label="En attente" value={pending} tone="urgent" hint={`Mode triage : Ctrl+K → ${DIRECTOR_QUEUE_LABEL}`} />
           <StatCard
             label="En retard"
             value={overdueCount}
@@ -119,9 +120,9 @@ function InboxPageContent() {
         </AlertBox>
       ) : null}
 
-      {inbox.isLoading ? <LoadingLine label="Chargement de l'inbox…" /> : null}
+      {inbox.isLoading ? <LoadingLine label="Chargement des décisions…" /> : null}
       {inbox.isError ? (
-        <AlertBox tone="error" title="Impossible de charger l'inbox">
+        <AlertBox tone="error" title="Impossible de charger les décisions">
           {inbox.error instanceof Error ? inbox.error.message : "Erreur réseau"}
         </AlertBox>
       ) : null}
@@ -129,7 +130,7 @@ function InboxPageContent() {
       {!inbox.isLoading ? (
         <DirectorInboxList
           items={items}
-          emptyTitle="Inbox vide ✓"
+          emptyTitle={DIRECTOR_QUEUE_EMPTY}
           emptyHint="Toutes vos décisions sont traitées. Retournez au briefing pour la suite de votre journée."
         />
       ) : null}
@@ -139,7 +140,7 @@ function InboxPageContent() {
 
 export default function InboxPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-center text-slate-500">Chargement de l'inbox…</div>}>
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Chargement des décisions…</div>}>
       <InboxPageContent />
     </Suspense>
   );

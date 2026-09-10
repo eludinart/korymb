@@ -47,18 +47,34 @@ def infer_deliverable_theme(*, mission: str = "", title: str = "", agent: str = 
     return "Autres livrables"
 
 
-def _drive_channel(kind: str | None, name: str | None) -> str:
+def _file_channel(
+    kind: str | None,
+    name: str | None,
+    href: str | None = None,
+    storage: str | None = None,
+) -> str:
+    href_l = (href or "").lower()
+    local = (
+        str(storage or "").lower() == "local"
+        or href_l.startswith("/api/korymb-bin/")
+        or "resource-files/" in href_l
+        or href_l.startswith("rfil-")
+    )
     k = _ascii_fold(kind or "")
     n = _ascii_fold(name or "")
     if "sheet" in k or n.endswith(".csv"):
-        return "drive_sheet"
+        return "local_sheet" if local else "drive_sheet"
     if "doc" in k or n.endswith(".md"):
-        return "drive_doc"
-    return "drive_file"
+        return "local_doc" if local else "drive_doc"
+    return "local_file" if local else "drive_file"
+
+
+def _drive_channel(kind: str | None, name: str | None) -> str:
+    return _file_channel(kind, name)
 
 
 _DRIVE_LINK_RE = re.compile(
-    r"\[([^\]]+)\]\((https?://(?:drive|docs)\.google\.com/[^)]+)\)",
+    r"\[([^\]]+)\]\((https?://(?:drive|docs)\.google\.com/[^)]+|/?api/korymb-bin/business/resource-files/[^)]+)\)",
     re.IGNORECASE,
 )
 
@@ -405,20 +421,29 @@ def _entries_from_job(row: dict[str, Any]) -> list[dict[str, Any]]:
             if not isinstance(art, dict):
                 continue
             href = str(art.get("webViewLink") or art.get("url") or "").strip()
+            if not href and str(art.get("id") or "").startswith("rfil-"):
+                from services.resource_files import local_file_href
+
+                href = local_file_href(str(art.get("id")), inline=True)
             if not href:
                 continue
-            name = str(art.get("name") or "Fichier Drive").strip()
+            name = str(art.get("name") or "Fichier").strip()
             push({
-                "id": f"drive:{job_id}:{art.get('id') or href}",
+                "id": f"file:{job_id}:{art.get('id') or href}",
                 "title": name,
-                "channel": _drive_channel(str(art.get("kind") or ""), name),
+                "channel": _file_channel(
+                    str(art.get("kind") or ""),
+                    name,
+                    href,
+                    str(art.get("storage") or ""),
+                ),
                 "href": href,
                 "agent": str(art.get("agent") or agent),
             })
 
     for m in _DRIVE_LINK_RE.finditer(result):
         title, href = m.group(1).strip(), m.group(2).strip()
-        ch = "drive_sheet" if "spreadsheets" in href else "drive_doc" if "document" in href else "drive_file"
+        ch = _file_channel("", title, href)
         push({"id": f"mdlink:{job_id}:{href}", "title": title, "channel": ch, "href": href, "agent": agent})
 
     for idx, block in enumerate(parse_livrable_blocks(result)):

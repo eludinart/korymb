@@ -339,7 +339,10 @@ def test_prepare_contact_email_and_inbound_cancels_follow_up(client, monkeypatch
 
     listed = client.get(f"/business/contacts/{cid}/emails")
     assert listed.status_code == 200
-    assert len(listed.json().get("threads") or []) >= 1
+    threads = listed.json().get("threads") or []
+    assert len(threads) >= 1
+    inbound = next(m for m in (threads[0].get("messages") or []) if m.get("direction") == "inbound")
+    assert inbound.get("reply_text") == "Merci, intéressé."
 
 
 def test_reject_does_not_send(client, monkeypatch):
@@ -359,3 +362,42 @@ def test_reject_does_not_send(client, monkeypatch):
     rejected = client.post(f"/actions/{tid}/resolve", json={"decision": "reject", "comment": "pas maintenant"})
     assert rejected.status_code == 200
     assert rejected.json()["ticket"]["status"] == "rejected"
+
+
+def test_send_contact_email_from_composer(client, monkeypatch):
+    """Le rédacteur envoie tout de suite : ticket executed, pas pending dans Décisions."""
+    from services.business_db import create_contact
+
+    sent: list[tuple] = []
+    monkeypatch.setattr(
+        "tools.google_api.run_send_gmail",
+        lambda to, subject, body, **k: sent.append((to, subject, body))
+        or f"✅ Email Gmail envoyé à {to} (id: g1, thread: t1, rfc: <k@e>)",
+    )
+    contact = create_contact(
+        name="Léa Direct",
+        email="lea.direct@example.com",
+        contact_type="prospect",
+    )
+    empty = client.post(
+        f"/business/contacts/{contact['id']}/emails/send",
+        json={"subject": "Proposition", "body": ""},
+    )
+    assert empty.status_code == 422, empty.text
+
+    out = client.post(
+        f"/business/contacts/{contact['id']}/emails/send",
+        json={"subject": "Proposition", "body": "Bonjour Léa, voici le module."},
+    )
+    assert out.status_code == 200, out.text
+    data = out.json()
+    assert data.get("success") is True
+    ticket = data.get("ticket") or {}
+    assert ticket.get("status") == "executed"
+    assert sent and sent[0][0] == "lea.direct@example.com"
+    steps = (data.get("chain") or {}).get("steps") or []
+    assert any("envoyé" in str(s).lower() or "E-mail" in str(s) for s in steps)
+    threads = data.get("threads") or []
+    assert threads
+    assert any(m.get("direction") == "outbound" for m in (threads[0].get("messages") or []))
+

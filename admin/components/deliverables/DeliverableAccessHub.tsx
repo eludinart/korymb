@@ -69,7 +69,7 @@ export default function DeliverableAccessHub({
   const operational = assets.filter((a) => a.channel !== "linkedin" && a.channel !== "facebook" && a.channel !== "telegram");
   if (!operational.length) return null;
 
-  const driveCount = operational.filter((a) => a.channel.startsWith("drive_")).length;
+  const fileCount = operational.filter((a) => a.channel.startsWith("drive_") || a.channel.startsWith("local_")).length;
   const inAppCount = operational.filter((a) => a.channel === "in_app").length;
 
   const handleOpen = (asset: DeliverableAsset) => {
@@ -118,7 +118,9 @@ export default function DeliverableAccessHub({
         <header className="border-b border-emerald-100 px-4 py-3">
           <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Livrables — accès rapide</p>
           <p className="mt-1 text-xs leading-relaxed text-emerald-900/75">
-            {driveCount > 0 ? `${driveCount} fichier${driveCount > 1 ? "s" : ""} sur Drive` : "Aucun fichier Drive pour l'instant"}
+            {fileCount > 0
+              ? `${fileCount} fichier${fileCount > 1 ? "s" : ""} dans votre espace`
+              : "Aucun fichier enregistré pour l'instant"}
             {inAppCount > 0 ? ` · ${inAppCount} pièce${inAppCount > 1 ? "s" : ""} lisible${inAppCount > 1 ? "s" : ""} dans Korymb` : ""}
             . Chaque proposition opérationnelle est accessible en un clic.
           </p>

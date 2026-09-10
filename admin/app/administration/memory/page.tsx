@@ -148,6 +148,27 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
     onError: (e: Error) => showToast(e.message || "Erreur snapshot", false),
   });
 
+  const compactMutation = useMutation({
+    mutationFn: async () => {
+      const { data } = await requestJson("/memory/compact?force=true", {
+        method: "POST",
+        headers: agentHeaders(),
+      });
+      return data as { compacted?: boolean; keys?: string[]; reason?: string };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["memory"] });
+      qc.invalidateQueries({ queryKey: ["memory-history"] });
+      setDraft(null);
+      if (data?.compacted) {
+        showToast(`Mémoire compactée (${(data.keys || []).join(", ") || "volets"}).`);
+      } else {
+        showToast(`Rien à compacter (${data?.reason || "ok"}).`);
+      }
+    },
+    onError: (e: Error) => showToast(e.message || "Erreur compaction", false),
+  });
+
   const deleteKeyMutation = useMutation({
     mutationFn: async (key: string) => {
       await requestJson(`/memory/contexts/${encodeURIComponent(key)}`, {
@@ -173,6 +194,13 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
           {memory.data?.updated_at ? `Dernière mise à jour : ${formatDate(memory.data.updated_at)}` : ""}
         </p>
         <div className="flex gap-2">
+          <button
+            onClick={() => compactMutation.mutate()}
+            disabled={compactMutation.isPending}
+            className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {compactMutation.isPending ? "…" : "Compacter"}
+          </button>
           <button
             onClick={() => snapshotMutation.mutate()}
             disabled={snapshotMutation.isPending}

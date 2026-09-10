@@ -13,6 +13,7 @@ export type AuthWorkspace = {
   name: string;
   slug?: string;
   role?: string;
+  public_enabled?: boolean;
 };
 
 export type AuthMeResponse = {
@@ -22,7 +23,20 @@ export type AuthMeResponse = {
   workspaces?: AuthWorkspace[];
   members?: Array<{ id: string; email: string; display_name?: string; role: string }>;
   role?: string;
+  membership_status?: string;
 };
+
+export function accountDisplayName(me: AuthMeResponse | null | undefined): string {
+  const name = (me?.user?.display_name || "").trim();
+  if (name) return name;
+  return (me?.user?.email || "").trim();
+}
+
+export function accountFirstName(me: AuthMeResponse | null | undefined): string {
+  const full = (me?.user?.display_name || "").trim();
+  if (full) return full.split(/\s+/)[0] || full;
+  return (me?.user?.email || "").split("@")[0] || "";
+}
 
 export function authHeaders(extra: Record<string, string> = {}) {
   return {

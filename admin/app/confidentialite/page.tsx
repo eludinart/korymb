@@ -71,7 +71,7 @@ export default function ConfidentialitePage() {
               </li>
               <li>Données CRM : contacts, notes, suggestions d&apos;approche, historiques d&apos;interactions, relances.</li>
               <li>
-                Données d&apos;usage applicatif : missions, briefing, inbox, livrables, journaux techniques
+                Données d&apos;usage applicatif : missions, briefing, décisions, livrables, journaux techniques
                 (horodatage, statut d&apos;envoi, erreurs).
               </li>
               <li>Données de compte Korymb (e-mail, espace de travail, rôles collaborateurs).</li>

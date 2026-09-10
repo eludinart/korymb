@@ -81,7 +81,7 @@ def _progress_label(kind: str) -> str:
         "mission_error": "Mission en échec — à traiter ou clôturer",
         "closure": "Mission terminée — clôture en attente",
         "quality": "Contrôle qualité bloquant",
-        "learning_suggestion": "Suggestion d'apprentissage",
+        "learning_suggestion": "Mémoire à confirmer",
         "scheduler_output": "Proposition autonome à arbitrer",
     }.get(kind, "Action requise")
 
@@ -283,12 +283,16 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
 
     for sug in list_learning_suggestions(status="pending", limit=20):
         payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
+        memory_keys = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
         items.append(_enrich_inbox_item({
             "kind": "learning_suggestion",
             "suggestion_id": sug.get("id"),
-            "job_id": sug.get("job_id"),
-            "title": str(payload.get("title") or "Suggestion d'apprentissage")[:160],
+            "job_id": sug.get("job_id") or None,
+            "title": str(payload.get("title") or "Mémoire à confirmer")[:160],
             "learnings": payload.get("learnings") or [],
+            "suggested_memory_keys": memory_keys,
+            "memory_source": str(payload.get("source") or "mission_validate"),
+            "source_ref": str(payload.get("source_ref") or ""),
             "created_at": sug.get("created_at"),
             "updated_at": sug.get("created_at"),
             "priority_score": _priority_score("learning_suggestion"),

@@ -21,8 +21,12 @@ CONTACT_STATUSES = ("active", "inactive", "archived")
 PROJECT_TYPES = ("seance", "stage", "module_pro", "accompagnement", "sivana", "autre")
 PROJECT_STATUSES = ("draft", "active", "on_hold", "completed", "cancelled")
 QUOTE_STATUSES = ("draft", "sent", "accepted", "refused", "expired")
-EVENT_TYPES = ("seance", "stage", "atelier", "visio", "autre")
+EVENT_TYPES = ("seance", "stage", "atelier", "visio", "jalon", "ressource", "autre")
 EVENT_STATUSES = ("planned", "confirmed", "done", "cancelled")
+EVENT_MODALITIES = ("", "presentiel", "visio", "async")
+EVENT_NATURES = ("presence", "matiere")
+EVENT_RESOURCE_TYPES = ("", "video", "podcast", "document")
+EVENT_VISIBILITIES = ("internal", "selected", "participants", "public")
 INTERACTION_TYPES = ("prospection", "email", "call", "meeting", "note", "quote", "mission", "other")
 INVOICE_STATUSES = ("pending", "issued", "paid", "cancelled", "error")
 ENRICHMENT_STATUSES = ("pending", "applied", "rejected")
@@ -76,6 +80,362 @@ def _ensure_biz_contacts_columns(conn) -> None:
     for name, ddl in alterations.items():
         if name not in cols:
             conn.execute(f"ALTER TABLE biz_contacts ADD COLUMN {name} {ddl}")
+
+
+def _ensure_biz_email_messages_columns(conn) -> None:
+    cols = _table_columns(conn, "biz_email_messages")
+    if cols and "attachments_json" not in cols:
+        conn.execute(
+            "ALTER TABLE biz_email_messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'"
+        )
+
+
+def _ensure_biz_calendar_event_columns(conn) -> None:
+    cols = _table_columns(conn, "biz_calendar_events")
+    if not cols:
+        return
+    alterations = {
+        "is_public": "INTEGER NOT NULL DEFAULT 0",
+        "modality": "TEXT NOT NULL DEFAULT ''",
+        "nature": "TEXT NOT NULL DEFAULT 'presence'",
+        "resource_type": "TEXT NOT NULL DEFAULT ''",
+        "resource_url": "TEXT NOT NULL DEFAULT ''",
+        "resource_file_id": "TEXT NOT NULL DEFAULT ''",
+        "cover_file_id": "TEXT NOT NULL DEFAULT ''",
+        "visibility": "TEXT NOT NULL DEFAULT 'internal'",
+    }
+    for name, ddl in alterations.items():
+        if name not in cols:
+            conn.execute(f"ALTER TABLE biz_calendar_events ADD COLUMN {name} {ddl}")
+    # Cohérence : un créneau coché « publié » sans visibilité explicite est pour les inscrits.
+    conn.execute(
+        "UPDATE biz_calendar_events SET visibility='participants' "
+        "WHERE is_public=1 AND (visibility IS NULL OR visibility='' OR visibility='internal')"
+    )
+
+
+def _ensure_biz_event_audience_table(conn) -> None:
+    pk = _text_pk()
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS biz_event_audience (
+            event_id     {pk} NOT NULL,
+            contact_id   {pk} NOT NULL,
+            workspace_id {pk} NOT NULL,
+            created_at   TEXT NOT NULL,
+            PRIMARY KEY (event_id, contact_id)
+        )
+    """)
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS biz_event_audience_users (
+            event_id     {pk} NOT NULL,
+            user_id      {pk} NOT NULL,
+            workspace_id {pk} NOT NULL,
+            created_at   TEXT NOT NULL,
+            PRIMARY KEY (event_id, user_id)
+        )
+    """)
+
+
+def normalize_event_visibility(visibility: str | None = None, *, is_public: Any = None) -> str:
+    raw = (visibility or "").strip()
+    if raw in EVENT_VISIBILITIES:
+        return raw
+    if _event_flag(is_public):
+        return "participants"
+    return "internal"
+
+
+def visibility_listed_publicly(visibility: str) -> bool:
+    return visibility in ("participants", "public")
+
+
+def _event_flag(val: Any) -> bool:
+    if isinstance(val, bool):
+        return val
+    if val in (1, "1"):
+        return True
+    return False
+
+
+def normalize_event_nature(nature: str | None, *, resource_type: str = "", modality: str = "") -> str:
+    raw = (nature or "").strip()
+    if raw in EVENT_NATURES:
+        return raw
+    if (resource_type or "").strip() or modality == "async":
+        return "matiere"
+    return "presence"
+
+
+def _resource_file_meta(file_id: str) -> dict[str, Any]:
+    fid = (file_id or "").strip()
+    empty = {
+        "resource_file_id": "",
+        "resource_filename": "",
+        "resource_file_size": 0,
+        "resource_file_mime": "",
+    }
+    if not fid:
+        return empty
+    from services.resource_files import load_local_file
+
+    item = load_local_file(fid)
+    if not item:
+        return {**empty, "resource_file_id": fid}
+    return {
+        "resource_file_id": fid,
+        "resource_filename": str(item.get("filename") or "fichier"),
+        "resource_file_size": int(item.get("size") or 0),
+        "resource_file_mime": str(item.get("mime") or "application/octet-stream"),
+    }
+
+
+def _is_image_mime(mime: str, filename: str = "") -> bool:
+    m = (mime or "").lower()
+    if m.startswith("image/"):
+        return True
+    name = (filename or "").lower()
+    return name.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif"))
+
+
+def _cover_meta(row: dict) -> dict[str, Any]:
+    """Cover dédiée, sinon fichier ressource s'il est une image."""
+    empty = {
+        "cover_file_id": str(row.get("cover_file_id") or "").strip(),
+        "has_cover": False,
+        "cover_source": "",
+        "cover_mime": "",
+        "cover_filename": "",
+    }
+    cover_id = empty["cover_file_id"]
+    if cover_id:
+        from services.resource_files import load_local_file
+
+        item = load_local_file(cover_id, workspace_id=str(row.get("workspace_id") or "") or None)
+        if item and _is_image_mime(str(item.get("mime") or ""), str(item.get("filename") or "")):
+            return {
+                "cover_file_id": cover_id,
+                "has_cover": True,
+                "cover_source": "cover",
+                "cover_mime": str(item.get("mime") or "image/jpeg"),
+                "cover_filename": str(item.get("filename") or "cover"),
+            }
+    res_id = str(row.get("resource_file_id") or "").strip()
+    if res_id:
+        meta = _resource_file_meta(res_id)
+        if meta.get("resource_filename") and _is_image_mime(
+            str(meta.get("resource_file_mime") or ""),
+            str(meta.get("resource_filename") or ""),
+        ):
+            return {
+                "cover_file_id": cover_id,
+                "has_cover": True,
+                "cover_source": "resource",
+                "cover_mime": str(meta.get("resource_file_mime") or "image/jpeg"),
+                "cover_filename": str(meta.get("resource_filename") or "image"),
+            }
+    return empty
+
+
+def event_has_resource(row: dict | None) -> bool:
+    if not row:
+        return False
+    return bool(str(row.get("resource_type") or "").strip())
+
+
+def event_resource_time_unlocked(row: dict | None) -> bool:
+    if not row or not event_has_resource(row):
+        return False
+    vis = normalize_event_visibility(str(row.get("visibility") or ""), is_public=row.get("is_public"))
+    if vis == "internal":
+        return False
+    if str(row.get("status") or "") not in ("planned", "confirmed", "done"):
+        return False
+    starts = str(row.get("starts_at") or "")
+    if not starts or starts > datetime.utcnow().isoformat():
+        return False
+    return True
+
+
+def event_resource_unlocked(row: dict | None) -> bool:
+    """Compat : ressource ouverte dans le temps (hors interne). L’ACL se fait à part."""
+    return event_resource_time_unlocked(row)
+
+
+def _audience_ids_for_event(event_id: str, workspace_id: str | None = None) -> list[str]:
+    eid = (event_id or "").strip()
+    if not eid:
+        return []
+    wid = (workspace_id or _ws() or "").strip()
+    with get_conn() as conn:
+        _ensure_biz_event_audience_table(conn)
+        sql = "SELECT contact_id FROM biz_event_audience WHERE event_id=?"
+        params: list[Any] = [eid]
+        if wid:
+            sql += " AND workspace_id=?"
+            params.append(wid)
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [str(r["contact_id"]) for r in rows or [] if r]
+
+
+def _replace_event_audience(event_id: str, contact_ids: list[str] | None, *, workspace_id: str | None = None) -> list[str]:
+    eid = (event_id or "").strip()
+    if not eid:
+        return []
+    wid = (workspace_id or _ws() or "").strip()
+    wanted = []
+    seen: set[str] = set()
+    for raw in contact_ids or []:
+        cid = str(raw or "").strip()
+        if cid and cid not in seen:
+            seen.add(cid)
+            wanted.append(cid)
+    if wanted:
+        placeholders = ",".join("?" * len(wanted))
+        with get_conn() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM biz_contacts WHERE workspace_id=? AND id IN ({placeholders})",
+                tuple([wid, *wanted]),
+            ).fetchall()
+        valid = {str(r["id"]) for r in rows or []}
+        wanted = [cid for cid in wanted if cid in valid]
+    now = _now()
+    with get_conn() as conn:
+        _ensure_biz_event_audience_table(conn)
+        conn.execute("DELETE FROM biz_event_audience WHERE event_id=? AND workspace_id=?", (eid, wid))
+        for cid in wanted:
+            conn.execute(
+                "INSERT INTO biz_event_audience (event_id, contact_id, workspace_id, created_at) VALUES (?,?,?,?)",
+                (eid, cid, wid, now),
+            )
+        conn.commit()
+    return wanted
+
+
+def _audience_user_ids_for_event(event_id: str, workspace_id: str | None = None) -> list[str]:
+    eid = (event_id or "").strip()
+    if not eid:
+        return []
+    wid = (workspace_id or _ws() or "").strip()
+    with get_conn() as conn:
+        _ensure_biz_event_audience_table(conn)
+        sql = "SELECT user_id FROM biz_event_audience_users WHERE event_id=?"
+        params: list[Any] = [eid]
+        if wid:
+            sql += " AND workspace_id=?"
+            params.append(wid)
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    return [str(r["user_id"]) for r in rows or [] if r]
+
+
+def _replace_event_audience_users(event_id: str, user_ids: list[str] | None, *, workspace_id: str | None = None) -> list[str]:
+    eid = (event_id or "").strip()
+    if not eid:
+        return []
+    wid = (workspace_id or _ws() or "").strip()
+    wanted = []
+    seen: set[str] = set()
+    for raw in user_ids or []:
+        uid = str(raw or "").strip()
+        if uid and uid not in seen:
+            seen.add(uid)
+            wanted.append(uid)
+    now = _now()
+    with get_conn() as conn:
+        _ensure_biz_event_audience_table(conn)
+        conn.execute("DELETE FROM biz_event_audience_users WHERE event_id=? AND workspace_id=?", (eid, wid))
+        for uid in wanted:
+            conn.execute(
+                "INSERT INTO biz_event_audience_users (event_id, user_id, workspace_id, created_at) VALUES (?,?,?,?)",
+                (eid, uid, wid, now),
+            )
+        conn.commit()
+    return wanted
+
+
+def _contact_ids_matching_email(workspace_id: str, email: str) -> list[str]:
+    wid = (workspace_id or "").strip()
+    mail = (email or "").strip().lower()
+    if not wid or not mail:
+        return []
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id FROM biz_contacts WHERE workspace_id=? AND LOWER(email)=?",
+            (wid, mail),
+        ).fetchall()
+    return [str(r["id"]) for r in rows or [] if r]
+
+
+def event_visible_to_viewer(
+    row: dict | None,
+    *,
+    viewer_email: str = "",
+    viewer_contact_ids: list[str] | None = None,
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+    public_catalog: bool = False,
+) -> bool:
+    if not row:
+        return False
+    vis = normalize_event_visibility(str(row.get("visibility") or ""), is_public=row.get("is_public"))
+    if vis == "internal":
+        return False
+    if vis == "public":
+        return True
+    if public_catalog:
+        return vis == "participants"
+    if not viewer_active:
+        return False
+    if vis == "participants":
+        return True
+    if vis == "selected":
+        user_ids = row.get("audience_user_ids")
+        if not isinstance(user_ids, list):
+            user_ids = _audience_user_ids_for_event(str(row.get("id") or ""), str(row.get("workspace_id") or ""))
+        allowed_users = {str(x) for x in user_ids if x}
+        if allowed_users:
+            return str(viewer_user_id or "") in allowed_users
+        ids = viewer_contact_ids
+        if ids is None:
+            ids = _contact_ids_matching_email(str(row.get("workspace_id") or _ws() or ""), viewer_email)
+        audience = row.get("audience_contact_ids")
+        if not isinstance(audience, list):
+            audience = _audience_ids_for_event(str(row.get("id") or ""), str(row.get("workspace_id") or ""))
+        allowed = {str(x) for x in audience}
+        return any(cid in allowed for cid in ids)
+    return False
+
+
+def serialize_calendar_event(row: dict | None, *, audience_ids: list[str] | None = None) -> dict | None:
+    if not row:
+        return None
+    out = dict(row)
+    vis = normalize_event_visibility(str(out.get("visibility") or ""), is_public=out.get("is_public"))
+    out["visibility"] = vis
+    out["is_public"] = visibility_listed_publicly(vis)
+    out["modality"] = str(out.get("modality") or "")
+    rtype = str(out.get("resource_type") or "")
+    if rtype not in EVENT_RESOURCE_TYPES:
+        rtype = ""
+    out["resource_type"] = rtype
+    out["resource_url"] = str(out.get("resource_url") or "").strip()
+    out.update(_resource_file_meta(str(out.get("resource_file_id") or "")))
+    out.update(_cover_meta(out))
+    out["nature"] = normalize_event_nature(
+        str(out.get("nature") or ""),
+        resource_type=rtype,
+        modality=str(out.get("modality") or ""),
+    )
+    out["is_follow_up"] = is_crm_follow_up_title(str(out.get("title") or ""))
+    # Évite un aller-retour SQL par créneau : l’audience ne sert que si le créneau est nominatif.
+    if vis != "selected":
+        out["audience_contact_ids"] = list(audience_ids) if audience_ids is not None else []
+        out["audience_user_ids"] = []
+        return out
+    if audience_ids is None:
+        audience_ids = _audience_ids_for_event(str(out.get("id") or ""), str(out.get("workspace_id") or ""))
+    out["audience_contact_ids"] = audience_ids
+    out["audience_user_ids"] = _audience_user_ids_for_event(str(out.get("id") or ""), str(out.get("workspace_id") or ""))
+    return out
 
 
 def init_business_tables() -> None:
@@ -181,6 +541,8 @@ def init_business_tables() -> None:
                 updated_at      TEXT NOT NULL
             )
         """)
+        _ensure_biz_calendar_event_columns(conn)
+        _ensure_biz_event_audience_table(conn)
         conn.execute(f"""
             CREATE TABLE IF NOT EXISTS biz_interactions (
                 id              {pk} PRIMARY KEY,
@@ -244,9 +606,11 @@ def init_business_tables() -> None:
                 gmail_message_id    TEXT NOT NULL DEFAULT '',
                 in_reply_to         TEXT NOT NULL DEFAULT '',
                 ticket_id           TEXT NOT NULL DEFAULT '',
+                attachments_json    TEXT NOT NULL DEFAULT '[]',
                 created_at          TEXT NOT NULL
             )
         """)
+        _ensure_biz_email_messages_columns(conn)
         conn.commit()
 
 
@@ -1571,10 +1935,20 @@ def apply_enrichment_proposal(
         agent_key="dirigeant",
         job_id=str(proposal.get("job_id") or ""),
     )
-    return {
+    result = {
         "proposal": get_enrichment_proposal(proposal_id),
         "contact": updated,
     }
+    try:
+        from services.memory_inbox import propose_from_crm_enrichment
+
+        sug = propose_from_crm_enrichment(contact=updated, proposal=proposal)
+        if sug:
+            result["memory_suggestion_id"] = sug.get("id")
+            result["memory_suggestion_status"] = sug.get("status")
+    except Exception:
+        pass
+    return result
 
 
 def build_contact_exploration_mission(contact: dict) -> str:
@@ -2192,21 +2566,50 @@ def create_calendar_event(
     status: str = "planned",
     notes: str = "",
     google_event_id: str = "",
+    is_public: bool = False,
+    visibility: str | None = None,
+    audience_contact_ids: list[str] | None = None,
+    audience_user_ids: list[str] | None = None,
+    modality: str = "",
+    nature: str = "presence",
+    resource_type: str = "",
+    resource_url: str = "",
+    resource_file_id: str = "",
+    cover_file_id: str = "",
 ) -> dict:
     eid = _new_id("evt")
     now = _now()
+    mod = modality if modality in EVENT_MODALITIES else ""
+    rtype = resource_type if resource_type in EVENT_RESOURCE_TYPES else ""
+    nat = normalize_event_nature(nature, resource_type=rtype, modality=mod)
+    vis = normalize_event_visibility(visibility, is_public=is_public)
+    if rtype and not mod:
+        mod = "async"
+    if rtype:
+        nat = "matiere"
+    audience = list(audience_contact_ids or [])
+    if vis == "selected" and not (audience_user_ids or []) and contact_id and str(contact_id) not in audience:
+        audience.append(str(contact_id))
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO biz_calendar_events "
             "(id, workspace_id, contact_id, project_id, event_type, title, starts_at, ends_at, "
-            "location, status, notes, google_event_id, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "location, status, notes, google_event_id, is_public, visibility, modality, nature, "
+            "resource_type, resource_url, resource_file_id, cover_file_id, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 eid, _ws(), contact_id, project_id, event_type, title.strip(),
-                starts_at, ends_at, location, status, notes, google_event_id, now, now,
+                starts_at, ends_at, location, status, notes, google_event_id,
+                1 if visibility_listed_publicly(vis) else 0, vis, mod, nat, rtype,
+                (resource_url or "").strip()[:2000],
+                (resource_file_id or "").strip()[:191],
+                (cover_file_id or "").strip()[:191],
+                now, now,
             ),
         )
         conn.commit()
+    _replace_event_audience(eid, audience)
+    _replace_event_audience_users(eid, list(audience_user_ids or []))
     return get_calendar_event(eid)  # type: ignore[return-value]
 
 
@@ -2216,7 +2619,124 @@ def get_calendar_event(event_id: str) -> dict | None:
             "SELECT * FROM biz_calendar_events WHERE id=? AND workspace_id=?",
             (event_id, _ws()),
         ).fetchone()
-    return dict(row) if row else None
+    return serialize_calendar_event(dict(row) if row else None)
+
+
+def get_calendar_event_in_workspace(workspace_id: str, event_id: str) -> dict | None:
+    wid = (workspace_id or "").strip()
+    eid = (event_id or "").strip()
+    if not wid or not eid:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM biz_calendar_events WHERE id=? AND workspace_id=?",
+            (eid, wid),
+        ).fetchone()
+    return serialize_calendar_event(dict(row) if row else None)
+
+
+def load_event_resource_file(
+    event_id: str,
+    *,
+    require_unlocked: bool = False,
+    viewer_email: str = "",
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+    public_access: bool = False,
+) -> dict | None:
+    row = get_calendar_event(event_id)
+    if not row:
+        return None
+    if require_unlocked:
+        if not event_resource_time_unlocked(row):
+            return None
+        if not event_visible_to_viewer(
+            row,
+            viewer_email=viewer_email,
+            viewer_user_id=viewer_user_id,
+            viewer_active=viewer_active,
+            public_catalog=public_access,
+        ):
+            return None
+        if public_access and normalize_event_visibility(str(row.get("visibility") or "")) != "public":
+            return None
+    fid = str(row.get("resource_file_id") or "").strip()
+    if not fid:
+        return None
+    from services.resource_files import load_local_file
+
+    item = load_local_file(fid)
+    if not item:
+        return None
+    item["event_title"] = str(row.get("title") or "")
+    return item
+
+
+def load_public_storefront_resource_file(workspace_id: str, event_id: str) -> dict | None:
+    row = get_calendar_event_in_workspace(workspace_id, event_id)
+    if not row:
+        return None
+    if normalize_event_visibility(str(row.get("visibility") or "")) != "public":
+        return None
+    if not event_resource_time_unlocked(row):
+        return None
+    fid = str(row.get("resource_file_id") or "").strip()
+    if not fid:
+        return None
+    from services.resource_files import load_local_file
+
+    item = load_local_file(fid)
+    if not item:
+        return None
+    item["event_title"] = str(row.get("title") or "")
+    return item
+
+
+def load_event_cover_file(
+    event_id: str,
+    *,
+    workspace_id: str | None = None,
+    public_access: bool = False,
+    viewer_email: str = "",
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+) -> dict | None:
+    """Image d’illustration (cover dédiée ou ressource image). Visible dès que l’événement l’est."""
+    if workspace_id:
+        row = get_calendar_event_in_workspace(workspace_id, event_id)
+    else:
+        row = get_calendar_event(event_id)
+    if not row:
+        return None
+    if public_access:
+        # Aligné sur la vitrine : public + teasers « inscrits » (participants).
+        vis = normalize_event_visibility(str(row.get("visibility") or ""), is_public=row.get("is_public"))
+        if vis not in ("public", "participants"):
+            return None
+    else:
+        if not event_visible_to_viewer(
+            row,
+            viewer_email=viewer_email,
+            viewer_user_id=viewer_user_id,
+            viewer_active=viewer_active,
+        ):
+            return None
+    meta = _cover_meta(row)
+    if not meta.get("has_cover"):
+        return None
+    from services.resource_files import load_local_file
+
+    if meta.get("cover_source") == "cover":
+        fid = str(meta.get("cover_file_id") or "").strip()
+    else:
+        fid = str(row.get("resource_file_id") or "").strip()
+    if not fid:
+        return None
+    item = load_local_file(fid, workspace_id=str(row.get("workspace_id") or "") or None)
+    if not item:
+        return None
+    item["event_title"] = str(row.get("title") or "")
+    return item
 
 
 def list_calendar_events(
@@ -2241,34 +2761,354 @@ def list_calendar_events(
     params.append(max(1, min(limit, 500)))
     with get_conn() as conn:
         rows = conn.execute(sql, tuple(params)).fetchall()
-    return [dict(r) for r in rows]
+    return [serialize_calendar_event(dict(r)) for r in rows if r]
+
+
+def _public_event_teaser(row: dict, *, include_url: bool) -> dict:
+    rtype = str(row.get("resource_type") or "")
+    if rtype not in EVENT_RESOURCE_TYPES:
+        rtype = ""
+    vis = normalize_event_visibility(str(row.get("visibility") or ""), is_public=row.get("is_public"))
+    item = {
+        "id": row.get("id"),
+        "title": row.get("title"),
+        "starts_at": row.get("starts_at"),
+        "ends_at": row.get("ends_at"),
+        "event_type": row.get("event_type"),
+        "location": row.get("location") or "",
+        "status": row.get("status"),
+        "modality": str(row.get("modality") or ""),
+        "nature": normalize_event_nature(
+            str(row.get("nature") or ""),
+            resource_type=rtype,
+            modality=str(row.get("modality") or ""),
+        ),
+        "resource_type": rtype,
+        "visibility": vis,
+        "reserved": vis == "participants",
+    }
+    cover = _cover_meta(row)
+    item["has_cover"] = bool(cover.get("has_cover"))
+    item["cover_source"] = cover.get("cover_source") or ""
+    item["cover_mime"] = cover.get("cover_mime") or ""
+    if include_url and rtype:
+        item["resource_url"] = str(row.get("resource_url") or "").strip()
+        meta = _resource_file_meta(str(row.get("resource_file_id") or ""))
+        item["has_file"] = bool(meta.get("resource_file_id") and meta.get("resource_filename"))
+        if item["has_file"]:
+            item["resource_filename"] = meta["resource_filename"]
+            item["resource_file_mime"] = meta.get("resource_file_mime") or ""
+    return item
+
+
+def _list_workspace_events(
+    workspace_id: str,
+    *,
+    limit: int = 80,
+    starts_from: str | None = None,
+    starts_until: str | None = None,
+    resource_only: bool | None = None,
+    statuses: tuple[str, ...] | None = None,
+    order_desc: bool = False,
+) -> list[dict]:
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return []
+    status_list = statuses or ("planned", "confirmed", "done")
+    placeholders = ",".join("?" * len(status_list))
+    sql = f"SELECT * FROM biz_calendar_events WHERE workspace_id=? AND status IN ({placeholders})"
+    params: list[Any] = [wid, *status_list]
+    if starts_from:
+        sql += " AND starts_at >= ?"
+        params.append(starts_from)
+    if starts_until:
+        sql += " AND starts_at <= ?"
+        params.append(starts_until)
+    if resource_only is True:
+        sql += " AND resource_type IS NOT NULL AND TRIM(resource_type) != ''"
+    elif resource_only is False:
+        sql += " AND (resource_type IS NULL OR TRIM(resource_type) = '')"
+    sql += " ORDER BY starts_at DESC" if order_desc else " ORDER BY starts_at ASC"
+    sql += " LIMIT ?"
+    params.append(max(1, min(limit, 500)))
+    with get_conn() as conn:
+        rows = conn.execute(sql, tuple(params)).fetchall()
+    out = []
+    for r in rows or []:
+        item = dict(r)
+        item["visibility"] = normalize_event_visibility(
+            str(item.get("visibility") or ""),
+            is_public=item.get("is_public"),
+        )
+        out.append(item)
+    return out
+
+
+def list_public_calendar_events(workspace_id: str, *, limit: int = 40) -> list[dict]:
+    """Séances visibles sur la vitrine (public + inscrits). Sans ressources fichier."""
+    now = datetime.utcnow().isoformat()
+    out: list[dict] = []
+    for row in _list_workspace_events(
+        workspace_id,
+        limit=max(limit * 3, 80),
+        starts_from=now,
+        resource_only=False,
+        statuses=("planned", "confirmed"),
+    ):
+        vis = str(row.get("visibility") or "")
+        if vis not in ("public", "participants"):
+            continue
+        out.append(_public_event_teaser(row, include_url=False))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_public_open_resources(workspace_id: str, *, limit: int = 40) -> list[dict]:
+    """Ressources vraiment publiques et déjà ouvertes (lien / fichier sur la vitrine)."""
+    now = datetime.utcnow().isoformat()
+    out: list[dict] = []
+    for row in _list_workspace_events(
+        workspace_id,
+        limit=max(limit * 3, 80),
+        starts_until=now,
+        resource_only=True,
+        order_desc=True,
+    ):
+        if str(row.get("visibility") or "") != "public":
+            continue
+        if not event_resource_time_unlocked(row):
+            continue
+        out.append(_public_event_teaser(row, include_url=True))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_public_resource_teasers(workspace_id: str, *, limit: int = 20) -> list[dict]:
+    """Ressources à venir ou réservées aux inscrits — sans URL (vitrine)."""
+    now = datetime.utcnow().isoformat()
+    rows = _list_workspace_events(
+        workspace_id,
+        limit=120,
+        starts_from=now,
+        resource_only=True,
+        statuses=("planned", "confirmed"),
+    ) + _list_workspace_events(
+        workspace_id,
+        limit=120,
+        starts_until=now,
+        resource_only=True,
+        statuses=("planned", "confirmed"),
+        order_desc=True,
+    )
+    seen: set[str] = set()
+    out: list[dict] = []
+    for row in rows:
+        eid = str(row.get("id") or "")
+        if eid in seen:
+            continue
+        seen.add(eid)
+        vis = str(row.get("visibility") or "")
+        if vis not in ("public", "participants"):
+            continue
+        unlocked = event_resource_time_unlocked(row)
+        if vis == "public" and unlocked:
+            continue
+        if vis == "participants" and unlocked and str(row.get("starts_at") or "") < now:
+            pass
+        elif str(row.get("starts_at") or "") < now and vis != "participants":
+            continue
+        out.append(_public_event_teaser(row, include_url=False))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_unlocked_resources(
+    workspace_id: str,
+    *,
+    viewer_email: str = "",
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+    limit: int = 40,
+) -> list[dict]:
+    """Ressources ouvertes pour un participant (public + inscrits + nominatif)."""
+    now = datetime.utcnow().isoformat()
+    contact_ids = _contact_ids_matching_email(workspace_id, viewer_email)
+    out: list[dict] = []
+    for row in _list_workspace_events(
+        workspace_id,
+        limit=max(limit * 4, 80),
+        starts_until=now,
+        resource_only=True,
+        order_desc=True,
+    ):
+        if not event_resource_time_unlocked(row):
+            continue
+        if not event_visible_to_viewer(
+            row,
+            viewer_email=viewer_email,
+            viewer_contact_ids=contact_ids,
+            viewer_user_id=viewer_user_id,
+            viewer_active=viewer_active,
+        ):
+            continue
+        out.append(_public_event_teaser(row, include_url=True))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_subscriber_sessions(
+    workspace_id: str,
+    *,
+    viewer_email: str = "",
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+    limit: int = 40,
+) -> list[dict]:
+    now = datetime.utcnow().isoformat()
+    contact_ids = _contact_ids_matching_email(workspace_id, viewer_email)
+    out: list[dict] = []
+    for row in _list_workspace_events(
+        workspace_id,
+        limit=max(limit * 4, 80),
+        starts_from=now,
+        resource_only=False,
+        statuses=("planned", "confirmed"),
+    ):
+        if not event_visible_to_viewer(
+            row,
+            viewer_email=viewer_email,
+            viewer_contact_ids=contact_ids,
+            viewer_user_id=viewer_user_id,
+            viewer_active=viewer_active,
+        ):
+            continue
+        out.append(_public_event_teaser(row, include_url=False))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_subscriber_upcoming_resources(
+    workspace_id: str,
+    *,
+    viewer_email: str = "",
+    viewer_user_id: str = "",
+    viewer_active: bool = False,
+    limit: int = 20,
+) -> list[dict]:
+    now = datetime.utcnow().isoformat()
+    contact_ids = _contact_ids_matching_email(workspace_id, viewer_email)
+    out: list[dict] = []
+    for row in _list_workspace_events(
+        workspace_id,
+        limit=max(limit * 4, 80),
+        starts_from=now,
+        resource_only=True,
+        statuses=("planned", "confirmed"),
+    ):
+        if not event_visible_to_viewer(
+            row,
+            viewer_email=viewer_email,
+            viewer_contact_ids=contact_ids,
+            viewer_user_id=viewer_user_id,
+            viewer_active=viewer_active,
+        ):
+            continue
+        out.append(_public_event_teaser(row, include_url=False))
+        if len(out) >= limit:
+            break
+    return out
 
 
 def update_calendar_event(event_id: str, **fields: Any) -> dict | None:
+    audience_ids = fields.pop("audience_contact_ids", None)
+    audience_user_ids = fields.pop("audience_user_ids", None)
+    visibility_in = fields.pop("visibility", None)
     allowed = {
         "title", "starts_at", "ends_at", "contact_id", "project_id", "event_type",
-        "location", "status", "notes", "google_event_id",
+        "location", "status", "notes", "google_event_id", "is_public", "modality",
+        "nature", "resource_type", "resource_url", "resource_file_id", "cover_file_id",
+        "visibility",
     }
+    if visibility_in is not None:
+        fields["visibility"] = normalize_event_visibility(
+            str(visibility_in),
+            is_public=fields.get("is_public"),
+        )
+        fields["is_public"] = visibility_listed_publicly(str(fields["visibility"]))
+    elif "is_public" in fields and fields.get("is_public") is not None:
+        vis = normalize_event_visibility(is_public=fields.get("is_public"))
+        fields["visibility"] = vis
+        fields["is_public"] = visibility_listed_publicly(vis)
     sets: list[str] = ["updated_at=?"]
     vals: list[Any] = [_now()]
     for key, val in fields.items():
-        if key in allowed and val is not None:
-            sets.append(f"{key}=?")
-            vals.append(val)
-    if len(sets) == 1:
-        return get_calendar_event(event_id)
-    vals.extend([event_id, _ws()])
-    with get_conn() as conn:
-        conn.execute(
-            f"UPDATE biz_calendar_events SET {', '.join(sets)} WHERE id=? AND workspace_id=?",
-            tuple(vals),
-        )
-        conn.commit()
+        if key not in allowed or val is None:
+            continue
+        if key == "is_public":
+            vals.append(1 if val else 0)
+            sets.append("is_public=?")
+            continue
+        if key == "visibility":
+            vis = normalize_event_visibility(str(val))
+            vals.append(vis)
+            sets.append("visibility=?")
+            continue
+        if key == "modality":
+            vals.append(val if val in EVENT_MODALITIES else "")
+            sets.append("modality=?")
+            continue
+        if key == "nature":
+            vals.append(val if val in EVENT_NATURES else "presence")
+            sets.append("nature=?")
+            continue
+        if key == "resource_type":
+            vals.append(val if val in EVENT_RESOURCE_TYPES else "")
+            sets.append("resource_type=?")
+            continue
+        if key == "resource_url":
+            vals.append(str(val).strip()[:2000])
+            sets.append("resource_url=?")
+            continue
+        if key == "resource_file_id":
+            vals.append(str(val).strip()[:191])
+            sets.append("resource_file_id=?")
+            continue
+        if key == "cover_file_id":
+            vals.append(str(val).strip()[:191])
+            sets.append("cover_file_id=?")
+            continue
+        sets.append(f"{key}=?")
+        vals.append(val)
+    if len(sets) > 1:
+        vals.extend([event_id, _ws()])
+        with get_conn() as conn:
+            conn.execute(
+                f"UPDATE biz_calendar_events SET {', '.join(sets)} WHERE id=? AND workspace_id=?",
+                tuple(vals),
+            )
+            conn.commit()
+    if audience_ids is not None:
+        _replace_event_audience(event_id, list(audience_ids))
+    if audience_user_ids is not None:
+        _replace_event_audience_users(event_id, list(audience_user_ids))
     return get_calendar_event(event_id)
 
 
 def delete_calendar_event(event_id: str) -> bool:
     with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM biz_event_audience WHERE event_id=? AND workspace_id=?",
+            (event_id, _ws()),
+        )
+        conn.execute(
+            "DELETE FROM biz_event_audience_users WHERE event_id=? AND workspace_id=?",
+            (event_id, _ws()),
+        )
         cur = conn.execute(
             "DELETE FROM biz_calendar_events WHERE id=? AND workspace_id=?",
             (event_id, _ws()),
@@ -2424,7 +3264,7 @@ def prepare_follow_up_email_ticket(event_id: str) -> dict[str, Any]:
         "event": get_calendar_event(event_id),
         "chain": {
             "steps": [
-                "Brouillon e-mail préparé dans l'inbox",
+                "Brouillon e-mail préparé dans Décisions",
                 "Créneau relance marqué comme fait",
             ],
         },
@@ -2579,10 +3419,18 @@ def get_business_overview() -> dict[str, Any]:
             "SELECT COUNT(*) AS n FROM biz_external_invoices WHERE workspace_id=? AND tiime_status NOT IN ('paid','cancelled')",
             (ws,),
         ).fetchone()
+    email_needs = 0
+    try:
+        from services.email_prospecting import email_prospecting_stats
+
+        email_needs = int((email_prospecting_stats(limit_open=1).get("counts") or {}).get("email_threads_needs_reply") or 0)
+    except Exception:
+        pass
     return {
         "contacts_active": int(dict(contacts or {}).get("n") or 0),
         "projects_active": int(dict(projects_active or {}).get("n") or 0),
         "quotes_pending": int(dict(quotes_pending or {}).get("n") or 0),
         "events_this_week": int(dict(events_week or {}).get("n") or 0),
         "invoices_unpaid": int(dict(unpaid or {}).get("n") or 0),
+        "email_needs_reply": email_needs,
     }

@@ -10,7 +10,7 @@
 
 ## 1. En une phrase
 
-**Korymb** est le **quartier général IA d’Élude In Art** : une plateforme web où le dirigeant (Éric) **cadre, lance, supervise et valide des missions** confiées à une **équipe d’agents IA spécialisés**, avec orchestration multi-étapes, livrables (dont Google Drive), contrôle qualité, budget, et mémoire d’entreprise.
+**Korymb** est le **quartier général IA d’Élude In Art** : une plateforme web où le dirigeant (Éric) **cadre, lance, supervise et valide des missions** confiées à une **équipe d’agents IA spécialisés**, avec orchestration multi-étapes, livrables (fichiers dans l’espace Korymb), contrôle qualité, budget, et mémoire d’entreprise.
 
 Ce n’est **pas** un simple chatbot. C’est un **système d’exploitation métier** pour déléguer du travail structuré (commercial, réseaux sociaux, développement, compta, stratégie) dans le cadre précis de la marque Élude In Art.
 
@@ -50,30 +50,47 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 
 ## 3. Ce que fait Korymb (vue utilisateur)
 
+### Deux univers (ne pas confondre)
+
+| Univers | Pour qui | Contenu type |
+|---------|----------|----------------|
+| **Mon espace** (`/a/{slug}`) | Participant inscrit à la vitrine (`subscriber`) — et aperçu pour le dirigeant | Accueil perso, **mes séances**, **mes ressources**, **mon compte**. Pas de CRM, missions ni HITL |
+| **Cockpit dirigeant** (`/briefing` et le reste de l’app) | Admin / membre de l’équipe | Briefing du jour, Décisions, Missions, Chat, Gestion (contacts, courrier, planning, devis), Administration |
+| **Vitrine** (`/p/{slug}`) | Public | Page de la pratique (identité, prochaine date, offres) — pas un compte |
+
+La page `/espace` est **Équipe et espaces** (invitations opérateurs), pas « Mon espace ».
+
+Connexion : **Korymb** = `/login` ; **participant** = `/p/{slug}/connexion`. Un créneau planning a une visibilité `internal` | `selected` | `participants` | `public`. `selected` cible des **participants** (`audience_user_ids`), pas les fiches CRM. Inscription = demande à valider ; invitation = e-mail + code (`/p/{slug}/invitation`).
+
 ### Écrans principaux
 
 | Zone | Rôle |
 |------|------|
-| **Briefing** (`/briefing`) | Vue du jour : décisions, **commercial du matin** (relances, devis, joignabilité), missions actives, budget |
+| **Briefing** (`/briefing`) | Accueil du **cockpit dirigeant** : décisions, **commercial du matin** (relances, devis, joignabilité), missions actives, budget |
 | **Dashboard** | Tableau de bord opérationnel |
-| **Missions** (`/missions`) | Lancer, suivre, valider des missions multi-agents |
+| **Missions** (`/missions`) | Suivi quotidien : prochaine action (publier, agenda, décider, terminer) ; mode Dossier pour le détail |
 | **Mission guidée / nouvelle** | Création de mission (cadrage puis exécution) |
 | **Chat** | Dialogue avec le dirigeant (cadrage ou échanges) |
-| **Inbox** (`/inbox`) | File d’attente dirigeant : validations HITL, **relances CRM dues**, clôtures, questions, scheduler, qualité |
-| **Livrables** | Bibliothèque des livrables produits |
+| **Décisions** (`/inbox`) | File d’attente dirigeant (pas le courrier) : validations HITL, **relances CRM dues**, clôtures, questions, scheduler, qualité |
+| **Courrier** (`/gestion/courrier`) | Boîte de **prospection** : réponses à traiter, fils en attente, brouillons HITL. Sync Gmail auto (15 min) |
+| **Studio** (`/gestion/studio`) | Générateur de contenus : articles, PDF, podcasts, vidéo, réseaux. Brief + mémoire entreprise ; **moteurs média en chaîne** (gratuit puis payant : Pollinations / Edge TTS / storyboard, puis OpenRouter, ElevenLabs, Replicate…). Publication via Décisions |
+| **Playbooks** (`/gestion/playbooks`) | Scénarios prêts à lancer (studio, Fleur, Sivana, ops) |
+| **Livrables** (`/gestion/livrables`) | Bibliothèque des livrables produits |
 | **Historique** | Missions et jobs passés |
 | **Configuration** | Provider LLM, modèle, paramètres runtime (sans secrets en clair côté UI) |
-| **Administration** | Agents custom, playbooks, intégrations, budget, mémoire, orchestration, comportements |
+| **Administration** | Agents, **page publique**, **intégrations** (Essentielles / Création / Métier / Technique ; Google et médias regroupés), budget, mémoire, orchestration, comportements (pas la création de contenus) |
+| **Vitrine** (`/p/{slug}`) | Face publique de l’espace (offres, dates ouvertes, modalités présentiel/visio/async). Cartes avec **image de couverture** (dédiée ou fichier ressource image). Élude : `/p/eludein` |
+| **Mon espace** (`/a/{slug}`) | Compte **participant** : accueil, séances, ressources (mêmes visuels), compte. **Pas** le cockpit (missions, gestion, HITL) |
 
 ### Cycle de vie d’une mission (simplifié)
 
 ```
 1. Cadrage     → Le dirigeant précise l’intention (chat ou formulaire mission)
 2. Lancement    → Le CIO (agent coordinateur) décompose et délègue aux agents spécialisés
-3. Exécution    → Jobs asynchrones, outils (web, Drive, réseaux, DB…), traces auditables
+3. Exécution    → Jobs asynchrones, outils (web, réseaux, DB…), traces auditables
 4. HITL         → Deux files distinctes (plan CIO vs envoi réel)
 5. Qualité      → Garde-fou score minimum avant clôture (configurable)
-6. Clôture      → Validation dirigeant, livrables archivés (app + Drive si applicable)
+6. Clôture      → Validation dirigeant, livrables archivés dans l’espace Korymb
 7. Mémoire      → Enrichissement de la mémoire d’entreprise pour les missions suivantes
 ```
 
@@ -84,7 +101,7 @@ Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème asso
 | **Plan CIO** | `jobs.status = awaiting_validation` · `POST /jobs/{id}/hitl/resolve` | Plan d’orchestration, questions, synthèse | Reprise du job — **Valider et lancer** enchaîne validation + reprise des sous-agents |
 | **Action** | `action_tickets` (`pending`) · inbox `kind: action_ticket` · `POST /actions/{id}/resolve` | E-mail, agenda, post social, article WordPress | Envoi / publish **seulement après clic** (ou callback Telegram HITL). **E-mail** : envoi + fil CRM (`biz_email_threads` / `biz_email_messages`) + journal + relance J+7. **Social / WordPress** : publish + suivi mesurer/relayer J+3 dans Planning. |
 | **Relance CRM** | créneau Planning (`Relance —…` / Mesurer / Relayer) · inbox `kind: crm_follow_up` · `POST /business/events/{id}/prepare-follow-up-email` | Relances dues du jour (et en retard) | Prépare un ticket e-mail HITL, ou marque fait / report +3 j. Remonte aussi dans le **briefing commercial**. |
-| **Prospection mail** | fiche contact · `POST …/emails/prepare` + `…/emails/sync` | Préparer un brouillon HITL depuis la fiche ; sync réponses Gmail | Réponse inbound → fil `replied` + **annulation auto** des créneaux `Relance —…`. |
+| **Prospection mail** | fiche contact **ou** Courrier · `POST …/emails/send` + `POST …/emails/suggest-replies` (+ PJ) | Rédiger / **orienter** 3 pistes (consignes + profil + fil) ; **envoyer depuis le rédacteur** ; sync Gmail | Réponse inbound → fil `replied` + annulation auto des relances. Les e-mails agents / relances CRM passent encore par Décisions. |
 
 Les outils `send_email`, `send_gmail`, `create_calendar_event`, posts Meta, `wordpress_create_post` **n’exécutent plus en live** : ils créent un ticket. WordPress (si configuré) crée d’abord un **brouillon** ; l’approbation passe en `publish`. Après un e-mail réellement envoyé, Korymb journalise une interaction CRM (`gestion_log_interaction`).
 
@@ -94,7 +111,7 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 
 - **Mode cadrage** : échange sans lancer le pipeline multi-agents — le dirigeant valide ensuite dans l’app
 - **Mode exécution** : orchestration réelle (moteur **legacy** par défaut ; LangGraph gelé)
-- **Playbooks** : bibliothèque de scénarios prêts à lancer (thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social)
+- **Playbooks** (`/gestion/playbooks`) : bibliothèque de scénarios prêts à lancer (studio, thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social)
 
 ---
 
@@ -116,7 +133,7 @@ Le **CIO** est le seul « manager » : il ne mobilise les autres agents que si l
 
 ### Module Gestion métier (CRM intégré)
 
-Korymb inclut un **cockpit Gestion** (`/gestion` dans l’admin) : contacts/prospects, projets, planning, devis. Les **factures légales** passent par **Tiime** (PA / facturation électronique) — Korymb prépare les devis et enregistre les références facture Tiime.
+Korymb inclut un **cockpit Gestion** (`/gestion` dans l’admin) : contacts/prospects, projets, planning, devis. La fiche projet liste les **séances**, **documents / vidéos** et **devis** rattachés : un document à ouvrir est un créneau du planning (pas un rendez-vous), pas un module séparé. Les **factures légales** passent par **Tiime** (PA / facturation électronique) — Korymb prépare les devis et enregistre les références facture Tiime.
 
 Les agents **commercial**, **comptable** et **coordinateur** disposent d’outils `gestion_*` (préférés aux outils CRM externes type Notion/HubSpot pour Élude In Art) :
 
@@ -154,7 +171,9 @@ Les clés d’intégration sont dans `.env` / configuration runtime — **ne jam
 - **Audit / replay** de jobs (`audit-bundle`, `traces`, `clone`)
 - **Scheduler** : tâches planifiées avec approbation dirigeant
 - **Notifications** in-app (SSE) + email / webhook
-- **Mémoire d’entreprise** par workspace
+- **Mémoire d’entreprise** par workspace (volets + faits structurés brand)
+- File **Mémoire à confirmer** dans Décisions (mission validée, CRM, sync vitrine)
+- Compaction des volets longs + limite d’injection prompts ; chat CIO avec résumé actif
 - **Reprise** après incident (admin reprise)
 - **Recommandations** et **apprentissage** suggéré
 
@@ -275,4 +294,4 @@ curl -s https://api-korymb.eludein.art/health
 
 ---
 
-*Dernière mise à jour : septembre 2026 — chaînage prospection e-mail (fils CRM + sync Gmail + HITL) + relances CRM inbox / briefing.*
+*Dernière mise à jour : septembre 2026 — chaînage prospection e-mail (fils CRM + sync Gmail + HITL + pièces jointes) + relances CRM dans Décisions / briefing. L’écran `/inbox` s’affiche **Décisions** pour ne pas le confondre avec le courrier.*

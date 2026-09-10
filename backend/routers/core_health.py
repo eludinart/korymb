@@ -231,9 +231,12 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
             "note": "Traduction multilingue — deepl.com",
         },
         "image_gen": {
-            "configured": _env_is_set("IMAGE_GEN_MODEL")
-            and (_env_is_set("IMAGE_GEN_API_KEY") or _env_is_set("OPENROUTER_API_KEY")),
-            "note": "IMAGE_GEN_MODEL + clé API (IMAGE_GEN_API_KEY ou OPENROUTER_API_KEY)",
+            "configured": _env_is_set("MISTRAL_API_KEY")
+            or (
+                _env_is_set("IMAGE_GEN_MODEL")
+                and (_env_is_set("IMAGE_GEN_API_KEY") or _env_is_set("OPENROUTER_API_KEY"))
+            ),
+            "note": "Clé Mistral (Flux via Agents API) ou IMAGE_GEN_MODEL + clé dédiée",
         },
         "gmail": {
             "configured": _env_is_set("GOOGLE_GMAIL_ACCESS_TOKEN") or has_google_oauth,

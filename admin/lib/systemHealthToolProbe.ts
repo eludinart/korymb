@@ -77,7 +77,7 @@ export function buildToolProbeRows(toolsProbe: Record<string, unknown>): ToolPro
         configured: gd?.configured,
         ok: gd?.configured && gd?.folder_id_set ? gd?.ok : undefined,
       }),
-      description: "Livrables · OAuth ou token API + GOOGLE_DRIVE_FOLDER_ID",
+      description: "Optionnel · Gmail/Calendar. Les livrables restent dans Korymb.",
     },
     {
       key: "insights",
@@ -104,7 +104,7 @@ export function buildToolProbeRows(toolsProbe: Record<string, unknown>): ToolPro
       key: "generate_image",
       title: "Génération d'images",
       tone: healthToneForToolProbe(toolsProbe.generate_image as { ok?: boolean; configured?: boolean }),
-      description: "IMAGE_GEN_MODEL + clé API (OpenRouter ou dédiée)",
+      description: "Clé Mistral (Flux) — pas de clé image dédiée",
     },
     {
       key: "read_pdf",

@@ -297,9 +297,9 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "upload_google_drive",
         "description": (
-            "Crée un fichier sur Google Drive (texte, CSV ou tableau Markdown → Google Sheet). "
-            "Pour un tableau de prospection : inclure TOUTES les lignes réelles (web_search), "
-            "jamais d'exemple Dupont/Martin."
+            "Enregistre un fichier dans l'espace Korymb du compte (CSV, markdown ou texte). "
+            "Ne va plus sur Google Drive. Pour un tableau de prospection : inclure TOUTES les lignes réelles "
+            "(web_search), jamais d'exemple Dupont/Martin."
         ),
         "input_schema": {
             "type": "object",
@@ -307,7 +307,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
                 "filename": {"type": "string", "description": "Nom du fichier avec extension"},
                 "content": {"type": "string", "description": "Contenu textuel du fichier"},
                 "mime_type": {"type": "string", "description": "Optionnel, ex. text/plain, text/markdown"},
-                "folder_id": {"type": "string", "description": "Optionnel, ID du dossier Drive cible"},
+                "folder_id": {"type": "string", "description": "Ignoré (compat). Les fichiers restent dans Korymb."},
             },
             "required": ["filename", "content"],
         },
@@ -475,8 +475,8 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "generate_image",
         "description": (
-            "Génère une image à partir d'une description textuelle (visuels réseaux, cartes tarot, affiches). "
-            "Retourne une URL d'image si IMAGE_GEN_MODEL est configuré."
+            "Génère une image à partir d'une description textuelle (visuels réseaux, cartes, affiches). "
+            "Utilise la clé Mistral déjà configurée (Flux) ; pas besoin d'une seconde clé image."
         ),
         "input_schema": {
             "type": "object",
@@ -605,6 +605,7 @@ def _execute_tool(name: str, inp: Any) -> str:
         "schedule_instagram_post",
         "schedule_facebook_post",
         "wordpress_create_post",
+        "post_linkedin",
     })
     if not isinstance(inp, dict):
         try:
@@ -910,7 +911,7 @@ def llm_turn_with_tools(
         "analyse d'images via Claude Vision (describe_image), génération d'images et synthèse vocale, "
         "Gmail/Calendar/Sheets/Analytics Google, insights et planification Instagram/Facebook, "
         "YouTube, WhatsApp, CRM, Canva, Pinterest, Discord/Telegram, webhooks, "
-        "brouillon d'email et newsletter Brevo, création de fichier Google Drive. "
+        "brouillon d'email et newsletter Brevo, enregistrement de fichier dans l'espace Korymb. "
         "Appelle SYSTÉMATIQUEMENT les outils pour tout fait, contact ou contenu visuel à l'instant T. "
         "Ne jamais inventer d'URLs — utilise web_search puis read_webpage pour les obtenir."
     )

@@ -119,9 +119,17 @@ export function useKorymbEventStream(): RuntimeStreamState {
       });
       es.addEventListener("job_event", (ev) => {
         try {
-          const d = JSON.parse((ev as MessageEvent).data || "{}") as { type?: string; job_id?: string };
+          const d = JSON.parse((ev as MessageEvent).data || "{}") as {
+            type?: string;
+            job_id?: string;
+            kind?: string;
+          };
           if (d?.type === "director_notification") {
             window.dispatchEvent(new CustomEvent("korymb:director_notification", { detail: d }));
+            if (String(d.kind || "") === "email_reply") {
+              void queryClient.invalidateQueries({ queryKey: ["business-mailbox"] });
+              void queryClient.invalidateQueries({ queryKey: ["business-contact-emails"] });
+            }
             return;
           }
           if (jobInvalidateTimer) window.clearTimeout(jobInvalidateTimer);

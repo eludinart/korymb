@@ -16,5 +16,9 @@ export function resolveProxySecret(): string {
   return process.env.NEXT_PUBLIC_KORYMB_AGENT_SECRET?.trim() || "";
 }
 
-/** Routes proxyées sans X-Agent-Secret (bandeau runtime uniquement). */
 export const PROXY_UNPROTECTED = new Set(["health", "health/live", "health/database", "llm"]);
+
+export function isProxyUnprotected(joinedPath: string) {
+  if (PROXY_UNPROTECTED.has(joinedPath)) return true;
+  return joinedPath === "public" || joinedPath.startsWith("public/");
+}

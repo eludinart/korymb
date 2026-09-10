@@ -21,12 +21,14 @@ import CioPlanHitlPanel from "../../components/CioPlanHitlPanel";
 import MissionHitlResolver from "../../components/missions/MissionHitlResolver";
 import CioResumePanel from "../../components/missions/CioResumePanel";
 import MissionListCard from "../../components/missions/MissionListCard";
+import MissionNextActionPanel from "../../components/missions/MissionNextActionPanel";
 import CioResumeLivePanel from "../../components/missions/CioResumeLivePanel";
 import MissionCreatePanel from "../../components/missions/MissionCreatePanel";
 import MissionsArchivesList from "../../components/missions/MissionsArchivesList";
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import type { InboxActionItem } from "../../components/director/InboxActionCard";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
@@ -35,24 +37,23 @@ import { sortJobsForBossView, dedupeMissionListJobs, normalizeJobId } from "../.
 import { normalizeTeamRows, teamRowKey } from "../../lib/jobTeam";
 import { eventPayload } from "../../lib/missionEvents";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { cioAnswersAndResume, markMissionResultConsulted } from "../../lib/missionActions";
+import { cioAnswersAndResume, markMissionResultConsulted, resolveActionTicket } from "../../lib/missionActions";
+import { inboxItemsForJob } from "../../lib/missionDailyUx";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
 import { PageHeader, PageShell } from "../../components/ui/PageChrome";
 import { threadHasPendingCioTurn, canResumeMissionCio } from "../../lib/missionThreadPending";
 import { useJobDetail } from "../../lib/useJobDetail";
 import { useMissionActions } from "../../lib/useMissionActions";
-import { missionActionLabel, missionJobLine } from "../../lib/missionLabel";
+import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { adaptivePollInterval } from "../../lib/korymbEvents";
 import {
-  BTN_DELETE,
   collectMissionDeleteJobIds,
   confirmDeleteMission,
   clusterStillVisible,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
-import { missionTitleLabel } from "../../lib/missionLabel";
 
 import type { Job } from "../../lib/types";
 
@@ -61,7 +62,7 @@ function MissionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);
-  const { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission } = useMissionActions();
+  const { busyId, feedback, error, setError, setFeedback, onCloseMission } = useMissionActions();
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
@@ -70,6 +71,8 @@ function MissionsContent() {
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [archiveDeleteBusy, setArchiveDeleteBusy] = useState(false);
   const [deleteMissionBusyId, setDeleteMissionBusyId] = useState<string | null>(null);
+  const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
+  const [detailMode, setDetailMode] = useState<"daily" | "dossier">("daily");
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -88,6 +91,20 @@ function MissionsContent() {
       return adaptivePollInterval(20_000, 60_000);
     },
   });
+
+  const inboxQuery = useQuery({
+    queryKey: ["admin-inbox"],
+    queryFn: async () => {
+      const { data } = await requestJson("/admin/inbox?limit=100", { headers: agentHeaders(), retries: 1 });
+      return data as { items?: InboxActionItem[] };
+    },
+    staleTime: 15_000,
+    refetchInterval: (query) => {
+      if (query.state.fetchStatus === "fetching") return false;
+      return adaptivePollInterval(20_000, 45_000);
+    },
+  });
+  const inboxItems = useMemo(() => inboxQuery.data?.items || [], [inboxQuery.data]);
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
   const missionRows = useMemo(
@@ -213,7 +230,26 @@ function MissionsContent() {
 
   useEffect(() => {
     setMobileDetailPane("resultats");
+    setDetailMode("daily");
   }, [selected]);
+
+  const approveTicketForMission = async (ticketId: string) => {
+    setTicketBusyId(ticketId);
+    setError("");
+    try {
+      await resolveActionTicket(ticketId, { decision: "approve", source: "missions" });
+      setFeedback("Action validée.");
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      void qc.invalidateQueries({ queryKey: ["business-events"] });
+      if (selected) void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTicketBusyId(null);
+    }
+  };
 
   const detail = useJobDetail(selected, {
     queryKey: ["job-detail-live", selected],
@@ -515,9 +551,9 @@ function MissionsContent() {
       {!selected ? (
         <PageHeader
           accent="emerald"
-          badge="Hub opérationnel"
+          badge="Quotidien"
           title="Missions"
-          description="Un seul endroit : lancer, décider, échanger avec le CIO, consulter les archives."
+          description="Une mission, une prochaine action — publier, mettre à l’agenda, décider ou terminer."
         />
       ) : null}
       {!selected ? (
@@ -607,23 +643,21 @@ function MissionsContent() {
               <MissionListCard
                 key={j.job_id}
                 job={j}
-                latestChild={latestChildByParent.get(normalizeJobId(j.job_id))}
+                inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
                 busy={busyId === j.job_id}
                 deleteBusy={deleteMissionBusyId === j.job_id}
+                actionBusy={Boolean(ticketBusyId)}
                 onSelect={(id) => openMission(id)}
-                onValidate={(id) => {
-                  const job = sortedRows.find((x) => x.job_id === id);
-                  void onValidate(id, job?.mission);
-                }}
-                onClose={(id) => {
+                onFinish={(id) => {
                   const job = sortedRows.find((x) => x.job_id === id);
                   void onCloseMission(id, job?.mission);
                 }}
                 onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
+                onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
               />
             ))}
             {jobs.isSuccess && missionRows.length === 0 ? (
-              <p className="text-sm text-slate-400">Aucune mission opérationnelle. Lancez-en une ou consultez les archives.</p>
+              <p className="text-sm text-slate-400">Aucune mission en cours. Lancez-en une ou consultez les archives.</p>
             ) : null}
           </>
         ) : (
@@ -636,25 +670,27 @@ function MissionsContent() {
           />
         )}
         </div>
-        <section className="min-h-[200px] min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="min-h-[160px] min-w-0 rounded-2xl border border-slate-200 bg-slate-50/80 p-5">
             <div className="space-y-3 text-sm leading-relaxed text-slate-600">
               {hubView === "active" ? (
-                <p>
-                  <strong className="text-slate-800">Opérationnel</strong> — vos missions en cours. Cliquez une carte pour
-                  voir la synthèse et répondre au CIO.
-                </p>
+                <>
+                  <p>
+                    <strong className="text-slate-800">En cours</strong> — chaque carte montre l’état et la prochaine
+                    action (publier, agenda, décider, terminer).
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    La file du matin reste dans{" "}
+                    <Link href="/inbox" className="font-medium text-violet-800 hover:underline">
+                      Décisions
+                    </Link>
+                    .
+                  </p>
+                </>
               ) : (
                 <p>
-                  <strong className="text-slate-800">Archives</strong> — historique complet. Ouvrez une entrée pour le
-                  détail ou supprimez pour nettoyer.
+                  <strong className="text-slate-800">Archives</strong> — historique. Ouvrez une entrée pour le détail.
                 </p>
               )}
-              <p className="text-xs text-slate-400">
-                Décisions urgentes →{" "}
-                <Link href="/inbox" className="font-medium text-violet-800 hover:underline">
-                  Inbox
-                </Link>
-              </p>
             </div>
         </section>
       </div>
@@ -672,25 +708,33 @@ function MissionsContent() {
             >
               ← Liste
             </button>
-            <h1 className="shrink-0 text-lg font-bold tracking-tight text-slate-900">Missions</h1>
-            {detail.data?.mission?.trim() ? (
-              <p
-                className="min-w-0 flex-1 truncate text-xs font-medium leading-snug text-slate-600"
-                title={detail.data.mission.trim()}
+            <h1 className="min-w-0 flex-1 truncate text-base font-bold tracking-tight text-slate-900 sm:text-lg">
+              {missionTitleLabel(detail.data?.mission, 90) || "Mission"}
+            </h1>
+            <div className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 p-0.5 text-[11px] font-semibold">
+              <button
+                type="button"
+                className={`rounded-full px-2.5 py-1 ${detailMode === "daily" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                onClick={() => setDetailMode("daily")}
               >
-                {detail.data.mission.trim()}
-              </p>
-            ) : (
-              <p className="font-mono text-[11px] text-slate-500">#{selected}</p>
-            )}
+                Quotidien
+              </button>
+              <button
+                type="button"
+                className={`rounded-full px-2.5 py-1 ${detailMode === "dossier" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"}`}
+                onClick={() => setDetailMode("dossier")}
+              >
+                Dossier
+              </button>
+            </div>
             {selected ? (
               <button
                 type="button"
                 disabled={Boolean(deleteMissionBusyId) || busyId === selected}
                 onClick={() => void deleteMissionBundle(String(selected), detail.data?.mission)}
-                className="ml-auto shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40"
+                className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40"
               >
-                {deleteMissionBusyId === selected ? "Suppression…" : "Supprimer la mission"}
+                {deleteMissionBusyId === selected ? "…" : "Supprimer"}
               </button>
             ) : null}
           </div>
@@ -702,14 +746,14 @@ function MissionsContent() {
               onClick={() => setMobileDetailPane("fil")}
               className={`mobile-tab ${mobileDetailPane === "fil" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
             >
-              Résumé équipe
+              Échanges
             </button>
             <button
               type="button"
               onClick={() => setMobileDetailPane("resultats")}
               className={`mobile-tab ${mobileDetailPane === "resultats" ? "mobile-tab-active" : "mobile-tab-inactive"}`}
             >
-              Décision
+              Action
             </button>
           </div>
         ) : null}
@@ -766,17 +810,17 @@ function MissionsContent() {
                         onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
                       >
-                        {busyId === selected ? "Clôture…" : "Clôturer la mission (terminée pour moi)"}
+                        {busyId === selected ? "…" : "Terminer la mission"}
                       </button>
                       <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                        Enregistre votre clôture dirigeant — la poursuite CIO sera désactivée.
+                        Close le dossier — la poursuite CIO sera désactivée.
                       </p>
                     </div>
                   ) : missionClosedByUser ? (
                     <div className="border-b border-emerald-100/80 bg-emerald-50/80 px-3 py-3">
-                      <p className="text-xs font-semibold text-emerald-900">Mission clôturée</p>
+                      <p className="text-xs font-semibold text-emerald-900">Mission terminée</p>
                       <p className="mt-1 text-[11px] text-emerald-800">
-                        Consultez la synthèse et les livrables dans la colonne de droite.
+                        Consultez la synthèse et les livrables à droite.
                       </p>
                     </div>
                   ) : null}
@@ -880,7 +924,7 @@ function MissionsContent() {
                       onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
                     >
-                      {busyId === selected ? "Clôture…" : "Clôturer la mission"}
+                      {busyId === selected ? "…" : "Terminer la mission"}
                     </button>
                   ) : null}
                 </form>
@@ -891,6 +935,19 @@ function MissionsContent() {
             <p className="text-sm text-slate-400">Chargement du détail mission…</p>
           ) : detail.data ? (
             <div className="space-y-5">
+              <MissionNextActionPanel
+                job={detail.data as Job}
+                inboxItems={inboxItemsForJob(inboxItems, String(selected || detail.data.job_id || ""))}
+                hasPendingQuestions={hasPendingCioQuestions}
+                busy={Boolean(ticketBusyId)}
+                finishBusy={busyId === selected}
+                onFinish={() => void onCloseMission(String(selected), detail.data?.mission)}
+                onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
+                onFocusDecide={() => {
+                  setMobileDetailPane("resultats");
+                  document.getElementById("mission-hitl-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              />
               {!missionClosedByUser ? (
                 <MissionProcessingBanner
                   status={displayMissionStatus || detail.data.status}
@@ -928,13 +985,19 @@ function MissionsContent() {
                 const isCioPlanHitl = awaitingHitl && String(hitl?.gate?.kind || "") === "cio_plan" && Boolean(hitl);
                 if (!awaitingHitl || cioResumeLiveId) return null;
                 if (isCioPlanHitl) {
-                  return <CioPlanHitlPanel jobId={String(detail.data.job_id || selected || "")} hitl={hitl} />;
+                  return (
+                    <div id="mission-hitl-anchor">
+                      <CioPlanHitlPanel jobId={String(detail.data.job_id || selected || "")} hitl={hitl} />
+                    </div>
+                  );
                 }
                 return (
-                  <MissionHitlResolver
-                    jobId={String(detail.data.job_id || selected || "")}
-                    hitl={hitl}
-                  />
+                  <div id="mission-hitl-anchor">
+                    <MissionHitlResolver
+                      jobId={String(detail.data.job_id || selected || "")}
+                      hitl={hitl}
+                    />
+                  </div>
                 );
               })()}
 
@@ -975,12 +1038,13 @@ function MissionsContent() {
                 <CioResumeLivePanel live={cioResumeLive.data as Job | undefined} isError={cioResumeLive.isError} />
               ) : null}
 
-              {/* ── Détail complet (replié par défaut) ───────────────────────── */}
+              {/* ── Détail complet (mode Dossier, ou replié en Quotidien) ───────── */}
               <div className={cioResumeLiveId ? "opacity-50 transition-opacity" : ""}>
                 <CollapsibleMissionSection
+                  key={`full-${detailMode}-${selected}`}
                   title="Détail complet & livrables"
-                  hint="Synthèse CIO intégrale, livrables par rôle — ouvrir si besoin de vérification"
-                  defaultOpen={false}
+                  hint="Synthèse CIO intégrale, livrables par rôle"
+                  defaultOpen={detailMode === "dossier"}
                 >
                   <ExpandableMissionReader
                     title="Réponse du CIO · synthèse & livrables"
@@ -1014,7 +1078,7 @@ function MissionsContent() {
                         canValidateMission={canCloseMission}
                         validateBusy={busyId === selected}
                         onValidateMission={() => void onCloseMission(selected)}
-                        validateLabel="Clôturer la mission (terminée pour moi)"
+                        validateLabel="Terminer la mission"
                         onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
                       />
                     ) : null}
@@ -1022,9 +1086,10 @@ function MissionsContent() {
                 </CollapsibleMissionSection>
               </div>
 
+              {detailMode === "dossier" ? (
               <CollapsibleMissionSection
                 title="Diagnostic technique"
-                hint="Agents, métriques, événements et journaux — pour le pilotage avancé uniquement"
+                hint="Agents, métriques, événements et journaux"
                 defaultOpen={false}
               >
                 {activeBoardData ? (
@@ -1105,6 +1170,7 @@ function MissionsContent() {
                   </div>
                 </div>
               </CollapsibleMissionSection>
+              ) : null}
 
               {!showDecisionRail && canResumeCio ? (
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">

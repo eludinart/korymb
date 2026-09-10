@@ -49,7 +49,7 @@ export default function RegisterPage() {
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Korymb</p>
         <h1 className="mt-2 text-2xl font-extrabold text-slate-900">Créer mon Korymb</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Votre espace vierge de gestion d&apos;activité — missions, chat, livrables.
+          Votre espace de gestion d&apos;activité — missions, chat, livrables. Ce n’est pas un compte participant.
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <label className="block text-sm font-semibold text-slate-700">
@@ -101,7 +101,7 @@ export default function RegisterPage() {
             disabled={loading}
             className="w-full rounded-xl bg-violet-700 px-4 py-3 text-sm font-bold text-white hover:bg-violet-800 disabled:opacity-60"
           >
-            {loading ? "Création…" : "Créer mon espace"}
+            {loading ? "Création…" : "Créer un espace Korymb"}
           </button>
         </form>
         <p className="mt-4 text-center text-sm text-slate-600">
@@ -111,7 +111,7 @@ export default function RegisterPage() {
           <span className="mx-2">·</span>
           Déjà inscrit ?{" "}
           <Link href="/login" className="font-bold text-violet-700 hover:underline">
-            Se connecter
+            Connexion Korymb
           </Link>
         </p>
       </div>

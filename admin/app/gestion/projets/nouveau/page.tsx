@@ -16,6 +16,8 @@ export default function GestionProjetNouveauPage() {
   const [projectType, setProjectType] = useState("autre");
   const [status, setStatus] = useState("active");
   const [location, setLocation] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
@@ -29,12 +31,14 @@ export default function GestionProjetNouveauPage() {
         project_type: projectType,
         status,
         location: location.trim(),
+        start_date: startDate || null,
+        end_date: endDate || null,
         description: description.trim(),
       }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: ["business-projects"] });
       void qc.invalidateQueries({ queryKey: ["business-overview"] });
-      router.push("/gestion/projets");
+      router.push(created?.id ? `/gestion/projets/${created.id}` : "/gestion/projets");
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -103,6 +107,14 @@ export default function GestionProjetNouveauPage() {
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Lieu</span>
             <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="SÏvåñà, visio…" />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Début</span>
+            <input type="date" className="input-field mt-1 w-full" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-slate-700">Fin</span>
+            <input type="date" className="input-field mt-1 w-full" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Description</span>

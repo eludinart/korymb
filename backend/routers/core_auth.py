@@ -22,6 +22,24 @@ class LoginBody(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
     workspace_id: str | None = Field(default=None, max_length=64)
+    audience: str | None = Field(default=None, max_length=20)
+
+
+class RegisterSubscriberBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=120)
+    workspace_slug: str = Field(min_length=2, max_length=48)
+
+
+class RedeemInviteBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    code: str = Field(min_length=4, max_length=32)
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(default="", max_length=120)
+    workspace_slug: str = Field(min_length=2, max_length=48)
 
 
 class CreateWorkspaceBody(BaseModel):
@@ -39,6 +57,8 @@ class ProfilePatchBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     display_name: str | None = Field(default=None, max_length=120)
     workspace_name: str | None = Field(default=None, max_length=200)
+    current_password: str | None = Field(default=None, max_length=128)
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 @router.post("/register")
@@ -54,6 +74,33 @@ def auth_register(body: RegisterBody):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post("/register-subscriber")
+def auth_register_subscriber(body: RegisterSubscriberBody):
+    try:
+        return auth_svc.register_subscriber(
+            email=str(body.email),
+            password=body.password,
+            display_name=body.display_name,
+            workspace_slug=body.workspace_slug,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/redeem-invite")
+def auth_redeem_invite(body: RedeemInviteBody):
+    try:
+        return auth_svc.redeem_subscriber_invite(
+            workspace_slug=body.workspace_slug,
+            email=str(body.email),
+            code=body.code,
+            password=body.password,
+            display_name=body.display_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @router.post("/login")
 def auth_login(body: LoginBody):
     try:
@@ -61,7 +108,10 @@ def auth_login(body: LoginBody):
             email=str(body.email),
             password=body.password,
             workspace_id=body.workspace_id,
+            audience=body.audience,
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 
@@ -99,10 +149,10 @@ def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_s
 def auth_list_members(auth: dict = Depends(auth_svc.resolve_tenant)):
     if auth.get("mode") == "agent_secret":
         return {"members": []}
-    from workspace_db import list_workspace_members
+    from workspace_db import list_workspace_operators
 
     ws = str(auth.get("workspace_id") or "")
-    return {"members": list_workspace_members(ws)}
+    return {"members": list_workspace_operators(ws)}
 
 
 @router.post("/members")
@@ -125,9 +175,20 @@ def auth_update_profile(body: ProfilePatchBody, auth: dict = Depends(auth_svc.re
         raise HTTPException(status_code=400, detail="Profil réservé aux utilisateurs connectés.")
     user_id = str(auth.get("user_id") or "")
     workspace_id = str(auth.get("workspace_id") or "")
-    from workspace_db import update_user_profile, update_workspace_name
+    from workspace_db import update_user_password, update_user_profile, update_workspace_name
 
     user = update_user_profile(user_id, display_name=body.display_name) if body.display_name is not None else None
+    if body.new_password:
+        if not body.current_password:
+            raise HTTPException(status_code=400, detail="Indiquez le mot de passe actuel.")
+        try:
+            user = update_user_password(
+                user_id,
+                current_password=body.current_password,
+                new_password=body.new_password,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     workspace = None
     if body.workspace_name is not None:
         if auth.get("role") != "admin":

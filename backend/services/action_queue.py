@@ -91,6 +91,7 @@ def enqueue_action(
     job_id: str | None = None,
     source: str = "korymb",
     preview_url: str | None = None,
+    notify: bool = True,
 ) -> dict:
     kind_clean = (kind or "").strip().lower()
     if kind_clean not in ALLOWED_KINDS:
@@ -121,29 +122,30 @@ def enqueue_action(
         _append_event(conn, ticket_id, "prepared", {"kind": kind_clean, "source": source})
         conn.commit()
     ticket = get_action(ticket_id)
-    try:
-        from services.director_platform import emit_director_notification
+    if notify:
+        try:
+            from services.director_platform import emit_director_notification
 
-        emit_director_notification(
-            kind="action_ticket",
-            title=(title or "Action à valider")[:120],
-            body=(summary or "")[:400],
-            job_id=(job_id or "").strip() or None,
-            action_url=f"/inbox?triage=1&focus={ticket_id}",
-        )
-    except Exception:
-        logger.exception("Notification action_ticket failed for %s", ticket_id)
-    try:
-        from services.action_telegram import notify_action_ticket
+            emit_director_notification(
+                kind="action_ticket",
+                title=(title or "Action à valider")[:120],
+                body=(summary or "")[:400],
+                job_id=(job_id or "").strip() or None,
+                action_url=f"/inbox?triage=1&focus={ticket_id}",
+            )
+        except Exception:
+            logger.exception("Notification action_ticket failed for %s", ticket_id)
+        try:
+            from services.action_telegram import notify_action_ticket
 
-        tg = notify_action_ticket(ticket or {"id": ticket_id, "kind": kind_clean, "title": title, "summary": summary})
-        if tg.get("telegram_msg_id"):
-            _store_telegram_meta(ticket_id, tg.get("telegram_chat_id"), tg.get("telegram_msg_id"))
-            if ticket:
-                ticket["telegram_msg_id"] = tg.get("telegram_msg_id")
-                ticket["telegram_chat_id"] = tg.get("telegram_chat_id")
-    except Exception:
-        logger.warning("Telegram notify skipped for %s", ticket_id, exc_info=True)
+            tg = notify_action_ticket(ticket or {"id": ticket_id, "kind": kind_clean, "title": title, "summary": summary})
+            if tg.get("telegram_msg_id"):
+                _store_telegram_meta(ticket_id, tg.get("telegram_chat_id"), tg.get("telegram_msg_id"))
+                if ticket:
+                    ticket["telegram_msg_id"] = tg.get("telegram_msg_id")
+                    ticket["telegram_chat_id"] = tg.get("telegram_chat_id")
+        except Exception:
+            logger.warning("Telegram notify skipped for %s", ticket_id, exc_info=True)
     return ticket or {"id": ticket_id, "status": "pending"}
 
 
@@ -163,7 +165,7 @@ def enqueue_from_tool(*, tool_name: str, inp: dict[str, Any], job_id: str = "", 
         return enqueue_email_from_tool(tool_name=name, inp=inp, job_id=job_id, agent_key=agent_key)
     if name == "create_calendar_event":
         return enqueue_calendar_from_tool(inp=inp, job_id=job_id, agent_key=agent_key)
-    if name in ("post_instagram", "post_facebook", "schedule_instagram_post", "schedule_facebook_post"):
+    if name in ("post_instagram", "post_facebook", "schedule_instagram_post", "schedule_facebook_post", "post_linkedin"):
         return enqueue_social_from_tool(tool_name=name, inp=inp, job_id=job_id, agent_key=agent_key)
     if name == "wordpress_create_post":
         return enqueue_wordpress_from_tool(inp=inp, job_id=job_id, agent_key=agent_key)
@@ -207,7 +209,7 @@ def enqueue_email_from_tool(*, tool_name: str, inp: dict[str, Any], job_id: str 
     tid = ticket.get("id") or ""
     return (
         f"[en file] E-mail en attente de validation dirigeant (ticket {tid}). "
-        "Aucun envoi tant que le dirigeant n'a pas cliqué Valider dans l'inbox."
+        "Aucun envoi tant que le dirigeant n'a pas cliqué Valider dans Décisions."
     )
 
 
@@ -242,8 +244,13 @@ def enqueue_calendar_from_tool(*, inp: dict[str, Any], job_id: str = "", agent_k
 
 
 def enqueue_social_from_tool(*, tool_name: str, inp: dict[str, Any], job_id: str = "", agent_key: str = "") -> str:
-    platform = "instagram" if "instagram" in tool_name else "facebook"
-    caption = str(inp.get("caption") or inp.get("message") or "").strip()
+    if "linkedin" in tool_name:
+        platform = "linkedin"
+    elif "instagram" in tool_name:
+        platform = "instagram"
+    else:
+        platform = "facebook"
+    caption = str(inp.get("caption") or inp.get("message") or inp.get("text") or "").strip()
     if not caption:
         return "Erreur: texte du post (caption/message) requis."
     ticket = enqueue_action(

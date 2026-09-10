@@ -19,7 +19,7 @@ Document **prioritaire**. Ne pas contredire sans confirmation explicite d'Éric.
 - Workspace production : **`ws-default-legacy`** (slug `default`).
 - Écritures / missions / HITL → **API** `https://api-korymb.eludein.art` via `korymb-api.sh`, **jamais SQL**.
 - Hermes **observe et briefe** ; Korymb **exécute** les missions multi-agents.
-- Inbox dirigeant : https://korymb.eludein.art/inbox
+- Décisions (file dirigeant, pas le courrier) : https://korymb.eludein.art/inbox
 
 ## Fleur d'ÅmÔurs
 

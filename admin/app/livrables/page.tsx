@@ -353,7 +353,7 @@ function LivrablesContent() {
         accent="emerald"
         badge="Bibliothèque"
         title="Livrables générés"
-        description="Fichiers Drive et pièces opérationnelles, regroupés par thématique. Les doublons (même fichier ou même contenu) sont fusionnés automatiquement."
+        description="Fichiers de votre espace et pièces opérationnelles, regroupés par thématique. Les doublons (même fichier ou même contenu) sont fusionnés automatiquement."
         actions={
           <>
             <PageLink href="/chat">Chat</PageLink>
@@ -366,7 +366,7 @@ function LivrablesContent() {
 
       {filterJob ? (
         <AlertBox tone="info" title={`Filtre actif — job #${filterJob}`}>
-          <Link href="/livrables" className="font-semibold text-violet-800 hover:underline">
+          <Link href="/gestion/livrables" className="font-semibold text-violet-800 hover:underline">
             Afficher toute la bibliothèque
           </Link>
         </AlertBox>
@@ -374,7 +374,7 @@ function LivrablesContent() {
 
       {library.data && rawTotal != null && rawTotal > total ? (
         <AlertBox tone="info" title={`${total} livrables uniques (${rawTotal} entrées brutes regroupées)`}>
-          Les livrables identiques — même fichier Google ou même titre — sont fusionnés pour simplifier la lecture.
+          Les livrables identiques — même fichier ou même titre — sont fusionnés pour simplifier la lecture.
         </AlertBox>
       ) : null}
 
@@ -391,8 +391,8 @@ function LivrablesContent() {
       {library.data && total === 0 ? (
         <SectionCard title="Aucun livrable pour l'instant">
           <p className="text-sm leading-relaxed text-slate-600">
-            Lancez une mission ou une demande chat qui produit un tableau, un courrier ou un document. Les liens Drive
-            apparaîtront ici automatiquement dès l&apos;export.
+            Lancez une mission ou une demande chat qui produit un tableau, un courrier ou un document. Les fichiers
+            apparaîtront ici automatiquement, enregistrés dans votre espace Korymb.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link href="/chat" className="btn-primary text-sm">

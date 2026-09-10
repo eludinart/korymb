@@ -116,7 +116,7 @@ export function missionStatusMeta(
   if (s === "pending" || s === "accepted")
     return { label: "En attente", className: "bg-slate-100 text-slate-800 ring-1 ring-slate-200" };
   if (s === "awaiting_validation")
-    return { label: "HITL requis", className: "bg-violet-200 text-violet-950 ring-2 ring-violet-400" };
+    return { label: "À décider", className: "bg-violet-200 text-violet-950 ring-2 ring-violet-400" };
   if (s === "quality_blocked")
     return { label: "Qualité bloquée", className: "bg-rose-200 text-rose-950 ring-2 ring-rose-400" };
   if (s.startsWith("error") || s === "failed")

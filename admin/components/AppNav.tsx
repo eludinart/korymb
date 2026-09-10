@@ -6,10 +6,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
 import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
+import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
 import {
   GESTION_HUB_HREF,
   GESTION_NAV_LINKS,
   GESTION_QUICK_ACTIONS,
+  groupedGestionNavLinks,
   isGestionLinkActive,
   isGestionPath,
 } from "../lib/gestionNav";
@@ -18,13 +20,12 @@ type NavPrimaryItem = { href: string; label: string; priority?: boolean };
 
 const NAV_PRIMARY: NavPrimaryItem[] = [
   { href: "/briefing", label: "Briefing", priority: true },
-  { href: "/inbox", label: "Inbox", priority: true },
+  { href: DIRECTOR_QUEUE_HREF, label: DIRECTOR_QUEUE_LABEL, priority: true },
   { href: "/missions", label: "Missions", priority: true },
   { href: "/chat", label: "Chat" },
 ];
 
 const NAV_MORE = [
-  { href: "/livrables", label: "Livrables" },
   { href: "/dashboard", label: "Vue agents" },
   { href: "/configuration", label: "Configuration" },
   { href: "/administration", label: "Administration" },
@@ -163,7 +164,7 @@ export default function AppNav() {
 
   const gestionDropdown = (onNavigate: () => void, variant: "desktop" | "drawer") => (
     <>
-      {GESTION_NAV_LINKS.map((item) => {
+      {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
         const active = isGestionLinkActive(pathname, item);
         const cls =
           variant === "desktop"
@@ -185,6 +186,39 @@ export default function AppNav() {
           </Link>
         );
       })}
+      {groupedGestionNavLinks().map((group) => (
+        <div key={group.id} className={variant === "desktop" ? "mt-1 border-t border-emerald-50 pt-1" : "mt-2"}>
+          <p
+            className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${
+              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
+            }`}
+          >
+            {group.label}
+          </p>
+          {group.links.map((item) => {
+            const active = isGestionLinkActive(pathname, item);
+            const cls =
+              variant === "desktop"
+                ? `flex items-start gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                    active ? "bg-emerald-100 text-emerald-950" : "text-slate-800 hover:bg-slate-50"
+                  }`
+                : `${drawerLinkClass(active)} flex items-center gap-2.5 !py-3`;
+            return (
+              <Link key={item.href} href={item.href} onClick={onNavigate} className={cls}>
+                <span className="text-lg leading-none" aria-hidden>
+                  {item.icon}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">{item.label}</span>
+                  {variant === "desktop" ? (
+                    <span className="block text-[11px] font-medium text-slate-500">{item.hint}</span>
+                  ) : null}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
+      ))}
       {variant === "desktop" ? (
         <div className="mt-2 border-t border-slate-100 pt-2">
           <p className="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Actions</p>
@@ -335,7 +369,7 @@ export default function AppNav() {
             {gestionOpen ? (
               <div
                 role="menu"
-                className="absolute left-0 z-50 mt-2 w-[17rem] rounded-2xl border border-emerald-100 bg-white p-2 shadow-lg ring-1 ring-emerald-50"
+                className="absolute left-0 z-50 mt-2 max-h-[min(70vh,36rem)] w-[18rem] overflow-y-auto rounded-2xl border border-emerald-100 bg-white p-2 shadow-lg ring-1 ring-emerald-50"
               >
                 {gestionDropdown(closeGestion, "desktop")}
               </div>
@@ -399,7 +433,7 @@ export default function AppNav() {
             aria-label="Sous-menu gestion"
           >
             <span className="self-center pe-1 font-bold text-emerald-600">Gestion:</span>
-            {GESTION_NAV_LINKS.map((item) => {
+            {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
               const active = isGestionLinkActive(pathname, item);
               return (
                 <Link
@@ -414,6 +448,28 @@ export default function AppNav() {
                 </Link>
               );
             })}
+            {groupedGestionNavLinks().map((group) => (
+              <div key={group.id} className="flex flex-wrap items-center gap-1">
+                <span className={`font-bold ${group.id === "creation" ? "text-violet-500" : "text-emerald-500"}`}>
+                  {group.label}:
+                </span>
+                {group.links.map((item) => {
+                  const active = isGestionLinkActive(pathname, item);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 font-bold ${
+                        active ? "bg-emerald-100 text-emerald-900 ring-1 ring-emerald-200" : "text-slate-700 hover:bg-emerald-50"
+                      }`}
+                    >
+                      <span aria-hidden>{item.icon}</span>
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         ) : null}
 

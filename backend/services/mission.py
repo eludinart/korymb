@@ -1141,6 +1141,26 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
         v = contexts.get(k)
         return v.strip() if isinstance(v, str) else ""
 
+    try:
+        from services.memory_inbox import (
+            MEMORY_INJECT_MAX_CHARS,
+            clip_memory_for_injection,
+            format_enterprise_facts_prompt,
+        )
+
+        inject_max = MEMORY_INJECT_MAX_CHARS
+        clip = clip_memory_for_injection
+        facts_blk = format_enterprise_facts_prompt(max_chars=900)
+    except Exception:
+        inject_max = 2000
+
+        def clip(text: str, max_chars: int | None = None) -> str:
+            t = (text or "").strip()
+            lim = max_chars if max_chars is not None else inject_max
+            return t if len(t) <= lim else t[: lim - 1].rstrip() + "…"
+
+        facts_blk = ""
+
     sub_keys = delegatable_subagent_keys_ordered()
     has_roles = any(ctx(k) for k in sub_keys)
 
@@ -1151,31 +1171,33 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
         except Exception:
             logger.exception("_past_missions_context_block")
 
-    if not ctx("global") and not has_roles and not recent and not db_block:
+    if not ctx("global") and not has_roles and not recent and not db_block and not facts_blk:
         return drive_blk if drive_blk else ""
 
     lines: list[str] = ["", "--- Mémoire entreprise (persistante) ---"]
+    if facts_blk:
+        lines.append(facts_blk)
 
     if agent_key == "coordinateur":
         if ctx("global"):
-            lines.append("Contexte global :\n" + _clip_mem_text(ctx("global"), 4000))
+            lines.append("Contexte global :\n" + clip(ctx("global"), inject_max))
         for rk in sub_keys:
             block = ctx(rk)
             if not block:
                 continue
             label = agents_def().get(rk, {}).get("label", rk)
-            lines.append(f"Périmètre {label} :\n" + _clip_mem_text(block, 1600))
+            lines.append(f"Périmètre {label} :\n" + clip(block, min(1600, inject_max)))
         if db_block.strip():
             lines.append(db_block.rstrip())
     else:
         if ctx("global"):
-            lines.append("Contexte global (extrait) :\n" + _clip_mem_text(ctx("global"), 1400))
+            lines.append("Contexte global (extrait) :\n" + clip(ctx("global"), min(1400, inject_max)))
         rk = agent_key
         if rk in agents_def() and rk != "coordinateur":
             block = ctx(rk)
             if block:
                 label = agents_def()[rk]["label"]
-                lines.append(f"Ton périmètre ({label}) :\n" + _clip_mem_text(block, 2400))
+                lines.append(f"Ton périmètre ({label}) :\n" + clip(block, min(2400, inject_max)))
 
     if recent:
         if agent_key == "coordinateur":
@@ -1191,8 +1213,8 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
                 jid = str(item.get("job_id") or "")
                 if jid and jid in shown_db:
                     continue
-                m = _clip_mem_text(str(item.get("mission") or ""), 360)
-                pv = _clip_mem_text(str(item.get("preview") or ""), 2800)
+                m = clip(str(item.get("mission") or ""), 360)
+                pv = clip(str(item.get("preview") or ""), 1200)
                 title = clip_mission_title(m, 90) or f"Mission {jid}"
                 lines.append(f"  · {title}\n    Consigne : {m}\n    Extrait livrable : {pv}")
         else:
@@ -1202,8 +1224,8 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
                 if not isinstance(item, dict):
                     continue
                 jid = str(item.get("job_id") or "")
-                m = _clip_mem_text(str(item.get("mission") or ""), 160)
-                pv = _clip_mem_text(str(item.get("preview") or ""), 320)
+                m = clip(str(item.get("mission") or ""), 160)
+                pv = clip(str(item.get("preview") or ""), 320)
                 title = clip_mission_title(m, 90) or f"Mission {jid}"
                 lines.append(f"  · {title} → {pv}")
 
@@ -1428,7 +1450,14 @@ def _cio_prompt_memory(agent_key: str, *, exclude_job_id: str | None, chat_mode:
     except Exception:
         drive_blk = ""
     if chat_mode:
-        return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+        chat_mem = ""
+        try:
+            from services.memory_inbox import build_chat_active_memory_block
+
+            chat_mem = build_chat_active_memory_block()
+        except Exception:
+            chat_mem = ""
+        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
     return (
         _korymb_memory_prompt_for(agent_key, exclude_job_id=exclude_job_id)
         + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
@@ -1451,8 +1480,8 @@ def _cio_attempt_direct_answer(
         + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
         "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
         "Par défaut, assume seul. Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
-        "Interdit : inventer des URLs (Google Drive/Sheets, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
-        "sans avoir appelé upload_google_drive ou une recherche web dans ce tour."
+        "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
+        "sans l'avoir produit via un outil (upload_google_drive / recherche web) dans ce tour."
     )
     messages = [{"role": "user", "content": mission_txt}]
     reply, ti, to = llm_chat_maybe_tools(
@@ -2815,6 +2844,17 @@ def _schedule_mission_execution(
     mission_txt = f"{mission_plain}{context_str}"
 
     def execute():
+        media_token = None
+        try:
+            from tools.media_engines import push_media_engine_mode
+
+            studio_ctx = context.get("studio") if isinstance(context, dict) else {}
+            mode = ""
+            if isinstance(studio_ctx, dict):
+                mode = str(studio_ctx.get("media_engine_mode") or "")
+            media_token = push_media_engine_mode(mode)
+        except Exception:
+            media_token = None
         job_logs.append(f"[korymb] Mission démarrée — {agent_cfg['label']}")
         cfg = active_jobs.get(job_id, {}).get("mission_config") or _mission_config_from_payload(None)
         if cfg.get("recursive_refinement_enabled"):
@@ -3086,6 +3126,14 @@ def _schedule_mission_execution(
                 mission_config=active_jobs.get(job_id, {}).get("mission_config"),
             )
             logger.error("Job [%s] échoué : %s", job_id, e)
+        finally:
+            if media_token is not None:
+                try:
+                    from tools.media_engines import reset_media_engine_mode
+
+                    reset_media_engine_mode(media_token)
+                except Exception:
+                    pass
 
     # Thread dédié : évite de saturer le pool Starlette utilisé par les routes API sync.
     threading.Thread(

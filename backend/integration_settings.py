@@ -16,6 +16,8 @@ _WRITE_LOCK = Lock()
 _PERSISTED_CACHE: dict[str, Any] | None = None
 _PERSISTED_CACHE_AT = 0.0
 _PERSISTED_CACHE_TTL_SEC = 2.0
+_LLM_RUNTIME_CACHE: dict[str, Any] | None = None
+_LLM_RUNTIME_CACHE_AT = 0.0
 
 _LLM_ENV_FALLBACK: dict[str, str] = {
     "ANTHROPIC_API_KEY": "anthropic_api_key",
@@ -23,6 +25,9 @@ _LLM_ENV_FALLBACK: dict[str, str] = {
     "OPENROUTER_BASE_URL": "openrouter_base_url",
     "OPENROUTER_HTTP_REFERER": "openrouter_http_referer",
     "OPENROUTER_APP_TITLE": "openrouter_app_title",
+    "MISTRAL_API_KEY": "mistral_api_key",
+    "MISTRAL_BASE_URL": "mistral_base_url",
+    "MISTRAL_MODEL": "mistral_model",
 }
 
 _SECRET_FIELDS: dict[str, bool] = {
@@ -33,9 +38,11 @@ _SECRET_FIELDS: dict[str, bool] = {
 
 
 def _invalidate_persisted_cache() -> None:
-    global _PERSISTED_CACHE, _PERSISTED_CACHE_AT
+    global _PERSISTED_CACHE, _PERSISTED_CACHE_AT, _LLM_RUNTIME_CACHE, _LLM_RUNTIME_CACHE_AT
     _PERSISTED_CACHE = None
     _PERSISTED_CACHE_AT = 0.0
+    _LLM_RUNTIME_CACHE = None
+    _LLM_RUNTIME_CACHE_AT = 0.0
 
 
 def _read_persisted(*, force: bool = False) -> dict[str, Any]:
@@ -61,12 +68,23 @@ def _read_persisted(*, force: bool = False) -> dict[str, Any]:
 
 
 def _llm_runtime_values() -> dict[str, Any]:
+    """Surcharges LLM (chat Mistral, etc.) — même TTL que les intégrations."""
+    global _LLM_RUNTIME_CACHE, _LLM_RUNTIME_CACHE_AT
+    now = time.monotonic()
+    if (
+        _LLM_RUNTIME_CACHE is not None
+        and (now - _LLM_RUNTIME_CACHE_AT) < _PERSISTED_CACHE_TTL_SEC
+    ):
+        return _LLM_RUNTIME_CACHE
     try:
         from runtime_settings import merge_with_env
 
-        return merge_with_env()
+        data = merge_with_env()
     except Exception:
-        return {}
+        data = {}
+    _LLM_RUNTIME_CACHE = data
+    _LLM_RUNTIME_CACHE_AT = now
+    return data
 
 
 def _resolve_value(
@@ -172,4 +190,13 @@ def save_partial(updates: dict[str, Any], *, clear_fields: list[str] | None = No
 
 def catalog_for_api() -> list[dict[str, Any]]:
     """Catalogue pour l'UI (sans secrets)."""
-    return INTEGRATION_GROUPS
+    from services.integration_oauth import provider_ready
+
+    out: list[dict[str, Any]] = []
+    for group in INTEGRATION_GROUPS:
+        item = dict(group)
+        oauth = str(item.get("oauth") or "")
+        if oauth:
+            item["oauth_ready"] = provider_ready(oauth)
+        out.append(item)
+    return out

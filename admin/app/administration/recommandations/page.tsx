@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../../lib/api";
+import { configLinksForSuggestion } from "../../../lib/configSuggestionLinks";
 
 type ConfigSuggestion = {
   id: string;
@@ -145,6 +146,29 @@ export default function RecommandationsPage() {
                 </div>
                 <h2 className="mt-2 font-semibold text-slate-900">{s.title}</h2>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-600">{s.body}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {configLinksForSuggestion(s).map((link, i) =>
+                    link.external ? (
+                      <a
+                        key={link.href}
+                        href={link.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-link-secondary text-xs"
+                      >
+                        {link.label}
+                      </a>
+                    ) : (
+                      <Link
+                        key={link.href}
+                        href={link.href}
+                        className={i === 0 ? "btn-link-primary text-xs" : "btn-link-secondary text-xs"}
+                      >
+                        {link.label}
+                      </Link>
+                    ),
+                  )}
+                </div>
               </div>
               {s.status === "pending" ? (
                 <div className="flex shrink-0 gap-2">

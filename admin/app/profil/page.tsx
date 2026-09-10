@@ -128,8 +128,16 @@ export default function ProfilPage() {
 
       <section className="flex flex-wrap gap-3">
         <Link href="/briefing" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">
-          Ouvrir le cockpit
+          Cockpit dirigeant
         </Link>
+        {me.workspace?.slug ? (
+          <Link
+            href={`/a/${encodeURIComponent(me.workspace.slug)}`}
+            className="rounded-xl border-2 border-emerald-300 px-4 py-2.5 text-sm font-bold text-emerald-800 hover:bg-emerald-50"
+          >
+            Espace participant
+          </Link>
+        ) : null}
         {me.role === "admin" ? (
           <Link href="/espace" className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Gérer l&apos;équipe

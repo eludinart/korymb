@@ -10,7 +10,7 @@ type ScheduledTask = {
   id: string;
   name: string;
   description: string;
-  task_type: "mission" | "veille" | "mission_proposals";
+  task_type: "mission" | "veille" | "mission_proposals" | "gmail_prospect_sync";
   agent: string;
   mission_template: string;
   params: Record<string, unknown>;
@@ -68,12 +68,14 @@ const TASK_TYPE_LABELS: Record<string, string> = {
   mission: "Mission directe",
   veille: "Veille web",
   mission_proposals: "Propositions d'agents",
+  gmail_prospect_sync: "Sync Gmail prospection",
 };
 
 const TASK_TYPE_COLORS: Record<string, string> = {
   mission: "bg-violet-100 text-violet-800",
   veille: "bg-blue-100 text-blue-800",
   mission_proposals: "bg-amber-100 text-amber-800",
+  gmail_prospect_sync: "bg-emerald-100 text-emerald-800",
 };
 
 function emptyForm() {
@@ -246,6 +248,7 @@ function TaskForm({
             <option value="veille">Veille web</option>
             <option value="mission">Mission directe</option>
             <option value="mission_proposals">Propositions d&apos;agents</option>
+            <option value="gmail_prospect_sync">Sync Gmail prospection</option>
           </select>
         </div>
 

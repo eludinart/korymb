@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { GESTION_NAV_LINKS } from "../../lib/gestionNav";
+import { groupedGestionNavLinks } from "../../lib/gestionNav";
 import { businessApi } from "../../lib/business";
 
 /** Raccourcis gestion pour le briefing — accès en 1 clic aux modules métier. */
@@ -26,7 +26,7 @@ export default function GestionShortcuts() {
             Gestion entreprise
           </h2>
           <p className="mt-0.5 text-sm text-emerald-900/80">
-            Contacts, projets, planning et devis — votre activité hors missions IA.
+            Contacts, studio, planning et devis — commercial et création au même endroit.
           </p>
         </div>
         <Link href="/gestion" className="btn-success text-xs sm:text-sm">
@@ -34,40 +34,68 @@ export default function GestionShortcuts() {
         </Link>
       </div>
 
-      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-        {GESTION_NAV_LINKS.map((item) => {
-          const statKey =
-            item.href === "/gestion/contacts"
-              ? stats?.contacts_active
-              : item.href === "/gestion/projets"
-                ? stats?.projects_active
-                : item.href === "/gestion/devis"
-                  ? stats?.quotes_pending
-                  : item.href === "/gestion/planning"
-                    ? stats?.events_this_week
-                    : null;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group flex min-h-[4.5rem] flex-col justify-between rounded-xl border border-emerald-100 bg-white/90 px-3 py-3 shadow-sm transition hover:border-emerald-300 hover:shadow-md"
-            >
-              <span className="text-lg" aria-hidden>
-                {item.icon}
-              </span>
-              <div>
-                <p className="text-sm font-bold text-slate-900 group-hover:text-emerald-900">{item.label}</p>
-                <p className="text-[11px] leading-snug text-slate-500">{item.hint}</p>
-                {statKey != null && overview.isSuccess ? (
-                  <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-                    {statKey} {item.href.includes("planning") ? "à venir" : "actif(s)"}
-                  </p>
-                ) : null}
-              </div>
-            </Link>
-          );
-        })}
-      </div>
+      {groupedGestionNavLinks().map((group) => (
+        <div key={group.id} className="mt-4">
+          <p
+            className={`mb-2 text-[10px] font-extrabold uppercase tracking-wider ${
+              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
+            }`}
+          >
+            {group.label}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {group.links.map((item) => {
+              const statKey =
+                item.href === "/gestion/contacts"
+                  ? stats?.contacts_active
+                  : item.href === "/gestion/projets"
+                    ? stats?.projects_active
+                    : item.href === "/gestion/devis"
+                      ? stats?.quotes_pending
+                      : item.href === "/gestion/planning"
+                        ? stats?.events_this_week
+                        : item.href === "/gestion/courrier"
+                          ? stats?.email_needs_reply
+                          : null;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`group flex min-h-[4.5rem] flex-col justify-between rounded-xl border bg-white/90 px-3 py-3 shadow-sm transition hover:shadow-md ${
+                    group.id === "creation"
+                      ? "border-violet-100 hover:border-violet-300"
+                      : "border-emerald-100 hover:border-emerald-300"
+                  }`}
+                >
+                  <span className="text-lg" aria-hidden>
+                    {item.icon}
+                  </span>
+                  <div>
+                    <p
+                      className={`text-sm font-bold text-slate-900 ${
+                        group.id === "creation" ? "group-hover:text-violet-900" : "group-hover:text-emerald-900"
+                      }`}
+                    >
+                      {item.label}
+                    </p>
+                    <p className="text-[11px] leading-snug text-slate-500">{item.hint}</p>
+                    {statKey != null && overview.isSuccess ? (
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                        {statKey}{" "}
+                        {item.href.includes("planning")
+                          ? "à venir"
+                          : item.href.includes("courrier")
+                            ? "à traiter"
+                            : "actif(s)"}
+                      </p>
+                    ) : null}
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      ))}
     </section>
   );
 }

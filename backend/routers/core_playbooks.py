@@ -20,7 +20,7 @@ class PlaybookBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=200)
     description: str = ""
-    category: str = Field(default="generic", pattern="^(fleur|sivana|generic)$")
+    category: str = Field(default="generic", pattern="^(fleur|sivana|generic|ops|studio)$")
     steps: dict = Field(default_factory=dict)
     template_id: str | None = None
 

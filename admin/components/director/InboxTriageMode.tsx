@@ -117,7 +117,7 @@ export default function InboxTriageMode({ items, onDismissed }: Props) {
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
         <div className="max-w-md rounded-3xl border-2 border-emerald-300 bg-white p-8 text-center shadow-2xl">
           <p className="text-4xl">✓</p>
-          <h2 className="mt-3 text-2xl font-extrabold text-slate-900">Inbox vide</h2>
+          <h2 className="mt-3 text-2xl font-extrabold text-slate-900">Aucune décision en attente</h2>
           <p className="mt-2 text-sm text-slate-600">Toutes vos décisions sont traitées. Bonne journée.</p>
           <button
             type="button"

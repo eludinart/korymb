@@ -35,6 +35,8 @@ export function writeShowTechnical(value: boolean) {
 export function useExecutiveMode(): {
   executiveMode: boolean;
   showTechnical: boolean;
+  technicalOptIn: boolean;
+  isPilotage: boolean;
   setShowTechnical: (v: boolean) => void;
   toggleTechnical: () => void;
 } {
@@ -54,8 +56,15 @@ export function useExecutiveMode(): {
     setShowTechnical(!readShowTechnical());
   }, [setShowTechnical]);
 
-  const pilotage = isPilotagePath(pathname);
-  const executiveMode = !pilotage && !showTechnical;
+  const isPilotage = isPilotagePath(pathname);
+  const executiveMode = !isPilotage && !showTechnical;
 
-  return { executiveMode, showTechnical: pilotage || showTechnical, setShowTechnical, toggleTechnical };
+  return {
+    executiveMode,
+    showTechnical: isPilotage || showTechnical,
+    technicalOptIn: showTechnical,
+    isPilotage,
+    setShowTechnical,
+    toggleTechnical,
+  };
 }

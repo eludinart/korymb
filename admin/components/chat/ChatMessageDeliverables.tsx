@@ -70,11 +70,11 @@ export default function ChatMessageDeliverables({ message }: Props) {
             compact
           />
           <p className="mt-2 text-[10px] text-slate-500">
-            <Link href="/livrables" className="font-semibold text-violet-700 hover:underline">
+            <Link href="/gestion/livrables" className="font-semibold text-violet-700 hover:underline">
               Tous les livrables
             </Link>
             {" · "}
-            <Link href={`/livrables?job=${encodeURIComponent(jobId)}`} className="text-violet-700 hover:underline">
+            <Link href={`/gestion/livrables?job=${encodeURIComponent(jobId)}`} className="text-violet-700 hover:underline">
               Contexte mission
             </Link>
           </p>

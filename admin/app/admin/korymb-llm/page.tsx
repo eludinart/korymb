@@ -706,8 +706,8 @@ export default function KorymbLlmAdminPage() {
                   </label>
                   <p className="mb-1.5 text-xs text-slate-500">
                     {data.mistral_api_key_set
-                      ? "Déjà enregistrée — ne remplissez que pour la faire tourner."
-                      : "Obligatoire pour appeler l’API Mistral."}
+                      ? "Déjà enregistrée — elle sert aussi à générer les images du Studio (Flux)."
+                      : "Une seule clé : chat des missions et images du Studio."}
                   </p>
                   <input
                     id="mistral_api_key"

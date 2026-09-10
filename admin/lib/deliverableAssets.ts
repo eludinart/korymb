@@ -7,6 +7,9 @@ export type DeliverableChannel =
   | "drive_sheet"
   | "drive_doc"
   | "drive_file"
+  | "local_sheet"
+  | "local_doc"
+  | "local_file"
   | "in_app"
   | "email_draft"
   | "linkedin"
@@ -43,6 +46,24 @@ const CHANNEL_META: Record<
   drive_file: {
     label: "Google Drive",
     actionLabel: "Ouvrir sur Drive",
+    style: "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100",
+    external: true,
+  },
+  local_sheet: {
+    label: "Tableau",
+    actionLabel: "Ouvrir le tableau",
+    style: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
+    external: true,
+  },
+  local_doc: {
+    label: "Document",
+    actionLabel: "Ouvrir le document",
+    style: "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100",
+    external: true,
+  },
+  local_file: {
+    label: "Fichier",
+    actionLabel: "Ouvrir",
     style: "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100",
     external: true,
   },
@@ -98,21 +119,41 @@ export function livrableAnchorId(title: string): string {
   return `livrable-${slugAnchor(title)}`;
 }
 
-function driveChannelFromKind(kind?: string, name?: string): DeliverableChannel {
-  const k = String(kind || "").toLowerCase();
-  const n = String(name || "").toLowerCase();
-  if (k.includes("sheet") || n.includes(".csv")) return "drive_sheet";
-  if (k.includes("doc") || n.endsWith(".md")) return "drive_doc";
-  return "drive_file";
+function isLocalFileHref(href?: string, id?: string, storage?: string): boolean {
+  const h = String(href || "").toLowerCase();
+  const i = String(id || "").toLowerCase();
+  return (
+    String(storage || "").toLowerCase() === "local" ||
+    i.startsWith("rfil-") ||
+    h.includes("/resource-files/") ||
+    h.startsWith("/api/korymb-bin/")
+  );
 }
 
-/** Liens Drive présents dans le markdown de résultat (section auto-export). */
+function fileChannelFromKind(kind?: string, name?: string, local?: boolean): DeliverableChannel {
+  const k = String(kind || "").toLowerCase();
+  const n = String(name || "").toLowerCase();
+  if (k.includes("sheet") || n.includes(".csv")) return local ? "local_sheet" : "drive_sheet";
+  if (k.includes("doc") || n.endsWith(".md")) return local ? "local_doc" : "drive_doc";
+  return local ? "local_file" : "drive_file";
+}
+
+function artifactHref(d: DriveArtifact): string {
+  const href = String(d.webViewLink || d.url || "").trim();
+  if (href) return href;
+  const id = String(d.id || "").trim();
+  if (id.startsWith("rfil-")) return `/api/korymb-bin/business/resource-files/${encodeURIComponent(id)}?inline=true`;
+  return "";
+}
+
+/** Liens fichiers présents dans le markdown de résultat (export auto). */
 export function extractDriveLinksFromMarkdown(md: string): Array<{ title: string; href: string }> {
   const out: Array<{ title: string; href: string }> = [];
-  const re = /\[([^\]]+)\]\((https?:\/\/(?:drive|docs)\.google\.com\/[^)]+)\)/gi;
+  const re =
+    /\[([^\]]+)\]\((https?:\/\/(?:drive|docs)\.google\.com\/[^)]+|\/?api\/korymb-bin\/business\/resource-files\/[^)]+)\)/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(md || ""))) {
-    out.push({ title: m[1].trim(), href: m[2].trim() });
+    out.push({ title: m[1].trim(), href: m[2].trim().startsWith("api/") ? `/${m[2].trim()}` : m[2].trim() });
   }
   return out;
 }
@@ -136,12 +177,13 @@ export function buildDeliverableAssets(opts: {
   };
 
   for (const d of opts.driveArtifacts || []) {
-    const href = String(d.webViewLink || d.url || "").trim();
+    const href = artifactHref(d);
     if (!href) continue;
+    const local = isLocalFileHref(href, d.id, d.storage);
     push({
-      id: `drive:${opts.jobId}:${d.id || href}`,
-      title: String(d.name || "Fichier Drive").trim(),
-      channel: driveChannelFromKind(d.kind, d.name),
+      id: `file:${opts.jobId}:${d.id || href}`,
+      title: String(d.name || (local ? "Fichier" : "Fichier Drive")).trim(),
+      channel: fileChannelFromKind(d.kind, d.name, local),
       href,
       agentKey: d.agent ? String(d.agent) : undefined,
     });
@@ -149,7 +191,14 @@ export function buildDeliverableAssets(opts: {
 
   const md = `${opts.result || ""}\n${opts.deliverablesMarkdown || ""}`;
   for (const link of extractDriveLinksFromMarkdown(md)) {
-    const ch = link.href.includes("spreadsheets") ? "drive_sheet" : link.href.includes("document") ? "drive_doc" : "drive_file";
+    const local = isLocalFileHref(link.href);
+    const ch = local
+      ? fileChannelFromKind("", link.title, true)
+      : link.href.includes("spreadsheets")
+        ? "drive_sheet"
+        : link.href.includes("document")
+          ? "drive_doc"
+          : "drive_file";
     push({
       id: `mdlink:${opts.jobId}:${link.href}`,
       title: link.title,
@@ -162,7 +211,7 @@ export function buildDeliverableAssets(opts: {
   for (const [idx, item] of deliverablesForMissionPanel(combinedForInApp).entries()) {
     const anchorId = livrableAnchorId(item.title);
     const titleLower = item.title.toLowerCase();
-    const hasDrive = assets.some(
+    const hasFile = assets.some(
       (a) => a.href && (a.title.toLowerCase().includes(titleLower.slice(0, 24)) || titleLower.includes(a.title.toLowerCase().slice(0, 24))),
     );
 
@@ -174,7 +223,7 @@ export function buildDeliverableAssets(opts: {
       markdownBody: item.body,
     });
 
-    if (!hasDrive && item.body.trim().length > 40) {
+    if (!hasFile && item.body.trim().length > 40) {
       push({
         id: `email:${opts.jobId}:${anchorId}:${idx}`,
         title: `${item.title} — brouillon`,

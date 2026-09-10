@@ -19,41 +19,44 @@ export default function MissionsHubToolbar({
   activeCount,
   archivesCount,
 }: Props) {
-  const tabClass = (active: boolean) =>
-    `touch-target rounded-full px-3 text-sm font-bold transition-colors ${
-      active ? "bg-violet-700 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-    }`;
-
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/90 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
-      <div className="flex w-full gap-2 overflow-x-auto pb-0.5 sm:w-auto sm:flex-wrap" role="tablist" aria-label="Vue missions">
-        <button type="button" role="tab" aria-selected={view === "active"} className={`${tabClass(view === "active")} shrink-0`} onClick={() => onViewChange("active")}>
-          Opérationnel ({activeCount})
-        </button>
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <button
           type="button"
           role="tab"
-          aria-selected={view === "archives"}
-          className={`${tabClass(view === "archives")} shrink-0`}
+          aria-selected={view === "active"}
+          className={`rounded-full px-3.5 py-2 text-sm font-bold transition-colors ${
+            view === "active"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+          }`}
+          onClick={() => onViewChange("active")}
+        >
+          En cours ({activeCount})
+        </button>
+        <button
+          type="button"
+          className={`rounded-full px-3 py-2 text-sm font-medium ${
+            view === "archives" ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-100"
+          }`}
           onClick={() => onViewChange("archives")}
         >
           Archives ({archivesCount})
         </button>
         <button
           type="button"
-          role="tab"
-          aria-selected={view === "guided"}
-          className={`${tabClass(view === "guided")} shrink-0`}
+          className={`rounded-full px-3 py-2 text-sm font-medium ${
+            view === "guided" ? "bg-slate-800 text-white" : "text-slate-500 hover:bg-slate-100"
+          }`}
           onClick={() => onViewChange("guided")}
         >
-          Cadrage guidé
+          Cadrage
         </button>
       </div>
-      <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:justify-end">
-        <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
-          {showCreate ? "Masquer" : "Nouvelle mission"}
-        </button>
-      </div>
+      <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
+        {showCreate ? "Masquer" : "Nouvelle mission"}
+      </button>
     </div>
   );
 }

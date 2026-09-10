@@ -157,20 +157,23 @@ async def run_task_by_id(task_id: str) -> None:
         if not task.get("enabled"):
             return
 
-        BudgetGuard.check(task)
-
         task_type = str(task.get("task_type") or "mission")
 
         # Exécution awaited : les erreurs remontent ici (plus de fire-and-forget silencieux)
         # et `last_run_at` n'est marqué qu'après un lancement réussi.
-        if task_type == "veille":
-            from services.veille import run_veille_task
-            await run_veille_task(task)
-        elif task_type == "mission_proposals":
-            from services.veille import run_mission_proposals_task
-            await run_mission_proposals_task(task)
+        if task_type == "gmail_prospect_sync":
+            from services.email_prospecting import run_gmail_prospect_sync_task
+            await run_gmail_prospect_sync_task(task)
         else:
-            await _execute_mission_async(task)
+            BudgetGuard.check(task)
+            if task_type == "veille":
+                from services.veille import run_veille_task
+                await run_veille_task(task)
+            elif task_type == "mission_proposals":
+                from services.veille import run_mission_proposals_task
+                await run_mission_proposals_task(task)
+            else:
+                await _execute_mission_async(task)
 
         update_scheduled_task(task_id, last_run_at=datetime.utcnow().isoformat())
 

@@ -81,15 +81,19 @@ export type Job = {
   drive_artifacts?: DriveArtifact[];
   /** true si un thread serveur exécute réellement ce job (false = fantôme). */
   execution_live?: boolean | null;
+  /** Gate HITL (liste cards / détail). */
+  hitl?: { gate?: { kind?: string } } | null;
+  hitl_gate?: { kind?: string; gate?: { kind?: string } } | null;
 };
 
-/** Fichier déposé sur Google Drive (export auto ou outil agent). */
+/** Fichier déposé dans l'espace Korymb (ou ancien export Drive). */
 export type DriveArtifact = {
   id?: string;
   name?: string;
   webViewLink?: string;
   url?: string;
   kind?: string;
+  storage?: string;
   agent?: string;
   job_id?: string;
 };

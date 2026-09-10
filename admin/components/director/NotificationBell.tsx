@@ -6,9 +6,38 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL } from "../../lib/directorQueue";
 import type { DirectorNotification } from "../../lib/directorNotificationUi";
 import DirectorToast from "./DirectorToast";
 import NotificationItemRow from "./NotificationItemRow";
+
+function showDesktopEmailAlert(n: DirectorNotification) {
+  if (typeof window === "undefined" || typeof Notification === "undefined") return;
+  const href = n.action_url || "/gestion/courrier";
+  const spawn = () => {
+    try {
+      const note = new Notification(n.title || "Nouveau message", {
+        body: (n.body || "Une réponse est arrivée dans le courrier.").slice(0, 180),
+        tag: n.id || "email_reply",
+      });
+      note.onclick = () => {
+        window.focus();
+        window.location.assign(href);
+      };
+    } catch {
+      /* ignore */
+    }
+  };
+  if (Notification.permission === "granted") {
+    spawn();
+    return;
+  }
+  if (Notification.permission === "default") {
+    void Notification.requestPermission().then((perm) => {
+      if (perm === "granted") spawn();
+    });
+  }
+}
 
 type FilterMode = "unread" | "all";
 
@@ -62,6 +91,11 @@ export default function NotificationBell() {
         setToast(payload);
         void qc.invalidateQueries({ queryKey: ["director-notifications"] });
         void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+        if (String(payload.kind || "") === "email_reply") {
+          void qc.invalidateQueries({ queryKey: ["business-mailbox"] });
+          void qc.invalidateQueries({ queryKey: ["business-contact-emails"] });
+          showDesktopEmailAlert(payload);
+        }
       } catch {
         /* ignore */
       }
@@ -189,11 +223,11 @@ export default function NotificationBell() {
           <p className="text-sm font-extrabold text-slate-950">Notifications</p>
           <div className="flex items-center gap-2">
             <Link
-              href="/inbox"
+              href={DIRECTOR_QUEUE_HREF}
               onClick={() => setOpen(false)}
               className="text-[11px] font-bold text-violet-800 hover:underline"
             >
-              Inbox
+              {DIRECTOR_QUEUE_LABEL}
             </Link>
             <button
               type="button"

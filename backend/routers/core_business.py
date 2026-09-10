@@ -3,7 +3,8 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from auth import resolve_tenant
@@ -12,6 +13,10 @@ from services.business_db import (
     CONTACT_TYPES,
     EVENT_STATUSES,
     EVENT_TYPES,
+    EVENT_MODALITIES,
+    EVENT_NATURES,
+    EVENT_RESOURCE_TYPES,
+    EVENT_VISIBILITIES,
     INTERACTION_TYPES,
     INVOICE_STATUSES,
     PROJECT_STATUSES,
@@ -35,6 +40,7 @@ from services.business_db import (
     fill_contact_from_exploration,
     get_business_overview,
     get_calendar_event,
+    load_event_resource_file,
     get_contact,
     get_enrichment_proposal,
     get_external_invoice,
@@ -58,9 +64,15 @@ from services.business_db import (
     update_quote,
 )
 from services.email_prospecting import (
+    delete_email_message_for_contact,
+    delete_email_thread_for_contact,
+    get_email_message,
     list_contact_email_threads,
+    list_mailbox,
     prepare_contact_email_ticket,
+    suggest_email_replies,
     sync_gmail_replies_for_contact,
+    sync_gmail_replies_mailbox,
 )
 from services.tiime_client import is_tiime_automation_configured, request_tiime_invoice
 
@@ -175,6 +187,16 @@ class EventCreate(BaseModel):
     location: str = ""
     status: str = "planned"
     notes: str = ""
+    is_public: bool = False
+    visibility: str | None = None
+    audience_contact_ids: list[str] = Field(default_factory=list)
+    audience_user_ids: list[str] = Field(default_factory=list)
+    modality: str = ""
+    nature: str = "presence"
+    resource_type: str = ""
+    resource_url: str = ""
+    resource_file_id: str = ""
+    cover_file_id: str = ""
 
 
 class EventUpdate(BaseModel):
@@ -187,6 +209,16 @@ class EventUpdate(BaseModel):
     location: str | None = None
     status: str | None = None
     notes: str | None = None
+    is_public: bool | None = None
+    visibility: str | None = None
+    audience_contact_ids: list[str] | None = None
+    audience_user_ids: list[str] | None = None
+    modality: str | None = None
+    nature: str | None = None
+    resource_type: str | None = None
+    resource_url: str | None = None
+    resource_file_id: str | None = None
+    cover_file_id: str | None = None
 
 
 class ExternalInvoiceCreate(BaseModel):
@@ -573,6 +605,159 @@ class ContactEmailPrepareBody(BaseModel):
     body: str = ""
     job_id: str = ""
     thread_id: str = ""
+    in_reply_to: str = ""
+    gmail_thread_id: str = ""
+    attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+
+class ContactEmailSuggestBody(BaseModel):
+    thread_id: str = ""
+    message_id: str = ""
+    guidance: str = Field(default="", max_length=4000)
+    seed_body: str = Field(default="", max_length=4000)
+    seed_subject: str = Field(default="", max_length=200)
+
+
+@router.get("/business/emails", dependencies=[Depends(resolve_tenant)])
+async def business_list_mailbox(
+    bucket: str = Query(default="all"),
+    limit: int = Query(default=80, ge=1, le=200),
+):
+    """Courrier prospection : tous les fils CRM + brouillons HITL."""
+    return list_mailbox(bucket=bucket, limit=limit)
+
+
+@router.post("/business/emails/sync", dependencies=[Depends(resolve_tenant)])
+async def business_sync_mailbox():
+    """Synchronise Gmail pour tous les contacts ayant un fil CRM ouvert."""
+    result = sync_gmail_replies_mailbox()
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Sync Gmail impossible",
+        )
+    return result
+
+
+def _attachment_response(data: bytes, filename: str, mime: str, *, inline: bool = False) -> Response:
+    from services.email_files import can_inline, content_disposition
+
+    use_inline = bool(inline and can_inline(mime))
+    return Response(
+        content=data,
+        media_type=mime or "application/octet-stream",
+        headers={
+            "Content-Disposition": content_disposition(filename, inline=use_inline),
+            "Cache-Control": "private, max-age=120",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@router.post("/business/email-files", dependencies=[Depends(resolve_tenant)])
+async def business_upload_email_file(file: UploadFile = File(...)):
+    """Dépose une pièce jointe avant préparation HITL (e-mail initial ou réponse)."""
+    from services.email_files import save_upload
+
+    data = await file.read()
+    result = save_upload(
+        filename=file.filename or "fichier",
+        mime=file.content_type or "application/octet-stream",
+        data=data,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Upload impossible",
+        )
+    return result
+
+
+@router.get("/business/email-files/{file_id}", dependencies=[Depends(resolve_tenant)])
+async def business_get_email_file(file_id: str, inline: bool = Query(default=False)):
+    """Consulte une PJ locale (brouillon HITL pas encore envoyé)."""
+    from services.email_files import load_local_file, read_file_bytes
+
+    item = load_local_file(file_id)
+    if not item:
+        raise HTTPException(404, detail="Fichier introuvable")
+    return _attachment_response(
+        read_file_bytes(item),
+        str(item.get("filename") or "fichier"),
+        str(item.get("mime") or "application/octet-stream"),
+        inline=inline,
+    )
+
+
+@router.post("/business/resource-files", dependencies=[Depends(resolve_tenant)])
+async def business_upload_resource_file(file: UploadFile = File(...)):
+    """Dépose un fichier de ressource planning (vidéo, podcast, document)."""
+    from services.resource_files import save_upload
+
+    data = await file.read()
+    result = save_upload(
+        filename=file.filename or "fichier",
+        mime=file.content_type or "application/octet-stream",
+        data=data,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Upload impossible",
+        )
+    return result
+
+
+@router.get("/business/resource-files/{file_id}", dependencies=[Depends(resolve_tenant)])
+async def business_get_resource_file(file_id: str, inline: bool = Query(default=False)):
+    from services.resource_files import as_fastapi_response, load_local_file
+
+    item = load_local_file(file_id)
+    if not item:
+        raise HTTPException(404, detail="Fichier introuvable")
+    return as_fastapi_response(item, inline=inline)
+
+
+@router.get("/business/events/{event_id}/file", dependencies=[Depends(resolve_tenant)])
+async def business_get_event_resource_file(event_id: str, inline: bool = Query(default=False)):
+    from services.resource_files import as_fastapi_response
+
+    item = load_event_resource_file(event_id)
+    if not item:
+        raise HTTPException(404, detail="Fichier introuvable")
+    return as_fastapi_response(item, inline=inline)
+
+
+@router.get(
+    "/business/emails/messages/{message_id}/attachments/{attachment_id}",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_get_email_attachment(
+    message_id: str,
+    attachment_id: str,
+    inline: bool = Query(default=False),
+):
+    """Télécharge ou ouvre une pièce jointe d'un message CRM (local ou Gmail)."""
+    from services.email_files import load_attachment_payload, resolve_message_attachment
+
+    message = get_email_message(message_id)
+    if not message:
+        raise HTTPException(404, detail="Message introuvable")
+    meta = resolve_message_attachment(message, attachment_id)
+    if not meta:
+        raise HTTPException(404, detail="Pièce jointe introuvable")
+    result = load_attachment_payload(message, meta)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Pièce jointe indisponible",
+        )
+    return _attachment_response(
+        result["data"],
+        str(result.get("filename") or meta.get("filename") or "fichier"),
+        str(result.get("mime") or meta.get("mime") or "application/octet-stream"),
+        inline=inline,
+    )
 
 
 @router.get("/business/contacts/{contact_id}/emails", dependencies=[Depends(resolve_tenant)])
@@ -595,11 +780,60 @@ async def business_prepare_contact_email(contact_id: str, body: ContactEmailPrep
         body=payload.body,
         job_id=payload.job_id,
         thread_id=payload.thread_id,
+        in_reply_to=payload.in_reply_to,
+        gmail_thread_id=payload.gmail_thread_id,
+        attachment_ids=payload.attachment_ids,
     )
     if not result.get("success"):
         raise HTTPException(
             status_code=int(result.get("status_code") or 400),
             detail=result.get("error") or "Impossible de préparer l'e-mail",
+        )
+    return result
+
+
+@router.post("/business/contacts/{contact_id}/emails/send", dependencies=[Depends(resolve_tenant)])
+async def business_send_contact_email(contact_id: str, body: ContactEmailPrepareBody | None = None):
+    """Envoie l'e-mail depuis le rédacteur (sans passer par Décisions)."""
+    payload = body or ContactEmailPrepareBody()
+    result = prepare_contact_email_ticket(
+        contact_id,
+        subject=payload.subject,
+        body=payload.body,
+        job_id=payload.job_id,
+        thread_id=payload.thread_id,
+        in_reply_to=payload.in_reply_to,
+        gmail_thread_id=payload.gmail_thread_id,
+        attachment_ids=payload.attachment_ids,
+        send_now=True,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Impossible d'envoyer l'e-mail",
+        )
+    return result
+
+
+@router.post("/business/contacts/{contact_id}/emails/suggest-replies", dependencies=[Depends(resolve_tenant)])
+async def business_suggest_contact_email_replies(
+    contact_id: str,
+    body: ContactEmailSuggestBody | None = None,
+):
+    """Propose 3 brouillons de réponse contextualisés (LLM, repli heuristique)."""
+    payload = body or ContactEmailSuggestBody()
+    result = suggest_email_replies(
+        contact_id,
+        thread_id=payload.thread_id,
+        message_id=payload.message_id,
+        guidance=payload.guidance,
+        seed_body=payload.seed_body,
+        seed_subject=payload.seed_subject,
+    )
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Suggestions impossibles",
         )
     return result
 
@@ -612,6 +846,40 @@ async def business_sync_contact_emails(contact_id: str):
         raise HTTPException(
             status_code=int(result.get("status_code") or 400),
             detail=result.get("error") or "Sync Gmail impossible",
+        )
+    return result
+
+
+@router.delete(
+    "/business/contacts/{contact_id}/emails/messages/{message_id}",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_delete_contact_email_message(contact_id: str, message_id: str):
+    """Retire un e-mail envoyé du suivi CRM (Gmail inchangé)."""
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    result = delete_email_message_for_contact(contact_id, message_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Suppression impossible",
+        )
+    return result
+
+
+@router.delete(
+    "/business/contacts/{contact_id}/emails/threads/{thread_id}",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_delete_contact_email_thread(contact_id: str, thread_id: str):
+    """Retire un fil e-mail du suivi CRM (Gmail inchangé)."""
+    if not get_contact(contact_id):
+        raise HTTPException(404, detail="Contact introuvable")
+    result = delete_email_thread_for_contact(contact_id, thread_id)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=int(result.get("status_code") or 400),
+            detail=result.get("error") or "Suppression impossible",
         )
     return result
 
@@ -802,6 +1070,17 @@ async def business_create_event(body: EventCreate):
         raise HTTPException(422, detail=f"event_type invalide — {EVENT_TYPES}")
     if body.status not in EVENT_STATUSES:
         raise HTTPException(422, detail=f"status invalide — {EVENT_STATUSES}")
+    if body.modality not in EVENT_MODALITIES:
+        raise HTTPException(422, detail="modality invalide — présentiel, visio ou async")
+    if body.nature not in EVENT_NATURES:
+        raise HTTPException(422, detail="nature invalide — presence ou matiere")
+    if body.resource_type not in EVENT_RESOURCE_TYPES:
+        raise HTTPException(422, detail="resource_type invalide — video, podcast ou document")
+    if body.visibility is not None and body.visibility not in EVENT_VISIBILITIES:
+        raise HTTPException(422, detail="visibility invalide — internal, selected, participants ou public")
+    if body.visibility == "selected" and not body.audience_user_ids and not body.audience_contact_ids and not body.contact_id:
+        raise HTTPException(422, detail="Choisissez au moins un participant pour un accès nominatif.")
+        raise HTTPException(422, detail="Choisissez au moins une personne pour un accès nominatif.")
     return create_calendar_event(**body.model_dump())
 
 
@@ -819,6 +1098,21 @@ async def business_update_event(event_id: str, body: EventUpdate):
         raise HTTPException(422, detail=f"event_type invalide — {EVENT_TYPES}")
     if body.status and body.status not in EVENT_STATUSES:
         raise HTTPException(422, detail=f"status invalide — {EVENT_STATUSES}")
+    if body.modality is not None and body.modality not in EVENT_MODALITIES:
+        raise HTTPException(422, detail="modality invalide — présentiel, visio ou async")
+    if body.nature is not None and body.nature not in EVENT_NATURES:
+        raise HTTPException(422, detail="nature invalide — presence ou matiere")
+    if body.resource_type is not None and body.resource_type not in EVENT_RESOURCE_TYPES:
+        raise HTTPException(422, detail="resource_type invalide — video, podcast ou document")
+    if body.visibility is not None and body.visibility not in EVENT_VISIBILITIES:
+        raise HTTPException(422, detail="visibility invalide — internal, selected, participants ou public")
+    if body.visibility == "selected" and (
+        (body.audience_user_ids is not None and not body.audience_user_ids)
+        and (body.audience_contact_ids is not None and not body.audience_contact_ids)
+        and not body.contact_id
+    ):
+        raise HTTPException(422, detail="Choisissez au moins un participant pour un accès nominatif.")
+        raise HTTPException(422, detail="Choisissez au moins une personne pour un accès nominatif.")
     row = update_calendar_event(event_id, **body.model_dump(exclude_unset=True))
     if not row:
         raise HTTPException(404, detail="Événement introuvable")

@@ -268,7 +268,7 @@ export default function RepriseAuditPage() {
           <>
             <PageLink href="/briefing">Briefing</PageLink>
             <PageLink href="/inbox" variant="secondary">
-              Inbox
+              Décisions
             </PageLink>
             <PageLink href="/administration/memory" variant="secondary">
               Mémoire

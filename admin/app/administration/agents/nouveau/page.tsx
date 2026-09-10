@@ -7,7 +7,20 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { requestJson } from "../../../../lib/api";
 import { QK } from "../../../../lib/queryClient";
 
-const TOOL_TAGS = ["web", "linkedin", "email", "instagram", "facebook", "drive"] as const;
+const TOOL_TAGS = [
+  "web",
+  "linkedin",
+  "email",
+  "instagram",
+  "facebook",
+  "drive",
+  "media",
+  "cms",
+  "studio",
+  "canva",
+  "youtube",
+  "pinterest",
+] as const;
 
 function slugifyKey(raw: string): string {
   const s = raw

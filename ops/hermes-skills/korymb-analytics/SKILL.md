@@ -117,7 +117,7 @@ ORDER BY day DESC
 "
 ```
 
-### Inbox dirigeant (notifications non lues)
+### Décisions (notifications non lues)
 
 ```bash
 /opt/data/scripts/korymb-sql.sh "

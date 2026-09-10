@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../components/ui/PageChrome";
 import { businessApi } from "../../lib/business";
-import { GESTION_NAV_LINKS } from "../../lib/gestionNav";
+import { groupedGestionNavLinks } from "../../lib/gestionNav";
 
 export default function GestionHubPage() {
   const overview = useQuery({
@@ -18,6 +18,7 @@ export default function GestionHubPage() {
 
   const statFor = (href: string): number | null => {
     if (!stats) return null;
+    if (href.includes("courrier")) return stats.email_needs_reply ?? null;
     if (href.includes("contacts")) return stats.contacts_active;
     if (href.includes("projets")) return stats.projects_active;
     if (href.includes("devis")) return stats.quotes_pending;
@@ -30,50 +31,66 @@ export default function GestionHubPage() {
       <PageHeader
         accent="emerald"
         badge="Gestion entreprise"
-        title="Cockpit métier"
-        description="Contacts, projets, planning et devis. Les factures légales sont émises dans Tiime (facturation électronique)."
+        title="Vue d'ensemble"
+        description="Création de contenus (studio, playbooks, livrables) et activité commerciale (contacts, courrier, planning, devis). Les factures légales passent par Tiime."
         actions={
           <>
-            <Link href="/gestion/contacts/nouveau" className="btn-link-primary">
-              Nouveau contact
+            <Link href="/gestion/studio" className="btn-link-primary">
+              Ouvrir le studio
             </Link>
-            <Link href="/gestion/devis/nouveau" className="btn-link-secondary">
-              Nouveau devis
+            <Link href="/gestion/contacts/nouveau" className="btn-link-secondary">
+              Nouveau contact
             </Link>
           </>
         }
       />
 
-      {overview.isLoading ? <LoadingLine label="Chargement du cockpit métier…" /> : null}
+      {overview.isLoading ? <LoadingLine label="Chargement de la gestion…" /> : null}
       {overview.isError ? (
         <AlertBox tone="error" title="Données indisponibles">
           Impossible de charger le module gestion. Vérifiez que le backend est démarré.
         </AlertBox>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {GESTION_NAV_LINKS.filter((l) => !l.exact).map((item) => {
-          const n = statFor(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="rounded-2xl border-2 border-emerald-100 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow-md"
-            >
-              <span className="text-2xl" aria-hidden>
-                {item.icon}
-              </span>
-              <p className="mt-2 text-base font-bold text-slate-900">{item.label}</p>
-              <p className="text-sm text-slate-600">{item.hint}</p>
-              {n != null ? (
-                <p className="mt-2 text-xs font-bold uppercase tracking-wide text-emerald-700">
-                  {n} {item.href.includes("planning") ? "à venir (7 j)" : "en cours"}
-                </p>
-              ) : null}
-            </Link>
-          );
-        })}
-      </div>
+      {groupedGestionNavLinks().map((group) => (
+        <section key={group.id} className="space-y-3">
+          <h2 className={`text-xs font-extrabold uppercase tracking-wider ${group.id === "creation" ? "text-violet-800" : "text-emerald-800"}`}>
+            {group.label}
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {group.links.map((item) => {
+              const n = statFor(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`rounded-2xl border-2 bg-white p-4 shadow-sm transition hover:shadow-md ${
+                    group.id === "creation"
+                      ? "border-violet-100 hover:border-violet-300"
+                      : "border-emerald-100 hover:border-emerald-300"
+                  }`}
+                >
+                  <span className="text-2xl" aria-hidden>
+                    {item.icon}
+                  </span>
+                  <p className="mt-2 text-base font-bold text-slate-900">{item.label}</p>
+                  <p className="text-sm text-slate-600">{item.hint}</p>
+                  {n != null ? (
+                    <p className="mt-2 text-xs font-bold uppercase tracking-wide text-emerald-700">
+                      {n}{" "}
+                      {item.href.includes("planning")
+                        ? "à venir (7 j)"
+                        : item.href.includes("courrier")
+                          ? "à traiter"
+                          : "en cours"}
+                    </p>
+                  ) : null}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+      ))}
 
       {stats ? (
         <SectionCard title="Synthèse">

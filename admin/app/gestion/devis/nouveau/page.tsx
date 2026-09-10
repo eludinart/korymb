@@ -1,20 +1,41 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
+import { LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi, type BizContact, type BizProject, type QuoteLine } from "../../../../lib/business";
 
 const emptyLine = (): QuoteLine => ({ label: "", qty: 1, unit_price_cents: 0, tax_rate: 0 });
 
+function safeNextPath(raw: string | null): string {
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/gestion/devis";
+  return raw;
+}
+
 export default function GestionDevisNouveauPage() {
+  return (
+    <Suspense
+      fallback={
+        <PageShell size="wide">
+          <LoadingLine label="Chargement du formulaire…" />
+        </PageShell>
+      }
+    >
+      <GestionDevisNouveauForm />
+    </Suspense>
+  );
+}
+
+function GestionDevisNouveauForm() {
   const router = useRouter();
   const qc = useQueryClient();
+  const search = useSearchParams();
+  const returnTo = safeNextPath(search.get("next"));
   const [title, setTitle] = useState("");
-  const [contactId, setContactId] = useState("");
-  const [projectId, setProjectId] = useState("");
+  const [contactId, setContactId] = useState(search.get("contact") || "");
+  const [projectId, setProjectId] = useState(search.get("project") || "");
   const [lines, setLines] = useState<QuoteLine[]>([emptyLine()]);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
@@ -35,7 +56,7 @@ export default function GestionDevisNouveauPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["business-quotes"] });
       void qc.invalidateQueries({ queryKey: ["business-overview"] });
-      router.push("/gestion/devis");
+      router.push(returnTo);
     },
     onError: (e: Error) => setError(e.message),
   });
@@ -48,8 +69,8 @@ export default function GestionDevisNouveauPage() {
         title="Nouveau devis"
         description="Devis commercial dans Korymb — facture légale via Tiime ensuite."
         actions={
-          <Link href="/gestion/devis" className="btn-link-secondary">
-            ← Retour à la liste
+          <Link href={returnTo} className="btn-link-secondary">
+            ← Retour
           </Link>
         }
       />
@@ -177,7 +198,7 @@ export default function GestionDevisNouveauPage() {
             <button type="submit" className="btn-primary" disabled={create.isPending}>
               {create.isPending ? "Création…" : "Créer le devis"}
             </button>
-            <Link href="/gestion/devis" className="btn-secondary">
+            <Link href={returnTo} className="btn-secondary">
               Annuler
             </Link>
             {error ? <p className="text-sm text-red-700">{error}</p> : null}

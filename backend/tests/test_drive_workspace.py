@@ -138,3 +138,62 @@ def test_is_placeholder_prospect_table():
     assert is_placeholder_prospect_table(stub) is True
     real = "| Nom | Ville |\n| --- | --- |\n" + "\n".join(f"| Profil {i} | Nice |" for i in range(5))
     assert is_placeholder_prospect_table(real) is False
+
+
+def test_parse_local_upload_result():
+    from services.drive_workspace import _parse_upload_result
+
+    raw = "✅ Fichier enregistré : Prospects.csv (id: rfil-abc123)\n/api/korymb-bin/business/resource-files/rfil-abc123?inline=true"
+    parsed = _parse_upload_result(raw)
+    assert parsed is not None
+    assert parsed["id"] == "rfil-abc123"
+    assert "resource-files/rfil-abc123" in parsed["webViewLink"]
+
+
+def test_create_deliverable_saves_local_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    from tools import run_create_drive_deliverable
+
+    body = (
+        "Objet : Partenariat\n\nMadame,\n\nJe vous contacte au sujet d'un atelier.\n\n"
+        "Cordialement,\nÉlude In Art"
+    )
+    out = run_create_drive_deliverable("Courrier structure X", body, format_kind="doc")
+    assert "Fichier enregistré" in out
+    assert "rfil-" in out
+    assert "drive.google.com" not in out.lower()
+    from services.drive_workspace import _parse_upload_result
+
+    parsed = _parse_upload_result(out)
+    assert parsed and parsed["id"].startswith("rfil-")
+    files = list(tmp_path.rglob("rfil-*"))
+    blobs = [p for p in files if p.suffix != ".json"]
+    assert blobs
+    assert "Madame" in blobs[0].read_text(encoding="utf-8")
+
+
+def test_finalize_saves_csv_without_google(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    from services.drive_workspace import finalize_mission_drive_deliverables
+
+    table = (
+        "#### LIVRABLE — Prospects PACA\n\n"
+        "| Nom | Ville |\n| --- | --- |\n"
+        + "\n".join(f"| Profil {i} | Toulon |" for i in range(5))
+    )
+    logs: list[str] = []
+    cleaned, arts = finalize_mission_drive_deliverables(
+        job_id=None,
+        mission_txt="liste de profils coachs PACA",
+        root_mission_label="Prospects",
+        resultats={"commercial": table},
+        synthesis="Synthèse.",
+        events=None,
+        job_logs=logs,
+    )
+    assert arts
+    assert arts[0]["id"].startswith("rfil-")
+    assert arts[0].get("storage") == "local"
+    assert "google.com" not in (arts[0].get("webViewLink") or "")
+    assert "espace Korymb" in cleaned
+    assert any("Livrable enregistré" in x for x in logs)

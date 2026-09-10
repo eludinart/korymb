@@ -14,6 +14,9 @@ _INTEGRATION_TOOL_MAP: dict[str, str] = {
     "google_drive": "integration:google_drive",
     "smtp_email": "integration:smtp",
     "generate_image": "integration:image_gen",
+    "generate_video": "integration:video_gen",
+    "text_to_speech": "integration:tts",
+    "post_linkedin": "integration:linkedin_publish",
     "send_newsletter": "integration:smtp",
 }
 

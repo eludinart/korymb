@@ -90,9 +90,9 @@ function BriefingPageContent() {
     <PageShell size="wide">
       {showWelcome ? (
         <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
-          <p className="text-sm font-bold text-emerald-900">Bienvenue dans votre Korymb</p>
+          <p className="text-sm font-bold text-emerald-900">Bienvenue dans le cockpit dirigeant</p>
           <p className="mt-1 text-sm text-emerald-800">
-            Votre rituel quotidien commence ici : briefing, inbox en 2 minutes, missions en un clic. Utilisez{" "}
+            Rituel du jour : briefing, décisions, missions, gestion. Ce n’est pas l’espace des participants. Utilisez{" "}
             <kbd className="rounded bg-emerald-100 px-1 font-mono text-xs">Ctrl+K</kbd> pour naviguer vite.
           </p>
         </div>
