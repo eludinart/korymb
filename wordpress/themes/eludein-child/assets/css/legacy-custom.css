@@ -1,0 +1,194 @@
+/**
+ * CSS additionnel historique (Personnaliser WordPress), nettoyé.
+ *
+ * Conservé : Fleur duo / Fleur individuelle, emoji, slider OceanWP masqué.
+ * Corrigé :
+ * - plus de `table { width: 50% }` global (cassait le tableau commande WooCommerce)
+ * - plus de `display: yes` (invalide)
+ */
+
+@media (min-width: 1024px) {
+  nav a,
+  .menu a,
+  .main-navigation a {
+    font-size: 12px !important;
+  }
+}
+
+img.emoji {
+  display: inline !important;
+  width: 1.5em !important;
+  height: 1.5em !important;
+  max-width: 1.5em !important;
+  min-width: 1.5em !important;
+}
+
+.entry-content img.emoji,
+#fleur-duo-container img.emoji,
+#result-fleur-duo img.emoji,
+#result-fleur img.emoji {
+  width: 2em !important;
+  height: 2em !important;
+  max-width: 2em !important;
+  min-width: 3em !important;
+}
+
+@media (max-width: 768px) {
+  .fleur-mail-invite {
+    color: #b42318 !important;
+  }
+
+  .entry-content > *,
+  .wp-block-group,
+  .wp-block-columns,
+  .wp-block-column,
+  .wp-block-image,
+  figure {
+    max-width: 100% !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .alignwide,
+  .alignfull {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .sidebar-main,
+  body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .widget-area {
+    width: 22% !important;
+  }
+
+  body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .content-area {
+    width: 78% !important;
+  }
+}
+
+.posts-slider.oceanwp-swiper-wrapper {
+  display: none !important;
+}
+
+.entry-content table:not(.woocommerce table):not(.shop_table):not(.woocommerce-checkout-review-order-table) {
+  border-collapse: collapse;
+  table-layout: auto;
+}
+
+.entry-content table:not(.shop_table) th,
+.entry-content table:not(.shop_table) td {
+  border-color: #3f4a3a;
+  padding: 0.4rem 0.6rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.woocommerce ul.products li.product h2,
+.woocommerce ul.products li.product h2 a {
+  color: #e9c764 !important;
+}
+
+.woocommerce ul.products li.product h2 a:hover {
+  color: #fdd888 !important;
+}
+
+#fleur-duo-container {
+  font-family: Helvetica, Arial, sans-serif;
+  color: #5d4037;
+}
+
+#fleur-duo-container .card-amour {
+  background: #fdfaf6;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 15px;
+  border: 1px solid #eaddcf;
+}
+
+#fleur-duo-container .q-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: block;
+  color: #000;
+}
+
+#fleur-duo-container .label-radio {
+  display: block;
+  margin: 6px 0;
+  cursor: pointer;
+  color: #000;
+}
+
+#btn-magique-duo {
+  width: 70%;
+  padding: 18px;
+  background: #d4a373;
+  color: white;
+  border: none;
+  border-radius: 40px;
+  font-size: 1.1em;
+  font-weight: bold;
+}
+
+#fleur-container {
+  font-family: Helvetica, Arial, sans-serif;
+  color: #5d4037;
+}
+
+.card-amour {
+  background: #fdfaf6;
+  padding: 20px;
+  border-radius: 12px;
+  margin-bottom: 15px;
+  border: 1px solid #eaddcf;
+}
+
+.q-title {
+  font-weight: bold;
+  margin-bottom: 10px;
+  display: block;
+  color: #000000;
+}
+
+.label-radio {
+  display: block;
+  margin: 6px 0;
+  cursor: pointer;
+  color: #000000;
+}
+
+input[type="radio"] {
+  margin-right: 10px;
+}
+
+#btn-magique,
+#send-invite {
+  width: 70%;
+  padding: 18px;
+  background: #d4a373;
+  color: white;
+  border: none;
+  border-radius: 40px;
+  font-size: 1.1em;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+#result-fleur {
+  display: none;
+  text-align: center;
+  margin-top: 30px;
+}
+
+#result-fleur-duo img,
+#result-fleur img {
+  width: auto !important;
+  max-width: 340px !important;
+  height: auto !important;
+  display: block !important;
+  margin: 0 auto !important;
+}

@@ -1,6 +1,9 @@
 # Ignore FTP config files containing credentials
 .ftpconfig
-.ftpconfig.*
+.ftpconfig.local
+wordpress/.ftpconfig
+wordpress/dist/
+!.ftpconfig.example
 .env
 .env.production
 .env.coolify

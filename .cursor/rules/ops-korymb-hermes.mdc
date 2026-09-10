@@ -13,6 +13,7 @@ Ce dépôt sert aussi à **administrer l'infrastructure** liée au projet, pas s
 |--------|------|----------------|
 | **Korymb** | Plateforme dev (admin Next + backend FastAPI) | Local Windows (dev) ; prod Coolify sur le VPS |
 | **Hermes Agent** | Agent IA autonome (dashboard, gateway, Telegram, outils) | Docker sur le VPS (`/docker/hermes-agent-aoxw/`) |
+| **Site public** | Vitrine + boutique WooCommerce | WordPress Hostinger hPanel (`https://eludein.art`) — **pas** le VPS |
 
 ## VPS (référence)
 

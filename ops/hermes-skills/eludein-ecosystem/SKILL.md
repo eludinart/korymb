@@ -15,6 +15,7 @@ Quand Éric parle de son système, identifier **quelle application** est concern
 | **Korymb** | https://korymb.eludein.art | QG IA — missions, agents, HITL, mémoire | `korymb-sql.sh` + skill `korymb-analytics` |
 | **Fleur d'ÅmÔurs** | https://app-fleurdamours.eludein.art | App tarot — utilisateurs, questionnaires, coach | `fleur-sql.sh` + skill `fleur-analytics` |
 | **Hermes** | https://hermes.eludein.art | Agent ops 24/7 | `/opt/data` (skills, cron, sessions) |
+| **Site public** | https://eludein.art | Vitrine + boutique WooCommerce | Thème enfant dans le repo `korymb` (`wordpress/themes/eludein-child`) — **pas** le VPS |
 
 ## Routage par sujet
 

@@ -1,0 +1,227 @@
+/**
+ * Coup de jeune visuel — Élude In Art.
+ * N’interfère pas avec les champs / boutons de commande WooCommerce
+ * (voir woocommerce.css pour le habillage boutique uniquement).
+ */
+
+:root {
+  --eludein-forest: #3f4a3a;
+  --eludein-forest-deep: #2a3227;
+  --eludein-ink: #1c1917;
+  --eludein-gold: #e3b15b;
+  --eludein-gold-soft: #e9c764;
+  --eludein-sand: #d4a373;
+  --eludein-cream: #f7f3ec;
+  --eludein-paper: #fdfaf6;
+  --eludein-line: #eaddcf;
+  --eludein-muted: #5c5854;
+  --eludein-radius: 14px;
+  --eludein-serif: "Playfair Display", Merriweather, Georgia, serif;
+  --eludein-sans: "Source Sans 3", "Open Sans", "Helvetica Neue", sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body.oceanwp-theme {
+  background: var(--eludein-cream);
+  color: var(--eludein-ink);
+  font-family: var(--eludein-sans);
+  font-size: 17px;
+  line-height: 1.65;
+}
+
+body.oceanwp-theme h1,
+body.oceanwp-theme h2,
+body.oceanwp-theme h3,
+body.oceanwp-theme .kt-adv-heading,
+body.oceanwp-theme .wp-block-kadence-advancedheading {
+  font-family: var(--eludein-serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest);
+}
+
+/* Preloader OceanWP : le site paraît plus immédiat, sans changer le checkout. */
+#owp-preloader,
+.ocean-preloader--active #owp-preloader {
+  display: none !important;
+}
+
+body.ocean-preloader--active {
+  overflow: auto !important;
+}
+
+/* Header plus respirant, lisible, sans changer la structure OceanWP. */
+#site-header {
+  background: rgba(247, 243, 236, 0.92) !important;
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--eludein-line);
+  box-shadow: none;
+}
+
+#site-header.medium-header {
+  min-height: 72px;
+}
+
+#site-logo img,
+#site-logo .custom-logo {
+  max-height: 56px;
+  width: auto;
+}
+
+@media (min-width: 1024px) {
+  #site-navigation-wrap .dropdown-menu > li > a,
+  nav a,
+  .menu a,
+  .main-navigation a {
+    font-size: 14.5px !important;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--eludein-forest) !important;
+    padding-top: 0.55rem;
+    padding-bottom: 0.55rem;
+  }
+
+  #site-navigation-wrap .dropdown-menu > li > a:hover,
+  #site-navigation-wrap .dropdown-menu > li.current-menu-item > a {
+    color: var(--eludein-forest-deep) !important;
+  }
+}
+
+#site-navigation-wrap .dropdown-menu > li > a:after {
+  background: var(--eludein-gold) !important;
+}
+
+.dropdown-menu .sub-menu {
+  border-radius: 12px;
+  border: 1px solid var(--eludein-line);
+  box-shadow: 0 16px 40px rgba(63, 74, 58, 0.12);
+  background: var(--eludein-paper) !important;
+}
+
+#medium-searchform input,
+.header-searchform input[type="search"] {
+  border-radius: 999px;
+  border-color: var(--eludein-line);
+  background: var(--eludein-paper);
+}
+
+/* Contenu */
+#main,
+#content-wrap,
+.content-area {
+  background: transparent;
+}
+
+.entry-content p,
+.entry-content li {
+  color: var(--eludein-muted);
+}
+
+.entry-content > p:first-of-type,
+.has-text-align-center.wp-block-paragraph:first-of-type {
+  font-size: 1.15rem;
+  color: var(--eludein-ink);
+}
+
+.wp-block-separator {
+  border-color: var(--eludein-line) !important;
+  opacity: 0.85;
+}
+
+/* Boutons Gutenberg / Kadence — pas les boutons WooCommerce (voir woocommerce.css). */
+.entry-content .wp-block-button__link,
+.entry-content .wp-element-button:not(.woocommerce a):not(.single_add_to_cart_button):not(.checkout-button):not(.wc-forward) {
+  border-radius: 999px !important;
+  font-family: var(--eludein-sans);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  box-shadow: 0 8px 20px rgba(63, 74, 58, 0.12);
+}
+
+.entry-content .wp-block-button__link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(63, 74, 58, 0.18);
+}
+
+/* Cartes Kadence (témoignages, colonnes) */
+.kt-testimonial-item-wrap,
+.wp-block-kadence-testimonial {
+  background: var(--eludein-paper);
+  border: 1px solid var(--eludein-line);
+  border-radius: var(--eludein-radius);
+  box-shadow: 0 10px 30px rgba(63, 74, 58, 0.06);
+}
+
+/* Articles / blog */
+.blog-entry.post,
+.single-post .entry {
+  background: var(--eludein-paper);
+  border: 1px solid var(--eludein-line);
+  border-radius: var(--eludein-radius);
+  padding: 1.25rem 1.4rem;
+}
+
+.blog-entry.post .blog-entry-header .entry-title a,
+.single-post .entry-title {
+  font-family: var(--eludein-serif);
+  color: var(--eludein-forest);
+}
+
+/* Footer */
+#footer-wrap,
+#footer,
+#footer-widgets {
+  background: var(--eludein-forest-deep) !important;
+  color: #f7f3ec;
+}
+
+#footer a,
+#footer-bottom a,
+#footer-widgets a {
+  color: var(--eludein-gold-soft) !important;
+}
+
+#footer-bottom {
+  background: #1a1f18 !important;
+  border-top: 1px solid rgba(227, 177, 91, 0.25);
+}
+
+/* Formulaires hors checkout (WPForms, contact) */
+.wpforms-container .wpforms-submit,
+div.wpforms-container-full .wpforms-form button[type="submit"] {
+  border-radius: 999px !important;
+  font-weight: 600 !important;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  body.oceanwp-theme {
+    font-size: 16px;
+  }
+
+  #site-header.medium-header {
+    min-height: 64px;
+  }
+
+  .sidr {
+    background: var(--eludein-paper);
+  }
+
+  .sidr a {
+    color: var(--eludein-forest) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .entry-content .wp-block-button__link {
+    transition: none;
+  }
+}
