@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import HealthDot from "../../../components/HealthDot";
+import { ConnectorRepairPanel, ConnectorStatusBadge } from "../../../components/ConnectorStatusBlock";
 import { PageHeader, SectionCard } from "../../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../../lib/api";
 import type { HealthTone } from "../../../lib/healthTone";
@@ -23,6 +24,8 @@ import {
   tileStatusLabel,
   tileTone,
 } from "../../../lib/integrationConnectors";
+import type { IntegrationRow } from "../../../lib/integrationHealth";
+import { connectorHealthForTile } from "../../../lib/integrationRepairGuide";
 
 type IntegrationField = {
   key: string;
@@ -658,14 +661,21 @@ function IntegrationsSettingsContent() {
                   ? integrationGroupStatusLabel(parent, values, health.data?.integrations)
                   : "À brancher";
                 const ownLabel = tile.id === "google" ? "" : tileStatusLabel(tile, values);
-                const tone =
+                const fallbackTone =
                   tile.id === "google" && parent
                     ? parentTone
                     : ownLabel
                       ? tileTone(tile, values)
                       : parentTone;
-                const statusLabel =
+                const fallbackLabel =
                   tile.id === "google" && parent ? parentLabel : ownLabel || parentLabel;
+                const healthView = connectorHealthForTile(
+                  tile.id,
+                  health.data?.integrations as Record<string, IntegrationRow> | undefined,
+                  { tone: fallbackTone, label: fallbackLabel },
+                );
+                const tone = healthView.tone;
+                const statusLabel = healthView.label;
                 const active = focusTileId === tile.id || (!focusTileId && openGroup === tile.cardId && !tile.family);
                 return (
                   <button
@@ -684,9 +694,14 @@ function IntegrationsSettingsContent() {
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="text-sm font-bold text-slate-900">{tile.title}</span>
-                        <span className="shrink-0 text-[10px] font-semibold text-slate-500">{statusLabel}</span>
+                        <ConnectorStatusBadge tone={tone} label={statusLabel} />
                       </span>
                       <span className="mt-1 block text-[11px] leading-snug text-slate-500">{tile.what}</span>
+                      {healthView.guide ? (
+                        <span className="mt-1.5 block text-[11px] leading-snug text-amber-900">
+                          {healthView.guide.reason}
+                        </span>
+                      ) : null}
                       {tile.tags.length ? (
                         <span className="mt-2 flex flex-wrap gap-1">
                           {tile.tags.map((tag) => (
@@ -705,7 +720,8 @@ function IntegrationsSettingsContent() {
               })}
             </div>
             <p className="mt-3 text-xs text-slate-500">
-              Pastille verte = prêt. Images, voix et recherche web marchent déjà sans clé.
+              Pastille alignée sur Santé système : vert = opérationnel, orange = clé manquante / non vérifié, rouge = à
+              réparer. Images, voix et recherche web marchent déjà sans clé.
             </p>
           </>
         ) : null}
@@ -738,19 +754,26 @@ function IntegrationsSettingsContent() {
           const headerWhat = focusTile?.what || meta.what || group.description;
           const { simple: simpleFields, advanced: advancedFields } = splitTileFields(focusTile, group.fields);
           const tileOwnLabel = focusTile && focusTile.id !== "google" ? tileStatusLabel(focusTile, values) : "";
-          const tileToneValue = focusTile
+          const fallbackTone = focusTile
             ? focusTile.id === "google"
               ? tone
               : tileOwnLabel
                 ? tileTone(focusTile, values)
                 : tone
             : tone;
-          const tileStatus =
+          const fallbackStatus =
             focusTile?.id === "google"
               ? statusLabel
               : focusTile
                 ? tileOwnLabel || statusLabel
                 : statusLabel;
+          const healthView = connectorHealthForTile(
+            focusTile?.id || group.id,
+            health.data?.integrations as Record<string, IntegrationRow> | undefined,
+            { tone: fallbackTone, label: fallbackStatus },
+          );
+          const tileToneValue = healthView.tone;
+          const tileStatus = healthView.label;
           const howto = focusTile?.howto || (!focusTile?.family ? group.setup_how : "");
           const setupUrl = focusTile?.setupUrl || group.setup_url;
           const setupLabel = focusTile?.setupLabel || group.setup_label;
@@ -773,7 +796,10 @@ function IntegrationsSettingsContent() {
                 <HealthDot tone={tileToneValue} label={`${headerTitle} — ${tileStatus}`} />
                 <div className="min-w-0 flex-1">
                   <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Branchement</p>
-                  <p className="text-base font-semibold text-slate-900">{headerTitle}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <p className="text-base font-semibold text-slate-900">{headerTitle}</p>
+                    <ConnectorStatusBadge tone={tileToneValue} label={tileStatus} />
+                  </div>
                   <p className="mt-0.5 text-xs text-slate-500">{headerWhat}</p>
                   {(focusTile?.tags || meta.tags).length ? (
                     <p className="mt-1.5 flex flex-wrap gap-1">
@@ -787,8 +813,8 @@ function IntegrationsSettingsContent() {
                       ))}
                     </p>
                   ) : null}
+                  {healthView.guide ? <ConnectorRepairPanel guide={healthView.guide} /> : null}
                 </div>
-                <span className="text-xs text-slate-500">{tileStatus}</span>
                 <button
                   type="button"
                   className="text-xs font-semibold text-slate-500 hover:text-slate-800"

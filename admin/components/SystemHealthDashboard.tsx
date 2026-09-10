@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import HealthDot from "./HealthDot";
+import { ConnectorRepairPanel, ConnectorStatusBadge } from "./ConnectorStatusBlock";
 import SimpleAccordion from "./SimpleAccordion";
 import type { HealthTone } from "../lib/healthTone";
 import { hrefForConnectorId } from "../lib/integrationConnectors";
@@ -17,6 +18,7 @@ import {
   type IntegrationRow,
   type StatusSortOrder,
 } from "../lib/integrationHealth";
+import { connectorHealthForId } from "../lib/integrationRepairGuide";
 import { buildToolProbeRows, type ToolProbeRowData } from "../lib/systemHealthToolProbe";
 
 function formatBytes(n: number | undefined): string {
@@ -204,7 +206,7 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1">
           <HealthDot tone="ok" label="Opérationnel" />
           Opérationnel
@@ -336,49 +338,38 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         </div>
         <ul className="mt-3 divide-y divide-slate-100">
           {integrationEntries.map(([id, row]) => {
-            const tone = healthToneForIntegration(id, row);
+            const view = connectorHealthForId(id, integrations);
             const href = hrefForConnectorId(id);
             return (
               <li key={id} className="first:pt-0">
-                <Link
-                  href={href}
-                  className="group flex flex-wrap items-start gap-3 py-2.5 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
-                >
-                <HealthDot tone={tone} label={integrationDisplayName(id)} className="mt-1.5" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium text-slate-800">{integrationDisplayName(id)}</p>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                        tone === "ok"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : tone === "warn"
-                            ? "bg-amber-100 text-amber-800"
-                            : tone === "bad"
-                              ? "bg-red-100 text-red-700"
-                              : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      {healthStatusLabel(tone, row)}
+                <div className="py-2.5">
+                  <Link
+                    href={href}
+                    className="group flex flex-wrap items-start gap-3 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
+                  >
+                    <HealthDot tone={view.tone} label={integrationDisplayName(id)} className="mt-1.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-medium text-slate-800">{integrationDisplayName(id)}</p>
+                        <ConnectorStatusBadge tone={view.tone} label={view.label} />
+                      </div>
+                      <p className="mt-0.5 font-mono text-[11px] text-slate-500">{id}</p>
+                      {"active_provider" in row && row.active_provider ? (
+                        <p className="mt-1 text-[11px] text-emerald-700">
+                          Provider actif : <span className="font-semibold">{String(row.active_provider)}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
+                      Paramétrer
                     </span>
-                  </div>
-                  <p className="mt-0.5 font-mono text-[11px] text-slate-500">{id}</p>
-                  {"note" in row && row.note && !("probe_detail" in row && row.probe_detail) ? (
-                    <p className="mt-1 text-[11px] text-slate-400">{String(row.note).slice(0, 220)}</p>
-                  ) : null}
-                  {"probe_detail" in row && row.probe_detail ? (
-                    <p className="mt-1 text-xs text-amber-900">{String(row.probe_detail).slice(0, 220)}</p>
-                  ) : null}
-                  {"active_provider" in row && row.active_provider ? (
-                    <p className="mt-1 text-[11px] text-emerald-700">
-                      Provider actif : <span className="font-semibold">{String(row.active_provider)}</span>
-                    </p>
+                  </Link>
+                  {view.guide ? (
+                    <div className="mt-1 ms-5 me-2">
+                      <ConnectorRepairPanel guide={view.guide} />
+                    </div>
                   ) : null}
                 </div>
-                <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
-                  Paramétrer
-                </span>
-                </Link>
               </li>
             );
           })}
@@ -396,33 +387,34 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
           <ul className="divide-y divide-slate-100">
             {toolProbeEntries.map((item) => {
               const href = hrefForConnectorId(item.key);
+              const healthRow = (toolsProbe?.[item.key] || undefined) as IntegrationRow | undefined;
+              const view = healthRow
+                ? connectorHealthForId(item.key, { [item.key]: healthRow })
+                : { tone: item.tone, label: healthStatusLabel(item.tone), guide: null };
               return (
               <li key={item.key} className="first:pt-0">
-                <Link
-                  href={href}
-                  className="group flex flex-wrap items-start gap-3 py-2.5 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
-                >
-                <HealthDot tone={item.tone} label={item.title} className="mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <ToolProbeRowBody row={item} />
-                  <span
-                    className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                      item.tone === "ok"
-                        ? "bg-emerald-100 text-emerald-700"
-                        : item.tone === "warn"
-                          ? "bg-amber-100 text-amber-800"
-                          : item.tone === "bad"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-slate-100 text-slate-600"
-                    }`}
+                <div className="py-2.5">
+                  <Link
+                    href={href}
+                    className="group flex flex-wrap items-start gap-3 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
                   >
-                    {healthStatusLabel(item.tone)}
+                  <HealthDot tone={view.tone} label={item.title} className="mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <ToolProbeRowBody row={item} />
+                    <div className="mt-1">
+                      <ConnectorStatusBadge tone={view.tone} label={view.label} />
+                    </div>
+                  </div>
+                  <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
+                    Paramétrer
                   </span>
+                  </Link>
+                  {view.guide ? (
+                    <div className="mt-1 ms-5 me-2">
+                      <ConnectorRepairPanel guide={view.guide} />
+                    </div>
+                  ) : null}
                 </div>
-                <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
-                  Paramétrer
-                </span>
-                </Link>
               </li>
             );
             })}

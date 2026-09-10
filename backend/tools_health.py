@@ -532,6 +532,7 @@ def integrations_from_tools_probe(
         "korymb_webhook": take("webhook"),
         "text_to_speech": take("text_to_speech"),
         "web_tools": take("web_tools"),
+        "post_linkedin": take("post_linkedin"),
     }
 
     fleur_cfg = bool(_env("FLEUR_DB_HOST") and _env("FLEUR_DB_USER"))

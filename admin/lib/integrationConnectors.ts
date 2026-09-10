@@ -7,13 +7,6 @@ export type ConnectorMeta = {
   aliases: string[];
 };
 
-export type ConnectorJump = {
-  label: string;
-  cardId: string;
-  field?: string;
-  technique?: boolean;
-};
-
 export const CONNECTOR_META: Record<string, ConnectorMeta> = {
   google: {
     title: "Google",
@@ -128,26 +121,6 @@ export function connectorMeta(cardId: string, fallbackLabel: string, fallbackDes
       aliases: [],
     }
   );
-}
-
-export function connectorSearchHaystack(card: {
-  id: string;
-  label: string;
-  description?: string;
-  fields: { key: string; label: string }[];
-}): string {
-  const meta = connectorMeta(card.id, card.label, card.description);
-  return [
-    meta.title,
-    meta.what,
-    card.label,
-    card.description || "",
-    ...meta.tags,
-    ...meta.aliases,
-    ...card.fields.map((f) => `${f.label} ${f.key}`),
-  ]
-    .join(" ")
-    .toLowerCase();
 }
 
 export type FamilyMeta = {
@@ -552,13 +525,6 @@ export const DIRECTORY_TILES: DirectoryTile[] = [
   },
 ];
 
-export const CONNECTOR_JUMPS: ConnectorJump[] = DIRECTORY_TILES.map((tile) => ({
-  label: tile.title,
-  cardId: tile.cardId,
-  field: tile.field,
-  technique: tile.technique,
-}));
-
 export function familyMeta(family: string): FamilyMeta {
   return FAMILY_META[family] || { title: family, what: "" };
 }
@@ -669,6 +635,7 @@ const CONNECTOR_ID_TO_TILE: Record<string, string> = {
   generate_video: "video",
   linkedin_publish: "linkedin",
   search_linkedin: "linkedin",
+  post_linkedin: "linkedin",
   tiime: "tiime",
 };
 

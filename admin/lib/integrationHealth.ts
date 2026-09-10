@@ -36,6 +36,7 @@ const INTEGRATION_LABELS: Record<string, string> = {
   korymb_webhook:  "Webhook sortant (n8n/Zapier)",
   text_to_speech:  "Synthèse vocale (TTS)",
   web_tools:       "Recherche web (chaîne providers)",
+  post_linkedin:   "LinkedIn (publication)",
 };
 
 export function integrationDisplayName(id: string): string {
@@ -125,7 +126,7 @@ export function healthToneForIntegration(id: string, row: IntegrationRow): Healt
     if (reachable === true && folder) return "ok";
     if (reachable === true && !folder) return "warn";
     if (ok === true && folder) return "ok";
-    if (ok === false) return "warn";
+    if (ok === false) return "bad";
     return "warn";
   }
 
