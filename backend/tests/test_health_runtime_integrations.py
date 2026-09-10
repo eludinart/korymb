@@ -16,6 +16,8 @@ def test_tools_health_reads_runtime_wordpress_and_smtp(monkeypatch):
     monkeypatch.setattr(th, "_env", lambda name: values.get(name, ""))
     monkeypatch.setattr(th, "run_web_search", lambda q: "DuckDuckGo: ok")
     monkeypatch.setattr(th, "run_read_webpage", lambda u: "[Jina Reader]\nhello world page content here")
+    monkeypatch.setattr(th, "_probe_facebook_graph", lambda: (False, ""))
+    monkeypatch.setattr(th, "_probe_instagram_graph", lambda: (False, ""))
     th._CACHE["t"] = 0.0
     th._CACHE["payload"] = None
 
@@ -24,6 +26,52 @@ def test_tools_health_reads_runtime_wordpress_and_smtp(monkeypatch):
     assert payload["send_email"]["ok"] is True
     assert payload["wordpress"]["configured"] is True
     assert payload["wordpress"]["ok"] is True
+
+
+def test_facebook_probe_rejects_non_numeric_page_id(monkeypatch):
+    import tools_health as th
+
+    monkeypatch.setattr(
+        th,
+        "_env",
+        lambda name: {
+            "FACEBOOK_ACCESS_TOKEN": "EAAB",
+            "FACEBOOK_PAGE_ID": "AKKiVEKn97YaKvyWSr__WvU",
+        }.get(name, ""),
+    )
+    ok, detail = th._probe_facebook_graph()
+    assert ok is False
+    assert "invalide" in detail.lower() or "chiffres" in detail.lower()
+
+
+def test_facebook_probe_uses_graph_response(monkeypatch):
+    import tools_health as th
+
+    class _Resp:
+        status_code = 400
+        content = b"{}"
+
+        def json(self):
+            return {
+                "error": {
+                    "message": "Error validating access token: Session has expired",
+                    "type": "OAuthException",
+                    "code": 190,
+                }
+            }
+
+    monkeypatch.setattr(
+        th,
+        "_env",
+        lambda name: {
+            "FACEBOOK_ACCESS_TOKEN": "EAAB",
+            "FACEBOOK_PAGE_ID": "1234567890",
+        }.get(name, ""),
+    )
+    monkeypatch.setattr("httpx.get", lambda *a, **k: _Resp())
+    ok, detail = th._probe_facebook_graph()
+    assert ok is False
+    assert "expired" in detail.lower() or "Session" in detail
 
 
 def test_system_health_smtp_uses_runtime_host(client, monkeypatch):

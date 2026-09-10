@@ -75,11 +75,12 @@ export function healthToneForOperationalStatus(
   if (!configured) return "warn";
 
   if (reachable === false) return "bad";
-  if (ok === false) return "warn";
+  // Sonde explicite KO (jeton expiré, id invalide…) → pas « clé manquante »
+  if (ok === false) return "bad";
   if (reachable === true || ok === true) return "ok";
 
-  // Clés présentes, aucune sonde négative
-  return "ok";
+  // Clés présentes sans sonde positive → pas encore vert
+  return "warn";
 }
 
 /** Sonde outil (section « état en direct »). */
@@ -137,9 +138,12 @@ export function healthToneForIntegration(id: string, row: IntegrationRow): Healt
 
 export function healthStatusLabel(tone: HealthTone, row?: OperationalRow): string {
   if (tone === "ok") return "Opérationnel";
-  if (tone === "bad") return "Indisponible";
+  if (tone === "bad") {
+    if (row && asBool(row.configured) === true) return "À réparer";
+    return "Indisponible";
+  }
   if (tone === "warn") {
-    if (row && asBool(row.configured) === true) return "À vérifier";
+    if (row && asBool(row.configured) === true) return "Non vérifié";
     return "Clé manquante";
   }
   return "Non concerné";

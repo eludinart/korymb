@@ -363,6 +363,12 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
         probe_row = tools_probe.get(probe_key) or {}
         if "ok" in probe_row:
             status[integ_id]["ok"] = bool(probe_row.get("ok"))
+        detail = probe_row.get("probe_detail")
+        if detail:
+            status[integ_id]["probe_detail"] = str(detail)[:220]
+        # Clés présentes mais sonde KO → pas opérationnel
+        if status[integ_id].get("configured") and probe_row.get("ok") is False:
+            status[integ_id]["ok"] = False
 
     for key_only in ("tavily", "brave_search"):
         if status.get(key_only, {}).get("configured"):

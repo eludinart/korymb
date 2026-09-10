@@ -49,6 +49,66 @@ def _detect_read_provider(text: str) -> str:
     return "jina" if text.startswith("[Jina Reader]") else "httpx"
 
 
+def _graph_error_detail(payload: dict) -> str:
+    err = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(err, dict):
+        msg = str(err.get("message") or err.get("type") or "").strip()
+        if msg:
+            return msg[:180]
+    return ""
+
+
+def _probe_facebook_graph() -> tuple[bool, str]:
+    """Sonde Graph : token + Page ID numériques (ne pas se fier à la seule présence des clés)."""
+    token = _env("FACEBOOK_ACCESS_TOKEN") or _env("META_PAGE_ACCESS_TOKEN")
+    page_id = _env("FACEBOOK_PAGE_ID")
+    if not token or not page_id:
+        return False, "FACEBOOK_ACCESS_TOKEN + FACEBOOK_PAGE_ID requis."
+    if not page_id.isdigit():
+        return False, "FACEBOOK_PAGE_ID invalide (attendu : chiffres uniquement, id de page)."
+    try:
+        import httpx
+
+        r = httpx.get(
+            f"https://graph.facebook.com/v19.0/{page_id}",
+            params={"fields": "id,name", "access_token": token},
+            timeout=12,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code == 200 and str((data or {}).get("id") or "").strip():
+            name = str((data or {}).get("name") or "OK").strip()
+            return True, f"Page OK ({name})"
+        detail = _graph_error_detail(data) or f"HTTP {r.status_code}"
+        return False, detail
+    except Exception as exc:
+        return False, str(exc)[:160]
+
+
+def _probe_instagram_graph() -> tuple[bool, str]:
+    token = _env("INSTAGRAM_ACCESS_TOKEN") or _env("FACEBOOK_ACCESS_TOKEN") or _env("META_PAGE_ACCESS_TOKEN")
+    ig_id = _env("INSTAGRAM_ACCOUNT_ID")
+    if not token or not ig_id:
+        return False, "INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_ACCOUNT_ID requis."
+    if not ig_id.isdigit():
+        return False, "INSTAGRAM_ACCOUNT_ID invalide (attendu : chiffres)."
+    try:
+        import httpx
+
+        r = httpx.get(
+            f"https://graph.facebook.com/v19.0/{ig_id}",
+            params={"fields": "id,username", "access_token": token},
+            timeout=12,
+        )
+        data = r.json() if r.content else {}
+        if r.status_code == 200 and str((data or {}).get("id") or "").strip():
+            user = str((data or {}).get("username") or "OK").strip()
+            return True, f"Compte OK (@{user})" if user != "OK" else "Compte OK"
+        detail = _graph_error_detail(data) or f"HTTP {r.status_code}"
+        return False, detail
+    except Exception as exc:
+        return False, str(exc)[:160]
+
+
 def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     """Sonde les outils principaux et met en cache ~2 min."""
     now = time.time()
@@ -80,8 +140,12 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     has_tavily    = bool(_env("TAVILY_API_KEY"))
     has_brave     = bool(_env("BRAVE_SEARCH_API_KEY"))
     has_anthropic = bool(_env("ANTHROPIC_API_KEY"))
-    has_ig        = bool(_env("INSTAGRAM_ACCESS_TOKEN")) and bool(_env("INSTAGRAM_ACCOUNT_ID"))
-    has_fb        = bool(_env("FACEBOOK_ACCESS_TOKEN")) and bool(_env("FACEBOOK_PAGE_ID"))
+    has_ig_keys = bool(_env("INSTAGRAM_ACCESS_TOKEN") and _env("INSTAGRAM_ACCOUNT_ID"))
+    has_fb_keys = bool(_env("FACEBOOK_ACCESS_TOKEN") and _env("FACEBOOK_PAGE_ID"))
+    fb_ok, fb_detail = _probe_facebook_graph() if has_fb_keys else (False, "")
+    ig_ok, ig_detail = _probe_instagram_graph() if has_ig_keys else (False, "")
+    has_ig = has_ig_keys
+    has_fb = has_fb_keys
     has_drive     = bool(
         str(_env("GOOGLE_DRIVE_ACCESS_TOKEN") or _env("GOOGLE_API_ACCESS_TOKEN")).strip()
         or (_env("GOOGLE_OAUTH_REFRESH_TOKEN") and _env("GOOGLE_OAUTH_CLIENT_ID"))
@@ -151,13 +215,15 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
             "configured": has_anthropic,
         },
         "instagram": {
-            "ok": has_ig,
+            "ok": ig_ok,
             "configured": has_ig,
+            "probe_detail": ig_detail or None,
             "note": "Nécessite INSTAGRAM_ACCESS_TOKEN + INSTAGRAM_ACCOUNT_ID (lecture + publication).",
         },
         "facebook": {
-            "ok": has_fb,
+            "ok": fb_ok,
             "configured": has_fb,
+            "probe_detail": fb_detail or None,
             "note": "Nécessite FACEBOOK_ACCESS_TOKEN + FACEBOOK_PAGE_ID (lecture + publication).",
         },
         "google_drive": {

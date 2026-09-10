@@ -211,13 +211,13 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="warn" label="Clé manquante ou à vérifier" />
-          Clé manquante / à vérifier
+          <HealthDot tone="warn" label="Clé manquante ou non vérifié" />
+          Clé manquante / non vérifié
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="bad" label="Indisponible" />
-          Indisponible
+          <HealthDot tone="bad" label="Indisponible ou à réparer" />
+          Indisponible / à réparer
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
