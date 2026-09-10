@@ -152,4 +152,11 @@ def memory_preview(
             previews[k] = base + FLEUR_CONTEXT + mem
         except Exception as exc:
             previews[k] = f"(erreur preview: {exc})"
-    return {"agents": previews, "tiers": {"semantic": True, "episodic": True, "session": False}}
+    primary = keys[0] if keys else ""
+    prompt = previews.get(primary, "")
+    return {
+        "agent_key": primary,
+        "prompt": prompt,
+        "agents": previews,
+        "tiers": {"semantic": True, "episodic": True, "session": False},
+    }

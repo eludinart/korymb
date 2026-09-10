@@ -520,6 +520,18 @@ function ImportExportTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClie
 
 // ── Tab: Preview ──────────────────────────────────────────────────────────────
 
+type MemoryPreviewResponse = {
+  agent_key?: string;
+  prompt?: string;
+  agents?: Record<string, string>;
+};
+
+function promptFromPreview(data: MemoryPreviewResponse, agentKey: string): { agentKey: string; prompt: string } {
+  const fromMap = data.agents?.[agentKey];
+  const prompt = String(fromMap ?? data.prompt ?? "");
+  return { agentKey: String(data.agent_key || agentKey), prompt };
+}
+
 function PreviewTab() {
   const [agentKey, setAgentKey] = useState("coordinateur");
   const [trigger, setTrigger] = useState(0);
@@ -527,8 +539,10 @@ function PreviewTab() {
   const preview = useQuery({
     queryKey: ["memory-preview", agentKey, trigger],
     queryFn: async () => {
-      const { data } = await requestJson(`/memory/preview?agent_key=${agentKey}`, { headers: agentHeaders() });
-      return data as { agent_key: string; prompt: string };
+      const { data } = await requestJson(`/memory/preview?agent_key=${encodeURIComponent(agentKey)}`, {
+        headers: agentHeaders(),
+      });
+      return promptFromPreview((data || {}) as MemoryPreviewResponse, agentKey);
     },
     enabled: trigger > 0,
   });
@@ -558,6 +572,7 @@ function PreviewTab() {
           </select>
         </div>
         <button
+          type="button"
           onClick={() => setTrigger((n) => n + 1)}
           className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800"
         >
@@ -567,27 +582,34 @@ function PreviewTab() {
 
       {preview.isFetching && <p className="text-sm text-slate-400">Assemblage du prompt…</p>}
       {preview.isError && (
-        <p className="text-sm text-red-600">Erreur lors de l&apos;assemblage du prompt.</p>
+        <p className="text-sm text-red-600">
+          {preview.error instanceof Error ? preview.error.message : "Erreur lors de l'assemblage du prompt."}
+        </p>
       )}
 
-      {preview.isSuccess && preview.data && (
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-medium text-slate-500">
-              Prompt système — {preview.data.agent_key} ({preview.data.prompt.length} caractères)
-            </p>
-            <button
-              onClick={() => navigator.clipboard.writeText(preview.data?.prompt ?? "")}
-              className="text-xs text-violet-600 hover:underline"
-            >
-              Copier
-            </button>
+      {preview.isSuccess && preview.data ? (
+        preview.data.prompt ? (
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-medium text-slate-500">
+                Prompt système — {preview.data.agentKey} ({preview.data.prompt.length} caractères)
+              </p>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard.writeText(preview.data.prompt)}
+                className="text-xs text-violet-600 hover:underline"
+              >
+                Copier
+              </button>
+            </div>
+            <pre className="rounded-2xl bg-slate-900 p-5 text-xs text-slate-100 whitespace-pre-wrap overflow-auto max-h-[60vh] leading-relaxed">
+              {preview.data.prompt}
+            </pre>
           </div>
-          <pre className="rounded-2xl bg-slate-900 p-5 text-xs text-slate-100 whitespace-pre-wrap overflow-auto max-h-[60vh] leading-relaxed">
-            {preview.data.prompt}
-          </pre>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-amber-800">Aucun prompt pour cet agent (clé inconnue ou mémoire vide).</p>
+        )
+      ) : null}
     </div>
   );
 }
