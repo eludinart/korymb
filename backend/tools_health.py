@@ -4,7 +4,6 @@ Vérifie : web_search, read_webpage, describe_image, réseaux, Drive, email, PDF
 """
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,9 +13,15 @@ from env_loader import load_backend_env
 
 load_backend_env()
 
+from integration_settings import getenv as integ_getenv
 from tools import run_read_webpage, run_web_search
 
 _CACHE: dict[str, Any] = {"t": 0.0, "ttl_s": 120, "payload": None}
+
+
+def _env(name: str) -> str:
+    """Valeur effective (surcharges UI / DB > os.environ)."""
+    return str(integ_getenv(name) or "").strip()
 
 
 def _web_search_failed(text: str) -> bool:
@@ -72,18 +77,18 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
     rw_provider = _detect_read_provider(rw_raw) if rw_ok else "none"
 
     # ── Clés API disponibles ───────────────────────────────────────────────
-    has_tavily    = bool(os.getenv("TAVILY_API_KEY", "").strip())
-    has_brave     = bool(os.getenv("BRAVE_SEARCH_API_KEY", "").strip())
-    has_anthropic = bool(os.getenv("ANTHROPIC_API_KEY", "").strip())
-    has_ig        = bool(os.getenv("INSTAGRAM_ACCESS_TOKEN", "").strip()) and bool(os.getenv("INSTAGRAM_ACCOUNT_ID", "").strip())
-    has_fb        = bool(os.getenv("FACEBOOK_ACCESS_TOKEN", "").strip()) and bool(os.getenv("FACEBOOK_PAGE_ID", "").strip())
+    has_tavily    = bool(_env("TAVILY_API_KEY"))
+    has_brave     = bool(_env("BRAVE_SEARCH_API_KEY"))
+    has_anthropic = bool(_env("ANTHROPIC_API_KEY"))
+    has_ig        = bool(_env("INSTAGRAM_ACCESS_TOKEN")) and bool(_env("INSTAGRAM_ACCOUNT_ID"))
+    has_fb        = bool(_env("FACEBOOK_ACCESS_TOKEN")) and bool(_env("FACEBOOK_PAGE_ID"))
     has_drive     = bool(
-        str(os.getenv("GOOGLE_DRIVE_ACCESS_TOKEN", "") or os.getenv("GOOGLE_API_ACCESS_TOKEN", "")).strip()
-        or (os.getenv("GOOGLE_OAUTH_REFRESH_TOKEN", "").strip() and os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip())
+        str(_env("GOOGLE_DRIVE_ACCESS_TOKEN") or _env("GOOGLE_API_ACCESS_TOKEN")).strip()
+        or (_env("GOOGLE_OAUTH_REFRESH_TOKEN") and _env("GOOGLE_OAUTH_CLIENT_ID"))
     )
-    has_smtp      = bool(os.getenv("SMTP_HOST", "").strip() and os.getenv("SMTP_USER", "").strip())
-    has_brevo     = bool(os.getenv("BREVO_API_KEY", "").strip())
-    has_deepl     = bool(os.getenv("DEEPL_API_KEY", "").strip())
+    has_smtp      = bool(_env("SMTP_HOST") and _env("SMTP_USER"))
+    has_brevo     = bool(_env("BREVO_API_KEY"))
+    has_deepl     = bool(_env("DEEPL_API_KEY"))
     try:
         from tools.media_engines import catalog_status as _media_status
 
@@ -96,18 +101,18 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         tts_note = "Chaîne voix : Edge TTS (gratuit) → Pollinations → OpenAI → ElevenLabs."
         video_note = "Storyboard via Mistral / Pollinations. Clip MP4 si Replicate / fal / Runway."
     except Exception:
-        has_image_gen = bool(os.getenv("MISTRAL_API_KEY", "").strip())
+        has_image_gen = bool(_env("MISTRAL_API_KEY"))
         has_tts = bool(
-            os.getenv("ELEVENLABS_API_KEY", "").strip()
-            or os.getenv("TTS_API_KEY", "").strip()
-            or os.getenv("OPENAI_API_KEY", "").strip()
+            _env("ELEVENLABS_API_KEY")
+            or _env("TTS_API_KEY")
+            or _env("OPENAI_API_KEY")
         )
         has_video = bool(
-            os.getenv("REPLICATE_API_TOKEN", "").strip()
-            or os.getenv("FAL_KEY", "").strip()
-            or os.getenv("RUNWAY_API_KEY", "").strip()
-            or os.getenv("VIDEO_GEN_API_KEY", "").strip()
-            or os.getenv("MISTRAL_API_KEY", "").strip()
+            _env("REPLICATE_API_TOKEN")
+            or _env("FAL_KEY")
+            or _env("RUNWAY_API_KEY")
+            or _env("VIDEO_GEN_API_KEY")
+            or _env("MISTRAL_API_KEY")
         )
         image_note = "Clé Mistral (chat) ou IMAGE_GEN / OpenRouter."
         tts_note = "TTS_PROVIDER + clé (OpenAI ou ElevenLabs)."
@@ -158,7 +163,7 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         "google_drive": {
             "ok": has_drive,
             "configured": has_drive,
-            "folder_id_set": bool(os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()),
+            "folder_id_set": bool(_env("GOOGLE_DRIVE_FOLDER_ID")),
             "note": "GOOGLE_API_ACCESS_TOKEN ou OAuth refresh + client id/secret.",
         },
         "send_email": {
@@ -206,86 +211,86 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
         },
         # ── Google Workspace ─────────────────────────────────────────────────
         "gmail": {
-            "ok": bool(os.getenv("GOOGLE_GMAIL_ACCESS_TOKEN", "").strip() or has_drive),
-            "configured": bool(os.getenv("GOOGLE_GMAIL_ACCESS_TOKEN", "").strip() or has_drive),
+            "ok": bool(_env("GOOGLE_GMAIL_ACCESS_TOKEN") or has_drive),
+            "configured": bool(_env("GOOGLE_GMAIL_ACCESS_TOKEN") or has_drive),
             "note": "GOOGLE_GMAIL_ACCESS_TOKEN ou OAuth Google partagé.",
         },
         "google_calendar": {
-            "ok": bool(os.getenv("GOOGLE_CALENDAR_ACCESS_TOKEN", "").strip() or has_drive),
-            "configured": bool(os.getenv("GOOGLE_CALENDAR_ACCESS_TOKEN", "").strip() or has_drive),
+            "ok": bool(_env("GOOGLE_CALENDAR_ACCESS_TOKEN") or has_drive),
+            "configured": bool(_env("GOOGLE_CALENDAR_ACCESS_TOKEN") or has_drive),
             "note": "GOOGLE_CALENDAR_ACCESS_TOKEN ou OAuth Google partagé.",
         },
         "google_sheets": {
-            "ok": bool(os.getenv("GOOGLE_SHEETS_ACCESS_TOKEN", "").strip() or has_drive),
-            "configured": bool(os.getenv("GOOGLE_SHEETS_ACCESS_TOKEN", "").strip() or has_drive),
+            "ok": bool(_env("GOOGLE_SHEETS_ACCESS_TOKEN") or has_drive),
+            "configured": bool(_env("GOOGLE_SHEETS_ACCESS_TOKEN") or has_drive),
             "note": "GOOGLE_SHEETS_ACCESS_TOKEN ou OAuth Google partagé.",
         },
         "google_analytics": {
-            "ok": bool(os.getenv("GA_PROPERTY_ID", "").strip()),
-            "configured": bool(os.getenv("GA_PROPERTY_ID", "").strip()),
+            "ok": bool(_env("GA_PROPERTY_ID")),
+            "configured": bool(_env("GA_PROPERTY_ID")),
             "note": "GA_PROPERTY_ID + token Analytics ou OAuth.",
         },
         "meta_webhooks": {
-            "ok": bool(os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip() and os.getenv("META_PAGE_ACCESS_TOKEN", "").strip()),
-            "configured": bool(os.getenv("META_WEBHOOK_VERIFY_TOKEN", "").strip()),
+            "ok": bool(_env("META_WEBHOOK_VERIFY_TOKEN") and _env("META_PAGE_ACCESS_TOKEN")),
+            "configured": bool(_env("META_WEBHOOK_VERIFY_TOKEN")),
             "note": "Webhooks commentaires FB/IG — META_WEBHOOK_VERIFY_TOKEN + META_PAGE_ACCESS_TOKEN.",
         },
         "youtube": {
-            "ok": bool(os.getenv("YOUTUBE_API_KEY", "").strip()),
-            "configured": bool(os.getenv("YOUTUBE_API_KEY", "").strip()),
+            "ok": bool(_env("YOUTUBE_API_KEY")),
+            "configured": bool(_env("YOUTUBE_API_KEY")),
             "note": "YOUTUBE_API_KEY — Data API v3.",
         },
         "whatsapp": {
-            "ok": bool(os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip() and os.getenv("WHATSAPP_PHONE_NUMBER_ID", "").strip()),
-            "configured": bool(os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()),
+            "ok": bool(_env("WHATSAPP_ACCESS_TOKEN") and _env("WHATSAPP_PHONE_NUMBER_ID")),
+            "configured": bool(_env("WHATSAPP_ACCESS_TOKEN")),
             "note": "WhatsApp Business Cloud API.",
         },
         "crm": {
             "ok": bool(
-                (os.getenv("CRM_PROVIDER", "").strip() == "notion" and os.getenv("NOTION_API_KEY", "").strip())
-                or (os.getenv("CRM_PROVIDER", "").strip() == "hubspot" and os.getenv("HUBSPOT_API_KEY", "").strip())
+                (_env("CRM_PROVIDER") == "notion" and _env("NOTION_API_KEY"))
+                or (_env("CRM_PROVIDER") == "hubspot" and _env("HUBSPOT_API_KEY"))
             ),
-            "configured": bool(os.getenv("CRM_PROVIDER", "").strip()),
+            "configured": bool(_env("CRM_PROVIDER")),
             "note": "CRM_PROVIDER=notion|hubspot + clés associées.",
         },
         "stripe": {
-            "ok": bool(os.getenv("STRIPE_SECRET_KEY", "").strip()),
-            "configured": bool(os.getenv("STRIPE_SECRET_KEY", "").strip()),
+            "ok": bool(_env("STRIPE_SECRET_KEY")),
+            "configured": bool(_env("STRIPE_SECRET_KEY")),
             "note": "STRIPE_SECRET_KEY — revenus.",
         },
         "paypal": {
-            "ok": bool(os.getenv("PAYPAL_CLIENT_ID", "").strip() and os.getenv("PAYPAL_CLIENT_SECRET", "").strip()),
-            "configured": bool(os.getenv("PAYPAL_CLIENT_ID", "").strip()),
+            "ok": bool(_env("PAYPAL_CLIENT_ID") and _env("PAYPAL_CLIENT_SECRET")),
+            "configured": bool(_env("PAYPAL_CLIENT_ID")),
             "note": "PAYPAL_CLIENT_ID + PAYPAL_CLIENT_SECRET.",
         },
         "canva": {
-            "ok": bool(os.getenv("CANVA_API_KEY", "").strip()),
-            "configured": bool(os.getenv("CANVA_API_KEY", "").strip()),
+            "ok": bool(_env("CANVA_API_KEY")),
+            "configured": bool(_env("CANVA_API_KEY")),
             "note": "CANVA_API_KEY — visuels brandés.",
         },
         "pinterest": {
-            "ok": bool(os.getenv("PINTEREST_ACCESS_TOKEN", "").strip()),
-            "configured": bool(os.getenv("PINTEREST_ACCESS_TOKEN", "").strip()),
+            "ok": bool(_env("PINTEREST_ACCESS_TOKEN")),
+            "configured": bool(_env("PINTEREST_ACCESS_TOKEN")),
             "note": "PINTEREST_ACCESS_TOKEN + PINTEREST_BOARD_ID.",
         },
         "discord": {
-            "ok": bool(os.getenv("DISCORD_WEBHOOK_URL", "").strip() or os.getenv("DISCORD_BOT_TOKEN", "").strip()),
-            "configured": bool(os.getenv("DISCORD_WEBHOOK_URL", "").strip() or os.getenv("DISCORD_BOT_TOKEN", "").strip()),
+            "ok": bool(_env("DISCORD_WEBHOOK_URL") or _env("DISCORD_BOT_TOKEN")),
+            "configured": bool(_env("DISCORD_WEBHOOK_URL") or _env("DISCORD_BOT_TOKEN")),
             "note": "DISCORD_WEBHOOK_URL ou DISCORD_BOT_TOKEN + CHANNEL_ID.",
         },
         "telegram": {
-            "ok": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip() and os.getenv("TELEGRAM_CHAT_ID", "").strip()),
-            "configured": bool(os.getenv("TELEGRAM_BOT_TOKEN", "").strip() or os.getenv("TELEGRAM_HITL_BOT_TOKEN", "").strip()),
+            "ok": bool(_env("TELEGRAM_BOT_TOKEN") and _env("TELEGRAM_CHAT_ID")),
+            "configured": bool(_env("TELEGRAM_BOT_TOKEN") or _env("TELEGRAM_HITL_BOT_TOKEN")),
             "note": "TELEGRAM_CHAT_ID + bot. Bot HITL dédié (TELEGRAM_HITL_BOT_TOKEN) pour boutons Valider.",
         },
         "wordpress": {
-            "ok": bool(os.getenv("WP_BASE_URL", "").strip() and os.getenv("WP_USER", "").strip() and os.getenv("WP_APP_PASSWORD", "").strip()),
-            "configured": bool(os.getenv("WP_BASE_URL", "").strip()),
+            "ok": bool(_env("WP_BASE_URL") and _env("WP_USER") and _env("WP_APP_PASSWORD")),
+            "configured": bool(_env("WP_BASE_URL")),
             "note": "WP_BASE_URL + WP_USER + WP_APP_PASSWORD (Application Password).",
         },
         "webhook": {
-            "ok": bool(os.getenv("KORYMB_WEBHOOK_URL", "").strip() or os.getenv("NOTIFICATION_WEBHOOK_URL", "").strip()),
-            "configured": bool(os.getenv("KORYMB_WEBHOOK_URL", "").strip() or os.getenv("NOTIFICATION_WEBHOOK_URL", "").strip()),
+            "ok": bool(_env("KORYMB_WEBHOOK_URL") or _env("NOTIFICATION_WEBHOOK_URL")),
+            "configured": bool(_env("KORYMB_WEBHOOK_URL") or _env("NOTIFICATION_WEBHOOK_URL")),
             "note": "KORYMB_WEBHOOK_URL ou NOTIFICATION_WEBHOOK_URL — n8n/Zapier.",
         },
         "text_to_speech": {
@@ -304,8 +309,8 @@ def probe_tools_health(*, force: bool = False) -> dict[str, Any]:
             "note": video_note,
         },
         "post_linkedin": {
-            "ok": bool(os.getenv("LINKEDIN_ACCESS_TOKEN", "").strip() and os.getenv("LINKEDIN_AUTHOR_URN", "").strip()),
-            "configured": bool(os.getenv("LINKEDIN_ACCESS_TOKEN", "").strip()),
+            "ok": bool(_env("LINKEDIN_ACCESS_TOKEN") and _env("LINKEDIN_AUTHOR_URN")),
+            "configured": bool(_env("LINKEDIN_ACCESS_TOKEN")),
             "note": "LINKEDIN_ACCESS_TOKEN + LINKEDIN_AUTHOR_URN — publication HITL.",
         },
     }

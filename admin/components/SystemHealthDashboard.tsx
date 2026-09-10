@@ -211,8 +211,8 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
-          <HealthDot tone="warn" label="Clé manquante" />
-          Clé manquante
+          <HealthDot tone="warn" label="Clé manquante ou à vérifier" />
+          Clé manquante / à vérifier
         </span>
         <span className="text-slate-300">|</span>
         <span className="inline-flex items-center gap-1">
@@ -359,7 +359,7 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
                               : "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {healthStatusLabel(tone)}
+                      {healthStatusLabel(tone, row)}
                     </span>
                   </div>
                   <p className="mt-0.5 font-mono text-[11px] text-slate-500">{id}</p>

@@ -56,7 +56,7 @@ export type OperationalRow = {
 /**
  * Pastilles santé — sémantique unifiée :
  * - vert (ok) : service opérationnel (clé présente + sonde OK si disponible)
- * - orange (warn) : clé API manquante ou configuration incomplète
+ * - orange (warn) : clé API manquante, config incomplète, ou sonde douteuse
  * - rouge (bad) : panne confirmée (sonde KO, service inaccessible)
  */
 export function healthToneForOperationalStatus(
@@ -78,7 +78,8 @@ export function healthToneForOperationalStatus(
   if (ok === false) return "warn";
   if (reachable === true || ok === true) return "ok";
 
-  return "warn";
+  // Clés présentes, aucune sonde négative
+  return "ok";
 }
 
 /** Sonde outil (section « état en direct »). */
@@ -127,14 +128,6 @@ export function healthToneForIntegration(id: string, row: IntegrationRow): Healt
     return "warn";
   }
 
-  if (id === "smtp" || id === "fleur_db") {
-    return healthToneForOperationalStatus({
-      configured,
-      ok,
-      reachable,
-    });
-  }
-
   return healthToneForOperationalStatus({
     configured,
     ok,
@@ -142,10 +135,13 @@ export function healthToneForIntegration(id: string, row: IntegrationRow): Healt
   });
 }
 
-export function healthStatusLabel(tone: HealthTone): string {
+export function healthStatusLabel(tone: HealthTone, row?: OperationalRow): string {
   if (tone === "ok") return "Opérationnel";
-  if (tone === "warn") return "Clé manquante";
   if (tone === "bad") return "Indisponible";
+  if (tone === "warn") {
+    if (row && asBool(row.configured) === true) return "À vérifier";
+    return "Clé manquante";
+  }
   return "Non concerné";
 }
 

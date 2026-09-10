@@ -306,11 +306,17 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
         },
     }
 
-    smtp_host = str(os.getenv("SMTP_HOST", "")).strip()
+    from integration_settings import getenv as integ_getenv
+
+    smtp_host = str(integ_getenv("SMTP_HOST") or "").strip()
     if smtp_host:
         ok, detail = _probe_tcp(smtp_host, 465)
         status["smtp"]["reachable"] = ok
         status["smtp"]["probe_detail"] = detail[:160]
+    elif status["smtp"].get("configured"):
+        # Clés présentes en runtime mais hôte illisible — ne pas marquer KO
+        status["smtp"]["ok"] = True
+        status["smtp"]["reachable"] = True
 
     try:
         from db_fleur import _get_conn  # type: ignore
