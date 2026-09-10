@@ -73,20 +73,6 @@ export async function resumeMissionCio(
   return data as { job_id?: string; status?: string };
 }
 
-export async function cioAnswerAndResume(
-  jobId: string,
-  answer: string,
-  question?: string,
-  opts?: { cioQuestionsEnabled?: boolean },
-) {
-  const answerRes = await cioAnswer(jobId, answer, question);
-  const resume = await resumeMissionCio(jobId, buildArbitrageResumeMessage(answer, question), opts);
-  if (resume.status !== "accepted" || !resume.job_id) {
-    throw new Error("Reprise mission CIO impossible (pas de job_id).");
-  }
-  return { ...answerRes, resume_job_id: resume.job_id };
-}
-
 function buildBatchArbitrageResumeMessage(answers: Array<{ question: string; answer: string }>): string {
   if (answers.length === 1) {
     return buildArbitrageResumeMessage(answers[0].answer, answers[0].question);
@@ -246,6 +232,23 @@ export async function resolveLearningSuggestion(suggestionId: string, decision: 
   return data;
 }
 
+export async function resolveConfigSuggestion(
+  suggestionId: string,
+  decision: "apply" | "acknowledge" | "dismiss",
+) {
+  const { res, data } = await requestJson(
+    `/admin/config-suggestions/${encodeURIComponent(suggestionId)}/resolve`,
+    {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ decision }),
+      expectOk: false,
+    },
+  );
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data;
+}
+
 export async function qualityOverride(jobId: string, reason = "") {
   const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/quality-override`, {
     method: "POST",
@@ -319,33 +322,6 @@ export function useHitlResolve(jobId: string, onSuccess?: (data?: unknown) => vo
       void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
       void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
       onSuccess?.(data);
-    },
-  });
-}
-
-export function useCioAnswer(jobId: string, onSuccess?: () => void) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ answer, question }: { answer: string; question?: string }) =>
-      cioAnswer(jobId, answer, question),
-    onSuccess: () => {
-      invalidateMissionQueries(qc, jobId);
-      onSuccess?.();
-    },
-  });
-}
-
-export function useCioAnswerAndResume(
-  jobId: string,
-  opts?: { cioQuestionsEnabled?: boolean; onSuccess?: (resumeJobId: string) => void },
-) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ answer, question }: { answer: string; question?: string }) =>
-      cioAnswerAndResume(jobId, answer, question, { cioQuestionsEnabled: opts?.cioQuestionsEnabled }),
-    onSuccess: (data) => {
-      invalidateMissionQueries(qc, jobId);
-      if (data.resume_job_id) opts?.onSuccess?.(data.resume_job_id);
     },
   });
 }
@@ -426,6 +402,23 @@ export function useLearningResolve(onSuccess?: () => void) {
   return useMutation({
     mutationFn: ({ suggestionId, decision }: { suggestionId: string; decision: "approve" | "reject" }) =>
       resolveLearningSuggestion(suggestionId, decision),
+    onSuccess: () => {
+      invalidateMissionQueries(qc);
+      onSuccess?.();
+    },
+  });
+}
+
+export function useConfigSuggestionResolve(onSuccess?: () => void) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      suggestionId,
+      decision,
+    }: {
+      suggestionId: string;
+      decision: "apply" | "acknowledge" | "dismiss";
+    }) => resolveConfigSuggestion(suggestionId, decision),
     onSuccess: () => {
       invalidateMissionQueries(qc);
       onSuccess?.();

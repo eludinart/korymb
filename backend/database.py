@@ -3396,6 +3396,8 @@ def make_inbox_dismiss_key(
         return f"scheduler_output:{oid}"
     if k == "learning_suggestion" and sid:
         return f"learning_suggestion:{sid}"
+    if k == "config_suggestion" and sid:
+        return f"config_suggestion:{sid}"
     raise ValueError(f"Impossible de construire une clé de rejet pour kind={k!r}")
 
 

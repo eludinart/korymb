@@ -275,7 +275,9 @@ def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveB
     if body.decision == "approve":
         payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
         memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
-        if memory_updates:
+        directive = payload.get("memory_directive") if isinstance(payload.get("memory_directive"), dict) else None
+        facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
+        if memory_updates or directive or facts:
             try:
                 from services.learning import apply_learning_payload_to_memory
 
@@ -285,6 +287,16 @@ def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveB
                 )
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Impossible d'appliquer la mémoire : {exc}") from exc
+        try:
+            from services.chat_intelligence import record_chat_apply_feedback
+
+            record_chat_apply_feedback(
+                title=str(payload.get("title") or "Mémoire"),
+                kind="memory",
+                detail=str((payload.get("memory_directive") or {}).get("detail") or "")[:240],
+            )
+        except Exception:
+            pass
         resolve_learning_suggestion(suggestion_id, "approved")
     else:
         resolve_learning_suggestion(suggestion_id, "rejected")

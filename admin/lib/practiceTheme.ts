@@ -99,8 +99,3 @@ export function practiceThemeVars(identity: PracticeIdentity): Record<string, st
     "--practice-heading-font": typeface.heading,
   };
 }
-
-export function publicBrandUrl(slug: string, kind: "logo" | "cover", inline = true) {
-  const q = inline ? "?inline=true" : "";
-  return `/api/public/storefront/${encodeURIComponent(slug)}/brand/${kind}${q}`;
-}

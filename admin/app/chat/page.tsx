@@ -86,6 +86,7 @@ function ChatPageInner() {
   const [backgroundJobs, setBackgroundJobs] = useState<PendingChatJob[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [convertBusy, setConvertBusy] = useState(false);
+  const [convertBrief, setConvertBrief] = useState<string | null>(null);
   const pollingRef = useRef<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
   const initRef = useRef(false);
@@ -462,12 +463,20 @@ function ChatPageInner() {
     setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
   }, []);
 
-  const convertToMission = useCallback(async () => {
+  const openConvertPreview = useCallback(() => {
     if (!activeId || convertBusy) return;
     const title = conversations.find((c) => c.id === activeId)?.title;
+    setConvertBrief(buildMissionBriefFromChat(messages, title));
+  }, [activeId, convertBusy, conversations, messages]);
+
+  const convertToMission = useCallback(async () => {
+    if (!activeId || convertBusy) return;
+    const brief = (convertBrief || "").trim() || buildMissionBriefFromChat(
+      messages,
+      conversations.find((c) => c.id === activeId)?.title,
+    );
     setConvertBusy(true);
     try {
-      const brief = buildMissionBriefFromChat(messages, title);
       const { data } = await requestJson("/run", {
         method: "POST",
         headers: agentHeaders(),
@@ -482,7 +491,7 @@ function ChatPageInner() {
     } finally {
       setConvertBusy(false);
     }
-  }, [activeId, convertBusy, conversations, messages, persistActiveConversation, router]);
+  }, [activeId, convertBusy, convertBrief, conversations, messages, persistActiveConversation, router]);
 
   if (!hydrated || !activeId) {
     return <div className="p-6 text-center text-slate-500">Chargement…</div>;
@@ -548,9 +557,13 @@ function ChatPageInner() {
             className="h-full max-w-none"
             agentLabels={agentLabels}
             onPatchMessage={patchMessage}
-            onConvertToMission={() => void convertToMission()}
+            onConvertToMission={openConvertPreview}
             convertBusy={convertBusy}
             canConvertToMission={canConvertToMission}
+            convertBrief={convertBrief}
+            onConvertBriefChange={setConvertBrief}
+            onConfirmConvert={() => void convertToMission()}
+            onCancelConvert={() => setConvertBrief(null)}
           />
         </div>
       </div>

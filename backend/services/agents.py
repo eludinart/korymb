@@ -65,6 +65,8 @@ MODE_CADRAGE_AGENT = (
 GESTION_TOOLS_CONTEXT = (
     "\n\n### Module Gestion Korymb (CRM intégré)\n"
     "Tu disposes d'outils `gestion_*` qui écrivent dans l'application Korymb (contacts, projets, devis, planning, historique).\n"
+    "**En conversation chat :** les créations / mises à jour CRM (`gestion_upsert_contact`, devis, projets, planning, journal) "
+    "deviennent une **proposition** dans Décisions — pas d'écriture immédiate. Les recherches (`gestion_search_*`, listes, overview) restent live.\n"
     "**Workflow prospection :** recherche web/LinkedIn → `gestion_search_contacts` → `gestion_upsert_contact` avec fiche complète "
     "(notes = tout ce que tu as trouvé : URL, spécialité, ville, angle Fleur d'ÅmÔurs) → `gestion_log_interaction`.\n"
     "**Exploration détaillée d'une fiche existante :** cherche puis `gestion_propose_contact_enrichment` "
@@ -150,11 +152,13 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "developpeur": {
         "label": "Développeur",
         "role": "Code & architecture",
-        "tools": ["web", "db"],
+        "tools": ["web", "db", "knowledge", "validate"],
         "system": (
             "Tu es le Développeur d'Élude In Art. Tu développes et maintiens les outils numériques : "
             "Korymb (QG agents), app Fleur d'ÅmÔurs (Next.js), backend FastAPI, questionnaires Ritual. "
-            "Stack : React/Vite, Next.js, FastAPI, Docker, Coolify.\n\n"
+            "Stack : React/Vite, Next.js, FastAPI, Docker, Coolify.\n"
+            "Tu peux lire l'état Korymb (`korymb_overview`, `search_core_notes`) et vérifier la syntaxe. "
+            "Pour un changement produit : `propose_platform_change` (spec à valider) — tu n'écris pas le git.\n\n"
         ),
     },
     "comptable": {
@@ -171,7 +175,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "coordinateur": {
         "label": "CIO — Orchestrateur",
         "role": "Stratégie & délégation",
-        "tools": ["web", "linkedin", "drive", "db", "google", "messaging", "social_auto", "gestion", "studio", "media", "cms"],
+        "tools": ["web", "linkedin", "drive", "db", "google", "messaging", "social_auto", "gestion", "studio", "media", "cms", "knowledge"],
         "is_manager": True,
         "system": (
             "Tu es le CIO (DSI / orchestrateur) d'Élude In Art. Tu as la vision d'ensemble et coordonnes la stratégie globale. "
@@ -183,6 +187,8 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Par défaut, réponds en CIO seul ; mobilise un rôle uniquement si une tâche concrète lui incombe "
             "(prospection terrain, contenu réseaux, code, compta, etc.). "
             "Ne déploie jamais plusieurs agents « par principe » ni pour confirmer leur présence.\n"
+            "Pour l'état de Korymb (intégrations, jobs, CRM), utilise `korymb_overview` plutôt que d'inventer. "
+            "Pour une évolution de l'app : `propose_platform_change` (spec à valider) — jamais de git.\n"
             "Si une mission est ambiguë ou nécessite des arbitrages importants, tu peux poser des questions au dirigeant "
             "via le champ 'clarifying_questions' du plan JSON — la mission continue à s'exécuter pendant qu'il répond.\n"
             "Tu reçois aussi un bloc « Historique missions Korymb » (missions déjà exécutées, avec livrables). "

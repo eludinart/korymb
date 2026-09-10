@@ -105,19 +105,3 @@ export async function requestJson(path: string, options: RequestOptions = {}) {
   }
 }
 
-type JsonLike = Record<string, unknown>;
-type FallbackCall = () => Promise<{ res: Response; data: JsonLike }>;
-
-export async function requestFallbackJson(calls: FallbackCall[], methodLabel: string) {
-  const failures: string[] = [];
-  for (const call of calls) {
-    const out = await call();
-    if (out.res.ok) return out;
-    if (out.res.status === 404 || out.res.status === 405) {
-      failures.push(`${out.res.status}`);
-      continue;
-    }
-    throw new Error(formatHttpApiErrorPayload(out.data) || `${methodLabel}: HTTP ${out.res.status}`);
-  }
-  throw new Error(`${methodLabel}: endpoint indisponible (fallbacks ${failures.join(", ") || "n/a"})`);
-}

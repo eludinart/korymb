@@ -289,22 +289,6 @@ export function canInlineEmailAttachment(mime?: string) {
   );
 }
 
-export function canInlineResource(mime?: string, filename?: string) {
-  const m = (mime || "").toLowerCase();
-  const n = (filename || "").toLowerCase();
-  if (
-    m.startsWith("image/") ||
-    m.startsWith("audio/") ||
-    m.startsWith("video/") ||
-    m === "application/pdf" ||
-    m.startsWith("text/plain") ||
-    m === "text/csv"
-  ) {
-    return true;
-  }
-  return /\.(png|jpe?g|gif|webp|pdf|mp4|webm|mov|mp3|m4a|wav|ogg|aac|txt|csv|md)$/i.test(n);
-}
-
 export const businessApi = {
   overview: async () => {
     const { data } = await requestJson("/business/overview", {

@@ -27,6 +27,8 @@ def propose_memory_suggestion(
     job_id: str = "",
     source_ref: str = "",
     notify: bool = True,
+    allow_auto_apply: bool = True,
+    extra_payload: dict[str, Any] | None = None,
 ) -> dict | None:
     """
     Crée une suggestion mémoire (file Décisions) et tente l'auto-apply selon learning.auto_apply_mode.
@@ -40,7 +42,8 @@ def propose_memory_suggestion(
         if str(v or "").strip()
     }
     facts = enterprise_facts if isinstance(enterprise_facts, dict) else None
-    if not keys and not facts:
+    extra = extra_payload if isinstance(extra_payload, dict) else {}
+    if not keys and not facts and not extra.get("memory_directive"):
         return None
 
     learnings_list = [str(x).strip() for x in (learnings or []) if str(x or "").strip()][:8]
@@ -59,10 +62,16 @@ def propose_memory_suggestion(
     }
     if facts:
         payload["enterprise_facts"] = facts
+    if extra:
+        for k, v in extra.items():
+            if k not in payload:
+                payload[k] = v
 
     sug = insert_learning_suggestion(job_id or "", payload)
     sid = str(sug.get("id") or "")
-    auto_applied = try_auto_apply_learning(sid, payload) if sid else False
+    auto_applied = (
+        try_auto_apply_learning(sid, payload) if sid and allow_auto_apply else False
+    )
 
     if notify:
         try:
@@ -166,27 +175,11 @@ def format_enterprise_facts_prompt(*, max_chars: int = 900) -> str:
     return text
 
 
-def build_chat_active_memory_block() -> str:
+def build_chat_active_memory_block(user_text: str = "") -> str:
     """Résumé court + faits pour le chat CIO (sans dump reprise/checklist)."""
-    from database import get_enterprise_memory
+    from services.chat_intelligence import build_targeted_memory_block
 
-    mem = get_enterprise_memory()
-    contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
-    parts: list[str] = [
-        "\n\n[Mémoire active — usage interne silencieux, ne pas réciter en checklist]"
-    ]
-    facts_blk = format_enterprise_facts_prompt(max_chars=700)
-    if facts_blk:
-        parts.append(facts_blk)
-    global_ctx = str(contexts.get("global") or "").strip()
-    if global_ctx:
-        parts.append("Contexte global (extrait) :\n" + global_ctx[:MEMORY_CHAT_GLOBAL_CHARS])
-    summary = str(contexts.get("auto_summary") or "").strip()
-    if summary:
-        parts.append("Résumé missions :\n" + summary[:MEMORY_CHAT_SUMMARY_CHARS])
-    if len(parts) <= 1:
-        return ""
-    return "\n".join(parts)
+    return build_targeted_memory_block(user_text)
 
 
 def clip_memory_for_injection(text: str, max_chars: int | None = None) -> str:

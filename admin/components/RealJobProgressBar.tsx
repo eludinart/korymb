@@ -1,7 +1,5 @@
 "use client";
 
-import type { JobProgress } from "../lib/jobProgress";
-
 type Props = {
   percent: number;
   label?: string;
@@ -53,5 +51,3 @@ export function progressToneForStatus(status?: string): Props["tone"] {
   if (st === "completed") return "emerald";
   return "violet";
 }
-
-export type { JobProgress };

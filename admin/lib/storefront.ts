@@ -116,13 +116,6 @@ export function modalityLabel(modality: string | null | undefined, eventType?: s
   return "Format à préciser";
 }
 
-export function eventVisibilityLabel(visibility?: string, reserved?: boolean): string {
-  if (visibility === "selected") return "Pour vous";
-  if (visibility === "public") return "Ouvert à tous";
-  if (visibility === "participants" || reserved) return "Pour les inscrits";
-  return "";
-}
-
 export async function loadPublicStorefront(slug: string): Promise<StorefrontPublic> {
   const res = await fetch(`/api/public/storefront/${encodeURIComponent(slug)}`, { cache: "no-store" });
   const data = (await res.json().catch(() => ({}))) as StorefrontPublic & { detail?: string };

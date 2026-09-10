@@ -3,7 +3,6 @@ import { agentHeaders, requestJson } from "./api";
 import { missionActionLabel } from "./missionLabel";
 import {
   collectMissionClusterJobIds,
-  dedupeMissionListJobs,
   missionClusterKey,
   normalizeJobId,
 } from "./missionBossView";
@@ -120,8 +119,4 @@ export function clusterStillVisible(allJobs: Job[], primaryJobId: string): boole
   const missionJobs = missionLikeJobs(allJobs);
   const key = missionClusterKey(seed, missionJobs);
   return jobsInCluster(allJobs, key).length > 0;
-}
-
-export function dedupeMissionsForList(jobs: Job[]): Job[] {
-  return dedupeMissionListJobs(missionLikeJobs(jobs));
 }

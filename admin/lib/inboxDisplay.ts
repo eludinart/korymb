@@ -20,7 +20,7 @@ export type InboxDisplayPrefs = {
 
 export const INBOX_TABS: { id: InboxTabId; label: string; kinds: InboxActionItem["kind"][] | null }[] = [
   { id: "all", label: "Toutes", kinds: null },
-  { id: "validations", label: "Validations", kinds: ["hitl", "action_ticket", "crm_follow_up"] },
+  { id: "validations", label: "Validations", kinds: ["hitl", "action_ticket", "crm_follow_up", "config_suggestion"] },
   { id: "cio", label: "Questions CIO", kinds: ["cio_question"] },
   { id: "closures", label: "Clôtures", kinds: ["closure"] },
   { id: "approvals", label: "Approbations", kinds: ["scheduler_output"] },
@@ -54,6 +54,7 @@ export const INBOX_KIND_OPTIONS: { value: InboxKindFilter; label: string }[] = [
   { value: "quality", label: "Qualité" },
   { value: "scheduler_output", label: "Approbations" },
   { value: "learning_suggestion", label: "Apprentissage" },
+  { value: "config_suggestion", label: "Propositions chat" },
 ];
 
 export function loadInboxDisplayPrefs(): InboxDisplayPrefs {

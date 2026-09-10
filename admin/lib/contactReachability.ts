@@ -22,12 +22,6 @@ export function contactFieldLabel(key: string): string {
   return FIELD_LABELS[key] || key;
 }
 
-export function reachabilityTone(level: string | undefined): "ok" | "warn" | "danger" {
-  if (level === "complete") return "ok";
-  if (level === "partial") return "warn";
-  return "danger";
-}
-
 export function reachabilityBadgeClass(level: string | undefined): string {
   switch (level) {
     case "complete":

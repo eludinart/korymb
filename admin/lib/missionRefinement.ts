@@ -2,8 +2,6 @@
 export const MAX_REFINEMENT_ROUNDS = 12;
 export const DEFAULT_REFINEMENT_ROUNDS = 2;
 
-export const REFINEMENT_ROUND_OPTIONS = Array.from({ length: MAX_REFINEMENT_ROUNDS }, (_, i) => i + 1);
-
 export function clampRefinementRounds(n: unknown): number {
   const v = Math.floor(Number(n));
   if (!Number.isFinite(v)) return DEFAULT_REFINEMENT_ROUNDS;

@@ -37,10 +37,3 @@ export function accountFirstName(me: AuthMeResponse | null | undefined): string 
   if (full) return full.split(/\s+/)[0] || full;
   return (me?.user?.email || "").split("@")[0] || "";
 }
-
-export function authHeaders(extra: Record<string, string> = {}) {
-  return {
-    "Content-Type": "application/json",
-    ...extra,
-  };
-}

@@ -29,6 +29,7 @@ def _priority_score(kind: str) -> int:
         "mission_error": 1,
         "closure": 2,
         "learning_suggestion": 3,
+        "config_suggestion": 3,
         "scheduler_output": 4,
         "quality": 2,
     }.get(kind, 9)
@@ -45,6 +46,7 @@ def _sla_days(kind: str) -> int:
         "closure": 3,
         "quality": 1,
         "learning_suggestion": 7,
+        "config_suggestion": 3,
         "scheduler_output": 2,
     }.get(kind, 3)
 
@@ -82,6 +84,7 @@ def _progress_label(kind: str) -> str:
         "closure": "Mission terminée — clôture en attente",
         "quality": "Contrôle qualité bloquant",
         "learning_suggestion": "Mémoire à confirmer",
+        "config_suggestion": "Proposition chat / reco à valider",
         "scheduler_output": "Proposition autonome à arbitrer",
     }.get(kind, "Action requise")
 
@@ -299,6 +302,30 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         }))
 
     try:
+        from services.config_suggestions import list_pending_config_suggestions
+
+        for sug in list_pending_config_suggestions(limit=30):
+            kind_cfg = str(sug.get("kind") or "")
+            if kind_cfg == "integration":
+                continue
+            items.append(_enrich_inbox_item({
+                "kind": "config_suggestion",
+                "suggestion_id": sug.get("id"),
+                "job_id": (sug.get("payload") or {}).get("job_id") if isinstance(sug.get("payload"), dict) else None,
+                "title": str(sug.get("title") or "Proposition à valider")[:160],
+                "summary": str(sug.get("body") or "")[:400],
+                "config_kind": kind_cfg,
+                "target_key": sug.get("target_key"),
+                "applyable": bool(sug.get("applyable")),
+                "payload": sug.get("payload") if isinstance(sug.get("payload"), dict) else {},
+                "created_at": sug.get("created_at"),
+                "updated_at": sug.get("created_at"),
+                "priority_score": _priority_score("config_suggestion"),
+            }))
+    except Exception:
+        pass
+
+    try:
         from services.action_queue import list_actions
 
         for ticket in list_actions(status="pending", limit=40):
@@ -417,6 +444,8 @@ def _priority_label(item: dict) -> str:
         return f"Approuver — {title[:80]}" if title else "Approuver une proposition autonome"
     if kind == "learning_suggestion":
         return title[:120] if title else "Arbitrer une suggestion d'apprentissage"
+    if kind == "config_suggestion":
+        return title[:120] if title else "Valider une proposition chat / reco"
     if kind == "quality":
         return f"Débloquer la qualité — {title[:80]}" if title else "Contrôle qualité bloquant"
     return title[:120] if title else "Action requise"

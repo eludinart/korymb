@@ -36,6 +36,10 @@ type Props = {
   onConvertToMission?: () => void;
   convertBusy?: boolean;
   canConvertToMission?: boolean;
+  convertBrief?: string | null;
+  onConvertBriefChange?: (v: string) => void;
+  onConfirmConvert?: () => void;
+  onCancelConvert?: () => void;
 };
 
 function displayAgentKeys(msg: ChatMsg): string[] {
@@ -58,6 +62,10 @@ export default function ChatShell({
   onConvertToMission,
   convertBusy = false,
   canConvertToMission = false,
+  convertBrief = null,
+  onConvertBriefChange,
+  onConfirmConvert,
+  onCancelConvert,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const hydratingRef = useRef<Set<string>>(new Set());
@@ -187,11 +195,11 @@ export default function ChatShell({
         </div>
       </div>
 
-      {canConvertToMission && onConvertToMission ? (
+      {canConvertToMission && onConvertToMission && !convertBrief ? (
         <div className="shrink-0 border-t border-slate-100 bg-slate-50/80 px-4 py-2.5">
           <div className="mx-auto flex max-w-3xl flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <p className="text-xs text-slate-500 sm:text-sm">
-              Approfondir ce sujet avec toute l&apos;équipe multi-agents ?
+              Approfondir avec l&apos;équipe ? Les écritures CRM / mémoire du chat attendent dans Décisions.
             </p>
             <button
               type="button"
@@ -199,8 +207,42 @@ export default function ChatShell({
               disabled={convertBusy}
               className="touch-target w-full shrink-0 rounded-2xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-800 shadow-sm transition-colors hover:bg-violet-50 disabled:opacity-50 sm:w-auto"
             >
-              {convertBusy ? "Lancement…" : "Lancer en mission →"}
+              Préparer une mission
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
+        <div className="shrink-0 border-t border-violet-100 bg-violet-50/70 px-4 py-3">
+          <div className="mx-auto max-w-3xl space-y-2">
+            <p className="text-sm font-semibold text-violet-900">Brief mission (modifiable)</p>
+            <textarea
+              value={convertBrief}
+              onChange={(e) => onConvertBriefChange(e.target.value)}
+              rows={10}
+              className="w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-violet-200"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onConfirmConvert}
+                disabled={convertBusy || !convertBrief.trim()}
+                className="rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {convertBusy ? "Lancement…" : "Lancer la mission"}
+              </button>
+              {onCancelConvert ? (
+                <button
+                  type="button"
+                  onClick={onCancelConvert}
+                  disabled={convertBusy}
+                  className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Annuler
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

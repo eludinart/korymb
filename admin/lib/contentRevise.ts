@@ -17,24 +17,3 @@ export async function reviseJob(jobId: string, instruction: string, formatId = "
   });
   return data as ReviseResult;
 }
-
-export type PlaybookRunPiece = {
-  title: string;
-  body: string;
-  body_preview?: string;
-};
-
-export type PlaybookRun = {
-  job_id: string;
-  status: string;
-  playbook_id?: string;
-  created_at?: string;
-  mission_preview?: string;
-  result_preview?: string;
-  pieces?: PlaybookRunPiece[];
-};
-
-export async function listPlaybookRuns() {
-  const { data } = await requestJson("/playbooks/runs", { headers: agentHeaders() });
-  return ((data as { runs?: PlaybookRun[] }).runs || []) as PlaybookRun[];
-}

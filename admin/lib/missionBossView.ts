@@ -75,11 +75,6 @@ export function dedupeMissionListJobs<T extends MissionClusterJob>(rows: T[]): T
   return [...groups.values()].map((group) => sortJobsForBossView(group)[0]);
 }
 
-/** @deprecated Utiliser dedupeMissionListJobs — conservé pour compatibilité interne. */
-export function filterRootMissionJobs<T extends MissionClusterJob>(rows: T[]): T[] {
-  return dedupeMissionListJobs(rows);
-}
-
 /** Tous les job_id d'un même cluster (suppression groupée). */
 export function collectMissionClusterJobIds<T extends MissionClusterJob>(
   primaryJobId: string,

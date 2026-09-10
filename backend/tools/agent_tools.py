@@ -33,69 +33,114 @@ _CORE_SEARCH_DIRS: list[str] = [
 _TEXT_EXTENSIONS: frozenset[str] = frozenset({
     ".md", ".txt", ".mdc", ".rst", ".json", ".yaml", ".yml",
 })
+_CODE_SEARCH_DIRS: list[str] = ["backend", "admin"]
+_CODE_EXTENSIONS: frozenset[str] = frozenset({".py", ".ts", ".tsx"})
+_CODE_SKIP_PARTS: frozenset[str] = frozenset({
+    "node_modules", ".next", "__pycache__", ".venv", "dist", ".git", "coverage",
+})
+_CODE_MAX_BYTES = 80_000
 
 
-# ── search_core_notes ──────────────────────────────────────────────────────────
+def _path_skipped(path: Path) -> bool:
+    return any(part in _CODE_SKIP_PARTS for part in path.parts)
 
-def search_core_notes(query: str, *, max_results: int = 8, context_chars: int = 400) -> str:
-    """
-    Recherche dans les fichiers CORE/*.md, docs/, et règles .cursor/rules/
-    par correspondance de termes (insensible à la casse).
 
-    Args:
-        query: termes de recherche (espaces = ET logique)
-        max_results: nombre maximum de résultats retournés
-        context_chars: nombre de caractères de contexte autour du match
-
-    Returns:
-        Extraits pertinents formatés en markdown.
-    """
-    query_clean = (query or "").strip()
-    if not query_clean:
-        return "Requête vide."
-
-    terms = [t.lower() for t in query_clean.split() if t]
+def _collect_note_hits(
+    query_terms: list[str],
+    *,
+    dirs: list[str],
+    extensions: frozenset[str],
+    context_chars: int,
+    max_scan: int,
+    skip_code_layout: bool,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
-
-    for dir_name in _CORE_SEARCH_DIRS:
+    for dir_name in dirs:
         target = _REPO_ROOT / dir_name
         if not target.exists():
             continue
         for path in sorted(target.rglob("*")):
-            if path.suffix.lower() not in _TEXT_EXTENSIONS:
+            if skip_code_layout and _path_skipped(path):
+                continue
+            if path.suffix.lower() not in extensions:
                 continue
             if not path.is_file():
                 continue
             try:
+                if path.stat().st_size > _CODE_MAX_BYTES:
+                    continue
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
             text_lower = text.lower()
-            if not all(t in text_lower for t in terms):
+            if not all(t in text_lower for t in query_terms):
                 continue
-            # Trouve la position du premier terme
-            pos = text_lower.find(terms[0])
-            start = max(0, pos - 100)
+            pos = text_lower.find(query_terms[0])
+            start = max(0, pos - 80)
             end = min(len(text), pos + context_chars)
             excerpt = text[start:end].strip()
             results.append({
                 "path": str(path.relative_to(_REPO_ROOT)).replace("\\", "/"),
                 "excerpt": excerpt,
-                "score": sum(text_lower.count(t) for t in terms),
+                "score": sum(text_lower.count(t) for t in query_terms),
             })
-            if len(results) >= max_results * 3:
-                break
+            if len(results) >= max_scan:
+                return results
+    return results
 
-    if not results:
-        return f"Aucun résultat pour '{query_clean}' dans les notes CORE."
 
-    # Tri par score décroissant
-    results.sort(key=lambda r: r["score"], reverse=True)
-    lines: list[str] = [f"## Résultats pour '{query_clean}' ({min(len(results), max_results)} fichiers)"]
-    for r in results[:max_results]:
+def search_core_notes(
+    query: str,
+    *,
+    max_results: int = 8,
+    context_chars: int = 400,
+    include_code: bool = True,
+) -> str:
+    """
+    Recherche docs CORE + (optionnel) extraits lecture seule de backend/ et admin/.
+    """
+    query_clean = (query or "").strip()
+    if not query_clean:
+        return "Requête vide."
+
+    terms = [t.lower() for t in query_clean.split() if t][:8]
+    if not terms:
+        return "Requête vide."
+
+    docs = _collect_note_hits(
+        terms,
+        dirs=_CORE_SEARCH_DIRS,
+        extensions=_TEXT_EXTENSIONS,
+        context_chars=context_chars,
+        max_scan=max_results * 3,
+        skip_code_layout=False,
+    )
+    code: list[dict[str, Any]] = []
+    if include_code:
+        code_terms = terms[:4]
+        code = _collect_note_hits(
+            code_terms,
+            dirs=_CODE_SEARCH_DIRS,
+            extensions=_CODE_EXTENSIONS,
+            context_chars=min(context_chars, 280),
+            max_scan=max_results * 2,
+            skip_code_layout=True,
+        )
+
+    docs.sort(key=lambda r: r["score"], reverse=True)
+    code.sort(key=lambda r: r["score"], reverse=True)
+    doc_n = max(1, max_results - 3) if code else max_results
+    picked = docs[:doc_n]
+    remaining = max(0, max_results - len(picked))
+    picked.extend(code[:remaining])
+
+    if not picked:
+        return f"Aucun résultat pour '{query_clean}' dans les notes / le code Korymb."
+
+    lines: list[str] = [f"## Résultats pour '{query_clean}' ({len(picked)} fichiers)"]
+    for r in picked:
         lines.append(f"\n### `{r['path']}`")
         lines.append(f"```\n{r['excerpt'][:context_chars]}\n```")
-
     return "\n".join(lines)
 
 

@@ -90,6 +90,10 @@ def can_auto_apply_learning(payload: dict, *, mode: str | None = None) -> tuple[
 
     # Brand kit vitrine : données déjà saisies par le dirigeant → auto en safe/full
     source = str(payload.get("source") or "").strip()
+    if source == "chat_directive":
+        return False, "chat_directive"
+    if payload.get("memory_directive"):
+        return False, "memory_directive"
     if source == "storefront_sync" and apply_mode in {"safe", "full"}:
         return True, "ok"
 
@@ -111,14 +115,45 @@ def can_auto_apply_learning(payload: dict, *, mode: str | None = None) -> tuple[
 
 
 def apply_learning_payload_to_memory(payload: dict, *, snapshot_comment: str) -> dict[str, str]:
-    from database import merge_enterprise_contexts, snapshot_memory_history
+    from database import (
+        delete_enterprise_context_keys,
+        get_enterprise_memory,
+        merge_enterprise_contexts,
+        snapshot_memory_history,
+    )
 
-    memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
-    normalized = normalize_learning_memory_updates(memory_updates)
+    directive = payload.get("memory_directive") if isinstance(payload.get("memory_directive"), dict) else None
+    if directive:
+        action = str(directive.get("action") or "").strip()
+        key = str(directive.get("key") or "global").strip() or "global"
+        detail = str(directive.get("detail") or "").strip()
+        snapshot_memory_history(comment=snapshot_comment)
+        if action == "forget_all":
+            delete_enterprise_context_keys([key])
+            return {key: ""}
+        if action == "forget_phrase":
+            cur = get_enterprise_memory()
+            prev = ""
+            if isinstance(cur.get("contexts"), dict):
+                prev = str(cur["contexts"].get(key) or "")
+            needle = detail.casefold()
+            kept = [ln for ln in prev.splitlines() if needle not in ln.casefold()]
+            new_val = "\n".join(kept).strip()
+            merge_enterprise_contexts({key: new_val})
+            return {key: new_val}
+        if action == "remember" and detail:
+            memory_updates = {key: f"- {detail}"}
+        else:
+            memory_updates = {}
+    else:
+        memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
+
+    normalized = normalize_learning_memory_updates(memory_updates) if memory_updates else {}
     facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
     if not normalized and not facts:
         return {}
-    snapshot_memory_history(comment=snapshot_comment)
+    if not directive:
+        snapshot_memory_history(comment=snapshot_comment)
     if normalized:
         merge_enterprise_contexts(normalized)
     if facts:

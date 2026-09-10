@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { requestJson } from "./api";
 import { queryClient, QK } from "./queryClient";
 
@@ -10,33 +10,17 @@ import { queryClient, QK } from "./queryClient";
  * - `runtime_sync` : métadonnées LLM / base (affichées par RuntimeHeader).
  * - `job_event`    : invalide les queries jobs (listes débouncées + détail ciblé)
  *                    pour que les écrans se mettent à jour sans polling agressif.
- * - L'état de connexion est exposé via `useSseConnected()` : les composants
- *   allongent leurs intervalles de polling quand le flux temps réel est actif.
+ * - `isSseConnected()` / `adaptivePollInterval()` : polling plus lent quand le flux est actif.
  */
 
-// ── État de connexion SSE (store minimal pour useSyncExternalStore) ──────────
 let _sseConnected = false;
-const _subscribers = new Set<() => void>();
 
 function setSseConnected(value: boolean) {
-  if (_sseConnected === value) return;
   _sseConnected = value;
-  _subscribers.forEach((fn) => fn());
 }
 
 export function isSseConnected(): boolean {
   return _sseConnected;
-}
-
-export function useSseConnected(): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
-      _subscribers.add(onChange);
-      return () => _subscribers.delete(onChange);
-    },
-    () => _sseConnected,
-    () => false,
-  );
 }
 
 /**

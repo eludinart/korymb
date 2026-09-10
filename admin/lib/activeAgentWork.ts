@@ -488,28 +488,6 @@ export function agentActivityDotClass(state: AgentActivityState): string {
   return ACTIVITY_DOT[state];
 }
 
-const INTENSITY_STYLES: Record<JobWorkIntensity, string> = {
-  creating: "bg-emerald-600 text-white ring-emerald-300",
-  working: "bg-violet-600 text-white ring-violet-300",
-  waiting: "bg-amber-500 text-white ring-amber-300",
-  queued: "bg-slate-500 text-white ring-slate-300",
-};
-
-const INTENSITY_PULSE: Record<JobWorkIntensity, string> = {
-  creating: "bg-emerald-400",
-  working: "bg-violet-400",
-  waiting: "bg-amber-400",
-  queued: "bg-slate-400",
-};
-
-export function workIntensityDotClass(intensity: JobWorkIntensity): string {
-  return INTENSITY_STYLES[intensity];
-}
-
-export function workIntensityPulseClass(intensity: JobWorkIntensity): string {
-  return INTENSITY_PULSE[intensity];
-}
-
 async function enrichPrimaryJobEvents(
   jobs: ActiveAgentJob[],
   requestJson: (

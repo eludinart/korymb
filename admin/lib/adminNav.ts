@@ -49,9 +49,6 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   },
 ] as const;
 
-/** Liste plate (compatibilité AppNav, tests, liens profonds). */
-export const ADMIN_NAV_LINKS: readonly AdminNavLink[] = ADMIN_NAV_GROUPS.flatMap((g) => [...g.links]);
-
 export function isAdminLinkActive(pathname: string, href: string): boolean {
   return (
     pathname === href ||

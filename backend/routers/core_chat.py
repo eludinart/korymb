@@ -162,18 +162,17 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     if directive:
                         action = directive.get("action")
                         key = directive.get("key", "global")
+                        pending = "Proposition envoyée dans **Décisions** (pas encore écrite)."
                         if action == "remember":
                             text = (
-                                f"**Mémorisé** dans le contexte `{key}` :\n\n"
-                                f"{directive.get('detail', '')}"
+                                f"**À mémoriser** dans `{key}` (en attente de validation) :\n\n"
+                                f"{directive.get('detail', '')}\n\n{pending}"
                             )
                         elif action == "forget_all":
-                            text = f"**Contexte effacé** — volet `{key}` réinitialisé."
+                            text = f"**À effacer** — volet `{key}` (en attente de validation). {pending}"
                         else:
-                            removed = directive.get("removed")
                             text = (
-                                f"**Suppression** dans `{key}` : "
-                                f"{'phrase retirée' if removed else 'aucune occurrence trouvée'}."
+                                f"**À retirer** dans `{key}` : {directive.get('detail', '')}\n\n{pending}"
                             )
                         surface = surface_chat_result(text)
                         _add_daily_svc(0, 0)
@@ -384,17 +383,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         if directive:
             action = directive.get("action")
             key = directive.get("key", "global")
+            pending = "Proposition envoyée dans Décisions."
             if action == "remember":
                 reply = (
-                    f"Mémorisé dans le contexte `{key}` : {directive.get('detail', '')}"
+                    f"À mémoriser dans `{key}` (validation requise) : {directive.get('detail', '')} "
+                    f"{pending}"
                 )
             elif action == "forget_all":
-                reply = f"Contexte `{key}` effacé."
+                reply = f"Demande d'effacement du volet `{key}` — {pending}"
             else:
-                removed = directive.get("removed")
                 reply = (
-                    f"Suppression dans `{key}` : "
-                    f"{'effectuée' if removed else 'aucune occurrence trouvée'}."
+                    f"Demande de suppression dans `{key}` : {directive.get('detail', '')} "
+                    f"{pending}"
                 )
             return {"response": reply, "agent": request.agent}
 

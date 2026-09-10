@@ -1441,8 +1441,14 @@ CHAT_MODE_RESPONSE_RULES = (
 )
 
 
-def _cio_prompt_memory(agent_key: str, *, exclude_job_id: str | None, chat_mode: bool) -> str:
-    """Mémoire injectée au CIO : complète en mission, allégée en chat."""
+def _cio_prompt_memory(
+    agent_key: str,
+    *,
+    exclude_job_id: str | None,
+    chat_mode: bool,
+    user_text: str = "",
+) -> str:
+    """Mémoire injectée au CIO : complète en mission, ciblée en chat."""
     try:
         from services.drive_workspace import build_drive_workspace_memory_prompt
 
@@ -1452,9 +1458,9 @@ def _cio_prompt_memory(agent_key: str, *, exclude_job_id: str | None, chat_mode:
     if chat_mode:
         chat_mem = ""
         try:
-            from services.memory_inbox import build_chat_active_memory_block
+            from services.chat_intelligence import build_targeted_memory_block
 
-            chat_mem = build_chat_active_memory_block()
+            chat_mem = build_targeted_memory_block(user_text)
         except Exception:
             chat_mem = ""
         return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
@@ -1472,18 +1478,41 @@ def _cio_attempt_direct_answer(
     chat_mode: bool,
 ) -> tuple[str | None, int, int]:
     """Phase 0 : le CIO tente de répondre seul (mémoire + outils) avant plan JSON."""
+    from services.chat_intelligence import (
+        build_chat_grounding_block,
+        chat_brief_mandate,
+        chat_tool_mandate,
+        classify_chat_intent,
+        logs_satisfy_grounding,
+    )
+
     agent_cfg = agents_def()["coordinateur"]
+    intent = classify_chat_intent(root_mission_label or mission_txt) if chat_mode else "chat"
+    grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     system = (
         agent_cfg["system"]
         + FLEUR_CONTEXT
-        + _cio_prompt_memory("coordinateur", exclude_job_id=job_id, chat_mode=chat_mode)
+        + _cio_prompt_memory(
+            "coordinateur",
+            exclude_job_id=job_id,
+            chat_mode=chat_mode,
+            user_text=root_mission_label or mission_txt,
+        )
         + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
         "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
         "Par défaut, assume seul. Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
         "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
         "sans l'avoir produit via un outil (upload_google_drive / recherche web) dans ce tour."
+        + (chat_tool_mandate(intent) if chat_mode else "")
+        + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
     )
-    messages = [{"role": "user", "content": mission_txt}]
+    user_content = mission_txt
+    if grounding:
+        user_content = (
+            f"{mission_txt}\n\n{grounding}\n\n"
+            "Réponds au dirigeant à partir de ces faits. N'invente pas un état contraire."
+        )
+    messages = [{"role": "user", "content": user_content}]
     reply, ti, to = llm_chat_maybe_tools(
         system,
         messages,
@@ -1497,6 +1526,12 @@ def _cio_attempt_direct_answer(
     if not text or text.upper().startswith("[[DELEGATE]]"):
         return None, ti, to
     if "[[DELEGATE]]" in text:
+        return None, ti, to
+    if chat_mode and not logs_satisfy_grounding(intent, job_logs, injected=bool(grounding)):
+        if job_logs is not None:
+            job_logs.append(
+                f"[korymb] Réponse directe CIO rejetée (ancrage {intent} manquant)."
+            )
         return None, ti, to
     if _direct_answer_looks_fabricated(text, job_logs):
         if job_logs is not None:
@@ -1523,7 +1558,12 @@ def orchestrate_coordinateur_mission(
     job_id : si fourni (mission /run), met à jour active_jobs[job_id]["team"] pour l'interface.
     """
     agent_cfg = agents_def()["coordinateur"]
-    memory_brain = _cio_prompt_memory("coordinateur", exclude_job_id=job_id, chat_mode=chat_mode)
+    memory_brain = _cio_prompt_memory(
+        "coordinateur",
+        exclude_job_id=job_id,
+        chat_mode=chat_mode,
+        user_text=root_mission_label or mission_txt,
+    )
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain
     deleg = delegatable_subagent_keys_ordered()
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -2416,6 +2456,21 @@ def orchestrate_coordinateur_mission(
         if chat_mode
         else ""
     )
+    chat_intent = "chat"
+    chat_grounding = ""
+    if chat_mode:
+        from services.chat_intelligence import (
+            build_chat_grounding_block,
+            chat_brief_mandate,
+            chat_tool_mandate,
+            classify_chat_intent,
+        )
+
+        chat_intent = classify_chat_intent(root_mission_label or mission_txt)
+        chat_grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=chat_intent)
+        chat_tail += chat_tool_mandate(chat_intent) + chat_brief_mandate(
+            chat_intent, root_mission_label or mission_txt,
+        )
     chat_solo_honesty = (
         "\n\nInterdit en mode chat sans exécution réelle : reporter (« dès validation », « sous 2h », "
         "« je régénère quand… »), poser des questions bloquantes au lieu de livrer, ou prétendre qu'un "
@@ -2472,7 +2527,10 @@ def orchestrate_coordinateur_mission(
         solo_questions_suffix = "" if chat_mode else _render_orchestration_prompt("cio_synthesis_solo_suffix", {})
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + chat_solo_honesty + relevance_mandate + synth_grounding,
-            mission_txt + solo_questions_suffix + contact_table_mandate,
+            mission_txt
+            + (("\n\n" + chat_grounding) if chat_grounding else "")
+            + solo_questions_suffix
+            + contact_table_mandate,
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,

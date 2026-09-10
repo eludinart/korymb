@@ -16,7 +16,7 @@ ToolEmitFn = Callable[[str, str, dict[str, Any]], None]
 
 _tool_run_ctx: contextvars.ContextVar[dict[str, str]] = contextvars.ContextVar(
     "korymb_tool_run_ctx",
-    default={"job_id": "", "agent_key": ""},
+    default={"job_id": "", "agent_key": "", "chat_mode": "", "force_write": ""},
 )
 
 
@@ -31,16 +31,61 @@ def _parse_agent_key_from_context(usage_context: Any, tool_actor: str | None) ->
     return label
 
 
+def _infer_chat_mode(job_id: str, usage_context: Any, *, chat_mode: bool | None) -> bool:
+    if chat_mode is True:
+        return True
+    if chat_mode is False:
+        return False
+    uc = str(usage_context or "").strip()
+    if uc.startswith("chat_sync:"):
+        return True
+    if not job_id:
+        return False
+    try:
+        from state import active_jobs
+
+        src = str((active_jobs.get(job_id) or {}).get("source") or "")
+        if src == "chat":
+            return True
+    except Exception:
+        pass
+    try:
+        from database import get_job
+
+        row = get_job(job_id)
+        if row and str(row.get("source") or "") == "chat":
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def _activate_tool_run_ctx(
     usage_job_id: Any,
     usage_context: Any,
     tool_actor: str | None,
+    *,
+    chat_mode: bool | None = None,
+    force_write: bool = False,
 ) -> contextvars.Token:
     job_id = ""
     if usage_job_id is not _UNSET and usage_job_id is not None:
         job_id = str(usage_job_id).strip()
     agent_key = _parse_agent_key_from_context(usage_context, tool_actor)
-    return _tool_run_ctx.set({"job_id": job_id, "agent_key": agent_key})
+    inferred = _infer_chat_mode(job_id, usage_context, chat_mode=chat_mode)
+    return _tool_run_ctx.set({
+        "job_id": job_id,
+        "agent_key": agent_key,
+        "chat_mode": "1" if inferred else "",
+        "force_write": "1" if force_write else "",
+    })
+
+
+def _is_chat_write_gated() -> bool:
+    ctx = _tool_run_ctx.get()
+    if str(ctx.get("force_write") or ""):
+        return False
+    return bool(str(ctx.get("chat_mode") or ""))
 
 
 def _inject_tool_run_ctx(inp: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +209,7 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "media": ("generate_image", "text_to_speech"),
     "db": ("db_list_tables", "db_describe_table", "db_query", "db_analyze_users"),
     # Outils augmentés KORYMB v3 (agentic OS)
-    "knowledge": ("search_core_notes", "get_fleet_status"),
+    "knowledge": ("search_core_notes", "get_fleet_status", "korymb_overview", "propose_platform_change"),
     "validate": ("validate_syntax",),
 }
 for _tag, _names in GESTION_TAG_TO_TOOLS.items():
@@ -316,14 +361,18 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_core_notes",
         "description": (
-            "Recherche dans les notes et documentations internes KORYMB (CORE/*.md, docs/, .cursor/rules/). "
-            "Utilise pour trouver des contextes projet, décisions architecturales, règles métier."
+            "Recherche docs internes Korymb (docs/, CORE, règles) et extraits lecture seule "
+            "du code backend/admin. Pas d'écriture. Utile pour specs et bugs."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Termes de recherche en français ou anglais"},
                 "max_results": {"type": "integer", "description": "Nombre max de résultats (défaut: 6)"},
+                "include_code": {
+                    "type": "boolean",
+                    "description": "Inclure extraits .py/.ts/.tsx (défaut true)",
+                },
             },
             "required": ["query"],
         },
@@ -355,6 +404,43 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "korymb_overview",
+        "description": (
+            "Vue lecture seule de Korymb : jobs récents, tickets Décisions, CRM, "
+            "mémoire (tailles), sondes d'intégrations. Aucun secret. "
+            "Utilise pour répondre à « est-ce que X marche ? », « où en est l'app ? »."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "propose_platform_change",
+        "description": (
+            "Propose une évolution de Korymb (spec de patch ou réglage comportement allowlisté). "
+            "N'écrit pas le git. Crée une carte Décisions à valider. "
+            "change_kind=spec (défaut) ou behavior (sandbox, lazy delegation, quality gate, learning.auto_apply_mode)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Titre court de la proposition"},
+                "intent": {"type": "string", "description": "Pourquoi ce changement"},
+                "files": {"type": "string", "description": "Fichiers / zones visés (chemins)"},
+                "spec": {"type": "string", "description": "Spec markdown (comportement attendu, risques)"},
+                "risk": {"type": "string", "description": "Risques / blast radius"},
+                "change_kind": {
+                    "type": "string",
+                    "description": "spec (livrable) ou behavior (réglage moteur allowlisté)",
+                },
+                "behavior_key": {"type": "string", "description": "Clé comportement si change_kind=behavior"},
+                "behavior_value": {
+                    "type": "string",
+                    "description": "Valeur JSON (true/false, off/safe/full, etc.)",
+                },
+            },
+            "required": ["title", "spec"],
         },
     },
     {
@@ -688,7 +774,14 @@ def _execute_tool(name: str, inp: Any) -> str:
         # ── Outils augmentés KORYMB v3 ────────────────────────────────────────
         if name == "search_core_notes":
             max_r = int(inp.get("max_results") or 6)
-            return search_core_notes(str(inp.get("query", "")), max_results=max_r)
+            include_code = inp.get("include_code")
+            if include_code is None:
+                include_code = True
+            return search_core_notes(
+                str(inp.get("query", "")),
+                max_results=max_r,
+                include_code=bool(include_code),
+            )
         if name == "validate_syntax":
             result = validate_syntax(
                 str(inp.get("code", "")),
@@ -697,6 +790,37 @@ def _execute_tool(name: str, inp: Any) -> str:
             return json.dumps(result, ensure_ascii=False)
         if name == "get_fleet_status":
             return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
+        if name == "korymb_overview":
+            from services.korymb_overview import build_korymb_overview
+
+            return build_korymb_overview()
+        if name == "propose_platform_change":
+            from services.config_suggestions import (
+                enqueue_platform_change,
+                format_proposal_tool_result,
+            )
+
+            ctx = _tool_run_ctx.get()
+            raw_val = inp.get("behavior_value")
+            parsed_val: Any = raw_val
+            if isinstance(raw_val, str) and raw_val.strip():
+                try:
+                    parsed_val = json.loads(raw_val)
+                except json.JSONDecodeError:
+                    parsed_val = raw_val.strip()
+            sug = enqueue_platform_change(
+                title=str(inp.get("title") or ""),
+                spec=str(inp.get("spec") or ""),
+                intent=str(inp.get("intent") or ""),
+                files=str(inp.get("files") or ""),
+                risk=str(inp.get("risk") or ""),
+                change_kind=str(inp.get("change_kind") or "spec"),
+                behavior_key=str(inp.get("behavior_key") or ""),
+                behavior_value=parsed_val,
+                job_id=str(ctx.get("job_id") or ""),
+                agent_key=str(ctx.get("agent_key") or ""),
+            )
+            return format_proposal_tool_result(sug, kind_label="Proposition plateforme")
         if name == "db_list_tables":
             return run_db_list_tables("")
         if name == "db_describe_table":
@@ -757,6 +881,17 @@ def _execute_tool(name: str, inp: Any) -> str:
             return ext
         if name.startswith("gestion_"):
             inp = _inject_tool_run_ctx(inp)
+            from services.config_suggestions import CHAT_WRITE_TOOLS, enqueue_chat_write_proposal, format_proposal_tool_result
+
+            if name in CHAT_WRITE_TOOLS and _is_chat_write_gated():
+                ctx = _tool_run_ctx.get()
+                sug = enqueue_chat_write_proposal(
+                    tool_name=name,
+                    payload=inp,
+                    job_id=str(ctx.get("job_id") or ""),
+                    agent_key=str(ctx.get("agent_key") or ""),
+                )
+                return format_proposal_tool_result(sug, kind_label="Proposition CRM")
         biz = dispatch_business_tool(name, inp)
         if biz is not None:
             return biz

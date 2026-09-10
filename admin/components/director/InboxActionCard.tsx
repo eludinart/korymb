@@ -15,6 +15,7 @@ import {
   useActionResolve,
   useInboxDismiss,
   useLearningResolve,
+  useConfigSuggestionResolve,
   useQualityOverride,
   useSchedulerApprove,
   useSchedulerReject,
@@ -88,6 +89,9 @@ export type InboxActionItem = {
   suggested_memory_keys?: Record<string, string>;
   memory_source?: string;
   source_ref?: string;
+  config_kind?: string;
+  target_key?: string;
+  applyable?: boolean;
 };
 
 type Props = {
@@ -97,7 +101,9 @@ type Props = {
 };
 
 export default function InboxActionCard({ item, defaultExpanded = false, onDismissed }: Props) {
-  const [expanded, setExpanded] = useState(defaultExpanded || item.kind === "action_ticket");
+  const [expanded, setExpanded] = useState(
+    defaultExpanded || item.kind === "action_ticket" || item.kind === "config_suggestion",
+  );
   const [hidden, setHidden] = useState(false);
   const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
   const jobId = item.job_id || "";
@@ -151,6 +157,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
+  const configMut = useConfigSuggestionResolve(hideFromInbox);
   const qualityMut = useQualityOverride(jobId);
   const dismissMut = useInboxDismiss(hideFromInbox);
   const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
@@ -167,6 +174,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     schedApprove.isPending ||
     schedReject.isPending ||
     learningMut.isPending ||
+    configMut.isPending ||
     qualityMut.isPending ||
     dismissMut.isPending ||
     prepareFollowUpMut.isPending ||
@@ -216,6 +224,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     mission_error: "Échec",
     scheduler_output: "Approbation",
     learning_suggestion: "Apprentissage",
+    config_suggestion: "Proposition",
     quality: "Qualité",
   };
 
@@ -228,6 +237,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     mission_error: "kind-badge kind-badge--quality",
     scheduler_output: "kind-badge kind-badge--scheduler_output",
     learning_suggestion: "kind-badge kind-badge--learning_suggestion",
+    config_suggestion: "kind-badge kind-badge--learning_suggestion",
     quality: "kind-badge kind-badge--quality",
   };
 
@@ -762,7 +772,61 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </div>
           ) : null}
 
-          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, qualityMut.error, dismissMut.error]
+          {item.kind === "config_suggestion" && item.suggestion_id ? (
+            <div className="space-y-2">
+              {item.config_kind ? (
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-violet-800">
+                  {item.config_kind === "crm_write"
+                    ? "Écriture CRM"
+                    : item.config_kind === "behavior"
+                      ? "Réglage moteur"
+                      : item.config_kind === "platform_spec"
+                        ? "Spec plateforme"
+                        : item.config_kind}
+                </p>
+              ) : null}
+              {item.summary ? <p className="whitespace-pre-wrap text-xs text-slate-600">{item.summary}</p> : null}
+              {item.target_key ? (
+                <p className="text-xs text-slate-500">Cible : {item.target_key}</p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {item.applyable ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      configMut.mutate({ suggestionId: item.suggestion_id!, decision: "apply" })
+                    }
+                    className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    Appliquer
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    configMut.mutate({ suggestionId: item.suggestion_id!, decision: "acknowledge" })
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                >
+                  Pris en compte
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() =>
+                    configMut.mutate({ suggestionId: item.suggestion_id!, decision: "dismiss" })
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                >
+                  Ignorer
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, configMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
             .map((err, i) => (
               <p key={i} className="mt-2 text-xs text-red-700">
