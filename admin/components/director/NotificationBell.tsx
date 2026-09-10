@@ -155,8 +155,10 @@ export default function NotificationBell() {
       return true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (!/failed to fetch|network|timeout|aborted/i.test(msg)) {
+      if (!/failed to fetch|fetch failed|injoignable|network|timeout|aborted/i.test(msg)) {
         setActionError(msg || "Impossible de marquer la notification comme lue.");
+      } else {
+        setActionError("Connexion au serveur interrompue — réessayez.");
       }
       return false;
     }

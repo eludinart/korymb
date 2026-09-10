@@ -20,10 +20,12 @@ function upstreamTimeoutMs(joinedPath: string): number {
   return 30_000;
 }
 
+/** Headers upstream propres — ne jamais cloner request.headers (hop-by-hop / content-length
+ *  provoquent `fetch failed` côté undici sur PATCH/POST). */
 function withSecretHeaders(request: NextRequest, joinedPath: string, secret: string) {
-  const headers = new Headers(request.headers);
+  const headers = new Headers();
   headers.set("Content-Type", "application/json");
-  headers.delete("host");
+  headers.set("Accept", "application/json");
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (token) {
@@ -71,12 +73,16 @@ async function proxy(request: NextRequest, path: string[]) {
 
   let response: Response;
   try {
+    const method = request.method.toUpperCase();
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const rawBody = hasBody ? await request.text() : "";
     response = await fetch(upstream, {
       method: request.method,
       headers: withSecretHeaders(request, joinedPath, secret),
       cache: "no-store",
       signal: controller.signal,
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      // Chaîne vide → undefined : évite un Content-Length forcé à tort par undici
+      body: hasBody && rawBody.length > 0 ? rawBody : undefined,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -2,7 +2,19 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { KORYMB_TOKEN_COOKIE } from "./lib/authSession";
 
-const PUBLIC_PREFIXES = ["/login", "/register", "/api/auth", "/api/public", "/confidentialite", "/cgu", "/p"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/register",
+  "/api/auth",
+  "/api/public",
+  "/api/korymb",
+  "/api/korymb-bin",
+  "/api/korymb-events",
+  "/api/korymb-admin",
+  "/confidentialite",
+  "/cgu",
+  "/p",
+];
 
 function isPublicRoute(pathname: string) {
   if (pathname === "/") return true;
