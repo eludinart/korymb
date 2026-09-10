@@ -350,8 +350,10 @@ body {
     @apply truncate text-lg font-extrabold tracking-tight text-slate-950 sm:text-xl;
   }
 
+  /* z-40 : au-dessus du contenu page (ex. chat sidebar z-20) pour que cloches / menus
+     ne passent pas sous les panneaux absolute de main. Overlays body restent à 80+. */
   .app-header-bar {
-    @apply sticky top-0 z-20 w-full min-w-0 border-b-2 border-violet-200 bg-white/95 shadow-md backdrop-blur-md pt-safe;
+    @apply sticky top-0 z-40 w-full min-w-0 border-b-2 border-violet-200 bg-white/95 shadow-md backdrop-blur-md pt-safe;
   }
 
   .app-status-strip {
