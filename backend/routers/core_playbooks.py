@@ -11,6 +11,7 @@ from auth import resolve_tenant, require_admin
 from database import get_playbook, list_playbooks, upsert_playbook
 from services.agents import agents_def
 from services.mission import _mission_config_from_payload, _schedule_mission_execution
+from services.content_revise import list_playbook_runs
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["playbooks"])
@@ -34,6 +35,11 @@ class PlaybookLaunchBody(BaseModel):
 @router.get("/playbooks", dependencies=[Depends(resolve_tenant)])
 def playbooks_list(category: str | None = None):
     return {"playbooks": list_playbooks(category=category)}
+
+
+@router.get("/playbooks/runs", dependencies=[Depends(resolve_tenant)])
+def playbooks_runs(limit: int = 20):
+    return {"runs": list_playbook_runs(limit=max(1, min(limit, 50)))}
 
 
 @router.post("/playbooks", dependencies=[Depends(resolve_tenant)])

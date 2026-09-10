@@ -67,6 +67,7 @@ export type StudioPiece = {
   file_id: string;
   title: string;
   body_preview: string;
+  body?: string;
   connector_ready: boolean;
   connector_setup: string;
   pending_ticket_id: string;

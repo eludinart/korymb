@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AgentMessageMarkdown from "./AgentMessageMarkdown";
+import CopyPasteBlock from "./content/CopyPasteBlock";
+import RevisionPassForm from "./content/RevisionPassForm";
 import DeliverableAccessHub from "./deliverables/DeliverableAccessHub";
 import InAppDeliverableModal from "./deliverables/InAppDeliverableModal";
 import { agentHeaders, requestJson } from "../lib/api";
@@ -230,8 +232,11 @@ export default function MissionDeliverablesPanel({
                   className="text-[12px] leading-relaxed text-slate-800 [&_li]:text-[12px] [&_ol]:my-1 [&_p]:text-[12px] [&_ul]:my-1"
                 />
               </div>
+              <CopyPasteBlock text={it.body} label="Résultat à coller" />
               {!missionClosed ? (
-                <div className="mt-4 space-y-3 border-t border-slate-100 pt-3">
+                <>
+                  <RevisionPassForm jobId={jobId} onLaunched={() => onSaved?.()} />
+                  <div className="mt-4 space-y-3 border-t border-slate-100 pt-3">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                       Votre note / modification (Markdown)
@@ -265,7 +270,8 @@ export default function MissionDeliverablesPanel({
                   {accepted && ui.accepted_at ? (
                     <p className="text-[10px] text-slate-500">Accepté le {new Date(ui.accepted_at).toLocaleString("fr-FR")}</p>
                   ) : null}
-                </div>
+                  </div>
+                </>
               ) : (
                 <p className="mt-3 text-[11px] text-slate-500">Mission clôturée — notes et acceptations en lecture seule.</p>
               )}

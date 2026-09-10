@@ -2805,6 +2805,7 @@ def _schedule_mission_execution(
     context: dict | None,
     source_tag: str,
     mission_config: dict | None = None,
+    parent_job_id: str | None = None,
 ) -> None:
     job_logs: list[str] = []
     requested_agent_key = agent_key
@@ -2835,8 +2836,16 @@ def _schedule_mission_execution(
         "source": source_tag,
         "created_at": now_iso,
         "mission_config": cfg,
+        "parent_job_id": (parent_job_id or "").strip() or None,
     }
-    save_job(job_id, agent_key, mission_plain, source=source_tag, mission_config=cfg)
+    save_job(
+        job_id,
+        agent_key,
+        mission_plain,
+        source=source_tag,
+        mission_config=cfg,
+        parent_job_id=parent_job_id,
+    )
     mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord

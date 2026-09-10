@@ -734,7 +734,11 @@ def _serialize_studio_run(job: dict[str, Any]) -> dict[str, Any] | None:
     studio = _studio_queue(job)
     if studio.get("dismissed_job") is True:
         return None
-    pieces = [{k: v for k, v in p.items() if k != "body"} for p in describe_studio_pieces(job)]
+    pieces = [dict(p) for p in describe_studio_pieces(job)]
+    for p in pieces:
+        body = str(p.get("body") or "")[:80_000]
+        p["body"] = body
+        p["body_preview"] = body[:400]
     visible = [p for p in pieces if str(p.get("queue_state") or "pending") == "pending"]
     ready_status = status in ("completed", "done")
     if ready_status and pieces and not visible:

@@ -73,8 +73,8 @@ Connexion : **Korymb** = `/login` ; **participant** = `/p/{slug}/connexion`. Un 
 | **Chat** | Dialogue avec le dirigeant (cadrage ou échanges) |
 | **Décisions** (`/inbox`) | File d’attente dirigeant (pas le courrier) : validations HITL, **relances CRM dues**, clôtures, questions, scheduler, qualité |
 | **Courrier** (`/gestion/courrier`) | Boîte de **prospection** : réponses à traiter, fils en attente, brouillons HITL. Sync Gmail auto (15 min) |
-| **Studio** (`/gestion/studio`) | Générateur de contenus : articles, PDF, podcasts, vidéo, réseaux. Brief + mémoire entreprise ; **moteurs média en chaîne** (gratuit puis payant : Pollinations / Edge TTS / storyboard, puis OpenRouter, ElevenLabs, Replicate…). Publication via Décisions |
-| **Playbooks** (`/gestion/playbooks`) | Scénarios prêts à lancer (studio, Fleur, Sivana, ops) |
+| **Studio** (`/gestion/studio`) | Générateur de contenus : articles, PDF, podcasts, vidéo, réseaux. Brief + mémoire ; **passes de correction** et texte copiable ; **moteurs média en chaîne**. Publication via Décisions |
+| **Playbooks** (`/gestion/playbooks`) | Scénarios prêts à lancer (studio, Fleur, Sivana, ops) ; relire, corriger, copier le livrable |
 | **Livrables** (`/gestion/livrables`) | Bibliothèque des livrables produits |
 | **Historique** | Missions et jobs passés |
 | **Configuration** | Provider LLM, modèle, paramètres runtime (sans secrets en clair côté UI) |
@@ -111,7 +111,7 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 
 - **Mode cadrage** : échange sans lancer le pipeline multi-agents — le dirigeant valide ensuite dans l’app
 - **Mode exécution** : orchestration réelle (moteur **legacy** par défaut ; LangGraph gelé)
-- **Playbooks** (`/gestion/playbooks`) : bibliothèque de scénarios prêts à lancer (studio, thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social)
+- **Playbooks** (`/gestion/playbooks`) : bibliothèque de scénarios prêts à lancer (studio, thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social). Le résultat est relisible, corrigeable (nouvelle passe) et copiable.
 
 ---
 

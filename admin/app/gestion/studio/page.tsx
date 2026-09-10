@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import CopyPasteBlock from "../../../components/content/CopyPasteBlock";
+import RevisionPassForm from "../../../components/content/RevisionPassForm";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
 import { connectionSetupHref, formatStatus, studioApi, type StudioFormat, type StudioPiece, type StudioRun } from "../../../lib/studio";
 
@@ -99,7 +101,7 @@ export default function StudioPage() {
         accent="violet"
         badge="Studio"
         title="Création de contenus"
-        description="Un brief, une mission. Quand c’est prêt, vous validez ici : dans l’espace Korymb, ou sur le réseau si le connecteur est branché."
+        description="Un brief, une mission. Relisez, demandez des corrections, copiez le texte, puis validez la publication."
         actions={
           <>
             <Link href="/administration/memory" className="btn-link-secondary">
@@ -471,7 +473,8 @@ export default function StudioPage() {
             <ol className="list-decimal space-y-2 pl-4 text-sm text-slate-600">
               <li>Brief + formats ici — une mission se lance.</li>
               <li>Le Community Manager rédige dans la voix de la mémoire.</li>
-              <li>Quand c’est prêt, vous validez ici : ressource dans l’espace, ou envoi sur le réseau si le connecteur est branché.</li>
+              <li>Si le jet ne convient pas, demandez une correction ici — une nouvelle passe part du texte actuel.</li>
+              <li>Quand c’est bon, copiez le texte, ou validez ici : ressource dans l’espace, ou envoi sur le réseau.</li>
               <li>YouTube : pas d’upload automatique (clé Data API) — le pack va dans l’espace.</li>
             </ol>
             <ul className="mt-3 space-y-1 text-xs text-slate-500">
@@ -704,6 +707,7 @@ function StudioReleaseList({
                     pending={pending}
                     onRelease={fire}
                     onDismiss={askDismiss}
+                    onRevised={onReleased}
                   />
                 ))
               : null}
@@ -721,6 +725,7 @@ function StudioPieceRow({
   pending,
   onRelease,
   onDismiss,
+  onRevised,
 }: {
   jobId: string;
   piece: StudioPiece;
@@ -728,22 +733,25 @@ function StudioPieceRow({
   pending: boolean;
   onRelease: (jobId: string, formatId: string, target: string) => void;
   onDismiss: (jobId: string, formatId: string, label: string) => void;
+  onRevised: () => void;
 }) {
   const inAppKey = `${jobId}:${piece.format_id}:korymb`;
   const channelKey = `${jobId}:${piece.format_id}:${piece.channel}`;
   const youtubeNote = piece.channel === "youtube" || piece.format_id === "youtube";
+  const copyText = (piece.body || piece.body_preview || "").trim();
   return (
     <div className="mt-2 rounded-lg border border-white bg-white p-2.5 shadow-sm">
       <p className="text-sm font-semibold text-slate-900">{piece.label}</p>
       {piece.title && piece.title !== piece.label ? (
         <p className="text-xs text-slate-600">{piece.title}</p>
       ) : null}
-      {piece.body_preview ? <p className="mt-1 line-clamp-3 text-[11px] leading-snug text-slate-500">{piece.body_preview}</p> : null}
+      {copyText ? <CopyPasteBlock text={copyText} label="Résultat à coller" /> : null}
       {youtubeNote ? (
         <p className="mt-1 text-[11px] text-slate-500">
           YouTube : pas d’upload automatique. Le pack se publie dans l’espace Korymb.
         </p>
       ) : null}
+      <RevisionPassForm jobId={jobId} formatId={piece.format_id} disabled={pending} onLaunched={() => onRevised()} />
       <div className="mt-2 flex flex-wrap gap-2">
         {piece.can_publish_in_app ? (
           <button

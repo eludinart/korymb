@@ -8,7 +8,7 @@ import logging
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
 from config import settings
@@ -100,6 +100,12 @@ class DeliverablesUiPut(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     agents: dict[str, dict] | None = None
+
+
+class JobReviseBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    instruction: str = Field(min_length=4, max_length=4000)
+    format_id: str = Field(default="", max_length=64)
 
 
 def delete_job_impl(job_id: str) -> dict:
@@ -1013,6 +1019,24 @@ def job_clone(job_id: str, background_tasks: BackgroundTasks):
         mission_config=cfg,
     )
     return {"ok": True, "source_job_id": job_id, "job_id": new_id}
+
+
+@router.post("/jobs/{job_id}/revise", dependencies=[Depends(resolve_tenant)])
+def job_revise(job_id: str, body: JobReviseBody, background_tasks: BackgroundTasks):
+    from services.content_revise import launch_revision
+
+    jid = _norm_job_id(job_id)
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    try:
+        return launch_revision(
+            background_tasks,
+            job_id=jid,
+            instruction=body.instruction,
+            format_id=body.format_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(resolve_tenant)])

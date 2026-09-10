@@ -153,6 +153,14 @@ def _seed_studio_job(job_id: str, *, result: str = "#### LIVRABLE — Fiche Agap
     update_job(job_id, "completed", result)
 
 
+def test_studio_runs_exposes_copyable_body(client):
+    _seed_studio_job("studiocopy01", result="#### LIVRABLE — Fiche Agapé\n\nTexte copiable assez long.")
+    listed = client.get("/studio/runs").json()["runs"]
+    run = next(r for r in listed if r["job_id"] == "studiocopy01")
+    assert run["pieces"]
+    assert "assez long" in (run["pieces"][0].get("body") or "")
+
+
 def test_studio_dismiss_requires_confirm_word(client):
     _seed_studio_job("studiorm01")
     r = client.post(
