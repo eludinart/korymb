@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import HealthDot from "../../../components/HealthDot";
 import { PageHeader, SectionCard } from "../../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../../lib/api";
@@ -336,6 +336,14 @@ function FieldGrid({
 }
 
 export default function IntegrationsSettingsPage() {
+  return (
+    <Suspense fallback={<div className="space-y-6 p-6 text-sm text-slate-500">Chargement des intégrations…</div>}>
+      <IntegrationsSettingsContent />
+    </Suspense>
+  );
+}
+
+function IntegrationsSettingsContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const requestedGroupRaw = (searchParams.get("group") || "").trim();

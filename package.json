@@ -7,15 +7,16 @@
     "smoke:deploy": "node tools/smoke-post-deploy.mjs",
     "smoke:p0": "node tools/smoke-p0-ecosystem.mjs",
     "dev": "node tools/verify-korymb-health.mjs && npm --prefix admin run dev",
-    "build": "npm --prefix admin run build",
+    "build": "node tools/check-next-suspense.mjs && npm --prefix admin run build",
     "start": "npm --prefix admin run start",
     "lint": "npm --prefix admin run lint",
     "lint:admin": "npm --prefix admin run lint",
-    "build:admin": "npm --prefix admin run build",
+    "build:admin": "node tools/check-next-suspense.mjs && npm --prefix admin run build",
+    "check:suspense": "node tools/check-next-suspense.mjs",
     "check:backend": "python -m compileall -q backend",
     "check:backend:tests": "cd backend && python -m pytest tests/ evals/ -q",
     "generate:api-schema": "node tools/generate-api-schema.mjs",
-    "check": "npm run build && npm run check:backend && npm run check:backend:tests"
+    "check": "npm run check:suspense && npm run build && npm run check:backend && npm run check:backend:tests"
   },
   "dependencies": {},
   "devDependencies": {}
