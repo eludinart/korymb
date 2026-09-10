@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { agentHeaders, requestJson } from "../../../../lib/api";
+import { agentHeaders, requestJson } from "../../../../../lib/api";
 
 function OAuthCallbackInner() {
   const router = useRouter();
