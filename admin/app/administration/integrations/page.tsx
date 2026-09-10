@@ -12,6 +12,17 @@ import {
   integrationGroupTone,
   resolveIntegrationCardId,
 } from "../../../lib/integrationGroupTone";
+import {
+  DIRECTORY_TILES,
+  connectorMeta,
+  familyMeta,
+  fieldFamily,
+  resolveDirectoryTile,
+  splitTileFields,
+  tileHaystack,
+  tileStatusLabel,
+  tileTone,
+} from "../../../lib/integrationConnectors";
 
 type IntegrationField = {
   key: string;
@@ -49,12 +60,6 @@ type IntegrationSettingsResponse = {
 };
 
 const SECTION_ORDER = ["essentials", "creative", "business", "advanced"] as const;
-const SECTION_LABELS: Record<(typeof SECTION_ORDER)[number], string> = {
-  essentials: "Essentielles",
-  creative: "Création",
-  business: "Métier",
-  advanced: "Technique",
-};
 
 /** Aligné sur backend/integration_catalog.py — repli si l’API n’envoie pas encore `section`. */
 const SECTION_FALLBACK: Record<string, (typeof SECTION_ORDER)[number]> = {
@@ -278,57 +283,97 @@ function FieldGrid({
   clearSecret: (key: string) => void;
   savePending: boolean;
 }) {
+  const buckets: { family: string; fields: IntegrationField[] }[] = [];
+  const byFam = new Map<string, IntegrationField[]>();
+  for (const field of fields) {
+    const fam = fieldFamily(field.key);
+    if (!byFam.has(fam)) byFam.set(fam, []);
+    byFam.get(fam)!.push(field);
+  }
+  const namedFamilies = [...byFam.keys()].filter(Boolean);
+  const grouped = namedFamilies.length > 1;
+  if (grouped) {
+    for (const [family, list] of byFam) buckets.push({ family, fields: list });
+  } else {
+    buckets.push({ family: "", fields });
+  }
+
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {fields.map((field) => {
-        const secret = field.secret !== false;
-        const setFlag = values[`${field.key}_set`] === true;
-        const source = String(values[`${field.key}_source`] ?? "");
+    <div className="space-y-4">
+      {buckets.map((bucket) => {
+        const fam = bucket.family ? familyMeta(bucket.family) : null;
+        const highlighted = Boolean(bucket.family && bucket.fields.some((f) => f.key === requestedField));
         return (
-          <label
-            key={field.key}
-            id={`integration-field-${field.key}`}
-            className={`block scroll-mt-28 space-y-1.5 rounded-xl p-1 ${
-              requestedField === field.key ? "-m-1 bg-violet-50 ring-2 ring-violet-300" : ""
-            }`}
+          <section
+            key={bucket.family || "fields"}
+            id={bucket.family ? `integration-family-${bucket.family}` : undefined}
+            className={
+              grouped
+                ? `rounded-2xl border-2 bg-white p-4 shadow-sm ${
+                    highlighted ? "border-violet-500 ring-2 ring-violet-200" : "border-slate-200"
+                  }`
+                : ""
+            }
           >
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs font-medium text-slate-700">{field.label}</span>
-              <HealthDot tone={sourceTone(source)} label={sourceLabel(source)} />
-              {setFlag && secret ? (
-                <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
-                  clé définie
-                </span>
-              ) : null}
-              <SetupLink href={field.setup_url} label={field.setup_label} />
-            </div>
-            <input
-              type={secret ? "password" : "text"}
-              autoComplete="off"
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
-              placeholder={
-                secret
-                  ? setFlag
-                    ? "••••••••  (laisser vide pour conserver)"
-                    : field.placeholder || "Coller la clé API"
-                  : field.placeholder || ""
-              }
-              value={fieldValue(field.key, secret)}
-              onChange={(e) => setField(field.key, e.target.value)}
-            />
-            {field.hint ? <p className="text-[11px] text-slate-500">{field.hint}</p> : null}
-            <p className="font-mono text-[10px] text-slate-400">{field.key}</p>
-            {secret && setFlag ? (
-              <button
-                type="button"
-                className="text-[11px] font-medium text-red-700 hover:underline"
-                onClick={() => clearSecret(field.key)}
-                disabled={savePending}
-              >
-                Effacer la clé enregistrée
-              </button>
+            {fam ? (
+              <header className="mb-4 border-b border-slate-100 pb-3">
+                <p className="text-sm font-bold text-slate-900">{fam.title}</p>
+                {fam.what ? <p className="mt-0.5 text-xs text-slate-500">{fam.what}</p> : null}
+              </header>
             ) : null}
-          </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {bucket.fields.map((field) => {
+                const secret = field.secret !== false;
+                const setFlag = values[`${field.key}_set`] === true;
+                const source = String(values[`${field.key}_source`] ?? "");
+                return (
+                  <label
+                    key={field.key}
+                    id={`integration-field-${field.key}`}
+                    className={`block scroll-mt-28 space-y-1.5 rounded-xl p-1 ${
+                      requestedField === field.key ? "-m-1 bg-violet-50 ring-2 ring-violet-300" : ""
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-slate-700">{field.label}</span>
+                      <HealthDot tone={sourceTone(source)} label={sourceLabel(source)} />
+                      {setFlag && secret ? (
+                        <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">
+                          clé définie
+                        </span>
+                      ) : null}
+                      <SetupLink href={field.setup_url} label={field.setup_label} />
+                    </div>
+                    <input
+                      type={secret ? "password" : "text"}
+                      autoComplete="off"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                      placeholder={
+                        secret
+                          ? setFlag
+                            ? "••••••••  (laisser vide pour conserver)"
+                            : field.placeholder || "Coller la clé API"
+                          : field.placeholder || ""
+                      }
+                      value={fieldValue(field.key, secret)}
+                      onChange={(e) => setField(field.key, e.target.value)}
+                    />
+                    {field.hint ? <p className="text-[11px] text-slate-500">{field.hint}</p> : null}
+                    {secret && setFlag ? (
+                      <button
+                        type="button"
+                        className="text-[11px] font-medium text-red-700 hover:underline"
+                        onClick={() => clearSecret(field.key)}
+                        disabled={savePending}
+                      >
+                        Effacer la clé enregistrée
+                      </button>
+                    ) : null}
+                  </label>
+                );
+              })}
+            </div>
+          </section>
         );
       })}
     </div>
@@ -349,6 +394,8 @@ function IntegrationsSettingsContent() {
   const requestedGroupRaw = (searchParams.get("group") || "").trim();
   const requestedCardId = requestedGroupRaw ? resolveIntegrationCardId(requestedGroupRaw) : "";
   const requestedField = (searchParams.get("field") || "").trim();
+  const requestedTile = (searchParams.get("tile") || "").trim();
+  const requestedTechnique = searchParams.get("technique") === "1";
   const oauthOk = searchParams.get("oauth") === "ok";
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -356,8 +403,11 @@ function IntegrationsSettingsContent() {
   const [oauthError, setOauthError] = useState("");
   const [oauthRedirectUris, setOauthRedirectUris] = useState<string[]>([]);
   const [openGroup, setOpenGroup] = useState<string>(requestedCardId);
-  const [showTechnique, setShowTechnique] = useState(false);
+  const [showTechnique, setShowTechnique] = useState(requestedTechnique);
   const [openAdvancedFields, setOpenAdvancedFields] = useState<Record<string, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState("");
+  const [focusTileId, setFocusTileId] = useState(requestedTile);
+  const [focusField, setFocusField] = useState(requestedField);
   const appliedTarget = useRef("");
 
   useEffect(() => {
@@ -378,52 +428,58 @@ function IntegrationsSettingsContent() {
   const displayCards = useMemo(() => buildDisplayCards(catalog), [catalog]);
   const values = query.data?.values ?? {};
 
-  const visibleCards = useMemo(() => {
-    if (showTechnique) return displayCards;
-    return displayCards.filter((c) => (c.section || "advanced") !== "advanced");
-  }, [displayCards, showTechnique]);
+  const directoryTiles = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const base = DIRECTORY_TILES.filter((t) => showTechnique || !t.technique);
+    if (!q) return base;
+    return DIRECTORY_TILES.filter((t) => (showTechnique || !t.technique) && tileHaystack(t).includes(q));
+  }, [showTechnique, searchQuery]);
 
-  const sections = useMemo(() => {
-    const map = new Map<string, DisplayCard[]>();
-    for (const card of visibleCards) {
-      const sec = card.section || "advanced";
-      if (!map.has(sec)) map.set(sec, []);
-      map.get(sec)!.push(card);
-    }
-    return SECTION_ORDER.filter((s) => map.has(s)).map((s) => ({
-      id: s,
-      label: SECTION_LABELS[s],
-      cards: map.get(s)!,
-    }));
-  }, [visibleCards]);
+  const openCard = displayCards.find((c) => c.id === openGroup) ?? null;
+  const activeField = requestedField || focusField;
 
   useEffect(() => {
     if (!displayCards.length) return;
-    if (requestedCardId) {
-      const card = displayCards.find((g) => g.id === requestedCardId);
-      if (!card) return;
-      if ((card.section || "advanced") === "advanced") setShowTechnique(true);
-      if (requestedField && card.fields.some((f) => f.key === requestedField && isAdvancedField(f))) {
-        setOpenAdvancedFields((prev) => ({ ...prev, [requestedCardId]: true }));
-      }
-      const key = `${requestedCardId}:${requestedField}`;
-      if (appliedTarget.current !== key) {
-        appliedTarget.current = key;
-        setOpenGroup(requestedCardId);
-      }
-      return;
+    const fromQuery = requestedTile ? DIRECTORY_TILES.find((t) => t.id === requestedTile) : undefined;
+    const tile = fromQuery || (requestedCardId ? resolveDirectoryTile(requestedCardId, requestedField) : undefined);
+    const cardId = tile?.cardId || requestedCardId;
+    if (!cardId) return;
+    const card = displayCards.find((g) => g.id === cardId);
+    if (!card) return;
+    if ((card.section || "advanced") === "advanced" || tile?.technique || requestedTechnique) {
+      setShowTechnique(true);
     }
-    if (visibleCards.length && !openGroup) setOpenGroup(visibleCards[0]?.id ?? "");
-  }, [displayCards, requestedCardId, requestedField, visibleCards, openGroup]);
+    if (tile) setFocusTileId(tile.id);
+    if (
+      requestedField &&
+      card.fields.some((f) => f.key === requestedField && isAdvancedField(f)) &&
+      !(tile?.simpleKeys || []).includes(requestedField)
+    ) {
+      setOpenAdvancedFields((prev) => ({ ...prev, [tile?.id || cardId]: true }));
+    }
+    const key = `${cardId}:${requestedField}:${requestedTile}`;
+    if (appliedTarget.current !== key) {
+      appliedTarget.current = key;
+      setOpenGroup(cardId);
+    }
+  }, [displayCards, requestedCardId, requestedField, requestedTile, requestedTechnique]);
 
   useEffect(() => {
-    if (!requestedCardId || openGroup !== requestedCardId) return;
-    const targetId = requestedField ? `integration-field-${requestedField}` : `integration-${requestedCardId}`;
+    if (!openGroup) return;
+    const targetId = requestedField ? `integration-field-${requestedField}` : `integration-${openGroup}`;
     const timer = window.setTimeout(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: "smooth", block: "center" });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [requestedCardId, requestedField, openGroup, showTechnique, visibleCards.length]);
+  }, [requestedCardId, requestedField, requestedTile, openGroup, showTechnique, directoryTiles.length]);
+
+  useEffect(() => {
+    if (!searchQuery.trim() || directoryTiles.length !== 1) return;
+    const tile = directoryTiles[0];
+    setOpenGroup(tile.cardId);
+    setFocusTileId(tile.id);
+    if (tile.field) setFocusField(tile.field);
+  }, [searchQuery, directoryTiles]);
 
   const save = useMutation({
     mutationFn: async (payload: { fields: Record<string, string>; clear_fields?: string[] }) => {
@@ -442,17 +498,6 @@ function IntegrationsSettingsContent() {
     },
     onError: (e: Error) => setMsg({ ok: false, text: e.message || "Erreur de sauvegarde." }),
   });
-
-  const configuredCount = useMemo(() => {
-    return catalog.reduce((acc: number, g: IntegrationGroup) => {
-      return acc + g.fields.filter((f) => values[`${f.key}_set`] === true).length;
-    }, 0);
-  }, [catalog, values]);
-
-  const totalFields = useMemo(
-    () => catalog.reduce((acc: number, g: IntegrationGroup) => acc + g.fields.length, 0),
-    [catalog],
-  );
 
   function fieldValue(key: string, secret: boolean): string {
     if (key in drafts) return drafts[key];
@@ -520,13 +565,30 @@ function IntegrationsSettingsContent() {
   const tiimeWebhookSet =
     values.TIIME_MAKE_WEBHOOK_URL_set === true || Boolean(String(values.TIIME_MAKE_WEBHOOK_URL || "").trim());
 
+  function jumpToCard(cardId: string, opts?: { field?: string; family?: string; tileId?: string }) {
+    const card = displayCards.find((c) => c.id === cardId);
+    if (card && (card.section || "advanced") === "advanced") setShowTechnique(true);
+    setSearchQuery("");
+    setOpenGroup(cardId);
+    setFocusTileId(opts?.tileId || "");
+    setFocusField(opts?.field || "");
+    window.setTimeout(() => {
+      const id = opts?.field
+        ? `integration-field-${opts.field}`
+        : opts?.family
+          ? `integration-family-${opts.family}`
+          : `integration-${cardId}`;
+      document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         accent="violet"
         badge="Administration"
         title="Intégrations"
-        description="Connectez les comptes dont vous avez besoin. Le reste reste optionnel — Korymb fonctionne déjà en mode gratuit pour images et voix."
+        description="Annuaire des comptes à brancher. Cliquez un nom ci-dessous : Google, LinkedIn, Instagram, WordPress…"
       />
 
       {oauthOk ? (
@@ -566,20 +628,86 @@ function IntegrationsSettingsContent() {
         </div>
       ) : null}
 
-      <SectionCard title="Vue d'ensemble">
+      <SectionCard title="Annuaire des connecteurs">
         {query.isLoading ? <p className="text-sm text-slate-500">Chargement…</p> : null}
         {query.isError ? (
           <p className="text-sm text-red-700">Impossible de charger la configuration intégrations.</p>
         ) : null}
+        <label className="block text-xs font-semibold text-slate-700" htmlFor="integration-search">
+          Rechercher un nom
+        </label>
+        <input
+          id="integration-search"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="LinkedIn, Kling, Gmail, WordPress…"
+          className="mt-1 w-full max-w-lg rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+        />
+        <p className="mt-3 text-xs text-slate-500">
+          Cliquez un connecteur : uniquement les champs pour le brancher. Le reste est en Options avancées.
+        </p>
         {query.isSuccess ? (
-          <p className="text-sm text-slate-700">
-            Champs configurés :{" "}
-            <span className="font-semibold text-slate-900">
-              {configuredCount} / {totalFields}
-            </span>
-            {" · "}
-            <span className="text-slate-500">Les secrets ne sont jamais réaffichés après enregistrement.</span>
-          </p>
+          <>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {directoryTiles.map((tile) => {
+                const parent = displayCards.find((c) => c.id === tile.cardId);
+                const parentTone = parent
+                  ? integrationGroupTone(parent, values, health.data?.integrations)
+                  : ("neutral" as const);
+                const parentLabel = parent
+                  ? integrationGroupStatusLabel(parent, values, health.data?.integrations)
+                  : "À brancher";
+                const ownLabel = tile.id === "google" ? "" : tileStatusLabel(tile, values);
+                const tone =
+                  tile.id === "google" && parent
+                    ? parentTone
+                    : ownLabel
+                      ? tileTone(tile, values)
+                      : parentTone;
+                const statusLabel =
+                  tile.id === "google" && parent ? parentLabel : ownLabel || parentLabel;
+                const active = focusTileId === tile.id || (!focusTileId && openGroup === tile.cardId && !tile.family);
+                return (
+                  <button
+                    key={tile.id}
+                    type="button"
+                    onClick={() =>
+                      jumpToCard(tile.cardId, { field: tile.field, family: tile.family, tileId: tile.id })
+                    }
+                    className={`flex min-h-[7.5rem] items-start gap-3 rounded-2xl border-2 px-4 py-3.5 text-left shadow-sm transition ${
+                      active
+                        ? "border-violet-500 bg-violet-50 ring-2 ring-violet-200"
+                        : "border-slate-200 bg-white hover:border-violet-300 hover:shadow-md"
+                    }`}
+                  >
+                    <HealthDot tone={tone} label={`${tile.title} — ${statusLabel}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-baseline justify-between gap-2">
+                        <span className="text-sm font-bold text-slate-900">{tile.title}</span>
+                        <span className="shrink-0 text-[10px] font-semibold text-slate-500">{statusLabel}</span>
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-snug text-slate-500">{tile.what}</span>
+                      {tile.tags.length ? (
+                        <span className="mt-2 flex flex-wrap gap-1">
+                          {tile.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-3 text-xs text-slate-500">
+              Pastille verte = prêt. Images, voix et recherche web marchent déjà sans clé.
+            </p>
+          </>
         ) : null}
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
           <input
@@ -587,175 +715,221 @@ function IntegrationsSettingsContent() {
             checked={showTechnique}
             onChange={(e) => setShowTechnique(e.target.checked)}
           />
-          Afficher la section Technique (Analytics, CRM externe, paiements…)
+          Afficher la section technique (Analytics, CRM, paiements…)
         </label>
       </SectionCard>
 
-      <div className="space-y-8">
-        {sections.map((section) => (
-          <div key={section.id} className="space-y-3">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{section.label}</h2>
-            {section.cards.map((group) => {
-              const isOpen = openGroup === group.id;
-              const tone = integrationGroupTone(group, values, health.data?.integrations);
-              const statusLabel = integrationGroupStatusLabel(group, values, health.data?.integrations);
-              const simpleFields = group.fields.filter((f) => !isAdvancedField(f));
-              const advancedFields = group.fields.filter((f) => isAdvancedField(f));
-              const advOpen = Boolean(openAdvancedFields[group.id]);
-              const highlight =
-                requestedCardId === group.id ||
-                (requestedGroupRaw && group.sourceIds.includes(requestedGroupRaw));
+      {searchQuery.trim() && directoryTiles.length === 0 ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Aucun connecteur pour « {searchQuery.trim()} ». Essayez LinkedIn, Google, Kling, Instagram…
+        </p>
+      ) : null}
 
-              return (
-                <div
-                  key={group.id}
-                  id={`integration-${group.id}`}
-                  className={`scroll-mt-28 rounded-2xl border bg-white shadow-sm ${
-                    highlight ? "border-violet-400 ring-2 ring-violet-200" : "border-slate-200"
-                  }`}
+      {openCard ? (
+        (() => {
+          const group = openCard;
+          const tone = integrationGroupTone(group, values, health.data?.integrations);
+          const statusLabel = integrationGroupStatusLabel(group, values, health.data?.integrations);
+          const meta = connectorMeta(group.id, group.label, group.description);
+          const focusTile =
+            DIRECTORY_TILES.find((t) => t.id === focusTileId) ||
+            resolveDirectoryTile(group.id, activeField);
+          const headerTitle = focusTile?.title || meta.title;
+          const headerWhat = focusTile?.what || meta.what || group.description;
+          const { simple: simpleFields, advanced: advancedFields } = splitTileFields(focusTile, group.fields);
+          const tileOwnLabel = focusTile && focusTile.id !== "google" ? tileStatusLabel(focusTile, values) : "";
+          const tileToneValue = focusTile
+            ? focusTile.id === "google"
+              ? tone
+              : tileOwnLabel
+                ? tileTone(focusTile, values)
+                : tone
+            : tone;
+          const tileStatus =
+            focusTile?.id === "google"
+              ? statusLabel
+              : focusTile
+                ? tileOwnLabel || statusLabel
+                : statusLabel;
+          const howto = focusTile?.howto || (!focusTile?.family ? group.setup_how : "");
+          const setupUrl = focusTile?.setupUrl || group.setup_url;
+          const setupLabel = focusTile?.setupLabel || group.setup_label;
+          const showOauth =
+            Boolean(group.oauth) &&
+            (!focusTile || focusTile.id === "google" || focusTile.id === "linkedin");
+          const advKey = focusTile?.id || group.id;
+          const advOpen = Boolean(openAdvancedFields[advKey]);
+          const highlight =
+            requestedCardId === group.id ||
+            (requestedGroupRaw && group.sourceIds.includes(requestedGroupRaw));
+          return (
+            <div
+              id={`integration-${group.id}`}
+              className={`scroll-mt-28 rounded-2xl border bg-white shadow-sm ${
+                highlight ? "border-violet-400 ring-2 ring-violet-200" : "border-violet-200"
+              }`}
+            >
+              <div className="flex items-start gap-3 px-4 py-3">
+                <HealthDot tone={tileToneValue} label={`${headerTitle} — ${tileStatus}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Branchement</p>
+                  <p className="text-base font-semibold text-slate-900">{headerTitle}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{headerWhat}</p>
+                  {(focusTile?.tags || meta.tags).length ? (
+                    <p className="mt-1.5 flex flex-wrap gap-1">
+                      {(focusTile?.tags || meta.tags).map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-700"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="text-xs text-slate-500">{tileStatus}</span>
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800"
+                  onClick={() => {
+                    setOpenGroup("");
+                    setFocusTileId("");
+                    setFocusField("");
+                  }}
                 >
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-50/80"
-                    onClick={() => setOpenGroup(isOpen ? "" : group.id)}
-                  >
-                    <HealthDot tone={tone} label={`${group.label} — ${statusLabel}`} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-900">{group.label}</p>
-                      {group.description ? (
-                        <p className="mt-0.5 text-xs text-slate-500">{group.description}</p>
+                  Fermer
+                </button>
+              </div>
+              <div className="border-t border-slate-100 bg-slate-50 px-4 py-5">
+                {howto || setupUrl || showOauth ? (
+                  <div className="mb-4 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-3 text-sm text-violet-950">
+                    {howto ? <p>{howto}</p> : null}
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <SetupLink href={setupUrl} label={setupLabel} />
+                      {group.id === "wordpress" || group.sourceIds.includes("wordpress") ? (
+                        <SetupLink
+                          href={wordpressSetupUrl(String(drafts.WP_BASE_URL || values.WP_BASE_URL || ""))}
+                          label="Créer un mot de passe d’application sur le site"
+                        />
+                      ) : null}
+                      {showOauth ? (
+                        <>
+                          <button
+                            type="button"
+                            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
+                            disabled={Boolean(oauthBusy) || !group.oauth_ready}
+                            onClick={() => void connectOAuth(group.oauth || "")}
+                          >
+                            {oauthBusy === group.oauth
+                              ? "Redirection…"
+                              : group.oauth === "google"
+                                ? "Connecter Google"
+                                : "Connecter LinkedIn"}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-violet-800 underline"
+                            onClick={() => {
+                              const uri = oauthCallbackUri();
+                              void navigator.clipboard.writeText(uri);
+                              setMsg({ ok: true, text: `URI à coller chez le fournisseur : ${uri}` });
+                            }}
+                          >
+                            Copier l’URI de redirection
+                          </button>
+                        </>
                       ) : null}
                     </div>
-                    <span className="text-xs text-slate-500">{statusLabel}</span>
-                  </button>
+                    {showOauth ? (
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-xs font-semibold text-violet-900">
+                          URI à coller dans l’app (Auth → Authorized redirect URLs)
+                        </p>
+                        {oauthRedirectUris.map((uri, idx) => (
+                          <code
+                            key={uri}
+                            className="block break-all rounded-lg bg-white px-2 py-1.5 text-[11px] text-violet-950 ring-1 ring-violet-200"
+                          >
+                            {uri}
+                            {idx === 1 ? " — à enregistrer aussi si vous ouvrez Korymb via cette adresse" : ""}
+                          </code>
+                        ))}
+                        {group.oauth === "linkedin" ? (
+                          <p className="text-xs text-violet-800">
+                            LinkedIn compare l’URI au caractère près. Si la page LinkedIn dit que
+                            l’URI ne correspond pas, ajoutez exactement la première ligne dans l’onglet
+                            Auth, enregistrez, puis reconnectez.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {showOauth && !group.oauth_ready ? (
+                      <p className="mt-2 text-xs text-violet-800">
+                        Collez Client ID et Client Secret ci-dessous, enregistrez, puis connectez.
+                      </p>
+                    ) : null}
+                    {showOauth && oauthError ? <p className="mt-2 text-xs text-red-700">{oauthError}</p> : null}
+                  </div>
+                ) : null}
 
-                  {isOpen ? (
-                    <div className="border-t border-slate-100 px-4 py-4">
-                      {group.setup_how || group.setup_url || group.oauth ? (
-                        <div className="mb-4 rounded-xl border border-violet-100 bg-violet-50/70 px-3 py-3 text-sm text-violet-950">
-                          {group.setup_how ? <p>{group.setup_how}</p> : null}
-                          <div className="mt-2 flex flex-wrap items-center gap-2">
-                            <SetupLink href={group.setup_url} label={group.setup_label} />
-                            {group.id === "wordpress" || group.sourceIds.includes("wordpress") ? (
-                              <SetupLink
-                                href={wordpressSetupUrl(String(drafts.WP_BASE_URL || values.WP_BASE_URL || ""))}
-                                label="Créer un mot de passe d’application sur le site"
-                              />
-                            ) : null}
-                            {group.oauth ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
-                                  disabled={Boolean(oauthBusy) || !group.oauth_ready}
-                                  onClick={() => void connectOAuth(group.oauth || "")}
-                                >
-                                  {oauthBusy === group.oauth
-                                    ? "Redirection…"
-                                    : group.oauth === "google"
-                                      ? "Connecter Google"
-                                      : "Connecter LinkedIn"}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="text-xs font-semibold text-violet-800 underline"
-                                  onClick={() => {
-                                    const uri = oauthCallbackUri();
-                                    void navigator.clipboard.writeText(uri);
-                                    setMsg({ ok: true, text: `URI à coller chez le fournisseur : ${uri}` });
-                                  }}
-                                >
-                                  Copier l’URI de redirection
-                                </button>
-                              </>
-                            ) : null}
-                          </div>
-                          {group.oauth ? (
-                            <div className="mt-3 space-y-1.5">
-                              <p className="text-xs font-semibold text-violet-900">
-                                URI à coller dans l’app (Auth → Authorized redirect URLs)
-                              </p>
-                              {oauthRedirectUris.map((uri, idx) => (
-                                <code
-                                  key={uri}
-                                  className="block break-all rounded-lg bg-white px-2 py-1.5 text-[11px] text-violet-950 ring-1 ring-violet-200"
-                                >
-                                  {uri}
-                                  {idx === 1 ? " — à enregistrer aussi si vous ouvrez Korymb via cette adresse" : ""}
-                                </code>
-                              ))}
-                              {group.oauth === "linkedin" ? (
-                                <p className="text-xs text-violet-800">
-                                  LinkedIn compare l’URI au caractère près. Si la page LinkedIn dit que
-                                  l’URI ne correspond pas, ajoutez exactement la première ligne dans l’onglet
-                                  Auth, enregistrez, puis reconnectez.
-                                </p>
-                              ) : null}
-                            </div>
-                          ) : null}
-                          {group.oauth && !group.oauth_ready ? (
-                            <p className="mt-2 text-xs text-violet-800">
-                              Collez Client ID et Client Secret ci-dessous, enregistrez, puis connectez.
-                            </p>
-                          ) : null}
-                          {group.oauth && oauthError ? <p className="mt-2 text-xs text-red-700">{oauthError}</p> : null}
-                        </div>
-                      ) : null}
+                <div className="rounded-2xl border-2 border-slate-200 bg-white p-4 shadow-sm">
+                <FieldGrid
+                  fields={simpleFields}
+                  requestedField={activeField}
+                  values={values}
+                  fieldValue={fieldValue}
+                  setField={setField}
+                  clearSecret={clearSecret}
+                  savePending={save.isPending}
+                />
+                </div>
 
+                {advancedFields.length ? (
+                  <details
+                    className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2"
+                    open={advOpen}
+                    onToggle={(e) => {
+                      const open = (e.target as HTMLDetailsElement).open;
+                      setOpenAdvancedFields((prev) => ({ ...prev, [advKey]: open }));
+                    }}
+                  >
+                    <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
+                      Options avancées ({advancedFields.length})
+                    </summary>
+                    <div className="mt-3 pb-1">
                       <FieldGrid
-                        fields={simpleFields}
-                        requestedField={requestedField}
+                        fields={advancedFields}
+                        requestedField={activeField}
                         values={values}
                         fieldValue={fieldValue}
                         setField={setField}
                         clearSecret={clearSecret}
                         savePending={save.isPending}
                       />
-
-                      {advancedFields.length ? (
-                        <details
-                          className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2"
-                          open={advOpen}
-                          onToggle={(e) => {
-                            const open = (e.target as HTMLDetailsElement).open;
-                            setOpenAdvancedFields((prev) => ({ ...prev, [group.id]: open }));
-                          }}
-                        >
-                          <summary className="cursor-pointer select-none text-xs font-semibold text-slate-700">
-                            Options avancées ({advancedFields.length})
-                          </summary>
-                          <div className="mt-3 pb-1">
-                            <FieldGrid
-                              fields={advancedFields}
-                              requestedField={requestedField}
-                              values={values}
-                              fieldValue={fieldValue}
-                              setField={setField}
-                              clearSecret={clearSecret}
-                              savePending={save.isPending}
-                            />
-                          </div>
-                        </details>
-                      ) : null}
-
-                      <div className="mt-4 flex justify-end">
-                        <button
-                          type="button"
-                          disabled={save.isPending}
-                          onClick={() => saveCard(group)}
-                          className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
-                        >
-                          {save.isPending ? "Enregistrement…" : `Enregistrer — ${group.label}`}
-                        </button>
-                      </div>
                     </div>
-                  ) : null}
+                  </details>
+                ) : null}
+
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={save.isPending}
+                    onClick={() => saveCard(group)}
+                    className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-50"
+                  >
+                    {save.isPending ? "Enregistrement…" : `Enregistrer — ${headerTitle}`}
+                  </button>
                 </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+              </div>
+            </div>
+          );
+        })()
+      ) : query.isSuccess ? (
+        <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+          Cliquez un connecteur dans l’annuaire pour coller la clé ou connecter le compte.
+        </p>
+      ) : null}
     </div>
   );
 }

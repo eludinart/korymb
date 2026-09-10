@@ -104,7 +104,10 @@ export function integrationGroupStatusLabel(
     if (tone === "ok" && filled === 0) return "Gratuit actif";
     return `${filled} clé${filled === 1 ? "" : "s"}`;
   }
-  return `${filled}/${total}`;
+  if (tone === "ok") return "Prêt";
+  if (tone === "bad") return "À réparer";
+  if (filled > 0) return "Partiel";
+  return "À brancher";
 }
 
 /** Deep-link catalog id → carte UI (fusion Google / médias). */

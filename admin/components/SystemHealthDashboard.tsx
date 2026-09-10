@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import HealthDot from "./HealthDot";
 import SimpleAccordion from "./SimpleAccordion";
 import type { HealthTone } from "../lib/healthTone";
+import { hrefForConnectorId } from "../lib/integrationConnectors";
 import {
   compareByStatusThenName,
   healthStatusLabel,
@@ -335,8 +337,13 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
         <ul className="mt-3 divide-y divide-slate-100">
           {integrationEntries.map(([id, row]) => {
             const tone = healthToneForIntegration(id, row);
+            const href = hrefForConnectorId(id);
             return (
-              <li key={id} className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
+              <li key={id} className="first:pt-0">
+                <Link
+                  href={href}
+                  className="group flex flex-wrap items-start gap-3 py-2.5 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
+                >
                 <HealthDot tone={tone} label={integrationDisplayName(id)} className="mt-1.5" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
@@ -368,6 +375,10 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
                     </p>
                   ) : null}
                 </div>
+                <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
+                  Paramétrer
+                </span>
+                </Link>
               </li>
             );
           })}
@@ -383,8 +394,14 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
             <StatusSortSelect id="tools-status-sort" value={statusSort} onChange={setStatusSort} />
           </div>
           <ul className="divide-y divide-slate-100">
-            {toolProbeEntries.map((item) => (
-              <li key={item.key} className="flex flex-wrap items-start gap-3 py-2.5 first:pt-0">
+            {toolProbeEntries.map((item) => {
+              const href = hrefForConnectorId(item.key);
+              return (
+              <li key={item.key} className="first:pt-0">
+                <Link
+                  href={href}
+                  className="group flex flex-wrap items-start gap-3 py-2.5 hover:bg-violet-50/80 -mx-2 rounded-xl px-2"
+                >
                 <HealthDot tone={item.tone} label={item.title} className="mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <ToolProbeRowBody row={item} />
@@ -402,8 +419,13 @@ export default function SystemHealthDashboard({ data, loading, error }: Props) {
                     {healthStatusLabel(item.tone)}
                   </span>
                 </div>
+                <span className="shrink-0 self-center text-xs font-semibold text-violet-700 group-hover:underline">
+                  Paramétrer
+                </span>
+                </Link>
               </li>
-            ))}
+            );
+            })}
           </ul>
         </div>
       ) : null}

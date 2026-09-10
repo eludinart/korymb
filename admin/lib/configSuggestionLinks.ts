@@ -1,4 +1,4 @@
-/** Liens vers la zone à configurer depuis une recommandation système. */
+import { hrefForConnectorId } from "./integrationConnectors";
 
 export type ConfigSuggestionLink = { href: string; label: string; external?: boolean };
 
@@ -112,8 +112,14 @@ export function configLinksForSuggestion(s: SuggestionLike): ConfigSuggestionLin
   const key = s.target_key || "";
 
   if (kind === "integration" || key.startsWith("integration:") || key.startsWith("tool:")) {
+    const suffix = (key.startsWith("integration:")
+      ? key.slice("integration:".length)
+      : key.startsWith("tool:")
+        ? key.slice("tool:".length)
+        : key
+    ).trim();
     const group = integrationGroupFromTarget(key);
-    const href = group
+    const href = suffix ? hrefForConnectorId(suffix) : group
       ? `/administration/integrations?group=${encodeURIComponent(group)}`
       : "/administration/integrations";
     const name = (group && INTEGRATION_GROUP_LABELS[group]) || "Intégrations & clés";

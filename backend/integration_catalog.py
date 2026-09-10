@@ -321,8 +321,8 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
     },
     {
         "id": "linkedin_publish",
-        "label": "LinkedIn — publication",
-        "description": "Posts thought-leadership via UGC API. File HITL avant envoi. URN auteur : urn:li:person:… ou urn:li:organization:…",
+        "label": "LinkedIn",
+        "description": "Publier des posts depuis le Studio. Un clic Connecter LinkedIn après Client ID / Secret.",
         "oauth": "linkedin",
         "fields": [
             {"key": "LINKEDIN_CLIENT_ID", "label": "Client ID (app LinkedIn)", "secret": False},
@@ -339,7 +339,7 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
     {
         "id": "video_gen",
         "label": "Vidéo IA (storyboard + clip)",
-        "description": "Storyboard d’images gratuit, puis Replicate / fal / Runway pour un clip. Le modèle n’est jamais figé dans le code métier.",
+        "description": "Sans clé : storyboard d’images. Clip MP4 : clé Replicate (Kling) ou fal.ai, collée ci-dessous.",
         "fields": [
             {
                 "key": "VIDEO_ENGINE_CHAIN",
@@ -364,9 +364,9 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
                 "secret": False,
             },
             {"key": "VIDEO_GEN_API_KEY", "label": "Clé générique (si pas de clé dédiée)"},
-            {"key": "REPLICATE_API_TOKEN", "label": "Replicate API Token"},
-            {"key": "FAL_KEY", "label": "fal.ai Key"},
-            {"key": "RUNWAY_API_KEY", "label": "Runway API Key"},
+            {"key": "REPLICATE_API_TOKEN", "label": "Clé Replicate (Kling, MiniMax…)"},
+            {"key": "FAL_KEY", "label": "Clé fal.ai (Kling via fal)"},
+            {"key": "RUNWAY_API_KEY", "label": "Clé Runway"},
         ],
     },
     {
