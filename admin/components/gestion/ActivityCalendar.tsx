@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { EVENT_NATURE_SHORT_LABELS, EVENT_RESOURCE_TYPE_LABELS, formatDateTime } from "../../app/gestion/_shared";
-import type { BizEvent } from "../lib/business";
+import type { BizEvent } from "../../lib/business";
 
 export type CalendarZoom = "day" | "week" | "month" | "year";
 export type NatureFilter = "all" | "presence" | "matiere";
