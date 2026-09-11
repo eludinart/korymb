@@ -357,7 +357,7 @@ add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
  */
 function eludein_child_litespeed_lazy_excludes($excludes)
 {
-    $extra = "custom-logo\nChatGPT-Image-20-nov";
+    $extra = "custom-logo\nChatGPT-Image-20-nov\nwoo-entry-image-main";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -368,11 +368,19 @@ add_filter('litespeed_media_lazy_img_excludes', 'eludein_child_litespeed_lazy_ex
 function eludein_child_logo_skip_lazy(array $attr): array
 {
     $class = (string) ($attr['class'] ?? '');
-    if (strpos($class, 'custom-logo') !== false) {
+    $is_logo = strpos($class, 'custom-logo') !== false;
+    $is_shop_photo = (
+        strpos($class, 'woo-entry-image-main') !== false
+        || strpos($class, 'wp-post-image') !== false
+    ) && function_exists('is_shop') && (is_shop() || (function_exists('is_product_taxonomy') && is_product_taxonomy()));
+
+    if ($is_logo || $is_shop_photo) {
         $attr['data-no-lazy'] = '1';
         $attr['data-skip-lazy'] = '1';
         $attr['loading'] = 'eager';
-        $attr['fetchpriority'] = 'high';
+        if ($is_logo) {
+            $attr['fetchpriority'] = 'high';
+        }
     }
     return $attr;
 }

@@ -57,6 +57,7 @@ def test_child_theme_beats_customizer_gold():
     assert "wp-block-cover.is-light" in layout
     assert "alignfull" in layout
     assert "eludein-shop-intro" in functions
+    assert "woo-entry-image-main" in functions
     assert "eludein_child_shop_products_only" in functions
     assert "eludein-shop-intro" in woo
     assert "li.product-category" in woo
