@@ -402,7 +402,7 @@ add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
  */
 function eludein_child_litespeed_lazy_excludes($excludes)
 {
-    $extra = "custom-logo\nChatGPT-Image-20-nov\nwoo-entry-image-main\nwp-image-";
+    $extra = "custom-logo\nChatGPT-Image-20-nov\nwoo-entry-image-main\nwp-content/uploads";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -431,6 +431,46 @@ function eludein_child_logo_skip_lazy(array $attr): array
     return $attr;
 }
 add_filter('wp_get_attachment_image_attributes', 'eludein_child_logo_skip_lazy', 20);
+
+/**
+ * Gutenberg stocke les <img> en HTML : LiteSpeed les lazy-load hors du filtre d’attributs.
+ * On rétablit le vrai src si un placeholder SVG a déjà été injecté.
+ */
+function eludein_child_content_images_skip_lazy($html)
+{
+    if (!is_string($html) || $html === '') {
+        return $html;
+    }
+
+    $rewritten = preg_replace_callback(
+        '/<img\b[^>]*>/i',
+        'eludein_child_unwrap_one_lazy_img',
+        $html
+    );
+
+    return is_string($rewritten) ? $rewritten : $html;
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_unwrap_one_lazy_img($match): string
+{
+    $tag = $match[0];
+    if (preg_match('/data-src="(https?:\/\/[^"]+)"/i', $tag, $src)) {
+        $real = $src[1];
+        if (preg_match('/\ssrc="data:image\/svg\+xml[^"]*"/i', $tag)) {
+            $tag = preg_replace('/\ssrc="data:image\/svg\+xml[^"]*"/i', ' src="' . $real . '"', $tag, 1) ?? $tag;
+        }
+    }
+    if (strpos($tag, 'data-no-lazy') === false) {
+        $tag = preg_replace('/\s*\/?>$/', ' data-no-lazy="1" data-skip-lazy="1" loading="eager">', $tag, 1) ?? $tag;
+    }
+
+    return $tag;
+}
+add_filter('the_content', 'eludein_child_content_images_skip_lazy', 999);
+add_filter('widget_block_content', 'eludein_child_content_images_skip_lazy', 999);
 
 /**
  * Un CTA de chaque côté du logo (boutique / application).
