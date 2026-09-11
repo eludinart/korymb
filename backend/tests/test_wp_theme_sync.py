@@ -20,7 +20,16 @@ def test_remote_must_end_with_child_theme():
     except SystemExit:
         pass
     sync.assert_safe_remote("/public_html/wp-content/themes/eludein-child")
-    sync.assert_safe_remote("/domains/eludein.art/public_html/wp-content/themes/eludein-child")
+    sync.assert_safe_remote(
+        "/home/u945541167/domains/eludein.art/public_html/wp-content/themes/eludein-child"
+    )
+
+
+def test_protocol_from_cfg():
+    assert sync.protocol_from_cfg({"protocol": "sftp", "port": 21}) == "sftp"
+    assert sync.protocol_from_cfg({"port": 65002}) == "sftp"
+    assert sync.protocol_from_cfg({"port": 21, "secure": True}) == "ftps"
+    assert sync.protocol_from_cfg({"port": 21, "secure": False}) == "ftp"
 
 
 def test_local_theme_files_exist():

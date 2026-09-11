@@ -51,18 +51,22 @@ Puis dans l’admin WordPress : **Apparence → Thèmes → Ajouter → Téléve
 
 Après activation : vider le cache LiteSpeed (hPanel ou plugin). Vérifier `/boutique/`, une fiche produit, `/panier/` et `/commander/` avant de communiquer.
 
-## Brancher FTP (pour pull/push depuis Cursor)
+## Brancher SFTP (pour pull/push depuis Cursor)
 
-1. hPanel Hostinger → **FTP Accounts** → mot de passe du compte `u945541167` (ou un compte dédié `theme-sync`).
-2. Copier `.ftpconfig.example` vers `.ftpconfig` (gitignoré).
-3. Coller le mot de passe. Si le login échoue, tester `"secure": false` (FTP) ou le hostname FTP indiqué par hPanel.
-4. Si le thème n’apparaît pas, ajuster `remotePath` (`/public_html/...` ou `/domains/eludein.art/public_html/...`).
+Le FTP Hostinger `:21` authentifie, mais le canal de données passif est souvent bloqué depuis Cursor Cloud. Utiliser **SFTP port 65002**.
+
+1. hPanel Hostinger → **FTP Accounts** → mot de passe du compte `u945541167`.
+2. Copier `.ftpconfig.example` vers `.ftpconfig` (gitignoré) et coller le mot de passe.
+3. Ne **jamais** coller le mot de passe dans `.ftpconfig.example` (fichier versionné).
 
 ```bash
-python scripts/wp_theme_sync.py status
-python scripts/wp_theme_sync.py push    # child theme only
-python scripts/wp_theme_sync.py pull
+pip3 install paramiko
+python3 scripts/wp_theme_sync.py status
+python3 scripts/wp_theme_sync.py push    # child theme only
+python3 scripts/wp_theme_sync.py pull
 ```
+
+Chemin réel : `/home/u945541167/domains/eludein.art/public_html/wp-content/themes/eludein-child`
 
 Le script **refuse** tout chemin distant qui ne finit pas par `eludein-child`.
 

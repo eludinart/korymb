@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Sync the OceanWP child theme only (never WordPress core or plugins)."""
+"""Sync the OceanWP child theme only (never WordPress core or plugins).
+
+Hostinger: SFTP port 65002 is the reliable path from Cursor Cloud.
+FTP :21 authenticates but the passive data channel is often blocked.
+"""
 from __future__ import annotations
 
 import argparse
 import json
+import stat
 import sys
-from ftplib import FTP, FTP_TLS, error_perm
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,27 +35,25 @@ def load_config() -> dict:
     )
 
 
-def connect(cfg: dict):
-    host = cfg["host"]
-    port = int(cfg.get("port") or 21)
-    user = cfg["user"]
-    password = cfg["password"]
-    secure = bool(cfg.get("secure", True))
+def require_password(cfg: dict) -> str:
+    password = cfg.get("password") or ""
     if not password or str(password).startswith("REMPLIR"):
         raise SystemExit(
-            "Mot de passe FTP vide dans .ftpconfig — à coller depuis hPanel Hostinger (FTP Accounts)."
+            "Mot de passe vide dans .ftpconfig — à coller depuis hPanel Hostinger (FTP Accounts)."
         )
-    if secure:
-        ftp: FTP = FTP_TLS()
-        ftp.connect(host, port, timeout=30)
-        ftp.auth()
-        ftp.prot_p()
-    else:
-        ftp = FTP()
-        ftp.connect(host, port, timeout=30)
-    ftp.login(user, password)
-    ftp.set_pasv(True)
-    return ftp
+    return str(password)
+
+
+def protocol_from_cfg(cfg: dict) -> str:
+    explicit = str(cfg.get("protocol") or "").strip().lower()
+    if explicit in {"sftp", "ftp", "ftps"}:
+        return explicit
+    port = int(cfg.get("port") or 21)
+    if port == 65002:
+        return "sftp"
+    if cfg.get("secure", True):
+        return "ftps"
+    return "ftp"
 
 
 def assert_safe_remote(remote_path: str) -> None:
@@ -80,112 +82,156 @@ def local_files() -> list[Path]:
     return files
 
 
-def ensure_remote_dir(ftp: FTP, path: str) -> None:
-    parts = [p for p in path.replace("\\", "/").split("/") if p]
-    acc = ""
-    leading = path.startswith("/")
-    for part in parts:
-        acc = f"{acc}/{part}" if acc else (f"/{part}" if leading else part)
+class SftpSession:
+    def __init__(self, cfg: dict):
         try:
-            ftp.mkd(acc)
-        except error_perm:
-            pass
-    ftp.cwd(path)
+            import paramiko
+        except ImportError as exc:
+            raise SystemExit("Installer paramiko : pip3 install paramiko") from exc
+        password = require_password(cfg)
+        self._client = paramiko.SSHClient()
+        self._client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self._client.connect(
+            hostname=cfg["host"],
+            port=int(cfg.get("port") or 65002),
+            username=cfg["user"],
+            password=password,
+            timeout=25,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+        self.sftp = self._client.open_sftp()
+
+    def close(self) -> None:
+        self.sftp.close()
+        self._client.close()
+
+    def exists(self, path: str) -> bool:
+        try:
+            self.sftp.stat(path)
+            return True
+        except (FileNotFoundError, OSError):
+            return False
+
+    def listdir(self, path: str) -> list[str]:
+        return self.sftp.listdir(path)
+
+    def mkdir_p(self, path: str) -> None:
+        parts = [p for p in path.replace("\\", "/").split("/") if p]
+        acc = ""
+        for part in parts:
+            acc = f"{acc}/{part}"
+            try:
+                self.sftp.stat(acc)
+            except (FileNotFoundError, OSError):
+                try:
+                    self.sftp.mkdir(acc)
+                except OSError:
+                    pass
+
+    def put(self, local: Path, remote: str) -> None:
+        self.sftp.put(str(local), remote)
+
+    def get(self, remote: str, local: Path) -> None:
+        local.parent.mkdir(parents=True, exist_ok=True)
+        self.sftp.get(remote, str(local))
+
+    def isdir(self, path: str) -> bool:
+        try:
+            return stat.S_ISDIR(self.sftp.stat(path).st_mode)
+        except (FileNotFoundError, OSError):
+            return False
 
 
 def cmd_status(cfg: dict) -> int:
+    proto = protocol_from_cfg(cfg)
     print(f"config     : {cfg.get('_config_path')}")
+    print(f"protocol   : {proto}")
     print(f"host       : {cfg.get('host')}:{cfg.get('port')}")
     print(f"user       : {cfg.get('user')}")
-    print(f"secure     : {cfg.get('secure')}")
     print(f"remotePath : {cfg.get('remotePath')}")
     print(f"local      : {THEME_REL}")
     print(f"fichiers   : {len(local_files())}")
+    assert_safe_remote(cfg["remotePath"])
+    if proto != "sftp":
+        print("connexion  : utiliser protocol=sftp / port=65002 (FTP passif bloqué depuis Cursor Cloud)")
+        return 1
     try:
-        ftp = connect(cfg)
+        session = SftpSession(cfg)
     except SystemExit as exc:
         print(f"connexion  : non ({exc})")
         return 1
     except Exception as exc:
         print(f"connexion  : échec ({exc})")
         return 1
-    assert_safe_remote(cfg["remotePath"])
     try:
-        ftp.cwd(cfg["remotePath"])
-        names = ftp.nlst()
-        print(f"distant    : OK ({len(names)} entrée(s))")
-        return 0
-    except error_perm as exc:
-        print(f"distant    : dossier absent ({exc}) — un push le créera")
+        if session.exists(cfg["remotePath"]):
+            names = session.listdir(cfg["remotePath"])
+            print(f"connexion  : OK")
+            print(f"distant    : OK ({len(names)} entrée(s))")
+        else:
+            print("connexion  : OK")
+            print("distant    : dossier absent — un push le créera")
         return 0
     finally:
-        ftp.close()
+        session.close()
 
 
 def cmd_push(cfg: dict) -> int:
     assert_safe_remote(cfg["remotePath"])
+    if protocol_from_cfg(cfg) != "sftp":
+        raise SystemExit("push : protocol sftp requis (port 65002).")
     files = local_files()
-    ftp = connect(cfg)
+    session = SftpSession(cfg)
     try:
-        ensure_remote_dir(ftp, cfg["remotePath"])
+        session.mkdir_p(cfg["remotePath"])
         for path in files:
             rel = path.relative_to(ROOT / THEME_REL).as_posix()
-            parent = Path(rel).parent.as_posix()
-            if parent not in (".", ""):
-                ensure_remote_dir(ftp, f"{cfg['remotePath'].rstrip('/')}/{parent}")
             dest = f"{cfg['remotePath'].rstrip('/')}/{rel}"
-            with path.open("rb") as handle:
-                ftp.storbinary(f"STOR {dest}", handle)
+            parent = str(Path(dest).parent).replace("\\", "/")
+            session.mkdir_p(parent)
+            session.put(path, dest)
             print(f"push {rel}")
         print(f"OK {len(files)} fichier(s) → {cfg['remotePath']}")
         return 0
     finally:
-        ftp.close()
-
-
-def _is_dir(ftp: FTP, remote: str) -> bool:
-    current = ftp.pwd()
-    try:
-        ftp.cwd(remote)
-        ftp.cwd(current)
-        return True
-    except error_perm:
-        return False
+        session.close()
 
 
 def cmd_pull(cfg: dict) -> int:
     assert_safe_remote(cfg["remotePath"])
+    if protocol_from_cfg(cfg) != "sftp":
+        raise SystemExit("pull : protocol sftp requis (port 65002).")
     local_root = ROOT / THEME_REL
-    ftp = connect(cfg)
+    session = SftpSession(cfg)
     downloaded = 0
     try:
+        if not session.exists(cfg["remotePath"]):
+            print(f"distant absent : {cfg['remotePath']}")
+            return 1
+
         def walk(remote_dir: str, rel: str) -> None:
             nonlocal downloaded
-            names = ftp.nlst(remote_dir)
-            for raw in names:
-                name = raw.split("/")[-1]
+            for name in session.listdir(remote_dir):
                 if name in (".", ".."):
                     continue
                 remote = f"{remote_dir.rstrip('/')}/{name}"
-                if _is_dir(ftp, remote):
+                if session.isdir(remote):
                     walk(remote, f"{rel}/{name}" if rel else name)
                     continue
                 suffix = Path(name).suffix.lower()
                 if suffix not in ALLOWED_SUFFIXES:
                     continue
                 local = local_root / rel / name if rel else local_root / name
-                local.parent.mkdir(parents=True, exist_ok=True)
-                with local.open("wb") as handle:
-                    ftp.retrbinary(f"RETR {remote}", handle.write)
+                session.get(remote, local)
                 downloaded += 1
                 print(f"pull {rel + '/' if rel else ''}{name}")
 
-        ftp.cwd(cfg["remotePath"])
         walk(cfg["remotePath"], "")
         print(f"OK {downloaded} fichier(s) ← {cfg['remotePath']}")
         return 0
     finally:
-        ftp.close()
+        session.close()
 
 
 def main() -> int:
