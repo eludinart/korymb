@@ -64,7 +64,7 @@ body.has-sidebar #primary {
 /* Pages de lecture : mesure confortable, vraiment centrée. */
 body.page:not(.home):not(.woocommerce-page) #content .entry,
 body.single-post #content .entry {
-  max-width: 840px;
+  max-width: 1040px;
   width: 100%;
   margin-left: auto;
   margin-right: auto;

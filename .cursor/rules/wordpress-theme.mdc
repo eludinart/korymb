@@ -9,5 +9,6 @@ globs: wordpress/**,scripts/wp_theme_*.py,docs/WORDPRESS-THEME.md
 - Never copy or edit `wp-admin`, `wp-includes`, `wp-config.php`, or WooCommerce plugin files.
 - Do not add `woocommerce/` PHP templates in the child theme unless explicitly requested: cart, checkout, and account must keep WooCommerce markup.
 - Visual changes go in `assets/css/`. Preserve Fleur `#fleur-container` / `#fleur-duo-container` rules in `legacy-custom.css`.
+- Graphic charter: `docs/CHARTE-GRAPHIQUE.md`. Keep the 22px type scale, cream/gold/forest palette, and image exclusions (logo, emoji, Fleur, Woo product cards at 280px). Never CSS-grid or `display:contents` on `.shop_table` / checkout tables.
 - Deploy via `python scripts/wp_theme_pack.py` (WP Admin zip) or `python scripts/wp_theme_sync.py` (FTP child-theme folder only).
 - Site is Hostinger hPanel, not the Coolify VPS. Doc: `docs/WORDPRESS-THEME.md`.

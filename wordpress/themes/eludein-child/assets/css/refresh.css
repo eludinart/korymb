@@ -31,14 +31,15 @@
 
 html {
   scroll-behavior: smooth;
+  font-size: 22px;
 }
 
 body.oceanwp-theme {
   background: var(--eludein-cream);
   color: var(--eludein-ink);
   font-family: var(--eludein-sans);
-  font-size: 19px;
-  line-height: 1.72;
+  font-size: 22px;
+  line-height: 1.7;
 }
 
 body.oceanwp-theme h1,
@@ -53,17 +54,17 @@ body.oceanwp-theme .wp-block-kadence-advancedheading {
 }
 
 body.oceanwp-theme h1 {
-  font-size: clamp(2.35rem, 3.4vw, 3.4rem);
+  font-size: clamp(2.35rem, 4.2vw, 3.4rem);
   line-height: 1.15;
 }
 
 body.oceanwp-theme h2 {
-  font-size: clamp(1.7rem, 2.4vw, 2.35rem);
-  line-height: 1.22;
+  font-size: clamp(2.15rem, 3.4vw, 2.85rem);
+  line-height: 1.2;
 }
 
 body.oceanwp-theme h3 {
-  font-size: clamp(1.35rem, 1.8vw, 1.7rem);
+  font-size: clamp(1.55rem, 2.3vw, 2rem);
   line-height: 1.28;
 }
 
@@ -391,14 +392,14 @@ body.ocean-preloader--active {
 .entry-content li,
 .entry-content .wp-block-paragraph,
 .entry-content .kt-adv-heading + p {
-  font-size: 1.08rem;
-  line-height: 1.72;
+  font-size: 1.32rem;
+  line-height: 1.75;
 }
 
 .entry-content > p:first-of-type,
 .has-text-align-center.wp-block-paragraph:first-of-type {
-  font-size: 1.28rem;
-  line-height: 1.65;
+  font-size: 1.48rem;
+  line-height: 1.68;
   color: var(--eludein-ink) !important;
   opacity: 1 !important;
 }
@@ -509,7 +510,7 @@ div.wpforms-container-full .wpforms-form button[type="submit"] {
 
 @media (max-width: 768px) {
   body.oceanwp-theme {
-    font-size: 17.5px;
+    font-size: 20px;
   }
 
   #site-header.medium-header {

@@ -4,6 +4,8 @@ Le site public **https://eludein.art** est un WordPress Hostinger (hPanel + Lite
 
 Ce dépôt ne versionne **que** le thème enfant `eludein-child`. Le moteur WordPress, OceanWP parent, WooCommerce et les plugins restent sur l’hébergement.
 
+**Charte graphique (typo, palette, images) :** [`docs/CHARTE-GRAPHIQUE.md`](CHARTE-GRAPHIQUE.md). À respecter pour tout changement visuel.
+
 ## Garde-fous
 
 | On touche | On ne touche pas |
@@ -40,6 +42,7 @@ wordpress/themes/eludein-child/
   assets/css/refresh.css
   assets/css/nav.css
   assets/css/layout.css
+  assets/css/charter.css        # échelle 22px, images, exclusions Woo/Fleur/logo
   assets/css/buttons.css
   assets/css/woocommerce.css
   assets/css/tarot-detail.css  # dossier /le-tarot-fleur-damours-en-detail/

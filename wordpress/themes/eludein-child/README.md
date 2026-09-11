@@ -6,4 +6,4 @@ Couche visuelle pour https://eludein.art (OceanWP).
 
 Activation : Appearance → Themes → Élude In Art Child, ou zip via `python scripts/wp_theme_pack.py`.
 
-Doc : [docs/WORDPRESS-THEME.md](../../docs/WORDPRESS-THEME.md)
+Doc : [docs/WORDPRESS-THEME.md](../../docs/WORDPRESS-THEME.md) · Charte : [docs/CHARTE-GRAPHIQUE.md](../../docs/CHARTE-GRAPHIQUE.md)

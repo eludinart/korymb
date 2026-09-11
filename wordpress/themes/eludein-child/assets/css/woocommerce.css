@@ -44,7 +44,7 @@ body.woocommerce-page #owp-preloader {
 .eludein-shop-intro__title {
   margin: 0 0 1.35rem;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(2.7rem, 3.4vw, 3.85rem);
+  font-size: clamp(2.35rem, 4.2vw, 3.4rem);
   font-weight: 600;
   line-height: 1.12;
   letter-spacing: -0.03em;
@@ -54,8 +54,8 @@ body.woocommerce-page #owp-preloader {
 .eludein-shop-intro__lead {
   margin: 0 auto 1rem;
   max-width: 46rem;
-  font-size: 1.38rem;
-  line-height: 1.65;
+  font-size: 1.48rem;
+  line-height: 1.68;
   color: #2f2a26;
 }
 

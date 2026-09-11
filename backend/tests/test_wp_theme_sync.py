@@ -68,7 +68,21 @@ def test_child_theme_beats_customizer_gold():
     assert "woo-entry-inner > li.image-wrap" in woo
     assert "display: none !important" not in woo.split("li.image-wrap")[1][:80]
     assert "body.woocommerce-shop #right-sidebar" in layout
-    assert "font-size: 19px" in refresh
+    assert "font-size: 22px" in refresh
+    assert "max-width: 1040px" in layout
+    charter = (REPO / "wordpress/themes/eludein-child/assets/css/charter.css").read_text(
+        encoding="utf-8"
+    )
+    assert "eludein-child-charter" in functions
+    assert "eludein_child_charter_late_css" in functions
+    assert "eludein_child_prepare_site_content_images" in functions
+    assert "eludein_child_strip_gutenberg_thumb_attrs" in functions
+    assert "charter.css" in functions
+    assert "display: table !important" in charter
+    assert "font-size: 22px" in charter
+    assert "#fleur-container img" in charter
+    assert "height: 280px !important" in charter
+    assert ".shop_table" in charter
     assert "font-size: 16px !important" in nav
     assert "eludein_child_bump_inline_font_size" in functions
     tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
@@ -161,6 +175,7 @@ def test_local_theme_files_exist():
     assert "layout.css" in names
     assert "woocommerce.css" in names
     assert "tarot-detail.css" in names
+    assert "charter.css" in names
     assert "legacy-custom.css" in names
     for path in files:
         rel = path.relative_to(REPO / sync.THEME_REL).as_posix()
@@ -181,4 +196,5 @@ def test_pack_builds_zip(tmp_path, monkeypatch):
         names = zf.namelist()
     assert "eludein-child/style.css" in names
     assert "eludein-child/functions.php" in names
+    assert "eludein-child/assets/css/charter.css" in names
     assert not any("wp-admin" in n for n in names)

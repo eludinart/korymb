@@ -52,12 +52,24 @@ function eludein_child_enqueue_styles(): void
         $ver
     );
 
-    $button_deps = array('eludein-child-layout');
+    $after_layout = 'eludein-child-layout';
+    $charter = get_stylesheet_directory() . '/assets/css/charter.css';
+    if (is_readable($charter)) {
+        wp_enqueue_style(
+            'eludein-child-charter',
+            $base . '/assets/css/charter.css',
+            array('eludein-child-layout'),
+            $ver
+        );
+        $after_layout = 'eludein-child-charter';
+    }
+
+    $button_deps = array($after_layout);
     if (class_exists('WooCommerce')) {
         wp_enqueue_style(
             'eludein-child-woocommerce',
             $base . '/assets/css/woocommerce.css',
-            array('eludein-child-layout'),
+            array($after_layout),
             $ver
         );
         $button_deps = array('eludein-child-woocommerce');
@@ -100,7 +112,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\ntarot-detail.css\neludein-child-tarot-detail\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\ncharter.css\neludein-child-charter\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\ntarot-detail.css\neludein-child-tarot-detail\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -228,9 +240,9 @@ function eludein_child_bump_inline_font_size($match): string
     if ($px > 0 && $px < 14) {
         $px = 16;
     } elseif ($px < 17) {
-        $px = 19;
+        $px = 22;
     } elseif ($px < 20) {
-        $px = 21;
+        $px = 22;
     } elseif ($px < 26) {
         $px = 30;
     } elseif ($px < 34) {
@@ -346,7 +358,22 @@ function eludein_child_late_contrast_css(): void
         . '#site-header.medium-header .search-toggle-li{display:none!important;}'
         . '.page-header,.centered-page-header{background:#fbf7f1!important;color:#243028!important;}'
         . '.page-header-title{color:#243028!important;}'
-        . 'body.oceanwp-theme{font-size:19px!important;line-height:1.72!important;}'
+        . 'body.oceanwp-theme{font-size:22px!important;line-height:1.7!important;}'
+        . 'html{font-size:22px!important}'
+        . 'body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry .entry-content>p,'
+        . 'body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry .entry-content>ul>li,'
+        . 'body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry .entry-content>ol>li'
+        . '{font-size:1.32rem!important;line-height:1.75!important;}'
+        . 'body:not(.woocommerce-checkout) .entry .entry-content .wp-block-image:not(.is-resized) img,'
+        . 'body:not(.woocommerce-checkout) .entry .entry-content figure.wp-block-image:not(.is-resized) img'
+        . '{width:100%!important;max-width:100%!important;height:auto!important;}'
+        . '.custom-logo-link img,.custom-logo-link img.custom-logo,#site-logo img,.site-branding img'
+        . '{width:auto!important;max-width:min(220px,42vw)!important;max-height:78px!important;height:auto!important;}'
+        . 'img.emoji,img.wp-smiley{width:1em!important;height:1em!important;max-width:1em!important;}'
+        . '#fleur-container img,#fleur-duo-container img{width:auto!important;max-width:100%!important;min-width:0!important;}'
+        . '#result-fleur img,#result-fleur-duo img{max-width:340px!important;height:auto!important;}'
+        . '.woocommerce ul.products li.product img,.woocommerce-page ul.products li.product img'
+        . '{height:280px!important;object-fit:cover!important;}'
         . '#site-header #site-navigation-wrap .dropdown-menu>li>a,'
         . '#site-header #site-navigation-wrap .dropdown-menu>li>a .text-wrap'
         . '{font-size:16px!important;}'
@@ -354,8 +381,8 @@ function eludein_child_late_contrast_css(): void
         . '#site-header #menu-main-menu>.eludein-nav-utility>a .text-wrap'
         . '{font-size:13.5px!important;}'
         . '.eludein-header-cta{font-size:14.5px!important;}'
-        . '.eludein-shop-intro__title{font-size:clamp(2.7rem,3.4vw,3.85rem)!important;}'
-        . '.eludein-shop-intro__lead{font-size:1.38rem!important;line-height:1.65!important;}'
+        . '.eludein-shop-intro__title{font-size:clamp(2.35rem,4.2vw,3.4rem)!important;}'
+        . '.eludein-shop-intro__lead{font-size:1.48rem!important;line-height:1.68!important;}'
         . 'body.page-id-592 .page-header,body.page-id-592 .centered-page-header{display:none!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
@@ -445,6 +472,25 @@ function eludein_child_tarot_detail_late_css(): void
 add_action('wp_head', 'eludein_child_tarot_detail_late_css', 10000);
 
 /**
+ * Charte site-wide : LiteSpeed combine/UCSS ne doit pas l’avaler.
+ */
+function eludein_child_charter_late_css(): void
+{
+    $path = get_stylesheet_directory() . '/assets/css/charter.css';
+    if (!is_readable($path)) {
+        return;
+    }
+
+    $css = file_get_contents($path);
+    if (!is_string($css) || $css === '') {
+        return;
+    }
+
+    echo '<style id="eludein-child-charter" data-no-optimize="1">' . $css . '</style>' . "\n";
+}
+add_action('wp_head', 'eludein_child_charter_late_css', 9998);
+
+/**
  * Le logo header ne doit pas rester un placeholder LiteSpeed.
  */
 function eludein_child_litespeed_lazy_excludes($excludes)
@@ -518,6 +564,50 @@ function eludein_child_unwrap_one_lazy_img($match): string
 }
 add_filter('the_content', 'eludein_child_content_images_skip_lazy', 999);
 add_filter('widget_block_content', 'eludein_child_content_images_skip_lazy', 999);
+
+/**
+ * Miniatures Gutenberg 150px : retirer width/sizes pour que la charte
+ * puisse remplir le cadre. Logo, Woo, Fleur, avatars, emojis : intacts.
+ */
+function eludein_child_is_protected_content_image(string $html): bool
+{
+    return (bool) preg_match(
+        '/custom-logo|woo-entry-image|woocommerce|avatar|emoji|wp-smiley|fleur-/i',
+        $html
+    );
+}
+
+function eludein_child_strip_gutenberg_thumb_attrs(string $html): string
+{
+    if (eludein_child_is_protected_content_image($html)) {
+        return $html;
+    }
+
+    $html = preg_replace('/\swidth="150"/i', '', $html) ?? $html;
+    $html = preg_replace('/\sheight="(?:150|225|300)"/i', '', $html) ?? $html;
+    $html = preg_replace('/\ssizes="[^"]*\(max-width:\s*150px\)[^"]*"/i', '', $html) ?? $html;
+
+    return $html;
+}
+
+function eludein_child_prepare_site_content_images($html)
+{
+    if (!is_string($html) || $html === '' || is_admin()) {
+        return $html;
+    }
+
+    $rewritten = preg_replace_callback(
+        '/<img\b[^>]*>/i',
+        static function ($match) {
+            return eludein_child_strip_gutenberg_thumb_attrs($match[0]);
+        },
+        $html
+    );
+
+    return is_string($rewritten) ? $rewritten : $html;
+}
+add_filter('the_content', 'eludein_child_prepare_site_content_images', 19);
+add_filter('widget_block_content', 'eludein_child_prepare_site_content_images', 19);
 
 /**
  * Un CTA de chaque côté du logo (boutique / application).
