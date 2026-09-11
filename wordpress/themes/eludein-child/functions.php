@@ -421,9 +421,12 @@ function eludein_child_shop_intro(): void
 
     echo '<header class="eludein-shop-intro">'
         . '<p class="eludein-shop-intro__kicker">La boutique</p>'
-        . '<h1 class="eludein-shop-intro__title">Deux invitations, une même maison</h1>'
-        . '<p class="eludein-shop-intro__lead">Le tarot Fleur d’Åmõürs et l’accompagnement à distance, '
-        . 'présentés simplement — sans catalogue d’entrepôt.</p>'
+        . '<h1 class="eludein-shop-intro__title">Quand ça devient illisible, il faut une cartographie</h1>'
+        . '<p class="eludein-shop-intro__lead">Le Tarot Fleur d’ÅmÔurs ne prédit pas l’avenir. '
+        . 'C’est une boussole systémique&nbsp;: il décrit où ça circule, où ça bloque, où ça se répète — '
+        . 'vers soi, vers l’autre, vers le monde — pour que vous repreniez la main sur vos choix.</p>'
+        . '<p class="eludein-shop-intro__lead">La séance d’orientation, c’est le même geste, avec moi&nbsp;: '
+        . 'clarifier une trajectoire, poser une structure, rétablir la circulation.</p>'
         . '</header>';
 }
 add_action('woocommerce_archive_description', 'eludein_child_shop_intro', 20);
