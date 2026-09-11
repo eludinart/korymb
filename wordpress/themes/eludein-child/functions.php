@@ -416,7 +416,7 @@ function eludein_child_late_contrast_css(): void
         . '{font-size:clamp(2.15rem,3.4vw,2.85rem)!important;}'
         . 'body.page-id-592 .eludein-tarot-card img,body.page-id-592 .eludein-tarot-gallery img'
         . '{float:none!important;width:100%!important;max-width:100%!important;min-width:100%!important;height:auto!important;}'
-        . 'body.page-id-592 .eludein-tarot-card__name{white-space:normal!important;overflow-wrap:anywhere!important;overflow:hidden!important;}'
+        . 'body.page-id-592 .eludein-tarot-card__name{white-space:normal!important;overflow-wrap:break-word!important;word-break:normal!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);

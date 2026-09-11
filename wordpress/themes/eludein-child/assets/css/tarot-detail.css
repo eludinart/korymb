@@ -410,8 +410,8 @@ body.page-id-592 .eludein-tarot-gallery img,
   text-align: center;
   white-space: normal;
   overflow: hidden;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .eludein-tarot-minis {
