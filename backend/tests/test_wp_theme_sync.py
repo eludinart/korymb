@@ -71,16 +71,22 @@ def test_child_theme_beats_customizer_gold():
     assert "font-size: 19px" in refresh
     assert "font-size: 16px !important" in nav
     assert "eludein_child_bump_inline_font_size" in functions
+    tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
+        encoding="utf-8"
+    )
     assert "eludein_child_tarot_detail_content" in functions
     assert "eludein_child_tarot_families_markup" in functions
     assert "eludein_child_tarot_detail_late_css" in functions
     assert "eludein_child_tarot_filename_from_img" in functions
-    assert "eludein_child_strip_tarot_inline_font_size" in functions
+    assert "eludein_child_tarot_prepare_card_img" in functions
+    assert "eludein_child_flatten_tarot_galleries" in functions
+    assert "eludein-tarot-gallery--4" in functions
+    assert "white-space: nowrap" not in tarot_css
+    assert "eludein-tarot-gallery--4" in tarot_css
+    assert "eludein-tarot-gallery--5" in tarot_css
+    assert "min-width: 100% !important" in tarot_css
     assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
     assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
-    tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
-        encoding="utf-8"
-    )
     assert ".eludein-tarot-families" in tarot_css
     assert ".eludein-tarot-forms" in tarot_css
     assert ".eludein-tarot-manifesto" in tarot_css
@@ -108,6 +114,29 @@ def test_child_theme_beats_customizer_gold():
     assert "woocommerce/*.php" not in "".join(
         p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()
     )
+    gallery = (
+        '<figure class="wp-block-table eludein-tarot-gallery aligncenter">'
+        '<table class="has-fixed-layout"><tbody><tr>'
+        '<td><figure class="eludein-tarot-card"><img src="x"><figcaption>A</figcaption></figure></td>'
+        '<td><figure class="eludein-tarot-card"><img src="y"><figcaption>B</figcaption></figure></td>'
+        "</tr></tbody></table></figure>"
+    )
+    flat_re = re.compile(
+        r'<figure class="wp-block-table eludein-tarot-gallery\b[^"]*"[^>]*>\s*'
+        r"<table\b[^>]*>[\s\S]*?</table>\s*</figure>",
+        re.I,
+    )
+    cards_re = re.compile(
+        r'<figure class="eludein-tarot-card\b[^"]*"[^>]*>[\s\S]*?</figure>', re.I
+    )
+    gallery_match = flat_re.search(gallery)
+    assert gallery_match is not None
+    cards = cards_re.findall(gallery_match.group(0))
+    assert len(cards) == 2
+    label_base = re.sub(r"\.[a-z0-9]+$", "", "la-metamorphose-205x300.png", flags=re.I)
+    label_base = re.sub(r"[-\s]?\d+x\d+", "", label_base)
+    label_base = re.sub(r"-\d+$", "", label_base)
+    assert label_base == "la-metamorphose"
 
 
 def test_local_theme_files_exist():

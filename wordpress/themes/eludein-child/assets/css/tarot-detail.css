@@ -312,21 +312,25 @@ body.page-id-592 .entry img.alignright {
 }
 
 /* ——— Galeries de cartes ——— */
+.eludein-tarot-gallery,
 body.page-id-592 .wp-block-table,
 body.page-id-592 figure.wp-block-table,
 body.page-id-592 figure.eludein-tarot-gallery {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1.15rem 1rem;
+  gap: 1.35rem 1.15rem;
   margin: 1.9rem 0 2.6rem;
-  padding: 1.15rem 1rem 1.25rem;
+  padding: 1.35rem 1.15rem 1.45rem;
   border: 1px solid rgba(201, 161, 74, 0.28);
   border-radius: 28px;
   background:
     linear-gradient(180deg, rgba(251, 247, 241, 0.65), rgba(244, 239, 230, 0.35));
   overflow: visible;
+  justify-items: stretch;
+  align-items: stretch;
 }
 
+.eludein-tarot-gallery--5,
 body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)),
 body.page-id-592 figure.eludein-tarot-gallery:has(tr:nth-child(5)) {
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -339,85 +343,87 @@ body.page-id-592 .wp-block-table tr {
 }
 
 body.page-id-592 .wp-block-table td {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
+  display: block;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   padding: 0;
   background: none;
   border: 0 !important;
   box-shadow: none;
+  overflow: hidden;
 }
 
 .eludein-tarot-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   margin: 0;
-  padding: 0.55rem 0.55rem 0.75rem;
+  padding: 0.45rem 0.45rem 0.7rem;
   background: var(--eludein-paper, #fbf7f1);
   border: 1px solid var(--eludein-line, #d9cdb8);
   border-radius: 16px;
   box-shadow: 0 14px 30px rgba(36, 48, 40, 0.08);
+  overflow: hidden;
   transition: transform 0.22s ease, box-shadow 0.22s ease;
 }
 
 .eludein-tarot-card:hover {
-  transform: translateY(-6px) rotate(-0.4deg);
+  transform: translateY(-4px);
   box-shadow: 0 22px 42px rgba(36, 48, 40, 0.14);
-}
-
-body.page-id-592 .wp-block-table td:nth-child(even) .eludein-tarot-card,
-body.page-id-592 .eludein-tarot-minis .eludein-tarot-card:nth-child(even) {
-  transform: rotate(0.6deg);
-}
-
-body.page-id-592 .wp-block-table td:nth-child(odd) .eludein-tarot-card,
-body.page-id-592 .eludein-tarot-minis .eludein-tarot-card:nth-child(odd) {
-  transform: rotate(-0.55deg);
-}
-
-body.page-id-592 .wp-block-table td:hover .eludein-tarot-card,
-body.page-id-592 .eludein-tarot-minis .eludein-tarot-card:hover {
-  transform: translateY(-6px) rotate(0deg);
 }
 
 body.page-id-592 .wp-block-table td img,
 body.page-id-592 .wp-block-table img,
+body.page-id-592 .eludein-tarot-gallery img,
 .eludein-tarot-card img {
+  float: none !important;
   width: 100% !important;
-  max-width: none !important;
+  max-width: 100% !important;
+  min-width: 100% !important;
   height: auto !important;
+  margin: 0 !important;
   aspect-ratio: 2 / 3;
   object-fit: cover;
+  object-position: center top;
   border-radius: 10px;
   display: block;
+  align-self: stretch;
 }
 
 .eludein-tarot-card__name {
-  margin: 0.55rem 0 0;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.5rem 0 0;
+  padding: 0 0.35rem;
   font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
-  font-size: 0.88rem;
+  font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.04em;
+  line-height: 1.3;
   text-transform: uppercase;
   color: var(--eludein-forest-deep, #243028);
   text-align: center;
-  white-space: nowrap;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .eludein-tarot-minis {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(128px, 160px));
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 13rem));
   justify-content: center;
-  gap: 1rem;
+  gap: 1.6rem 2rem;
   margin: 1.4rem 0 1.8rem;
 }
 
 .eludein-tarot-card--mini {
-  max-width: 160px;
+  max-width: 13rem;
 }
 
 /* ——— Huit formes ——— */
@@ -591,6 +597,7 @@ body.page-id-592 .sd-sharing {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .eludein-tarot-gallery--5,
   body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)),
   body.page-id-592 figure.eludein-tarot-gallery:has(tr:nth-child(5)) {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -627,6 +634,9 @@ body.page-id-592 .sd-sharing {
     font-size: 1.38rem !important;
   }
 
+  .eludein-tarot-gallery,
+  .eludein-tarot-gallery--4,
+  .eludein-tarot-gallery--5,
   body.page-id-592 .wp-block-table,
   body.page-id-592 figure.wp-block-table,
   body.page-id-592 figure.eludein-tarot-gallery,
