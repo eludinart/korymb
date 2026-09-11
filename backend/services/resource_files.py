@@ -11,6 +11,7 @@ from urllib.parse import quote
 from fastapi.responses import Response
 
 from services.business_db import _new_id, _now, _ws
+from workspace_db import _DEFAULT_WORKSPACE_ID
 
 
 def _uid() -> str:
@@ -173,23 +174,19 @@ def save_brand_image(*, filename: str, mime: str, data: bytes) -> dict[str, Any]
     return save_upload(filename=name, mime=mime or "image/jpeg", data=data)
 
 
-def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
-    fid = (file_id or "").strip()
-    if not fid.startswith("rfil-") or ".." in fid or "/" in fid or "\\" in fid:
-        return None
-    wid = (workspace_id or _ws() or "").strip()
-    folder = files_dir(workspace_id=wid)
+def _load_blob(folder: Path, fid: str, *, accept_workspace_ids: set[str]) -> dict[str, Any] | None:
     blob = folder / fid
-    meta_path = folder / f"{fid}.json"
     if not blob.is_file():
         return None
     meta: dict[str, Any] = {}
+    meta_path = folder / f"{fid}.json"
     if meta_path.is_file():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
             meta = {}
-    if str(meta.get("workspace_id") or wid) != wid:
+    meta_wid = str(meta.get("workspace_id") or "").strip()
+    if meta_wid and meta_wid not in accept_workspace_ids:
         return None
     return {
         "id": fid,
@@ -199,6 +196,25 @@ def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[st
         "path": blob,
         "source": "local",
     }
+
+
+def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
+    fid = (file_id or "").strip()
+    if not fid.startswith("rfil-") or ".." in fid or "/" in fid or "\\" in fid:
+        return None
+    wid = (workspace_id or _ws() or "").strip()
+    accepted = {wid, _DEFAULT_WORKSPACE_ID, ""}
+    item = _load_blob(files_dir(workspace_id=wid), fid, accept_workspace_ids=accepted)
+    if item:
+        return item
+    # Jobs lancés dans un thread sans tenant écrivaient dans l'espace legacy.
+    if wid != _DEFAULT_WORKSPACE_ID:
+        return _load_blob(
+            files_dir(workspace_id=_DEFAULT_WORKSPACE_ID),
+            fid,
+            accept_workspace_ids=accepted,
+        )
+    return None
 
 
 def read_file_bytes(file_info: dict[str, Any]) -> bytes:

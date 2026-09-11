@@ -117,3 +117,45 @@ def test_reject_executable_resource(client, tmp_path, monkeypatch):
         files={"file": ("virus.exe", b"MZ", "application/octet-stream")},
     )
     assert uploaded.status_code == 422
+
+
+def test_load_file_falls_back_to_default_workspace(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    from tenant_context import clear_tenant_context, set_tenant_context
+    from services.resource_files import load_local_file, save_upload
+
+    set_tenant_context(workspace_id="ws-default-legacy")
+    saved = save_upload(filename="prospects.csv", mime="text/csv", data=b"nom,ville\nAda,Nice\n")
+    assert saved.get("success")
+    fid = saved["file"]["id"]
+    set_tenant_context(workspace_id="ws-other-space")
+    item = load_local_file(fid)
+    assert item is not None
+    assert item["filename"] == "prospects.csv"
+    clear_tenant_context()
+
+
+def test_spawn_thread_writes_into_current_workspace(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    import threading
+
+    from tenant_context import clear_tenant_context, set_tenant_context, spawn_thread
+    from services.resource_files import save_upload
+
+    done = threading.Event()
+    out: dict[str, str] = {}
+
+    def work() -> None:
+        try:
+            saved = save_upload(filename="x.csv", mime="text/csv", data=b"n\n1\n")
+            out["id"] = str((saved.get("file") or {}).get("id") or "")
+        finally:
+            done.set()
+
+    set_tenant_context(workspace_id="ws-custom-aaa", user_id="usr-1")
+    spawn_thread(work, name="t-test-tenant")
+    assert done.wait(5)
+    clear_tenant_context()
+    fid = out.get("id") or ""
+    assert fid.startswith("rfil-")
+    assert (tmp_path / "ws-custom-aaa" / fid).is_file()

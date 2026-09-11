@@ -72,3 +72,23 @@ def get_tenant_context() -> TenantContext | None:
     if not ws:
         return None
     return TenantContext(workspace_id=ws, user_id=get_user_id(), role=get_role())
+
+
+def spawn_thread(target, *, name: str, daemon: bool = True):
+    """Lance un thread daemon en recopiant le tenant courant (ContextVar n'est pas hérité)."""
+    import threading
+
+    snap = (get_workspace_id(), get_user_id(), get_role())
+
+    def runner() -> None:
+        wid, uid, role = snap
+        if wid:
+            set_tenant_context(workspace_id=wid, user_id=uid, role=role)
+        else:
+            clear_tenant_context()
+        try:
+            target()
+        finally:
+            clear_tenant_context()
+
+    threading.Thread(target=runner, name=name, daemon=daemon).start()

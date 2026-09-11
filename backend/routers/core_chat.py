@@ -4,7 +4,6 @@ routers/core_chat.py — Route /chat.
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
 from datetime import datetime
 
@@ -12,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
+from tenant_context import spawn_thread
 from database import (
     save_job,
     update_job,
@@ -421,11 +421,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 except Exception:
                     logger.exception("append_job_mission_thread (mirror_ack → parent)")
 
-            threading.Thread(
-                target=execute_chat_cio,
-                name=f"korymb-chat-{job_id[:24]}",
-                daemon=True,
-            ).start()
+            spawn_thread(execute_chat_cio, name=f"korymb-chat-{job_id[:24]}")
             return {
                 "status": "accepted",
                 "job_id": job_id,

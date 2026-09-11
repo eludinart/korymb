@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 import re
-import threading
 import uuid
 from datetime import datetime
 
@@ -16,6 +15,7 @@ from services.memory import compress_chat_session
 from services.mission import _add_daily as _add_daily_svc
 from services.mission import _user_visible_job_failure_markdown
 from state import active_jobs
+from tenant_context import spawn_thread
 
 logger = logging.getLogger(__name__)
 
@@ -194,5 +194,5 @@ def start_assistant_chat_job(
         finally:
             active_jobs.pop(job_id, None)
 
-    threading.Thread(target=execute, name=f"korymb-assistant-{job_id[:24]}", daemon=True).start()
+    spawn_thread(execute, name=f"korymb-assistant-{job_id[:24]}")
     return {"status": "accepted", "job_id": job_id, "agent": "assistant", "mirror_ack": None}

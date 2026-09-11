@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +17,7 @@ from fastapi import BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from config import settings
+from tenant_context import spawn_thread
 from database import (
     get_job as db_get_job,
     save_job,
@@ -3313,11 +3313,7 @@ def _schedule_mission_execution(
                     pass
 
     # Thread dédié : évite de saturer le pool Starlette utilisé par les routes API sync.
-    threading.Thread(
-        target=execute,
-        name=f"korymb-mission-{job_id[:24]}",
-        daemon=True,
-    ).start()
+    spawn_thread(execute, name=f"korymb-mission-{job_id[:24]}")
 
 def _mission_followup_context_from_parent(parent_job_id: str) -> str:
     """Texte injecté dans le tour CIO « chat » pour reprendre une mission déjà exécutée (validée ou non)."""
