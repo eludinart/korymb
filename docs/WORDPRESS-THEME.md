@@ -42,6 +42,7 @@ wordpress/themes/eludein-child/
   assets/css/layout.css
   assets/css/buttons.css
   assets/css/woocommerce.css
+  assets/css/tarot-detail.css  # dossier /le-tarot-fleur-damours-en-detail/
 ```
 
 Aperçu local (sans WordPress) : ouvrir `wordpress/preview/index.html`.

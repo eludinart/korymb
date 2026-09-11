@@ -608,7 +608,7 @@ function eludein_child_is_tarot_detail_page(): bool
 }
 
 /**
- * Dossier tarot : retirer les sauts forcés, grouper le héro, soigner la lecture.
+ * Dossier tarot : structure éditoriale sans réécrire le texte source.
  */
 function eludein_child_tarot_detail_content($html)
 {
@@ -616,10 +616,11 @@ function eludein_child_tarot_detail_content($html)
         return $html;
     }
 
-    $html = preg_replace('#<p(?:\s[^>]*)?>\s*(?:&nbsp;|\s|<br\s*/?>)*\s*</p>#i', '', $html) ?? $html;
-    $html = preg_replace('#<h([1-6])(?:\s[^>]*)?>\s*(?:&nbsp;|\s)*\s*</h\1>#i', '', $html) ?? $html;
+    $html = preg_replace('#<p(?:\s[^>]*)?>\s*(?:&nbsp;|&\#160;|\xC2\xA0|\s|<br\s*/?>)*\s*</p>#iu', '', $html) ?? $html;
+    $html = preg_replace('#<h([1-6])(?:\s[^>]*)?>\s*(?:&nbsp;|&\#160;|\xC2\xA0|\s)*\s*</h\1>#iu', '', $html) ?? $html;
     $html = preg_replace('#<br\s*/?>#i', ' ', $html) ?? $html;
     $html = preg_replace('/[ \t]{2,}/', ' ', $html) ?? $html;
+    $html = preg_replace('#(<(h[1-6])\b[^>]*>)(?:&nbsp;|&\#160;|\xC2\xA0)+#iu', '$1', $html) ?? $html;
 
     $html = str_replace(
         'https://eludein.art/produit/prevente-tarot-fleur-damours-edition-dedicacee/',
@@ -635,17 +636,38 @@ function eludein_child_tarot_detail_content($html)
         );
     }
 
+    $html = preg_replace(
+        '#(faire équipe\.)\s*Ludus(</p>\s*<p\b[^>]*>)\s*#u',
+        '$1$2Ludus ',
+        $html,
+        1
+    ) ?? $html;
+
     if (strpos($html, 'eludein-tarot-hero') === false) {
         $wrapped = preg_replace(
-            '#(<h1\b[^>]*>.*?</h1>)(.*?)(<h2\b)#is',
+            '#(<h1\b[^>]*>)Le Tarot (Fleur d.ÅmÔurs) en détail(</h1>)(.*?)(<h2\b)#isu',
             '<header class="eludein-tarot-hero">'
-            . '<p class="eludein-tarot-hero__kicker">Le dossier</p>$1'
-            . '<div class="eludein-tarot-hero__stage">$2</div></header>$3',
+            . '<p class="eludein-tarot-hero__kicker">Le dossier</p>'
+            . '$1<span class="eludein-tarot-hero__kicker-line">Le Tarot</span> $2'
+            . '<span class="eludein-tarot-hero__detail">en détail</span>$3'
+            . '<div class="eludein-tarot-hero__stage">$4</div></header>$5',
             $html,
             1
         );
-        if (is_string($wrapped)) {
+        if (is_string($wrapped) && $wrapped !== $html) {
             $html = $wrapped;
+        } else {
+            $fallback = preg_replace(
+                '#(<h1\b[^>]*>.*?</h1>)(.*?)(<h2\b)#is',
+                '<header class="eludein-tarot-hero">'
+                . '<p class="eludein-tarot-hero__kicker">Le dossier</p>$1'
+                . '<div class="eludein-tarot-hero__stage">$2</div></header>$3',
+                $html,
+                1
+            );
+            if (is_string($fallback)) {
+                $html = $fallback;
+            }
         }
     }
 
@@ -662,14 +684,113 @@ function eludein_child_tarot_detail_content($html)
 
     if (strpos($html, 'eludein-tarot-manifesto') === false) {
         $wrapped = preg_replace(
-            '#(<h1\b[^>]*>.*?Bien plus.*?</h1>)#is',
-            '<div class="eludein-tarot-manifesto">$1</div>',
+            '#(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)#iu',
+            '<blockquote class="eludein-tarot-manifesto">$1</blockquote>',
             $html,
             1
         );
         if (is_string($wrapped)) {
             $html = $wrapped;
         }
+    }
+
+    if (strpos($html, 'eludein-tarot-families') === false) {
+        $injected = preg_replace(
+            '#(<h2\b[^>]*>\s*Un système vivant[\s\S]*?</h2>\s*<p\b[^>]*>[\s\S]*?</p>)#iu',
+            '$1' . eludein_child_tarot_families_markup(),
+            $html,
+            1
+        );
+        if (is_string($injected)) {
+            $html = $injected;
+        }
+    }
+
+    if (strpos($html, 'eludein-tarot-gallery') === false) {
+        $html = str_replace(
+            'class="wp-block-table',
+            'class="wp-block-table eludein-tarot-gallery',
+            $html
+        );
+    }
+
+    $captioned = preg_replace_callback(
+        '#(<td\b[^>]*>)([\s\S]*?<img\b[^>]*src="[^"]+/([^"/]+)"[^>]*>[\s\S]*?)</td>#i',
+        'eludein_child_tarot_caption_cell',
+        $html
+    );
+    if (is_string($captioned)) {
+        $html = $captioned;
+    }
+
+    $minis = preg_replace_callback(
+        '#<p\b[^>]*>((?:\s*<img\b[^>]*alignleft[^>]*>)+)\s*</p>#i',
+        'eludein_child_wrap_tarot_minis',
+        $html
+    );
+    if (is_string($minis)) {
+        $html = $minis;
+    }
+
+    $html = eludein_child_wrap_tarot_forms($html);
+
+    $html = preg_replace(
+        '#(<h2\b[^>]*>\s*Comment est construite chaque carte \?</h2>\s*<p\b[^>]*>[\s\S]*?</p>\s*)<ul\b#iu',
+        '$1<ul class="eludein-tarot-anatomy"',
+        $html,
+        1
+    ) ?? $html;
+
+    $html = preg_replace(
+        '#(<h2\b[^>]*>\s*Pour qui, concrètement \?</h2>\s*<p\b[^>]*>[\s\S]*?</p>\s*)<ul\b#iu',
+        '$1<ul class="eludein-tarot-audience"',
+        $html,
+        1
+    ) ?? $html;
+
+    $html = preg_replace(
+        '#(<h2\b[^>]*>\s*Et dans la boîte, concrètement \?</h2>\s*)<ul\b#iu',
+        '$1<ul class="eludein-tarot-box"',
+        $html,
+        1
+    ) ?? $html;
+
+    if (strpos($html, 'eludein-tarot-cta') === false) {
+        $cta = preg_replace(
+            '#(<div class="wp-block-buttons\b[^>]*>[\s\S]*?</div>\s*</div>)#i',
+            '<div class="eludein-tarot-cta">$1</div>',
+            $html,
+            1
+        );
+        if (is_string($cta)) {
+            $html = $cta;
+        }
+    }
+
+    if (strpos($html, 'eludein-tarot-appendix') === false) {
+        $opened = preg_replace(
+            '#(<h2\b[^>]*>\s*Au-del. de l.amour[\s\S]*?</h2>)#iu',
+            '<section class="eludein-tarot-appendix"><p class="eludein-tarot-appendix__kicker">Le système</p>$1',
+            $html,
+            1
+        );
+        if (is_string($opened) && $opened !== $html) {
+            $html = $opened;
+            $closed = preg_replace(
+                '#(<h3\b[^>]*>\s*Partager)#iu',
+                '</section>$1',
+                $html,
+                1
+            );
+            if (is_string($closed) && $closed !== $html) {
+                $html = $closed;
+            }
+        }
+    }
+
+    if (strpos($html, 'eludein-tarot-appendix') !== false
+        && !preg_match('#class="eludein-tarot-appendix"[\s\S]*</section>#', $html)) {
+        $html .= '</section>';
     }
 
     return $html;
@@ -682,16 +803,200 @@ add_filter('the_content', 'eludein_child_tarot_detail_content', 24);
 function eludein_child_split_tarot_hero_stage($match): string
 {
     $inner = $match[1];
-    if (!preg_match('#(<div class="wp-block-image"[\s\S]*?</figure>\s*</div>)#i', $inner, $img)) {
+    $visual = '';
+    if (preg_match('#(<div class="wp-block-image"[\s\S]*?</figure>\s*</div>)#i', $inner, $img)) {
+        $visual = $img[1];
+    } elseif (preg_match('#(<figure\b[^>]*>[\s\S]*?</figure>)#i', $inner, $img)) {
+        $visual = $img[1];
+    } else {
         return $match[0];
     }
 
-    $lead = str_replace($img[1], '', $inner);
+    $lead = str_replace($visual, '', $inner);
+    $after = '';
+    if (preg_match('#(<h1\b[\s\S]*?</h1>)#i', $lead, $heading)) {
+        $after = $heading[1];
+        $lead = str_replace($heading[1], '', $lead);
+    }
 
     return '<div class="eludein-tarot-hero__stage"><div class="eludein-tarot-hero__visual">'
-        . $img[1]
+        . $visual
         . '</div><div class="eludein-tarot-hero__lead">'
         . $lead
-        . '</div></div></header>';
+        . '</div></div></header>'
+        . $after;
+}
+
+function eludein_child_tarot_families_markup(): string
+{
+    $items = array(
+        array('01', 'Formes d’ÅmÔurs', '8 cartes — le moteur affectif'),
+        array('02', 'Cycle du végétal', '10 cartes — où en est le processus'),
+        array('03', 'Éléments', '35 cartes — le climat émotionnel'),
+        array('04', 'Cycle de la vie', '12 cartes — le grand récit'),
+    );
+
+    $html = '<ol class="eludein-tarot-families">';
+    foreach ($items as $item) {
+        $html .= '<li class="eludein-tarot-families__item">'
+            . '<span class="eludein-tarot-families__index">' . $item[0] . '</span>'
+            . '<strong class="eludein-tarot-families__name">' . $item[1] . '</strong>'
+            . '<span class="eludein-tarot-families__desc">' . $item[2] . '</span>'
+            . '</li>';
+    }
+
+    return $html . '</ol>';
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_tarot_caption_cell($match): string
+{
+    if (strpos($match[0], 'eludein-tarot-card') !== false) {
+        return $match[0];
+    }
+
+    $inner = $match[2];
+    $inner = preg_replace('/\s(?:width|height)="\d+"/i', '', $inner) ?? $inner;
+    $inner = preg_replace('/\sstyle="[^"]*width:\s*\d+px;?[^"]*"/i', '', $inner) ?? $inner;
+    $label = eludein_child_tarot_card_label($match[3]);
+
+    return $match[1]
+        . '<figure class="eludein-tarot-card">'
+        . $inner
+        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '</figure></td>';
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_wrap_tarot_minis($match): string
+{
+    $inner = preg_replace_callback(
+        '/<img\b[^>]*>/i',
+        'eludein_child_wrap_one_tarot_mini',
+        $match[1]
+    );
+
+    return '<div class="eludein-tarot-minis">' . $inner . '</div>';
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_wrap_one_tarot_mini($match): string
+{
+    $tag = $match[0];
+    $tag = preg_replace('/\s(?:width|height)="\d+"/i', '', $tag) ?? $tag;
+    $label = 'Carte';
+    if (preg_match('/src="[^"]+\/([^"/]+)"/i', $tag, $src)) {
+        $label = eludein_child_tarot_card_label($src[1]);
+    }
+
+    return '<figure class="eludein-tarot-card eludein-tarot-card--mini">'
+        . $tag
+        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '</figure>';
+}
+
+function eludein_child_tarot_card_label(string $filename): string
+{
+    $base = strtolower((string) preg_replace('/\.[a-z0-9]+$/i', '', $filename));
+    $base = (string) preg_replace('/-\d+x\d+$/', '', $base);
+    $base = (string) preg_replace('/-\d+$/', '', $base);
+
+    $map = array(
+        'storge' => 'Storgè',
+        'pragma' => 'Pragma',
+        'philia' => 'Philia',
+        'philautia' => 'Philautia',
+        'mania' => 'Mania',
+        'ludus' => 'Ludus',
+        'eros' => 'Éros',
+        'agape' => 'Agapè',
+        'la-germination' => 'Germination',
+        'les-racines' => 'Racines',
+        'la-tige' => 'Tige',
+        'les-feuilles' => 'Feuilles',
+        'le-bouton' => 'Bouton',
+        'la-fleur' => 'Fleur',
+        'le-fruit' => 'Fruit',
+        'le-pollen' => 'Pollen',
+        'le-nectar' => 'Nectar',
+        'la-graine-endormie' => 'Graine endormie',
+        'la-cendre-fertile' => 'Cendre fertile',
+        'la-brume' => 'La Brume',
+        'la-metamorphose' => 'Métamorphose',
+        'la-naissance' => 'Naissance',
+        'la-presence' => 'Présence',
+        'le-grand-passage' => 'Grand Passage',
+    );
+
+    if (isset($map[$base])) {
+        return $map[$base];
+    }
+
+    $label = str_replace(array('-', '_'), ' ', $base);
+    $label = (string) preg_replace('/^(la|le|les)\s+/i', '', $label);
+
+    return function_exists('mb_convert_case')
+        ? mb_convert_case($label, MB_CASE_TITLE, 'UTF-8')
+        : ucwords($label);
+}
+
+function eludein_child_wrap_tarot_forms(string $html): string
+{
+    if (strpos($html, 'eludein-tarot-forms') !== false) {
+        return $html;
+    }
+
+    $wrapped = preg_replace_callback(
+        '#((?:<p\b[^>]*>\s*(?:Agap[eèê]|Éros|Eros|Philia|Storg[eèê]|Pragma|Ludus|Mania|Philautia)\b[\s\S]*?</p>\s*){6,})#iu',
+        'eludein_child_format_tarot_forms_block',
+        $html,
+        1
+    );
+
+    return is_string($wrapped) ? $wrapped : $html;
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_format_tarot_forms_block($match): string
+{
+    $inner = preg_replace_callback(
+        '#<p\b([^>]*)>([\s\S]*?)</p>#i',
+        'eludein_child_format_one_tarot_form',
+        $match[1]
+    );
+
+    return '<div class="eludein-tarot-forms">' . $inner . '</div>';
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_format_one_tarot_form($match): string
+{
+    $attrs = $match[1];
+    $body = $match[2];
+    if (strpos($attrs, 'eludein-tarot-form') === false) {
+        if (preg_match('/class="/i', $attrs)) {
+            $attrs = preg_replace('/class="/i', 'class="eludein-tarot-form ', $attrs, 1) ?? $attrs;
+        } else {
+            $attrs .= ' class="eludein-tarot-form"';
+        }
+    }
+    $body = preg_replace(
+        '#^\s*([A-Za-zÀ-ÖØ-öø-ÿÅåÔôÈèÉéÊêËëÎîÏïÙùÛûÜüÆæŒœ]+)#u',
+        '<strong class="eludein-tarot-form__name">$1</strong>',
+        $body,
+        1
+    ) ?? $body;
+
+    return '<p' . $attrs . '>' . $body . '</p>';
 }
 

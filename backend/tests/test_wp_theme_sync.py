@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 
 REPO = Path(__file__).resolve().parents[2]
@@ -71,7 +72,31 @@ def test_child_theme_beats_customizer_gold():
     assert "font-size: 16px !important" in nav
     assert "eludein_child_bump_inline_font_size" in functions
     assert "eludein_child_tarot_detail_content" in functions
+    assert "eludein_child_tarot_families_markup" in functions
+    assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
+    assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
+    tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
+        encoding="utf-8"
+    )
+    assert ".eludein-tarot-families" in tarot_css
+    assert ".eludein-tarot-forms" in tarot_css
+    assert ".eludein-tarot-manifesto" in tarot_css
+    assert "#243028" in tarot_css
     assert (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").is_file()
+    sample = (
+        '<h1>Le Tarot Fleur d’ÅmÔurs en détail</h1><p>Intro</p>'
+        '<h2>Un système vivant</h2><p>Corps</p>'
+        '<h1>Bien plus qu’un jeu-outil</h1>'
+    )
+    greedy = re.compile(r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)", re.I | re.S)
+    tight = re.compile(r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)", re.I)
+    greedy_hit = greedy.search(sample)
+    tight_hit = tight.search(sample)
+    assert greedy_hit is not None
+    assert "Un système vivant" in greedy_hit.group(1)
+    assert tight_hit is not None
+    assert "Un système vivant" not in tight_hit.group(1)
+    assert tight_hit.group(1).startswith("<h1>Bien plus")
     assert "woocommerce/*.php" not in "".join(
         p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()
     )
