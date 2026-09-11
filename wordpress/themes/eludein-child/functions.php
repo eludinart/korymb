@@ -910,13 +910,8 @@ function eludein_child_tarot_caption_cell($match): string
         'eludein_child_prepare_one_tarot_img',
         $match[2]
     );
-    if ($file === '' && is_string($inner)) {
-        $file = eludein_child_tarot_filename_from_img($inner);
-    }
-    $label = eludein_child_tarot_card_label($file);
-    if ($label === '' && is_string($inner)) {
-        $label = eludein_child_tarot_card_label(eludein_child_tarot_filename_from_img($inner));
-    }
+    $haystack = $file . ' ' . (is_string($inner) ? $inner : '') . ' ' . $match[2];
+    $label = eludein_child_tarot_label_from_html($haystack);
 
     if ($label !== '' && is_string($inner) && preg_match('/<img\b/i', $inner)) {
         if (preg_match('/\salt="/i', $inner)) {
@@ -929,7 +924,7 @@ function eludein_child_tarot_caption_cell($match): string
     return $match[1]
         . '<figure class="eludein-tarot-card">'
         . $inner
-        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '<span class="eludein-tarot-card__name">' . esc_html($label) . '</span>'
         . '</figure></td>';
 }
 
@@ -953,8 +948,10 @@ function eludein_child_wrap_tarot_minis($match): string
 function eludein_child_wrap_one_tarot_mini($match): string
 {
     $tag = eludein_child_tarot_prepare_card_img($match[0]);
-    $file = eludein_child_tarot_filename_from_img($tag);
-    $label = $file !== '' ? eludein_child_tarot_card_label($file) : 'Carte';
+    $label = eludein_child_tarot_label_from_html($match[0] . ' ' . $tag);
+    if ($label === '') {
+        $label = 'Carte';
+    }
     if (preg_match('/\salt="/i', $tag)) {
         $tag = preg_replace('/\salt="[^"]*"/i', ' alt="' . esc_attr($label) . '"', $tag, 1) ?? $tag;
     } else {
@@ -963,7 +960,7 @@ function eludein_child_wrap_one_tarot_mini($match): string
 
     return '<figure class="eludein-tarot-card eludein-tarot-card--mini">'
         . $tag
-        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '<span class="eludein-tarot-card__name">' . esc_html($label) . '</span>'
         . '</figure>';
 }
 
@@ -1101,6 +1098,55 @@ function eludein_child_tarot_filename_from_img(string $tag): string
     return $pick[1] . '.' . strtolower($pick[2]);
 }
 
+function eludein_child_tarot_name_map(): array
+{
+    return array(
+        'philautia' => 'Philautia',
+        'la-graine-endormie' => 'Graine endormie',
+        'la-cendre-fertile' => 'Cendre fertile',
+        'le-grand-passage' => 'Grand Passage',
+        'la-metamorphose' => 'Métamorphose',
+        'la-germination' => 'Germination',
+        'les-racines' => 'Racines',
+        'les-feuilles' => 'Feuilles',
+        'la-naissance' => 'Naissance',
+        'la-presence' => 'Présence',
+        'le-bouton' => 'Bouton',
+        'le-pollen' => 'Pollen',
+        'le-nectar' => 'Nectar',
+        'la-brume' => 'La Brume',
+        'la-fleur' => 'Fleur',
+        'le-fruit' => 'Fruit',
+        'la-tige' => 'Tige',
+        'philia' => 'Philia',
+        'pragma' => 'Pragma',
+        'storge' => 'Storgè',
+        'mania' => 'Mania',
+        'ludus' => 'Ludus',
+        'agape' => 'Agapè',
+        'eros' => 'Éros',
+    );
+}
+
+function eludein_child_tarot_label_from_html(string $html): string
+{
+    $lower = strtolower($html);
+    $best = '';
+    $best_len = 0;
+    foreach (eludein_child_tarot_name_map() as $slug => $label) {
+        $len = strlen($slug);
+        if ($len > $best_len && strpos($lower, $slug) !== false) {
+            $best = $label;
+            $best_len = $len;
+        }
+    }
+    if ($best !== '') {
+        return $best;
+    }
+
+    return eludein_child_tarot_card_label(eludein_child_tarot_filename_from_img($html));
+}
+
 function eludein_child_tarot_card_label(string $filename): string
 {
     $base = strtolower(trim($filename));
@@ -1117,32 +1163,7 @@ function eludein_child_tarot_card_label(string $filename): string
     $base = (string) preg_replace('/-\d+$/', '', $base);
     $base = trim($base);
 
-    $map = array(
-        'storge' => 'Storgè',
-        'pragma' => 'Pragma',
-        'philia' => 'Philia',
-        'philautia' => 'Philautia',
-        'mania' => 'Mania',
-        'ludus' => 'Ludus',
-        'eros' => 'Éros',
-        'agape' => 'Agapè',
-        'la-germination' => 'Germination',
-        'les-racines' => 'Racines',
-        'la-tige' => 'Tige',
-        'les-feuilles' => 'Feuilles',
-        'le-bouton' => 'Bouton',
-        'la-fleur' => 'Fleur',
-        'le-fruit' => 'Fruit',
-        'le-pollen' => 'Pollen',
-        'le-nectar' => 'Nectar',
-        'la-graine-endormie' => 'Graine endormie',
-        'la-cendre-fertile' => 'Cendre fertile',
-        'la-brume' => 'La Brume',
-        'la-metamorphose' => 'Métamorphose',
-        'la-naissance' => 'Naissance',
-        'la-presence' => 'Présence',
-        'le-grand-passage' => 'Grand Passage',
-    );
+    $map = eludein_child_tarot_name_map();
 
     if (isset($map[$base])) {
         return $map[$base];

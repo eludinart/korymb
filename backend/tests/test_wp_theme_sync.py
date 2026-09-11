@@ -79,7 +79,8 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein_child_tarot_detail_late_css" in functions
     assert "eludein_child_tarot_filename_from_img" in functions
     assert "eludein_child_tarot_prepare_card_img" in functions
-    assert "eludein_child_flatten_tarot_galleries" in functions
+    assert "eludein_child_tarot_label_from_html" in functions
+    assert "eludein_child_tarot_name_map" in functions
     assert "eludein-tarot-gallery--4" in functions
     assert "white-space: nowrap" not in tarot_css
     assert "eludein-tarot-gallery--4" in tarot_css
