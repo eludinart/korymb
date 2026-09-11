@@ -75,6 +75,7 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein_child_tarot_families_markup" in functions
     assert "eludein_child_tarot_detail_late_css" in functions
     assert "eludein_child_tarot_filename_from_img" in functions
+    assert "eludein_child_strip_tarot_inline_font_size" in functions
     assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
     assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
     tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
@@ -83,7 +84,10 @@ def test_child_theme_beats_customizer_gold():
     assert ".eludein-tarot-families" in tarot_css
     assert ".eludein-tarot-forms" in tarot_css
     assert ".eludein-tarot-manifesto" in tarot_css
-    assert "color: #fbf7f1 !important" in tarot_css
+    assert "html:has(body.page-id-592)" in tarot_css
+    assert "font-size: 22px !important" in tarot_css
+    assert "font-size: 1.48rem !important" in tarot_css
+    assert "calc(50% - 50vw)" not in tarot_css
     assert "figure.eludein-tarot-gallery:has(tr:nth-child(5))" in tarot_css
     assert "#243028" in tarot_css
     assert (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").is_file()

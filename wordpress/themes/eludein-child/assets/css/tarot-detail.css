@@ -3,8 +3,14 @@
  * Mise en page éditoriale — ne remplace pas le contenu WordPress.
  */
 
+html:has(body.page-id-592) {
+  font-size: 22px;
+}
+
 body.page-id-592 {
   overflow-x: clip;
+  font-size: 22px !important;
+  line-height: 1.7 !important;
   background:
     radial-gradient(ellipse 90% 42% at 50% -8%, rgba(201, 161, 74, 0.16), transparent 58%),
     radial-gradient(ellipse 50% 28% at 100% 12%, rgba(63, 74, 58, 0.07), transparent 70%),
@@ -65,7 +71,7 @@ body.page-id-592 .entry hr {
 .eludein-tarot-hero__kicker {
   margin: 0 0 1.1rem;
   font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
-  font-size: 0.82rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.34em;
   text-transform: uppercase;
@@ -180,8 +186,8 @@ body.page-id-592 .entry hr {
 
 .eludein-tarot-hero p {
   margin: 0 0 1.2rem;
-  font-size: 1.32rem;
-  line-height: 1.68;
+  font-size: 1.48rem !important;
+  line-height: 1.68 !important;
   color: #2c2824;
 }
 
@@ -205,7 +211,7 @@ body.page-id-592 .entry > h2,
 body.page-id-592 .entry h2.wp-block-heading {
   margin: 3.4rem 0 1.1rem;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(1.78rem, 2.6vw, 2.4rem);
+  font-size: clamp(2.15rem, 3.4vw, 2.85rem) !important;
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.02em;
@@ -216,25 +222,26 @@ body.page-id-592 .entry > h3,
 body.page-id-592 .entry h3.wp-block-heading {
   margin: 2.3rem 0 0.8rem;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(1.32rem, 1.9vw, 1.62rem);
+  font-size: clamp(1.55rem, 2.3vw, 2rem) !important;
   font-weight: 600;
   line-height: 1.28;
   color: var(--eludein-forest, #3f4a3a);
 }
 
 body.page-id-592 .entry > p,
-body.page-id-592 .entry p.wp-block-paragraph {
-  margin: 0 0 1.2rem;
-  font-size: 1.16rem;
-  line-height: 1.78;
+body.page-id-592 .entry p.wp-block-paragraph,
+body.page-id-592 .entry .eludein-tarot-appendix p {
+  margin: 0 0 1.25rem;
+  font-size: 1.32rem !important;
+  line-height: 1.75 !important;
   color: #2a2622;
 }
 
 body.page-id-592 .entry > p.has-text-align-center {
-  max-width: 40rem;
+  max-width: 42rem;
   margin-left: auto;
   margin-right: auto;
-  font-size: 1.2rem;
+  font-size: 1.38rem !important;
 }
 
 body.page-id-592 .entry ul:not(.eludein-tarot-anatomy):not(.eludein-tarot-audience):not(.eludein-tarot-box),
@@ -245,8 +252,14 @@ body.page-id-592 .entry ol:not(.eludein-tarot-families) {
 
 body.page-id-592 .entry li {
   margin: 0 0 0.55rem;
-  font-size: 1.12rem;
+  font-size: 1.28rem !important;
   line-height: 1.65;
+}
+
+body.page-id-592 .has-small-font-size,
+body.page-id-592 .has-regular-font-size,
+body.page-id-592 .has-medium-font-size {
+  font-size: 1.32rem !important;
 }
 
 body.page-id-592 .entry img.alignleft,
@@ -276,12 +289,12 @@ body.page-id-592 .entry img.alignright {
   border: 1px solid var(--eludein-line, #d9cdb8);
   border-radius: 18px;
   box-shadow: 0 16px 34px rgba(36, 48, 40, 0.06);
-  font-size: 1rem !important;
+  font-size: 1.12rem !important;
 }
 
 .eludein-tarot-families__index {
   font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
-  font-size: 0.72rem;
+  font-size: 0.88rem;
   font-weight: 700;
   letter-spacing: 0.22em;
   color: var(--eludein-sand, #8a6230);
@@ -289,14 +302,14 @@ body.page-id-592 .entry img.alignright {
 
 .eludein-tarot-families__name {
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.18rem;
+  font-size: 1.38rem;
   font-weight: 600;
   line-height: 1.2;
   color: var(--eludein-forest-deep, #243028);
 }
 
 .eludein-tarot-families__desc {
-  font-size: 0.92rem;
+  font-size: 1.08rem;
   line-height: 1.45;
   color: var(--eludein-muted, #3a3530);
 }
@@ -389,7 +402,7 @@ body.page-id-592 .wp-block-table img,
 .eludein-tarot-card__name {
   margin: 0.55rem 0 0;
   font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
-  font-size: 0.72rem;
+  font-size: 0.88rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -424,7 +437,7 @@ body.page-id-592 .wp-block-table img,
   background: var(--eludein-paper, #fbf7f1);
   border: 1px solid var(--eludein-line, #d9cdb8);
   border-radius: 16px;
-  font-size: 1.05rem !important;
+  font-size: 1.22rem !important;
   line-height: 1.55 !important;
   color: #2a2622;
 }
@@ -433,7 +446,7 @@ body.page-id-592 .wp-block-table img,
   display: block;
   margin-bottom: 0.28rem;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.28rem;
+  font-size: 1.48rem;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--eludein-forest-deep, #243028);
@@ -459,7 +472,7 @@ body.page-id-592 .wp-block-table img,
   background: var(--eludein-paper, #fbf7f1);
   border: 1px solid var(--eludein-line, #d9cdb8);
   border-radius: 16px;
-  font-size: 1.05rem !important;
+  font-size: 1.22rem !important;
   line-height: 1.55;
 }
 
@@ -469,7 +482,7 @@ body.page-id-592 .wp-block-table img,
 
 .eludein-tarot-box li {
   padding: 1.4rem 1.35rem 1.5rem;
-  font-size: 1.12rem !important;
+  font-size: 1.28rem !important;
 }
 
 /* ——— Manifeste ——— */
@@ -492,7 +505,7 @@ body.page-id-592 .wp-block-table img,
   margin: 0 auto;
   max-width: 22ch;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(1.85rem, 3.4vw, 2.85rem);
+  font-size: clamp(2.15rem, 4vw, 3.2rem) !important;
   font-weight: 500;
   font-style: italic;
   line-height: 1.22;
@@ -537,7 +550,7 @@ body.page-id-592 .wp-block-buttons {
 
 body.page-id-592 .wp-block-button__link {
   padding: 1.05em 2.1em !important;
-  font-size: 1.05rem !important;
+  font-size: 1.15rem !important;
 }
 
 /* ——— Chapitre système ——— */
@@ -558,7 +571,7 @@ body.page-id-592 .wp-block-button__link {
 
 .eludein-tarot-appendix__kicker {
   margin: 0 0 0.7rem !important;
-  font-size: 0.82rem !important;
+  font-size: 0.95rem !important;
   font-weight: 600;
   letter-spacing: 0.3em;
   text-transform: uppercase;
@@ -612,7 +625,7 @@ body.page-id-592 .sd-sharing {
   }
 
   .eludein-tarot-hero p {
-    font-size: 1.16rem;
+    font-size: 1.32rem !important;
   }
 
   .eludein-tarot-hero__lead > p:first-of-type::first-letter {

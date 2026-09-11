@@ -407,6 +407,12 @@ function eludein_child_late_contrast_css(): void
         . 'body.page-id-592 .entry{overflow:visible!important;}'
         . 'body.page-id-592 .eludein-tarot-manifesto h1,body.page-id-592 .eludein-tarot-manifesto h1.wp-block-heading'
         . '{color:#fbf7f1!important;}'
+        . 'html:has(body.page-id-592){font-size:22px!important;}'
+        . 'body.page-id-592,body.page-id-592.oceanwp-theme{font-size:22px!important;line-height:1.7!important;}'
+        . 'body.page-id-592 .entry p,body.page-id-592 .entry li{font-size:1.32rem!important;line-height:1.75!important;}'
+        . 'body.page-id-592 .eludein-tarot-hero p{font-size:1.48rem!important;}'
+        . 'body.page-id-592 .entry h2,body.page-id-592 .entry h2.wp-block-heading'
+        . '{font-size:clamp(2.15rem,3.4vw,2.85rem)!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
@@ -648,6 +654,15 @@ function eludein_child_tarot_detail_content($html)
     $html = preg_replace('#<br\s*/?>#i', ' ', $html) ?? $html;
     $html = preg_replace('/[ \t]{2,}/', ' ', $html) ?? $html;
     $html = preg_replace('#(<(h[1-6])\b[^>]*>)(?:&nbsp;|&\#160;|\xC2\xA0)+#iu', '$1', $html) ?? $html;
+
+    $stripped = preg_replace_callback(
+        '/style=(["\'])([^"\']*)\1/i',
+        'eludein_child_strip_tarot_inline_font_size',
+        $html
+    );
+    if (is_string($stripped)) {
+        $html = $stripped;
+    }
 
     $html = str_replace(
         'https://eludein.art/produit/prevente-tarot-fleur-damours-edition-dedicacee/',
@@ -1041,5 +1056,20 @@ function eludein_child_format_one_tarot_form($match): string
     ) ?? $body;
 
     return '<p' . $attrs . '>' . $body . '</p>';
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_strip_tarot_inline_font_size($match): string
+{
+    $quote = $match[1];
+    $style = preg_replace('/font-size:\s*[^;]+;?/i', '', $match[2]) ?? $match[2];
+    $style = trim(preg_replace('/;\s*;+/', ';', $style) ?? $style, " \t;");
+    if ($style === '') {
+        return '';
+    }
+
+    return 'style=' . $quote . $style . $quote;
 }
 
