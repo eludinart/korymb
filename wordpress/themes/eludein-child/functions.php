@@ -142,20 +142,26 @@ function eludein_child_late_contrast_css(): void
     echo '<style id="eludein-child-contrast">'
         . 'body.oceanwp-theme.woocommerce ul.products li.product h2,'
         . 'body.oceanwp-theme.woocommerce ul.products li.product h2 a,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product li.title h2,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product li.title a,'
         . 'body.oceanwp-theme.woocommerce-page ul.products li.product h2,'
         . 'body.oceanwp-theme.woocommerce-page ul.products li.product h2 a,'
         . 'body.oceanwp-theme li.product h2 a,'
         . 'body.oceanwp-theme .woocommerce-loop-category__title{color:#243028!important;}'
         . 'body.oceanwp-theme.woocommerce ul.products li.product h2 a:hover,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product li.title a:hover,'
         . 'body.oceanwp-theme li.product h2 a:hover{color:#8a6230!important;}'
         . 'body.oceanwp-theme.woocommerce ul.products li.product .category,'
-        . 'body.oceanwp-theme.woocommerce ul.products li.product .category a{color:#8a6230!important;}'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product .category a,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product li.category,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product li.category a{color:#8a6230!important;}'
         . '#site-header,#site-header.medium-header,#site-header .top-header-wrap,'
         . '#site-header.medium-header #site-navigation-wrap,'
         . '#site-header.medium-header .oceanwp-mobile-menu-icon{background-color:#fbf7f1!important;}'
+        . '#site-header.medium-header .search-toggle-li{display:none!important;}'
         . '</style>' . "\n";
 }
-add_action('wp_head', 'eludein_child_late_contrast_css', 120);
+add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
 
 /**
  * Le logo header ne doit pas rester un placeholder LiteSpeed.

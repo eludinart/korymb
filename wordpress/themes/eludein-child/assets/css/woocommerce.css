@@ -58,8 +58,15 @@ body.oceanwp-theme li.product h2 a:hover {
   color: var(--eludein-sand, #8a6230) !important;
 }
 
+body.oceanwp-theme.woocommerce ul.products li.product li.title h2,
+body.oceanwp-theme.woocommerce ul.products li.product li.title a {
+  color: var(--eludein-forest-deep, #243028) !important;
+}
+
 body.oceanwp-theme.woocommerce ul.products li.product .category,
-body.oceanwp-theme.woocommerce ul.products li.product .category a {
+body.oceanwp-theme.woocommerce ul.products li.product .category a,
+body.oceanwp-theme.woocommerce ul.products li.product li.category,
+body.oceanwp-theme.woocommerce ul.products li.product li.category a {
   color: var(--eludein-sand, #8a6230) !important;
   font-size: 0.82rem;
   font-weight: 600;
