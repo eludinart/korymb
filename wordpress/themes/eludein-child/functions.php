@@ -317,8 +317,20 @@ function eludein_child_late_contrast_css(): void
         . 'body.has-sidebar #primary,body.has-sidebar .content-area,body.has-sidebar #right-sidebar,'
         . 'body.has-sidebar .widget-area,body.has-sidebar .sidebar-main'
         . '{float:none!important;width:100%!important;max-width:100%!important;border:0!important;}'
-        . 'body.woocommerce-cart #right-sidebar,body.woocommerce-checkout #right-sidebar,'
-        . 'body.woocommerce-account #right-sidebar{display:none!important;}'
+        . 'body.woocommerce #right-sidebar,body.woocommerce-page #right-sidebar,'
+        . 'body.woocommerce #left-sidebar,body.woocommerce-page #left-sidebar,'
+        . 'body.woocommerce-shop #right-sidebar,body.single-product #right-sidebar,'
+        . 'body.tax-product_cat #right-sidebar,body.woocommerce-cart #right-sidebar,'
+        . 'body.woocommerce-checkout #right-sidebar,body.woocommerce-account #right-sidebar'
+        . '{display:none!important;}'
+        . 'body.woocommerce-shop .oceanwp-toolbar,.woocommerce .oceanwp-toolbar,'
+        . 'body.woocommerce-shop .woocommerce-ordering,body.woocommerce-shop .oceanwp-grid-list,'
+        . 'body.woocommerce-shop .result-count,body.woocommerce-shop li.product-category'
+        . '{display:none!important;}'
+        . 'body.woocommerce-shop ul.products li.product .button,'
+        . 'body.woocommerce-page ul.products li.product .button'
+        . '{background:linear-gradient(105deg,#b8873a 0%,#e3b15b 40%,#f6e0a8 50%,#e3b15b 60%,#b8873a 100%)!important;'
+        . 'color:#1a1816!important;border:1px solid #c9a14a!important;}'
         . '#site-header.medium-header .top-col,#site-header.medium-header #site-logo,'
         . '#site-header.medium-header #site-logo-inner{display:contents!important;float:none!important;}'
         . '#site-header #menu-main-menu > li:hover > ul.sub-menu,'
@@ -386,4 +398,76 @@ function eludein_child_wrap_logo_with_ctas($html)
     return eludein_child_header_cta_markup('shop') . $html . eludein_child_header_cta_markup('app');
 }
 add_filter('get_custom_logo', 'eludein_child_wrap_logo_with_ctas', 20);
+
+/**
+ * Boutique : intro au-dessus de la grille (hook Woo, pas un template).
+ */
+function eludein_child_shop_intro(): void
+{
+    if (!function_exists('is_shop') || !is_shop()) {
+        return;
+    }
+
+    echo '<header class="eludein-shop-intro">'
+        . '<p class="eludein-shop-intro__kicker">La boutique</p>'
+        . '<h1 class="eludein-shop-intro__title">Deux invitations, une même maison</h1>'
+        . '<p class="eludein-shop-intro__lead">Le tarot Fleur d’Åmõürs et l’accompagnement à distance, '
+        . 'présentés simplement — sans catalogue d’entrepôt.</p>'
+        . '</header>';
+}
+add_action('woocommerce_archive_description', 'eludein_child_shop_intro', 20);
+
+/**
+ * La boutique n’affiche que les produits, pas les cartes de catégories.
+ * Front-office uniquement : l’option WooCommerce en admin reste inchangée.
+ */
+function eludein_child_shop_products_only($pre)
+{
+    if (is_admin()) {
+        return $pre;
+    }
+
+    return '';
+}
+add_filter('pre_option_woocommerce_shop_page_display', 'eludein_child_shop_products_only');
+
+/**
+ * Titres de boucle sans emoji (la DA du salon, pas le contenu WP).
+ */
+function eludein_child_plain_product_title($title, $post_id = 0)
+{
+    if (!is_string($title) || $title === '' || is_admin()) {
+        return $title;
+    }
+    if (!function_exists('is_shop') || !(is_shop() || is_product_taxonomy())) {
+        return $title;
+    }
+    if (!in_the_loop()) {
+        return $title;
+    }
+    if ($post_id && get_post_type((int) $post_id) !== 'product') {
+        return $title;
+    }
+
+    $clean = preg_replace('/[\x{FE0F}\x{200D}\x{20E3}]/u', '', $title) ?? $title;
+    $clean = preg_replace('/[\x{1F300}-\x{1FAFF}\x{2600}-\x{27BF}]/u', '', $clean) ?? $clean;
+    $clean = preg_replace('/\s+/u', ' ', $clean) ?? $clean;
+
+    return trim($clean);
+}
+add_filter('the_title', 'eludein_child_plain_product_title', 20, 2);
+
+/**
+ * Masque tri / grille OceanWP sur la boutique, sans toucher aux templates Woo.
+ */
+function eludein_child_shop_declutter(): void
+{
+    if (!function_exists('is_shop') || !(is_shop() || (function_exists('is_product_taxonomy') && is_product_taxonomy()))) {
+        return;
+    }
+
+    remove_action('woocommerce_before_shop_loop', 'woocommerce_catalog_ordering', 30);
+    remove_action('woocommerce_before_shop_loop', 'woocommerce_result_count', 20);
+}
+add_action('wp', 'eludein_child_shop_declutter');
 

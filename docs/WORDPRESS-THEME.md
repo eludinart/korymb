@@ -35,7 +35,7 @@ Aucun thème enfant n’était exposé publiquement : les overrides vivaient dan
 ```text
 wordpress/themes/eludein-child/
   style.css                 # identité du thème (Template: oceanwp)
-  functions.php             # enqueue CSS uniquement
+  functions.php             # enqueue CSS, header CTAs, intro boutique
   assets/css/legacy-custom.css
   assets/css/refresh.css
   assets/css/nav.css

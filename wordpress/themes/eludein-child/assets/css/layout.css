@@ -75,7 +75,14 @@ body.woocommerce-page #content {
   max-width: none;
 }
 
-/* Panier / commande / compte : le salon n’encombre pas les formulaires. */
+/* WooCommerce : le salon n’encombre pas boutique, fiches, panier, commande. */
+body.woocommerce #right-sidebar,
+body.woocommerce-page #right-sidebar,
+body.woocommerce #left-sidebar,
+body.woocommerce-page #left-sidebar,
+body.woocommerce-shop #right-sidebar,
+body.single-product #right-sidebar,
+body.tax-product_cat #right-sidebar,
 body.woocommerce-cart #right-sidebar,
 body.woocommerce-checkout #right-sidebar,
 body.woocommerce-account #right-sidebar {

@@ -56,6 +56,17 @@ def test_child_theme_beats_customizer_gold():
     assert "grid-template-columns" in layout
     assert "wp-block-cover.is-light" in layout
     assert "alignfull" in layout
+    assert "eludein-shop-intro" in functions
+    assert "eludein_child_shop_products_only" in functions
+    assert "eludein-shop-intro" in woo
+    assert "li.product-category" in woo
+    assert "oceanwp-toolbar" in woo
+    assert "linear-gradient(105deg, #b8873a" in woo
+    assert "background: var(--eludein-forest, #3f4a3a) !important;" not in woo
+    assert "body.woocommerce-shop #right-sidebar" in layout
+    assert "woocommerce/*.php" not in "".join(
+        p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()
+    )
 
 
 def test_local_theme_files_exist():
