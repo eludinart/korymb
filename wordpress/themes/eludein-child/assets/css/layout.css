@@ -215,10 +215,21 @@ body.oceanwp-theme .page-header-title {
 .entry-content .wp-block-kadence-column,
 .entry-content .kt-inside-inner-col {
   min-width: 0;
+  height: 100%;
 }
 
-.entry-content .kt-inside-inner-col {
-  height: 100%;
+.entry-content .wp-block-image.alignleft,
+.entry-content figure.alignleft {
+  float: left;
+  margin: 0.2rem 1.75rem 1.1rem 0;
+  max-width: min(320px, 46%);
+}
+
+.entry-content .wp-block-image.alignleft img,
+.entry-content figure.alignleft img {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
 }
 
 /* Accueil : laisser le cadre 900px se recentrer dans le canvas unique. */

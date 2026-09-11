@@ -344,7 +344,7 @@ function eludein_child_late_contrast_css(): void
         . '#site-header #menu-main-menu>.eludein-nav-utility>a,'
         . '#site-header #menu-main-menu>.eludein-nav-utility>a .text-wrap'
         . '{font-size:13.5px!important;}'
-        . '.eludein-header-cta{font-size:13.5px!important;}'
+        . '.eludein-header-cta{font-size:14.5px!important;}'
         . '.eludein-shop-intro__title{font-size:clamp(2.7rem,3.4vw,3.85rem)!important;}'
         . '.eludein-shop-intro__lead{font-size:1.38rem!important;line-height:1.65!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
@@ -402,7 +402,7 @@ add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
  */
 function eludein_child_litespeed_lazy_excludes($excludes)
 {
-    $extra = "custom-logo\nChatGPT-Image-20-nov\nwoo-entry-image-main";
+    $extra = "custom-logo\nChatGPT-Image-20-nov\nwoo-entry-image-main\nwp-image-";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -414,12 +414,13 @@ function eludein_child_logo_skip_lazy(array $attr): array
 {
     $class = (string) ($attr['class'] ?? '');
     $is_logo = strpos($class, 'custom-logo') !== false;
-    $is_shop_photo = (
+    $is_content_photo = (
         strpos($class, 'woo-entry-image-main') !== false
         || strpos($class, 'wp-post-image') !== false
-    ) && function_exists('is_shop') && (is_shop() || (function_exists('is_product_taxonomy') && is_product_taxonomy()));
+        || strpos($class, 'wp-image-') !== false
+    );
 
-    if ($is_logo || $is_shop_photo) {
+    if ($is_logo || $is_content_photo) {
         $attr['data-no-lazy'] = '1';
         $attr['data-skip-lazy'] = '1';
         $attr['loading'] = 'eager';
