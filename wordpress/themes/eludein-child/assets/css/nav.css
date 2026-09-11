@@ -46,6 +46,11 @@
   order: 2;
 }
 
+#site-header #menu-main-menu > .search-toggle-li,
+#site-header.medium-header #site-navigation-wrap .dropdown-menu > .search-toggle-li {
+  display: none !important;
+}
+
 /* Liens de premier niveau : casse naturelle, pas d’icônes multicolores. */
 #site-header #site-navigation-wrap .dropdown-menu > li > a,
 #site-header #site-navigation-wrap .dropdown-menu > li > a .text-wrap {
