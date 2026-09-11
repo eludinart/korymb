@@ -915,10 +915,18 @@ function eludein_child_tarot_caption_cell($match): string
     }
     $label = eludein_child_tarot_card_label($file);
 
+    if ($label !== '' && is_string($inner) && preg_match('/<img\b/i', $inner)) {
+        if (preg_match('/\salt="/i', $inner)) {
+            $inner = preg_replace('/\salt="[^"]*"/i', ' alt="' . esc_attr($label) . '"', $inner, 1) ?? $inner;
+        } else {
+            $inner = preg_replace('/<img\b/i', '<img alt="' . esc_attr($label) . '"', $inner, 1) ?? $inner;
+        }
+    }
+
     return $match[1]
         . '<figure class="eludein-tarot-card">'
         . $inner
-        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '<figcaption class="eludein-tarot-card__name" data-eludein-card-label="' . esc_attr($label) . '">' . esc_html($label) . '</figcaption>'
         . '</figure></td>';
 }
 
@@ -944,10 +952,15 @@ function eludein_child_wrap_one_tarot_mini($match): string
     $tag = eludein_child_tarot_prepare_card_img($match[0]);
     $file = eludein_child_tarot_filename_from_img($tag);
     $label = $file !== '' ? eludein_child_tarot_card_label($file) : 'Carte';
+    if (preg_match('/\salt="/i', $tag)) {
+        $tag = preg_replace('/\salt="[^"]*"/i', ' alt="' . esc_attr($label) . '"', $tag, 1) ?? $tag;
+    } else {
+        $tag = preg_replace('/<img\b/i', '<img alt="' . esc_attr($label) . '"', $tag, 1) ?? $tag;
+    }
 
     return '<figure class="eludein-tarot-card eludein-tarot-card--mini">'
         . $tag
-        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
+        . '<figcaption class="eludein-tarot-card__name" data-eludein-card-label="' . esc_attr($label) . '">' . esc_html($label) . '</figcaption>'
         . '</figure>';
 }
 
@@ -1087,7 +1100,10 @@ function eludein_child_tarot_filename_from_img(string $tag): string
 
 function eludein_child_tarot_card_label(string $filename): string
 {
-    $base = strtolower((string) preg_replace('/\.[a-z0-9]+$/i', '', $filename));
+    $base = strtolower(trim($filename));
+    $base = (string) preg_replace('#^https?://\S+/([^/?#]+)$#', '$1', $base);
+    $base = (string) preg_replace('/[?#].*$/', '', $base);
+    $base = (string) preg_replace('/\.(png|jpe?g|webp|gif)$/i', '', $base);
     $base = (string) preg_replace('/[-\s]?\d+x\d+/', '', $base);
     $base = (string) preg_replace('/-\d+$/', '', $base);
     $base = trim($base);

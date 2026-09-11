@@ -80,10 +80,12 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein_child_tarot_filename_from_img" in functions
     assert "eludein_child_tarot_prepare_card_img" in functions
     assert "eludein_child_flatten_tarot_galleries" in functions
+    assert "data-eludein-card-label" in functions
     assert "eludein-tarot-gallery--4" in functions
     assert "white-space: nowrap" not in tarot_css
     assert "eludein-tarot-gallery--4" in tarot_css
     assert "eludein-tarot-gallery--5" in tarot_css
+    assert "data-eludein-card-label" in tarot_css
     assert "min-width: 100% !important" in tarot_css
     assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
     assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
