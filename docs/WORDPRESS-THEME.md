@@ -14,7 +14,7 @@ Ce dépôt ne versionne **que** le thème enfant `eludein-child`. Le moteur Word
 | Habillage boutique (cartes, boutons, typo) | Plugins WooCommerce / paiements |
 | CSS Fleur duo / individuelle (repris du Personnaliser) | Contenu des pages, produits, commandes |
 
-OceanWP **reste le thème parent**. Le child n’ajoute aucun template `woocommerce/*.php` : panier, commande et compte gardent le markup WooCommerce.
+OceanWP **reste le thème parent**. Le child n’ajoute aucun template `woocommerce/*.php` : panier, commande et compte gardent le markup WooCommerce. Ne pas poser d’`index.php` vide dans le child : OceanWP n’a pas de `category.php` / `archive.php`, un stub masquerait `/category/blog/` et les autres archives.
 
 Le CSS additionnel du Personnaliser WordPress (or `#e9c764` sur les titres boutique, bandeau `#000`) est réécrit à l’affichage par le thème enfant : les titres et le header restent lisibles même si ce CSS n’est pas vidé dans l’admin.
 

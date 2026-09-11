@@ -177,6 +177,7 @@ def test_local_theme_files_exist():
     assert "tarot-detail.css" in names
     assert "charter.css" in names
     assert "legacy-custom.css" in names
+    assert "index.php" not in names
     for path in files:
         rel = path.relative_to(REPO / sync.THEME_REL).as_posix()
         assert "wp-admin" not in rel
@@ -197,4 +198,5 @@ def test_pack_builds_zip(tmp_path, monkeypatch):
     assert "eludein-child/style.css" in names
     assert "eludein-child/functions.php" in names
     assert "eludein-child/assets/css/charter.css" in names
+    assert "eludein-child/index.php" not in names
     assert not any("wp-admin" in n for n in names)
