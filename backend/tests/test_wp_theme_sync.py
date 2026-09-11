@@ -82,6 +82,8 @@ def test_child_theme_beats_customizer_gold():
     assert ".eludein-tarot-families" in tarot_css
     assert ".eludein-tarot-forms" in tarot_css
     assert ".eludein-tarot-manifesto" in tarot_css
+    assert "color: #fbf7f1 !important" in tarot_css
+    assert "figure.eludein-tarot-gallery:has(tr:nth-child(5))" in tarot_css
     assert "#243028" in tarot_css
     assert (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").is_file()
     sample = (

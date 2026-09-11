@@ -403,6 +403,10 @@ function eludein_child_late_contrast_css(): void
         . '#site-header .dropdown-menu .sub-menu li,#site-header .dropdown-menu .sub-menu a,'
         . '#site-header .dropdown-menu .sub-menu a .text-wrap'
         . '{width:100%!important;white-space:normal!important;overflow-wrap:break-word!important;word-break:normal!important;}'
+        . 'body.page-id-592 #content-wrap,body.page-id-592 #primary,body.page-id-592 .entry-content,'
+        . 'body.page-id-592 .entry{overflow:visible!important;}'
+        . 'body.page-id-592 .eludein-tarot-manifesto h1,body.page-id-592 .eludein-tarot-manifesto h1.wp-block-heading'
+        . '{color:#fbf7f1!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
