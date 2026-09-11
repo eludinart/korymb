@@ -324,12 +324,14 @@ function eludein_child_late_contrast_css(): void
         . '#site-header #menu-main-menu > li.sfHover > ul.sub-menu'
         . '{display:block!important;visibility:visible!important;opacity:1!important;'
         . 'left:0!important;right:auto!important;transform:none!important;'
-        . 'top:calc(100% - 2px)!important;width:max-content!important;'
-        . 'max-width:min(22.5rem,calc(100vw - 1.5rem))!important;}'
+        . 'top:calc(100% - 2px)!important;width:22rem!important;min-width:18rem!important;'
+        . 'max-width:min(24rem,calc(100vw - 1.5rem))!important;}'
         . '#site-header #menu-main-menu > li.menu-item-has-children:has(+ .eludein-nav-utility):hover > ul.sub-menu,'
         . '#site-header #menu-main-menu > li.menu-item-has-children:has(+ .eludein-nav-utility).sfHover > ul.sub-menu'
         . '{left:auto!important;right:0!important;}'
-        . '#site-header .dropdown-menu .sub-menu a{white-space:normal!important;overflow-wrap:anywhere!important;}'
+        . '#site-header .dropdown-menu .sub-menu li,#site-header .dropdown-menu .sub-menu a,'
+        . '#site-header .dropdown-menu .sub-menu a .text-wrap'
+        . '{width:100%!important;white-space:normal!important;overflow-wrap:break-word!important;word-break:normal!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);

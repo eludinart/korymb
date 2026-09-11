@@ -182,9 +182,9 @@
   transform: none !important;
   margin: 0 !important;
   padding: 10px 0.45rem 0.45rem !important;
-  width: max-content;
-  min-width: 13.5rem !important;
-  max-width: min(22.5rem, calc(100vw - 1.5rem)) !important;
+  width: 22rem;
+  min-width: 18rem !important;
+  max-width: min(24rem, calc(100vw - 1.5rem)) !important;
   box-sizing: border-box;
   overflow: hidden;
   border: 1px solid var(--eludein-line, #d9cdb8) !important;
@@ -217,6 +217,7 @@
 
 #site-header .dropdown-menu .sub-menu li {
   float: none !important;
+  width: 100%;
 }
 
 #site-header .dropdown-menu .sub-menu a,
@@ -226,18 +227,23 @@
   letter-spacing: 0.01em !important;
   text-transform: none !important;
   color: var(--eludein-ink, #1a1816) !important;
-  line-height: 1.35 !important;
+  line-height: 1.4 !important;
   white-space: normal !important;
+}
+
+#site-header .dropdown-menu .sub-menu a .text-wrap {
+  display: block;
+  width: 100%;
 }
 
 #site-header .dropdown-menu .sub-menu a {
   display: block !important;
+  width: 100%;
   padding: 0.7em 0.95em !important;
   border-radius: 11px;
   white-space: normal !important;
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  max-width: 100%;
+  overflow-wrap: break-word;
+  word-break: normal;
   box-sizing: border-box;
 }
 
