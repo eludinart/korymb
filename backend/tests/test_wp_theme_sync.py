@@ -80,12 +80,10 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein_child_tarot_filename_from_img" in functions
     assert "eludein_child_tarot_prepare_card_img" in functions
     assert "eludein_child_flatten_tarot_galleries" in functions
-    assert "data-eludein-card-label" in functions
     assert "eludein-tarot-gallery--4" in functions
     assert "white-space: nowrap" not in tarot_css
     assert "eludein-tarot-gallery--4" in tarot_css
     assert "eludein-tarot-gallery--5" in tarot_css
-    assert "data-eludein-card-label" in tarot_css
     assert "min-width: 100% !important" in tarot_css
     assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
     assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
@@ -139,6 +137,16 @@ def test_child_theme_beats_customizer_gold():
     label_base = re.sub(r"[-\s]?\d+x\d+", "", label_base)
     label_base = re.sub(r"-\d+$", "", label_base)
     assert label_base == "la-metamorphose"
+    webp = "storge-205x300.png.webp"
+    webp_base = webp.lower()
+    for _ in range(3):
+        nxt = re.sub(r"\.(png|jpe?g|webp|gif)$", "", webp_base, flags=re.I)
+        if nxt == webp_base:
+            break
+        webp_base = nxt
+    webp_base = re.sub(r"[-\s]?\d+x\d+", "", webp_base)
+    webp_base = re.sub(r"-\d+$", "", webp_base).strip()
+    assert webp_base == "storge"
 
 
 def test_local_theme_files_exist():

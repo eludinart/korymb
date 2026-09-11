@@ -842,7 +842,7 @@ function eludein_child_tarot_detail_content($html)
 
     return $html;
 }
-add_filter('the_content', 'eludein_child_tarot_detail_content', 24);
+add_filter('the_content', 'eludein_child_tarot_detail_content', 99);
 
 /**
  * @param array $match
@@ -904,16 +904,19 @@ function eludein_child_tarot_caption_cell($match): string
         return $match[0];
     }
 
+    $file = isset($match[3]) ? (string) $match[3] : '';
     $inner = preg_replace_callback(
         '/<img\b[^>]*>/i',
         'eludein_child_prepare_one_tarot_img',
         $match[2]
     );
-    $file = is_string($inner) ? eludein_child_tarot_filename_from_img($inner) : '';
-    if ($file === '') {
-        $file = $match[3];
+    if ($file === '' && is_string($inner)) {
+        $file = eludein_child_tarot_filename_from_img($inner);
     }
     $label = eludein_child_tarot_card_label($file);
+    if ($label === '' && is_string($inner)) {
+        $label = eludein_child_tarot_card_label(eludein_child_tarot_filename_from_img($inner));
+    }
 
     if ($label !== '' && is_string($inner) && preg_match('/<img\b/i', $inner)) {
         if (preg_match('/\salt="/i', $inner)) {
@@ -926,7 +929,7 @@ function eludein_child_tarot_caption_cell($match): string
     return $match[1]
         . '<figure class="eludein-tarot-card">'
         . $inner
-        . '<figcaption class="eludein-tarot-card__name" data-eludein-card-label="' . esc_attr($label) . '">' . esc_html($label) . '</figcaption>'
+        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
         . '</figure></td>';
 }
 
@@ -960,7 +963,7 @@ function eludein_child_wrap_one_tarot_mini($match): string
 
     return '<figure class="eludein-tarot-card eludein-tarot-card--mini">'
         . $tag
-        . '<figcaption class="eludein-tarot-card__name" data-eludein-card-label="' . esc_attr($label) . '">' . esc_html($label) . '</figcaption>'
+        . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
         . '</figure>';
 }
 
@@ -1103,7 +1106,13 @@ function eludein_child_tarot_card_label(string $filename): string
     $base = strtolower(trim($filename));
     $base = (string) preg_replace('#^https?://\S+/([^/?#]+)$#', '$1', $base);
     $base = (string) preg_replace('/[?#].*$/', '', $base);
-    $base = (string) preg_replace('/\.(png|jpe?g|webp|gif)$/i', '', $base);
+    for ($i = 0; $i < 3; $i++) {
+        $stripped = preg_replace('/\.(png|jpe?g|webp|gif)$/i', '', $base);
+        if (!is_string($stripped) || $stripped === $base) {
+            break;
+        }
+        $base = $stripped;
+    }
     $base = (string) preg_replace('/[-\s]?\d+x\d+/', '', $base);
     $base = (string) preg_replace('/-\d+$/', '', $base);
     $base = trim($base);
