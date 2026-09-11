@@ -169,7 +169,7 @@ export default function MissionExchangeBrief({
       </header>
 
       <div className={`min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 ${fillColumn ? "" : "max-h-[min(32rem,60vh)]"}`}>
-        {jobId && deliverablesMarkdown ? (
+        {jobId && (deliverablesMarkdown || (driveArtifacts && driveArtifacts.length > 0) || result) ? (
           <DeliverableAccessHub
             jobId={jobId}
             deliverablesMarkdown={deliverablesMarkdown}

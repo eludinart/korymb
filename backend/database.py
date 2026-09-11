@@ -367,6 +367,18 @@ def _ensure_platform_tables(conn) -> None:
             created_at TEXT NOT NULL
         )
     """)
+    blob_col = "LONGBLOB" if _is_mariadb() else "BLOB"
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS workspace_resource_files (
+            id {text_pk} PRIMARY KEY,
+            workspace_id {text_pk} NOT NULL,
+            filename TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+            size INTEGER NOT NULL DEFAULT 0,
+            content {blob_col} NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS hitl_plan_snapshots (
             id {trace_pk},

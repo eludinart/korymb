@@ -145,3 +145,15 @@ Symptômes :
 4. **Polices Google** — `next/font/google` peut échouer sans accès réseau au build ; le layout utilise des polices système.
 
 **Build arguments Coolify (frontend)** : uniquement `NEXT_PUBLIC_KORYMB_API_URL` si nécessaire.
+
+## 9) Livrables fichiers (CSV / markdown) — persistance
+
+Le backend écrit les fichiers locaux dans `/app/data/resource-files` **dans le conteneur**. Sans volume Coolify, ce dossier est **vidé à chaque redéploiement** : en prod, un onglet « Ouvrir le tableau » renvoyait `{"detail":"Fichier introuvable"}`.
+
+Mitigations en place :
+
+1. **Lecture dans Korymb** — CSV / markdown / texte s’ouvrent dans un modal (pas un onglet JSON). Si le fichier a disparu, le cockpit reprend le livrable déjà présent dans le chat.
+2. **Copie MariaDB** — les fichiers texte ≤ 2 Mo (`csv`, `md`, `txt`) sont aussi stockés dans `workspace_resource_files` et survivent aux redéploiements.
+3. **Volume optionnel** — pour PDF / médias / gros fichiers, monter un volume persistant sur `/app/data` du service backend. Pas obligatoire pour consulter un tableau déjà affiché dans la conversation.
+
+Les livrables générés **avant** cette copie MariaDB et déjà perdus sur disque ne peuvent plus être relus que via le markdown du chat (ou en relançant l’export).

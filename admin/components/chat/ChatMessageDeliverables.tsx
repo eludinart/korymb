@@ -45,8 +45,10 @@ export default function ChatMessageDeliverables({ message }: Props) {
 
   const hasContent = useMemo(() => {
     if ((driveArtifacts || []).length) return true;
-    if (deliverablesMarkdown.includes("#### LIVRABLE")) return true;
-    if (/drive\.google\.com|docs\.google\.com/.test(message.content)) return true;
+    const blob = `${deliverablesMarkdown}\n${message.content}`;
+    if (/####\s+LIVRABLE/.test(blob)) return true;
+    if (/drive\.google\.com|docs\.google\.com/.test(blob)) return true;
+    if (/resource-files\/|rfil-/.test(blob)) return true;
     return false;
   }, [driveArtifacts, deliverablesMarkdown, message.content]);
 

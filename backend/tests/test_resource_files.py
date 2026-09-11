@@ -159,3 +159,39 @@ def test_spawn_thread_writes_into_current_workspace(tmp_path, monkeypatch):
     fid = out.get("id") or ""
     assert fid.startswith("rfil-")
     assert (tmp_path / "ws-custom-aaa" / fid).is_file()
+
+
+def test_preview_csv_and_db_fallback_after_disk_deleted(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    uploaded = client.post(
+        "/business/resource-files",
+        files={"file": ("prospects.csv", b"nom,ville\nAda,Nice\n", "text/csv")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    fid = uploaded.json()["file"]["id"]
+    assert fid.startswith("rfil-")
+
+    preview = client.get(f"/business/resource-files/{fid}/preview")
+    assert preview.status_code == 200, preview.text
+    payload = preview.json()
+    assert payload.get("kind") == "csv"
+    assert "Ada" in (payload.get("text") or "")
+    assert payload.get("filename") == "prospects.csv"
+
+    for blob in tmp_path.rglob(fid):
+        if blob.is_file() and blob.suffix != ".json":
+            blob.unlink()
+    assert not any(p.is_file() and p.name == fid for p in tmp_path.rglob("*"))
+
+    from_db = client.get(f"/business/resource-files/{fid}/preview")
+    assert from_db.status_code == 200, from_db.text
+    assert "Ada" in (from_db.json().get("text") or "")
+
+    raw = client.get(f"/business/resource-files/{fid}")
+    assert raw.status_code == 200
+    assert raw.content == b"nom,ville\nAda,Nice\n"
+
+
+def test_preview_missing_file_is_404(client):
+    missing = client.get("/business/resource-files/rfil-doesnotexist/preview")
+    assert missing.status_code == 404

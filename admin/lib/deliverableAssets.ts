@@ -51,21 +51,21 @@ const CHANNEL_META: Record<
   },
   local_sheet: {
     label: "Tableau",
-    actionLabel: "Ouvrir le tableau",
+    actionLabel: "Voir le tableau",
     style: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
-    external: true,
+    external: false,
   },
   local_doc: {
     label: "Document",
-    actionLabel: "Ouvrir le document",
+    actionLabel: "Voir le document",
     style: "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100",
-    external: true,
+    external: false,
   },
   local_file: {
     label: "Fichier",
-    actionLabel: "Ouvrir",
+    actionLabel: "Voir le contenu",
     style: "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100",
-    external: true,
+    external: false,
   },
   in_app: {
     label: "Dans Korymb",
@@ -117,6 +117,93 @@ function slugAnchor(title: string): string {
 /** Id DOM stable pour scroll vers un livrable in-app. */
 export function livrableAnchorId(title: string): string {
   return `livrable-${slugAnchor(title)}`;
+}
+
+export function isLocalFileChannel(channel: string): boolean {
+  return channel === "local_sheet" || channel === "local_doc" || channel === "local_file";
+}
+
+export function resourceFileIdFromHref(href?: string): string {
+  const m = String(href || "").match(/rfil-[a-zA-Z0-9]+/);
+  return m ? m[0] : "";
+}
+
+export function parseCsvRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+  const src = String(text || "").replace(/^\ufeff/, "");
+  for (let i = 0; i < src.length; i += 1) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += c;
+      }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (c === "\n") {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else if (c !== "\r") {
+      cell += c;
+    }
+  }
+  if (cell.length || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((x) => x.trim()));
+}
+
+export function csvToMarkdownTable(csv: string): string {
+  const rows = parseCsvRows(csv);
+  if (!rows.length) return csv;
+  const clean = (s: string) =>
+    s
+      .replace(/^\s*\*+\s*|\s*\*+\s*$/g, "")
+      .replace(/\|/g, "\\|")
+      .replace(/\n/g, " ")
+      .trim();
+  const header = rows[0].map(clean);
+  const width = header.length;
+  const lines = [
+    `| ${header.join(" | ")} |`,
+    `| ${header.map(() => "---").join(" | ")} |`,
+    ...rows.slice(1, 200).map((r) => `| ${Array.from({ length: width }, (_, i) => clean(r[i] || "")).join(" | ")} |`),
+  ];
+  if (rows.length > 201) {
+    lines.push("", `_… ${rows.length - 201} lignes supplémentaires._`);
+  }
+  return lines.join("\n");
+}
+
+export function matchingLivrableBody(title: string, markdown: string): string {
+  const t = title
+    .toLowerCase()
+    .replace(/\.(csv|md|txt)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t) return "";
+  for (const item of deliverablesForMissionPanel(markdown)) {
+    const it = item.title.toLowerCase();
+    if (it.includes(t.slice(0, 20)) || t.includes(it.slice(0, 20))) {
+      return item.body;
+    }
+  }
+  return "";
 }
 
 function isLocalFileHref(href?: string, id?: string, storage?: string): boolean {
@@ -232,6 +319,12 @@ export function buildDeliverableAssets(opts: {
         markdownBody: item.body,
       });
     }
+  }
+
+  for (const asset of assets) {
+    if (!isLocalFileChannel(asset.channel) || asset.markdownBody) continue;
+    const body = matchingLivrableBody(asset.title, combinedForInApp);
+    if (body) asset.markdownBody = body;
   }
 
   return assets;

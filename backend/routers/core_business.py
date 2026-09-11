@@ -708,6 +708,17 @@ async def business_upload_resource_file(file: UploadFile = File(...)):
     return result
 
 
+@router.get("/business/resource-files/{file_id}/preview", dependencies=[Depends(resolve_tenant)])
+def business_preview_resource_file(file_id: str):
+    """Aperçu texte (CSV / markdown) pour lecture dans le cockpit — pas d'onglet brut."""
+    from services.resource_files import preview_local_file
+
+    payload = preview_local_file(file_id)
+    if not payload:
+        raise HTTPException(404, detail="Fichier introuvable")
+    return payload
+
+
 @router.get("/business/resource-files/{file_id}", dependencies=[Depends(resolve_tenant)])
 async def business_get_resource_file(file_id: str, inline: bool = Query(default=False)):
     from services.resource_files import as_fastapi_response, load_local_file

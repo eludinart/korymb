@@ -15,9 +15,12 @@ import {
 import { agentHeaders, requestJson } from "../../lib/api";
 import {
   deliverableChannelMeta,
+  isLocalFileChannel,
   livrableAnchorId,
   type DeliverableChannel,
 } from "../../lib/deliverableAssets";
+import { loadResourcePreviewView, type ResourcePreviewView } from "../../lib/resourceFilePreview";
+import InAppDeliverableModal from "../../components/deliverables/InAppDeliverableModal";
 import { QK } from "../../lib/queryClient";
 
 type LibrarySource = {
@@ -120,6 +123,7 @@ function DeliverableCard({
   onDismiss: (item: LibraryItem) => void;
   dismissBusy: boolean;
 }) {
+  const [viewer, setViewer] = useState<ResourcePreviewView | null>(null);
   const meta = deliverableChannelMeta(item.channel);
   const points = cardActionButtons(item);
   const showContextLink =
@@ -206,6 +210,10 @@ function DeliverableCard({
           const pMeta = deliverableChannelMeta(point.channel);
           const href = accessPointHref(point, item);
           const isExternal = point.channel.startsWith("drive_") && Boolean(point.href);
+          const openInModal =
+            isLocalFileChannel(point.channel) ||
+            isLocalFileChannel(item.channel) ||
+            (point.channel === "in_app" && Boolean(item.markdown_preview));
 
           if (isExternal) {
             return (
@@ -218,6 +226,32 @@ function DeliverableCard({
               >
                 {pMeta.actionLabel}
               </a>
+            );
+          }
+          if (openInModal) {
+            return (
+              <button
+                key={`${point.channel}:${href}:${idx}`}
+                type="button"
+                onClick={() => {
+                  if (isLocalFileChannel(point.channel) || isLocalFileChannel(item.channel)) {
+                    setViewer({ title: item.title, body: "", loading: true });
+                    void loadResourcePreviewView({
+                      title: item.title,
+                      href: point.href || item.href,
+                      fallbackMarkdown: item.markdown_preview,
+                    }).then(setViewer);
+                    return;
+                  }
+                  setViewer({
+                    title: item.title,
+                    body: item.markdown_preview || item.description || "",
+                  });
+                }}
+                className={`rounded-lg border px-3 py-2 text-xs font-bold ${pMeta.style}`}
+              >
+                {pMeta.actionLabel}
+              </button>
             );
           }
           return (
@@ -239,6 +273,16 @@ function DeliverableCard({
           </Link>
         ) : null}
       </div>
+      <InAppDeliverableModal
+        open={Boolean(viewer)}
+        title={viewer?.title || ""}
+        body={viewer?.body || ""}
+        notice={viewer?.notice}
+        loading={Boolean(viewer?.loading)}
+        downloadName={viewer?.downloadName}
+        downloadText={viewer?.downloadText}
+        onClose={() => setViewer(null)}
+      />
     </article>
   );
 }
