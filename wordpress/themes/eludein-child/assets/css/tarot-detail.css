@@ -184,25 +184,15 @@ body.page-id-592 .entry hr {
   filter: drop-shadow(0 22px 40px rgba(36, 48, 40, 0.16));
 }
 
-.eludein-tarot-hero p {
+body.page-id-592 .eludein-tarot-hero p,
+body.page-id-592 .eludein-tarot-hero__lead p {
   margin: 0 0 1.2rem;
   font-size: 1.48rem !important;
   line-height: 1.68 !important;
   color: #2c2824;
 }
 
-.eludein-tarot-hero__lead > p:first-of-type::first-letter {
-  float: left;
-  margin: 0.08em 0.08em 0 0;
-  padding-right: 0.05em;
-  font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 3.15em;
-  font-weight: 600;
-  line-height: 0.72;
-  color: var(--eludein-sand, #8a6230);
-}
-
-.eludein-tarot-hero p:last-child {
+body.page-id-592 .eludein-tarot-hero p:last-child {
   margin-bottom: 0;
 }
 
@@ -302,9 +292,9 @@ body.page-id-592 .entry img.alignright {
 
 .eludein-tarot-families__name {
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.38rem;
+  font-size: 1.22rem;
   font-weight: 600;
-  line-height: 1.2;
+  line-height: 1.25;
   color: var(--eludein-forest-deep, #243028);
 }
 
@@ -624,12 +614,10 @@ body.page-id-592 .sd-sharing {
     max-width: 260px;
   }
 
-  .eludein-tarot-hero p {
-    font-size: 1.32rem !important;
-  }
-
-  .eludein-tarot-hero__lead > p:first-of-type::first-letter {
-    font-size: 2.4em;
+  .eludein-tarot-hero p,
+  body.page-id-592 .eludein-tarot-hero p,
+  body.page-id-592 .eludein-tarot-hero__lead p {
+    font-size: 1.38rem !important;
   }
 
   body.page-id-592 .wp-block-table,
