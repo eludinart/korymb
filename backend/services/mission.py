@@ -2204,7 +2204,7 @@ def orchestrate_coordinateur_mission(
         sub_user = (
             "Le **CIO** (coordinateur) te transmet cette sous-mission dans le cadre du plan d’équipe. "
             "Réponds **en français** avec un texte que le CIO pourra intégrer tel quel dans sa synthèse au dirigeant. "
-            "Ton style : **comme en réunion avec le CIO** — naturel, direct, humain (tu peux tutoyer ou vouvoyer selon ce qui te semble cohérent avec le ton Élude In Art). "
+            "Ton style : **comme en réunion avec le CIO** — naturel, direct, humain (tu peux tutoyer ou vouvoyer selon ce qui te semble cohérent avec le ton du workspace). "
             "Commence par une courte phrase de prise en charge (ton rôle), puis livre le fond. "
             "Si tu utilises des outils, termine toujours par un paragraphe de synthèse : pas de réponse uniquement "
             "constituée d’appels d’outils ou de données brutes sans phrases d’analyse.\n"

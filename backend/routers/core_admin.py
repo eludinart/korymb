@@ -15,6 +15,7 @@ from database import (
     list_director_notifications,
     mark_all_director_notifications_read,
     mark_director_notification_read,
+    mark_director_notifications_read_kinds,
     delete_director_notification,
     resolve_learning_suggestion,
 )
@@ -26,6 +27,28 @@ router = APIRouter(tags=["admin-platform"])
 class LearningResolveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: str = Field(pattern="^(approve|reject)$")
+
+
+class MarkNotificationKindsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kinds: list[str] = Field(..., min_length=1, max_length=8)
+
+    @field_validator("kinds")
+    @classmethod
+    def _kinds(cls, value: list[str]) -> list[str]:
+        # Uniquement les échos chat : le fil est déjà la source de vérité.
+        allowed = {"chat_result"}
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            k = str(raw or "").strip().lower()[:32]
+            if k not in allowed or k in seen:
+                continue
+            seen.add(k)
+            out.append(k)
+        if not out:
+            raise ValueError("Aucun type consommable (chat_result).")
+        return out
 
 
 class InboxDismissBody(BaseModel):
@@ -258,6 +281,12 @@ def admin_notification_mark_read(notif_id: str):
 def admin_notifications_mark_all_read():
     n = mark_all_director_notifications_read()
     return {"marked": n}
+
+
+@router.post("/admin/notifications/mark-kinds-read", dependencies=[Depends(require_admin)])
+def admin_notifications_mark_kinds_read(body: MarkNotificationKindsBody):
+    n = mark_director_notifications_read_kinds(body.kinds)
+    return {"marked": n, "kinds": body.kinds}
 
 
 @router.delete("/admin/notifications/{notif_id}", dependencies=[Depends(require_admin)])

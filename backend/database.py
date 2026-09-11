@@ -752,8 +752,132 @@ def seed_scheduled_task_defaults() -> None:
 
 
 def seed_playbooks() -> None:
-    """Playbooks Fleur/Sivana par défaut."""
-    defaults = [
+    """Playbooks par défaut — génériques pour tout workspace ; pack Fleur/Sivana uniquement legacy."""
+    from services.workspace_brand import is_legacy_elude_workspace
+
+    generic = [
+        {
+            "id": "ops-relance-prospect",
+            "name": "Relance prospect",
+            "description": "Rédiger un e-mail de relance ; envoi après validation inbox/Telegram.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Préparer un e-mail de relance pour un prospect (ton professionnel, adapté à l'activité). "
+                    "Utiliser send_email (file d'arbitrage, pas d'envoi live). "
+                    "Enregistrer le contact dans Gestion si connu."
+                ),
+                "agents": ["commercial"],
+            },
+        },
+        {
+            "id": "ops-article-wordpress",
+            "name": "Article WordPress",
+            "description": "Rédiger un article ; publication WP après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Rédiger un article web aligné sur la mémoire et la charte du workspace. "
+                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "ops-agenda-seance",
+            "name": "Créneau agenda",
+            "description": "Préparer un événement Google Calendar ; création après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Préparer un créneau de séance / visio dans l'agenda. "
+                    "Utiliser create_calendar_event (file d'arbitrage)."
+                ),
+                "agents": ["coordinateur"],
+            },
+        },
+        {
+            "id": "ops-post-social",
+            "name": "Post Instagram / Facebook",
+            "description": "Préparer un post ; publication après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Rédiger un post Instagram (et Facebook si pertinent) pour l'activité du workspace. "
+                    "Utiliser post_instagram / post_facebook — aucune publication tant que le dirigeant n'a pas validé."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-article-blog",
+            "name": "Article de blog",
+            "description": "Article SEO ; publication WordPress après validation.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un article web (SEO) aligné sur la mémoire du workspace. "
+                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pack-social",
+            "name": "Pack réseaux (IG + FB + LinkedIn)",
+            "description": "Un brief, trois déclinaisons. Publication après Décisions.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "À partir d'un même angle éditorial, produire : "
+                    "1) post Instagram + visuel generate_image, 2) post Facebook plus long, "
+                    "3) post LinkedIn thought-leadership. "
+                    "Utiliser post_instagram, post_facebook, post_linkedin (HITL)."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-podcast",
+            "name": "Épisode podcast",
+            "description": "Script parlé + TTS ElevenLabs/OpenAI, fichier MP3 ressource.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Écrire un script podcast 6–10 min (voix haute, [pause] notées) puis "
+                    "create_podcast_episode. Show notes + citation. Pas de publication sans relecture."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pdf-module",
+            "name": "Document PDF brandé",
+            "description": "Fiche ou module pédagogique en PDF, charte vitrine.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un document pédagogique (2–6 pages) puis "
+                    "create_branded_pdf. Marquer #### LIVRABLE — <titre>."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-video-short",
+            "name": "Vidéo courte 9:16",
+            "description": "Script reel + génération vidéo si API branchée, sinon storyboard + miniature.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Script vidéo verticale 15–45 s (hook 2 s, 3 plans, CTA). "
+                    "Si generate_video est configuré, lancer le clip ; sinon storyboard + generate_image miniature."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+    ]
+    legacy_pack = [
         {
             "id": "fleur-veille-concurrence",
             "name": "Veille concurrence Fleur",
@@ -785,127 +909,10 @@ def seed_playbooks() -> None:
                 "agents": ["marketing"],
             },
         },
-        {
-            "id": "ops-relance-prospect",
-            "name": "Relance prospect",
-            "description": "Rédiger un e-mail de relance ; envoi après validation inbox/Telegram.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Préparer un e-mail de relance pour un prospect (ton maïeutique Élude In Art). "
-                    "Utiliser send_email (file d'arbitrage, pas d'envoi live). "
-                    "Enregistrer le contact dans Gestion si connu."
-                ),
-                "agents": ["commercial"],
-            },
-        },
-        {
-            "id": "ops-article-wordpress",
-            "name": "Article WordPress",
-            "description": "Rédiger un article ; publication WP après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Rédiger un article web Élude In Art / Fleur d'ÅmÔurs (posture non divinatoire). "
-                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "ops-agenda-seance",
-            "name": "Créneau agenda",
-            "description": "Préparer un événement Google Calendar ; création après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Préparer un créneau de séance / visio dans l'agenda. "
-                    "Utiliser create_calendar_event (file d'arbitrage)."
-                ),
-                "agents": ["coordinateur"],
-            },
-        },
-        {
-            "id": "ops-post-social",
-            "name": "Post Instagram / Facebook",
-            "description": "Préparer un post ; publication après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Rédiger un post Instagram (et Facebook si pertinent) autour de Fleur d'ÅmÔurs. "
-                    "Utiliser post_instagram / post_facebook — aucune publication tant que le dirigeant n'a pas validé."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-article-blog",
-            "name": "Article de blog",
-            "description": "Article SEO Fleur d'ÅmÔurs ; publication WordPress après validation.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Rédiger un article web Élude In Art / Fleur d'ÅmÔurs (posture non divinatoire). "
-                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-pack-social",
-            "name": "Pack réseaux (IG + FB + LinkedIn)",
-            "description": "Un brief, trois déclinaisons. Publication après Décisions.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "À partir d'un même angle Fleur d'ÅmÔurs, produire : "
-                    "1) post Instagram + visuel generate_image, 2) post Facebook plus long, "
-                    "3) post LinkedIn thought-leadership. "
-                    "Utiliser post_instagram, post_facebook, post_linkedin (HITL)."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-podcast",
-            "name": "Épisode podcast",
-            "description": "Script parlé + TTS ElevenLabs/OpenAI, fichier MP3 ressource.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Écrire un script podcast 6–10 min (voix haute, [pause] notées) puis "
-                    "create_podcast_episode. Show notes + citation. Pas de publication sans relecture."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-pdf-module",
-            "name": "Document PDF brandé",
-            "description": "Fiche ou module pédagogique en PDF, charte vitrine.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Rédiger un document pédagogique Fleur d'ÅmÔurs (2–6 pages) puis "
-                    "create_branded_pdf. Marquer #### LIVRABLE — <titre>."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-video-short",
-            "name": "Vidéo courte 9:16",
-            "description": "Script reel + génération vidéo si API branchée, sinon storyboard + miniature.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Script vidéo verticale 15–45 s (hook 2 s, 3 plans, CTA). "
-                    "Si generate_video est configuré, lancer le clip ; sinon storyboard + generate_image miniature."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
     ]
+    defaults = list(generic)
+    if is_legacy_elude_workspace():
+        defaults = legacy_pack + defaults
     for pb in defaults:
         if get_playbook(pb["id"]):
             continue
@@ -3105,10 +3112,12 @@ def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
 # ── Mission Templates ─────────────────────────────────────────────────────────
 
 def list_mission_templates() -> list[dict]:
+    wid = _ws()
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
-            "FROM mission_templates ORDER BY updated_at DESC"
+            "FROM mission_templates WHERE workspace_id=? ORDER BY updated_at DESC",
+            (wid,),
         ).fetchall()
     out = []
     for r in rows:
@@ -3126,11 +3135,12 @@ def list_mission_templates() -> list[dict]:
 
 
 def get_mission_template(template_id: str) -> dict | None:
+    wid = _ws()
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
-            "FROM mission_templates WHERE id=?",
-            (template_id,),
+            "FROM mission_templates WHERE id=? AND workspace_id=?",
+            (template_id, wid),
         ).fetchone()
     if not row:
         return None
@@ -3187,8 +3197,12 @@ def upsert_mission_template(
 
 
 def delete_mission_template(template_id: str) -> bool:
+    wid = _ws()
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM mission_templates WHERE id=?", (template_id,))
+        cur = conn.execute(
+            "DELETE FROM mission_templates WHERE id=? AND workspace_id=?",
+            (template_id, wid),
+        )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
@@ -4175,6 +4189,28 @@ def mark_all_director_notifications_read() -> int:
         cur = conn.execute(
             "UPDATE director_notifications SET read_at=? WHERE read_at IS NULL",
             (now,),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def mark_director_notifications_read_kinds(kinds: list[str]) -> int:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in kinds:
+        k = str(raw or "").strip().lower()[:32]
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        cleaned.append(k)
+    if not cleaned:
+        return 0
+    now = datetime.utcnow().isoformat()
+    placeholders = ",".join(["?"] * len(cleaned))
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE director_notifications SET read_at=? WHERE read_at IS NULL AND kind IN ({placeholders})",
+            (now, *cleaned),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0)

@@ -1,5 +1,7 @@
 "use client";
 
+import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+
 export type MissionsHubView = "active" | "archives" | "guided";
 
 type Props = {
@@ -62,7 +64,11 @@ export default function MissionsHubToolbar({
         </button>
         {teamFilterOptions && onTeamFilterChange && (teamFilterOptions.length > 1 || teamFilter !== "all") ? (
           <select
-            className="h-9 max-w-[11rem] truncate rounded-full border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700"
+            className={`h-9 max-w-[14rem] truncate rounded-full border px-2.5 text-xs font-semibold ${
+              teamFilter === "all"
+                ? "border-slate-200 bg-slate-50 text-slate-700"
+                : teamBadgeClass(teamFilter)
+            }`}
             value={teamFilter}
             onChange={(e) => onTeamFilterChange(e.target.value)}
             aria-label="Filtrer par équipe"
@@ -71,7 +77,7 @@ export default function MissionsHubToolbar({
             <option value="all">Toutes les équipes</option>
             {teamFilterOptions.map((o) => (
               <option key={o.id} value={o.id}>
-                {o.label}
+                {teamIdentityLabel(o.id, o.label)}
               </option>
             ))}
           </select>

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import {
   buildNotificationActions,
   notificationKindLabel,
+  notificationPreviewText,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
 
@@ -19,10 +20,12 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
   const primary = actions.find((a) => a.primary) || actions[0];
   const secondary = actions.find((a) => a !== primary);
 
+  const preview = notificationPreviewText(notification.body, 160);
+
   useEffect(() => {
-    const t = window.setTimeout(onDismiss, 12000);
+    const t = window.setTimeout(onDismiss, notification.ephemeral ? 8000 : 10000);
     return () => window.clearTimeout(t);
-  }, [onDismiss]);
+  }, [onDismiss, notification.ephemeral]);
 
   return (
     <div className="fixed bottom-[max(1rem,var(--safe-bottom))] left-3 right-3 z-50 mx-auto max-w-sm rounded-2xl border-2 border-violet-300 bg-white p-4 shadow-2xl sm:left-auto sm:right-4">
@@ -30,8 +33,8 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
         {notificationKindLabel(notification.kind)}
       </p>
       <p className="mt-1 text-base font-extrabold text-slate-950">{notification.title}</p>
-      {notification.body ? (
-        <p className="mt-1 line-clamp-3 text-sm font-semibold text-slate-700">{notification.body}</p>
+      {preview ? (
+        <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-700">{preview}</p>
       ) : null}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {primary && onNavigate ? (

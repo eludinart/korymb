@@ -7,11 +7,11 @@ import type { MissionJobEvent } from "../lib/types";
 // ── Config agents ──────────────────────────────────────────────────────────────
 
 const AGENT_DEFS = [
-  { key: "coordinateur",      label: "CIO",              icon: "◆", color: "violet" },
+  { key: "coordinateur",      label: "CIO",              icon: "◆", color: "amber" },
   { key: "commercial",        label: "Commercial",        icon: "◈", color: "blue"   },
   { key: "community_manager", label: "CM",                icon: "◉", color: "pink"   },
   { key: "developpeur",       label: "Développeur",       icon: "◎", color: "emerald"},
-  { key: "comptable",         label: "Comptable",         icon: "◇", color: "amber"  },
+  { key: "comptable",         label: "Comptable",         icon: "◇", color: "teal"   },
 ] as const;
 
 type AgentKey = typeof AGENT_DEFS[number]["key"];
@@ -30,11 +30,11 @@ type AgentStatus = {
 const COLOR_MAP: Record<AgentColor, {
   idle: string; active: string; done: string; queued: string; ring: string; dot: string;
 }> = {
-  violet:  { idle: "border-violet-100 bg-violet-50/40 text-violet-300",  active: "border-violet-400 bg-violet-50 text-violet-900",  done: "border-violet-300 bg-violet-100 text-violet-800",  queued: "border-violet-200 bg-violet-50/60 text-violet-500",  ring: "ring-violet-400",  dot: "bg-violet-500"  },
   blue:    { idle: "border-blue-100 bg-blue-50/40 text-blue-300",         active: "border-blue-400 bg-blue-50 text-blue-900",         done: "border-blue-300 bg-blue-100 text-blue-800",         queued: "border-blue-200 bg-blue-50/60 text-blue-500",         ring: "ring-blue-400",    dot: "bg-blue-500"    },
   pink:    { idle: "border-pink-100 bg-pink-50/40 text-pink-300",         active: "border-pink-400 bg-pink-50 text-pink-900",         done: "border-pink-300 bg-pink-100 text-pink-800",         queued: "border-pink-200 bg-pink-50/60 text-pink-500",         ring: "ring-pink-400",    dot: "bg-pink-500"    },
   emerald: { idle: "border-emerald-100 bg-emerald-50/40 text-emerald-300",active: "border-emerald-400 bg-emerald-50 text-emerald-900",done: "border-emerald-300 bg-emerald-100 text-emerald-800",queued: "border-emerald-200 bg-emerald-50/60 text-emerald-500", ring: "ring-emerald-400", dot: "bg-emerald-500" },
   amber:   { idle: "border-amber-100 bg-amber-50/40 text-amber-300",      active: "border-amber-400 bg-amber-50 text-amber-900",      done: "border-amber-300 bg-amber-100 text-amber-800",      queued: "border-amber-200 bg-amber-50/60 text-amber-500",      ring: "ring-amber-400",   dot: "bg-amber-500"   },
+  teal:    { idle: "border-teal-100 bg-teal-50/40 text-teal-300",         active: "border-teal-400 bg-teal-50 text-teal-900",         done: "border-teal-300 bg-teal-100 text-teal-800",         queued: "border-teal-200 bg-teal-50/60 text-teal-500",         ring: "ring-teal-400",    dot: "bg-teal-500"    },
 };
 
 function blockClasses(color: AgentColor, state: AgentState, isRunning: boolean): string {

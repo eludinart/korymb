@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 168
     bootstrap_admin_email: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_PASSWORD")
-    bootstrap_admin_display_name: str = Field(default="Éric", validation_alias="KORYMB_BOOTSTRAP_ADMIN_DISPLAY_NAME")
+    bootstrap_admin_display_name: str = Field(default="Admin", validation_alias="KORYMB_BOOTSTRAP_ADMIN_DISPLAY_NAME")
     bootstrap_workspace_name: str = Field(
-        default="Korymb — Élude In Art",
+        default="Mon espace Korymb",
         validation_alias="KORYMB_BOOTSTRAP_WORKSPACE_NAME",
     )
 

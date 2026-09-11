@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Politique de confidentialité — Korymb",
   description:
-    "Politique de confidentialité de Korymb (Élude In Art) : données Gmail/OAuth, CRM, finalités et droits.",
+    "Politique de confidentialité de la plateforme Korymb : données Gmail/OAuth, CRM, finalités et droits.",
 };
 
 export default function ConfidentialitePage() {
@@ -15,47 +15,32 @@ export default function ConfidentialitePage() {
           <Link href="/" className="hover:underline">
             Korymb
           </Link>
-          {" · "}Élude In Art
+          {" · "}Plateforme multi-espaces
         </p>
         <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-950">
           Politique de confidentialité
         </h1>
-        <p className="mt-2 text-sm text-slate-600">Dernière mise à jour : 9 septembre 2026</p>
+        <p className="mt-2 text-sm text-slate-600">Dernière mise à jour : 11 septembre 2026</p>
 
         <div className="prose prose-slate mt-8 max-w-none space-y-6 text-[15px] leading-relaxed">
           <p>
-            La présente politique décrit comment <strong>Élude In Art</strong> (Éric Ludinart),
-            éditeur de l&apos;outil <strong>Korymb</strong> accessible sur{" "}
-            <a className="text-violet-800 underline" href="https://korymb.eludein.art">
-              https://korymb.eludein.art
-            </a>{" "}
-            et du site{" "}
-            <a className="text-violet-800 underline" href="https://eludein.art">
-              https://eludein.art
-            </a>
-            , collecte et utilise des données personnelles dans le cadre de son activité
-            professionnelle (accompagnement, prospection, organisation commerciale et pilotage
-            par agents IA).
+            La présente politique décrit comment <strong>l&apos;éditeur de la plateforme Korymb</strong>{" "}
+            collecte et utilise des données personnelles dans le cadre du logiciel multi-espaces{" "}
+            <strong>Korymb</strong> (administration, agents IA, CRM, intégrations). Chaque workspace
+            (locataire) peut en outre publier sa propre notice pour sa vitrine ou son espace
+            participants.
           </p>
 
           <section>
             <h2 className="text-xl font-bold text-slate-950">1. Responsable du traitement</h2>
             <p>
-              Élude In Art — Éric Ludinart
+              Pour le fonctionnement de la plateforme logicielle : l&apos;éditeur de la plateforme
+              Korymb.
               <br />
-              Contact :{" "}
-              <a className="text-violet-800 underline" href="mailto:eludinart@gmail.com">
-                eludinart@gmail.com
-              </a>
+              Contact : support via l&apos;espace connecté (administration Korymb).
               <br />
-              Sites :{" "}
-              <a className="text-violet-800 underline" href="https://eludein.art">
-                eludein.art
-              </a>
-              {" · "}
-              <a className="text-violet-800 underline" href="https://korymb.eludein.art">
-                korymb.eludein.art
-              </a>
+              Les traitements propres à l&apos;activité d&apos;un workspace (prospection, clients,
+              contenus de vitrine) relèvent en principe du responsable désigné pour cet espace.
             </p>
           </section>
 
@@ -82,8 +67,8 @@ export default function ConfidentialitePage() {
             <h2 className="text-xl font-bold text-slate-950">3. Finalités du traitement</h2>
             <ul className="list-disc space-y-1 pl-5">
               <li>Préparer et envoyer des e-mails professionnels après validation humaine (HITL).</li>
-              <li>Synchroniser les réponses reçues pour le suivi commercial et la prospection.</li>
-              <li>Tenir un historique relationnel (CRM) utile à l&apos;activité d&apos;Élude In Art.</li>
+              <li>Synchroniser les réponses reçues pour le suivi commercial et opérationnel.</li>
+              <li>Tenir un historique relationnel (CRM) utile à l&apos;activité de l&apos;espace connecté.</li>
               <li>Orchestrer missions, agents et livrables dans le cockpit Korymb.</li>
               <li>Assurer le fonctionnement, la sécurité, le diagnostic et l&apos;amélioration du service.</li>
             </ul>
@@ -92,18 +77,17 @@ export default function ConfidentialitePage() {
           <section>
             <h2 className="text-xl font-bold text-slate-950">4. Base légale</h2>
             <p>
-              Traitement fondé sur l&apos;intérêt légitime de l&apos;éditeur à gérer son activité
-              professionnelle et à faire fonctionner Korymb, et/ou sur l&apos;exécution de démarches
-              commerciales initiées avec les contacts concernés, dans le respect de la réglementation
-              applicable (notamment RGPD).
+              Traitement fondé sur l&apos;intérêt légitime de l&apos;éditeur à faire fonctionner Korymb
+              et/ou sur l&apos;exécution de démarches initiées avec les contacts concernés, dans le
+              respect de la réglementation applicable (notamment RGPD).
             </p>
           </section>
 
           <section>
             <h2 className="text-xl font-bold text-slate-950">5. Destinataires</h2>
             <p>
-              Les données sont accessibles aux personnes autorisées d&apos;Élude In Art et, le cas échéant,
-              aux collaborateurs invités dans un espace Korymb. Elles peuvent être traitées par des
+              Les données sont accessibles aux personnes autorisées de l&apos;espace Korymb concerné
+              (opérateurs et collaborateurs invités). Elles peuvent être traitées par des
               sous-traitants techniques nécessaires au service, notamment Google (Gmail / OAuth) et
               l&apos;hébergeur de l&apos;infrastructure. Aucune vente de données personnelles à des tiers.
             </p>
@@ -140,11 +124,8 @@ export default function ConfidentialitePage() {
             <h2 className="text-xl font-bold text-slate-950">9. Vos droits</h2>
             <p>
               Conformément au RGPD, vous pouvez demander l&apos;accès, la rectification, l&apos;effacement,
-              la limitation, l&apos;opposition, ou la portabilité lorsque applicable, en écrivant à{" "}
-              <a className="text-violet-800 underline" href="mailto:eludinart@gmail.com">
-                eludinart@gmail.com
-              </a>
-              . Vous pouvez aussi introduire une réclamation auprès de la CNIL (
+              la limitation, l&apos;opposition, ou la portabilité lorsque applicable, via le support de
+              l&apos;espace connecté. Vous pouvez aussi introduire une réclamation auprès de la CNIL (
               <a className="text-violet-800 underline" href="https://www.cnil.fr">
                 cnil.fr
               </a>
@@ -169,10 +150,8 @@ export default function ConfidentialitePage() {
           <section>
             <h2 className="text-xl font-bold text-slate-950">11. Contact</h2>
             <p>
-              Pour toute question relative à cette politique :{" "}
-              <a className="text-violet-800 underline" href="mailto:eludinart@gmail.com">
-                eludinart@gmail.com
-              </a>
+              Pour toute question relative à cette politique : support via l&apos;espace connecté
+              (administration Korymb).
             </p>
           </section>
         </div>

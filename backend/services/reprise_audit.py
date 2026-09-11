@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_TITLE_RE = re.compile(r"^proposition\s*\d+\s*$", re.I)
 
-# operations = activité courante Élude In Art ; acquisition = reprise/cession (dormant sans contexte)
+# operations = activité courante du workspace ; acquisition = reprise/cession (dormant sans contexte)
 REPRISE_SCOPE_OPERATIONS = "operations"
 REPRISE_SCOPE_ACQUISITION = "acquisition"
 
@@ -963,7 +963,7 @@ def _generate_reprise_proposals_sync(
         decisions_block = director_decisions.strip() or "(aucune décision enregistrée)"
 
         prompt = textwrap.dedent(f"""
-            Tu es le CIO d'Élude In Art (micro-entreprise, Tarot Fleur d'Amour, activité réelle du dirigeant).
+            Tu es le CIO du workspace (activité réelle du dirigeant, contexte métier injecté ci-dessous).
             Tu dois proposer exactement {target} missions CONCRÈTES et ANCRÉES — pas de titres génériques
             (« Proposition 1 », « Mission test », etc. interdits).
 

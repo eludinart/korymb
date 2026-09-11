@@ -37,6 +37,8 @@ export type ChatMsg = {
   deliverablesMarkdown?: string;
   attachments?: ChatFile[];
   pendingBlueprintId?: string;
+  /** Résultat UI après confirm/reject (persiste dans le fil). */
+  blueprintOutcome?: { status: "created" | "rejected"; label?: string };
 };
 
 type Props = {
@@ -70,6 +72,65 @@ function displayAgentKeys(msg: ChatMsg): string[] {
   if (msg.agentKeys?.length) return msg.agentKeys;
   if (msg.id.startsWith("ack-")) return ["coordinateur"];
   return [];
+}
+
+function ChatReplyPending({
+  count,
+  percent,
+}: {
+  count: number;
+  percent?: number | null;
+}) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const started = Date.now();
+    const id = window.setInterval(() => {
+      setElapsed(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+    }, 250);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const known = typeof percent === "number" && percent > 0;
+  const dots = ".".repeat((Math.floor(elapsed * 2) % 3) + 1);
+  const label = count > 1 ? `${count} réponses en cours` : "Réponse en cours";
+
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex min-h-8 items-center gap-2.5 px-3 py-2 text-xs font-medium text-violet-900">
+        <span className="flex items-center gap-0.5" aria-hidden>
+          {[0, 1, 2].map((i) => (
+            <span
+              key={i}
+              className="chat-typing-dot h-1.5 w-1.5 rounded-full bg-violet-600"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
+        </span>
+        <span className="min-w-0 truncate">
+          {label}
+          <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
+        </span>
+        <span className="ml-auto shrink-0 tabular-nums text-[11px] text-violet-700">
+          {known ? `${Math.round(percent)}%` : elapsed >= 1 ? `${elapsed} s` : ""}
+        </span>
+      </div>
+      <div className="relative h-0.5 w-full overflow-hidden bg-violet-100" aria-hidden>
+        {known ? (
+          <div
+            className="h-full bg-violet-600 transition-[width] duration-500"
+            style={{ width: `${Math.max(0, Math.min(100, percent || 0))}%` }}
+          />
+        ) : (
+          <span className="busy-indeterminate absolute inset-y-0 w-1/3 bg-violet-600" />
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SendIcon() {
@@ -206,32 +267,6 @@ export default function ChatShell({
 
   return (
     <div className={`relative mx-auto flex min-h-0 w-full flex-col bg-white ${className || "h-[calc(100dvh-10rem)]"}`}>
-      {backgroundJobCount > 0 ? (
-        <div
-          className="flex h-8 shrink-0 items-center gap-2 border-b border-violet-100 bg-violet-50 px-3 text-xs font-medium text-violet-900"
-          role="status"
-          aria-live="polite"
-        >
-          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-violet-600" />
-          <span className="min-w-0 truncate">
-            {backgroundJobCount > 1 ? `${backgroundJobCount} réponses en cours` : "Réponse en cours…"}
-          </span>
-          {backgroundProgress ? (
-            <span className="ml-auto shrink-0 tabular-nums text-[11px] text-violet-700">
-              {Math.round(backgroundProgress.percent)}%
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-      {backgroundJobCount > 0 && backgroundProgress ? (
-        <div className="h-0.5 w-full shrink-0 bg-violet-100" aria-hidden>
-          <div
-            className="h-full bg-violet-600 transition-[width] duration-500"
-            style={{ width: `${Math.max(0, Math.min(100, backgroundProgress.percent))}%` }}
-          />
-        </div>
-      ) : null}
-
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 py-2 sm:px-4 sm:py-4">
         <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
           {isFirstTurn ? (
@@ -274,11 +309,17 @@ export default function ChatShell({
                     </div>
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
-                  {m.role === "assistant" && m.pendingBlueprintId ? (
+                  {m.role === "assistant" && (m.pendingBlueprintId || m.blueprintOutcome) ? (
                     <TeamBlueprintCard
-                      blueprintId={m.pendingBlueprintId}
+                      blueprintId={m.pendingBlueprintId || "resolved"}
+                      initialOutcome={m.blueprintOutcome || null}
                       onCreated={(gid) => onTeamCreated?.(gid)}
-                      onDismiss={() => onPatchMessage?.(m.id, { pendingBlueprintId: undefined })}
+                      onSettled={(outcome) =>
+                        onPatchMessage?.(m.id, {
+                          pendingBlueprintId: undefined,
+                          blueprintOutcome: outcome,
+                        })
+                      }
                     />
                   ) : null}
                 </div>
@@ -286,10 +327,11 @@ export default function ChatShell({
             );
           })}
 
-          {pending ? (
-            <p className="text-center text-xs text-slate-400" aria-live="polite">
-              Accusé de réception…
-            </p>
+          {pending || backgroundJobCount > 0 ? (
+            <ChatReplyPending
+              count={Math.max(1, backgroundJobCount)}
+              percent={backgroundProgress?.percent}
+            />
           ) : null}
           <div ref={bottomRef} className="h-1 shrink-0" aria-hidden />
         </div>

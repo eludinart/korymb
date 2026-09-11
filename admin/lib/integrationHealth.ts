@@ -11,7 +11,7 @@ const INTEGRATION_LABELS: Record<string, string> = {
   facebook:        "Facebook (lecture + publication)",
   instagram:       "Instagram (lecture + publication)",
   smtp:            "SMTP (e-mail)",
-  fleur_db:        "Base Fleur (MySQL)",
+  fleur_db:        "Base produit externe (MySQL)",
   tavily:          "Tavily AI Search",
   brave_search:    "Brave Search",
   jina_reader:     "Jina AI Reader (pages JS)",

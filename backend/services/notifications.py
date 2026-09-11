@@ -10,6 +10,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+# Echo in-app / bruit : jamais d'email ni de webhook.
+SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test"})
+
 
 def queue_hitl_validation(payload: dict[str, Any]) -> dict[str, Any]:
     """Hook legacy — délègue aussi aux canaux externes si configurés."""
@@ -41,6 +44,10 @@ def dispatch_external_notification(
     Canaux externes (phase 5) : email + webhook.
     Appelé après insert director_notifications ou depuis HITL hook.
     """
+    kind_norm = (kind or "").strip().lower()
+    if kind_norm in SKIP_EXTERNAL_NOTIFICATION_KINDS:
+        return {"email": "skipped", "webhook": "skipped", "reason": "quiet_kind"}
+
     from runtime_settings import merge_with_env
 
     cfg = merge_with_env()

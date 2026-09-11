@@ -174,7 +174,7 @@ function GestionPlanningNouveauForm() {
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Lieu</span>
-            <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="SÏvåñà, visio, Tourves…" />
+            <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Lieu, visio, adresse…" />
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Modalité</span>

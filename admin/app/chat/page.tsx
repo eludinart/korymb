@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
 import ChatInterlocutorSelect, {
+  interlocutorFromGroupId,
   parseInterlocutor,
   type GroupOpt,
 } from "../../components/chat/ChatInterlocutorSelect";
@@ -98,7 +99,7 @@ function ChatPageInner() {
   const [uploadBusy, setUploadBusy] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [interlocutor, setInterlocutor] = useState(() =>
-    urlGroupId ? `group:${urlGroupId}` : "assistant",
+    urlGroupId ? interlocutorFromGroupId(urlGroupId) : "assistant",
   );
   const pollingRef = useRef<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
@@ -110,7 +111,7 @@ function ChatPageInner() {
 
   useEffect(() => {
     if (!urlGroupId) return;
-    setInterlocutor(`group:${urlGroupId}`);
+    setInterlocutor(interlocutorFromGroupId(urlGroupId));
   }, [urlGroupId]);
 
   const refreshConversations = useCallback(() => {
@@ -346,7 +347,8 @@ function ChatPageInner() {
 
       if (isActive) {
         setMessages(nextMessages);
-      } else {
+      }
+      if (!isActive || document.hidden) {
         pushBrowserNotification(
           isError ? "Échec — conversation" : "Réponse prête",
           `${conv.title} — ${preview || "Nouvelle réponse dans le chat."}`,
@@ -704,7 +706,7 @@ function ChatPageInner() {
             uploadBusy={uploadBusy}
             uploadError={uploadError}
             onTeamCreated={(groupId) => {
-              setInterlocutor(`group:${groupId}`);
+              setInterlocutor(interlocutorFromGroupId(groupId));
               void qc.invalidateQueries({ queryKey: ["agent-groups"] });
               void qc.invalidateQueries({ queryKey: QK.agents });
             }}

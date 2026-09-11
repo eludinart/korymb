@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionTitleLabel } from "../../lib/missionLabel";
+import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
 import { QK } from "../../lib/queryClient";
 
 type Props = {
@@ -143,8 +144,8 @@ export default function MissionCreatePanel({
         {agentGroupId || onCancel ? (
           <div className="flex flex-wrap items-center gap-2">
             {agentGroupId ? (
-              <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-800">
-                {groupLabel}
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(agentGroupId)}`}>
+                {teamIdentityLabel(agentGroupId, groupLabel)}
               </span>
             ) : null}
             {onCancel ? (

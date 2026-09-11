@@ -7,6 +7,7 @@ import {
   formatNotificationWhen,
   notificationKindLabel,
   notificationKindStyle,
+  notificationPreviewText,
   notificationShareUrl,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
@@ -41,7 +42,7 @@ export default function NotificationItemRow({
   const actions = buildNotificationActions(n);
   const primary = actions.find((a) => a.primary) || actions[0];
   const secondary = actions.filter((a) => a !== primary);
-  const body = String(n.body || "").trim();
+  const body = notificationPreviewText(n.body, 400);
   const longBody = body.length > 140;
   const isUnread = !n.read_at;
 

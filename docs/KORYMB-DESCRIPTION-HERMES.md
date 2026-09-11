@@ -1,8 +1,11 @@
 # Korymb — description complète (contexte pour Hermes)
 
-> Document de référence à donner à **Hermes Agent** (mémoire, skill, ou prompt système) pour qu’il comprenne ce qu’est Korymb, à quoi il sert, et comment il s’inscrit dans l’écosystème Élude In Art.
+> Document de référence à donner à **Hermes Agent** (mémoire, skill, ou prompt système) pour qu’il comprenne ce qu’est Korymb et à quoi il sert.
 >
-> **URLs production** : https://korymb.eludein.art · API : https://api-korymb.eludein.art  
+> **Produit multi-tenant** : Korymb est une plateforme générique d’orchestration d’agents IA pour une activité (CRM, missions, studio, mémoire). Chaque workspace a sa propre identité (nom, vitrine, mémoire) — rien n’impose la marque Élude In Art.
+> **Instance Élude** : sur l’hébergement eludein.art, le workspace historique `ws-default-legacy` porte le pack métier Élude / Fleur ; c’est un locataire parmi d’autres, pas la définition du produit.
+>
+> **URLs production (instance Élude)** : https://korymb.eludein.art · API : https://api-korymb.eludein.art  
 > **Dépôt code** : repo `korymb` (admin Next.js + backend FastAPI)  
 > **Hébergement** : VPS Coolify (même serveur qu’Hermes, services distincts)
 
@@ -10,22 +13,24 @@
 
 ## 1. En une phrase
 
-**Korymb** est le **quartier général IA d’Élude In Art** : une plateforme web où le dirigeant (Éric) **cadre, lance, supervise et valide des missions** confiées à une **équipe d’agents IA spécialisés**, avec orchestration multi-étapes, livrables (fichiers dans l’espace Korymb), contrôle qualité, budget, et mémoire d’entreprise.
+**Korymb** est un **quartier général IA multi-tenant** : une plateforme web où le dirigeant d’un workspace **cadre, lance, supervise et valide des missions** confiées à une **équipe d’agents IA spécialisés**, avec orchestration multi-étapes, livrables (fichiers dans l’espace Korymb), contrôle qualité, budget, et mémoire d’entreprise.
 
-Ce n’est **pas** un simple chatbot. C’est un **système d’exploitation métier** pour déléguer du travail structuré (commercial, réseaux sociaux, développement, compta, stratégie) dans le cadre précis de la marque Élude In Art.
+Ce n’est **pas** un simple chatbot. C’est un **système d’exploitation métier** pour déléguer du travail structuré (commercial, réseaux sociaux, développement, compta, stratégie). Sur l’instance Élude, le workspace `ws-default-legacy` applique ce cadre à la marque Élude In Art ; d’autres workspaces ont leur propre identité.
 
 ---
 
 ## 2. Pour qui, pour quoi
 
-### Porteur de projet
+### Locataire type (instance Élude — `ws-default-legacy`)
+
+Le contenu ci-dessous décrit **un** workspace de référence sur l’instance hébergée, pas le produit Korymb en général.
 
 - **Éric** — Élude In Art, Tourves (83170, Var)
 - Contact : eludinart@gmail.com · 06 59 58 24 28
 - Site : https://eludein.art
 - Application produit phare : https://app-fleurdamours.eludein.art
 
-### Mission d’Élude In Art
+### Mission d’Élude In Art (ce workspace)
 
 Promouvoir et déployer le **Tarot Fleur d’ÅmÔurs** et l’écosystème associé :
 
@@ -120,16 +125,16 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 
 ## 4. L’équipe d’agents intégrée
 
-Korymb s’appuie sur une **flotte métier par défaut** (`entreprise`) avec des rôles fixes, plus des **équipes projet** composables pour des périmètres dédiés :
+Korymb s’appuie sur une **flotte métier par défaut** (`entreprise`) avec des rôles génériques, plus des **équipes projet** composables pour des périmètres dédiés. Les spécialités ci-dessous sont des **exemples** ; le contenu réel vient de la mémoire et des outils du workspace :
 
 | Clé | Rôle | Spécialité |
 |-----|------|------------|
 | **assistant** | Assistant | Atelier dirigeant : cadrage, blueprints d’équipes (pas d’orchestration métier) |
 | **coordinateur** | **CIO** — Orchestrateur | Stratégie, décomposition, délégation, synthèse, validation interne |
-| **commercial** | Commercial | Prospection, emails, leads (coachs, thérapeutes, facilitateurs) |
-| **community_manager** | Community Manager | Instagram, Facebook, contenu autour de Fleur d’ÅmÔurs |
-| **developpeur** | Développeur | Korymb, app Fleur d’ÅmÔurs, backend FastAPI, infra Coolify/Docker |
-| **comptable** | Comptable | Finances micro-entreprise, devis, factures |
+| **commercial** | Commercial | Prospection, emails, leads |
+| **community_manager** | Community Manager | Instagram, Facebook, contenu éditorial |
+| **developpeur** | Développeur | Plateforme Korymb, backends, infra |
+| **comptable** | Comptable | Finances, devis, factures |
 
 Des **agents personnalisés** et des **groupes** (Administration → Équipes d’agents) peuvent être ajoutés. Templates : édition, terrain, R&D. Le tronc commun reste la **gestion d’activité** ; les équipes sont des configurations d’exécution IA.
 
@@ -139,7 +144,7 @@ Le **CIO** (flotte `entreprise`) est le manager métier par défaut : il ne mobi
 
 Korymb inclut un **cockpit Gestion** (`/gestion` dans l’admin) : contacts/prospects, projets, planning, devis, et **équipes projet** (`/gestion/equipes`) pour travailler avec un autre groupe d’agents. La fiche projet liste les **séances**, **documents / vidéos** et **devis** rattachés : un document à ouvrir est un créneau du planning (pas un rendez-vous), pas un module séparé. Les **factures légales** passent par **Tiime** (PA / facturation électronique) — Korymb prépare les devis et enregistre les références facture Tiime.
 
-Les agents **commercial**, **comptable** et **coordinateur** disposent d’outils `gestion_*` (préférés aux outils CRM externes type Notion/HubSpot pour Élude In Art) :
+Les agents **commercial**, **comptable** et **coordinateur** disposent d’outils `gestion_*` (préférés aux outils CRM externes type Notion/HubSpot pour le cockpit intégré) :
 
 | Outil | Usage |
 |-------|--------|

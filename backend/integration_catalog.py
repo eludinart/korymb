@@ -142,7 +142,7 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
         "label": "WordPress (CMS)",
         "description": "Publication d'articles via REST API (Application Password). Brouillon à la préparation, publish après validation.",
         "fields": [
-            {"key": "WP_BASE_URL", "label": "URL du site", "secret": False, "placeholder": "https://eludein.art"},
+            {"key": "WP_BASE_URL", "label": "URL du site", "secret": False, "placeholder": "https://www.exemple.fr"},
             {"key": "WP_USER", "label": "Utilisateur WP", "secret": False},
             {"key": "WP_APP_PASSWORD", "label": "Application Password"},
         ],
@@ -274,7 +274,7 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
             {"key": "TELEGRAM_CHAT_ID", "label": "Telegram Chat ID", "secret": False},
             {"key": "TELEGRAM_HITL_BOT_TOKEN", "label": "Bot HITL dédié (boutons Valider/Rejeter)"},
             {"key": "TELEGRAM_WEBHOOK_SECRET", "label": "Secret webhook HITL"},
-            {"key": "KORYMB_PUBLIC_URL", "label": "URL publique Korymb", "secret": False, "placeholder": "https://korymb.eludein.art"},
+            {"key": "KORYMB_PUBLIC_URL", "label": "URL publique Korymb", "secret": False, "placeholder": "https://app.exemple.fr"},
             {"key": "KORYMB_WEBHOOK_URL", "label": "Webhook Korymb (sortant)"},
             {"key": "NOTIFICATION_WEBHOOK_URL", "label": "Webhook notifications"},
         ],
@@ -371,7 +371,7 @@ INTEGRATION_GROUPS: list[dict[str, Any]] = [
     },
     {
         "id": "fleur_db",
-        "label": "Base Fleur d'ÅmÔurs (MySQL)",
+        "label": "Base produit externe (MySQL)",
         "description": "Connexion lecture seule pour le Comptable / Développeur",
         "fields": [
             {"key": "FLEUR_DB_HOST", "label": "Hôte", "secret": False},

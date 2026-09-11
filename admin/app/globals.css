@@ -151,7 +151,27 @@ body {
   }
 
   .page-header {
-    @apply relative mb-6 overflow-hidden rounded-2xl border-2 border-slate-200 bg-white px-4 py-5 shadow-md sm:px-6 sm:py-6;
+    @apply relative mb-6 overflow-hidden rounded-2xl border-2 bg-white px-4 py-5 shadow-md sm:px-6 sm:py-6;
+  }
+
+  .page-header--violet {
+    @apply border-violet-200;
+  }
+
+  .page-header--emerald {
+    @apply border-emerald-200;
+  }
+
+  .page-header--sky {
+    @apply border-sky-200;
+  }
+
+  .page-header--amber {
+    @apply border-amber-200;
+  }
+
+  .page-header--rose {
+    @apply border-rose-200;
   }
 
   .page-header-accent {
@@ -167,7 +187,27 @@ body {
   }
 
   .page-badge {
-    @apply inline-flex rounded-full bg-violet-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-violet-900 ring-1 ring-violet-200;
+    @apply inline-flex rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ring-1;
+  }
+
+  .page-header--violet .page-badge {
+    @apply bg-violet-100 text-violet-900 ring-violet-200;
+  }
+
+  .page-header--emerald .page-badge {
+    @apply bg-emerald-100 text-emerald-900 ring-emerald-200;
+  }
+
+  .page-header--sky .page-badge {
+    @apply bg-sky-100 text-sky-900 ring-sky-200;
+  }
+
+  .page-header--amber .page-badge {
+    @apply bg-amber-100 text-amber-950 ring-amber-300;
+  }
+
+  .page-header--rose .page-badge {
+    @apply bg-rose-100 text-rose-900 ring-rose-200;
   }
 
   .section-title {
@@ -283,6 +323,23 @@ body {
 
   .busy-indeterminate {
     animation: busy-slide 1.15s ease-in-out infinite;
+  }
+
+  @keyframes chat-typing-bounce {
+    0%,
+    80%,
+    100% {
+      transform: translateY(0);
+      opacity: 0.3;
+    }
+    40% {
+      transform: translateY(-3px);
+      opacity: 1;
+    }
+  }
+
+  .chat-typing-dot {
+    animation: chat-typing-bounce 0.9s ease-in-out infinite;
   }
 
   /* ── Buttons ── */

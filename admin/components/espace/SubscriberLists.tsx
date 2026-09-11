@@ -32,7 +32,7 @@ export function SubscriberSpaceStatus({
       <p className="mt-2 text-sm text-red-800">
         {error instanceof Error ? error.message : "Connectez-vous avec un compte participant."}
       </p>
-      <Link href={`/p/${encodeURIComponent(slug || "eludein")}`} className="mt-4 inline-block font-semibold underline">
+      <Link href={slug ? `/p/${encodeURIComponent(slug)}` : "/"} className="mt-4 inline-block font-semibold underline">
         Voir la vitrine
       </Link>
     </div>

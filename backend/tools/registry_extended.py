@@ -368,7 +368,7 @@ EXTENDED_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "create_branded_pdf",
         "description": (
-            "Crée un PDF brandé Élude In Art (titre + corps markdown) et l'enregistre comme fichier ressource. "
+            "Crée un PDF brandé (titre + corps markdown) et l'enregistre comme fichier ressource. "
             "Retourne un file_id (rfil-…) à republier ensuite dans l'espace participant via le Studio."
         ),
         "input_schema": {

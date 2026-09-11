@@ -51,7 +51,7 @@ GROUP_TEMPLATES: dict[str, dict[str, Any]] = {
                 "label": "Narrateur",
                 "role": "Rédaction",
                 "tools": ["web", "drive", "studio"],
-                "system": "Tu rédiges prose claire, ton maïeutique Élude In Art, blocs LIVRABLE complets.",
+                "system": "Tu rédiges prose claire, ton adapté à la charte du workspace, blocs LIVRABLE complets.",
             },
             {
                 "key": "documentaliste",
@@ -197,7 +197,7 @@ def ensure_enterprise_group() -> dict[str, Any]:
                 slug="entreprise",
                 label=existing.get("label") or "Entreprise",
                 description=existing.get("description")
-                or "Flotte métier Élude In Art — commercial, CM, dev, comptable.",
+                or "Flotte métier par défaut — commercial, CM, dev, comptable.",
                 status="active",
                 lead_agent_key="coordinateur",
                 member_keys=merged,
@@ -211,7 +211,7 @@ def ensure_enterprise_group() -> dict[str, Any]:
         ENTERPRISE_GROUP_ID,
         slug="entreprise",
         label="Entreprise",
-        description="Flotte métier Élude In Art — commercial, CM, dev, comptable.",
+        description="Flotte métier par défaut — commercial, CM, dev, comptable.",
         status="active",
         lead_agent_key="coordinateur",
         member_keys=members,
@@ -764,6 +764,14 @@ ASSISTANT_SYSTEM = (
     "puis inviter à valider « Créer l'équipe » dans l'UI.\n"
     "Si le besoin exige d'exécuter la flotte métier (prospection, posts, devis, envois), "
     "oriente vers le **CIO** ou le groupe Entreprise — sans bloquer la conversation.\n"
+    "### Écriture dans Korymb (sur demande)\n"
+    "Templates de mission et playbooks : tu les **créés vraiment** via "
+    "`korymb_save_mission_template` / `korymb_save_playbook` "
+    "(après `korymb_list_*` pour ne pas doublonner). "
+    "Ne dis jamais que tu ne peux pas créer d'environnement, "
+    "ni de te limiter à un fichier à coller dans Drive. "
+    "Après coup : cite les noms et les pages `/administration/templates` et `/gestion/playbooks`. "
+    "Une équipe reste à valider (« Créer l'équipe »).\n"
     "### Limites d'engagement\n"
     "Tu ne lances pas l'orchestration multi-agents, tu n'écris pas directement en CRM, "
     "tu n'envoies pas d'e-mails ni de posts (le dirigeant valide ailleurs).\n"

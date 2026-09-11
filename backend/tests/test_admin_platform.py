@@ -312,6 +312,76 @@ def test_admin_notifications_crud(client):
     assert r2.json().get("read_at")
 
 
+def test_chat_result_notifications_are_ephemeral(monkeypatch):
+    from services import director_platform as dp
+
+    inserted: list[dict] = []
+    events: list[dict] = []
+    external: list[dict] = []
+
+    monkeypatch.setattr(dp, "insert_director_notification", lambda **kw: inserted.append(kw) or {"id": "persisted"})
+    monkeypatch.setattr(dp, "enqueue_job_sse_event", lambda payload: events.append(payload))
+
+    def fake_dispatch(**kw):
+        external.append(kw)
+        return {}
+
+    monkeypatch.setattr("services.notifications.dispatch_external_notification", fake_dispatch)
+
+    row = dp.emit_director_notification(
+        kind="chat_result",
+        title="Réponse Assistant prête",
+        body="### **Bonjour**",
+        job_id="jobchat01",
+        action_url="/chat?job=jobchat01",
+    )
+    assert str(row.get("id") or "").startswith("eph-")
+    assert inserted == []
+    assert external == []
+    assert events and events[0].get("ephemeral") is True
+    assert events[0].get("kind") == "chat_result"
+
+    hitl = dp.emit_director_notification(
+        kind="hitl",
+        title="Validation requise",
+        body="Un plan attend.",
+        job_id="jobhitl01",
+        action_url="/inbox?job=jobhitl01",
+    )
+    assert hitl.get("id") == "persisted"
+    assert inserted and inserted[0]["kind"] == "hitl"
+    assert external and external[0]["kind"] == "hitl"
+
+
+def test_dispatch_external_skips_chat_result(monkeypatch):
+    from services.notifications import dispatch_external_notification
+
+    called: list[tuple] = []
+    monkeypatch.setattr(
+        "services.notifications._send_email_stub",
+        lambda *a, **k: called.append(a),
+    )
+    monkeypatch.setenv("NOTIFICATION_EMAIL_TO", "ops@example.com")
+    out = dispatch_external_notification(kind="chat_result", title="Réponse prête", body="x")
+    assert out.get("reason") == "quiet_kind"
+    assert called == []
+
+
+def test_mark_notification_kinds_read(client):
+    from database import get_director_notification
+
+    chat = insert_director_notification(kind="chat_result", title="Echo chat", body="hello")
+    hitl = insert_director_notification(kind="hitl", title="Validation", body="plan")
+    r = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["chat_result", "hitl"]})
+    assert r.status_code == 200
+    assert r.json()["kinds"] == ["chat_result"]
+    assert get_director_notification(chat["id"]).get("read_at")
+    assert not get_director_notification(hitl["id"]).get("read_at")
+
+    denied = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["hitl"]})
+    assert denied.status_code == 422
+
+
 def test_cio_answer_marks_answered(client):
     save_job("cioans01", "coordinateur", "Test CIO answer", source="test")
     update_job(

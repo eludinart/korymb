@@ -320,7 +320,13 @@ export default function DashboardPage() {
                 <div
                   key={`${a.key}-${idx}`}
                   className={`flex flex-wrap items-center gap-3 rounded-xl border bg-white px-3 py-3 ${
-                    panelOpen ? "border-violet-400 ring-1 ring-violet-200" : "border-slate-200"
+                    panelOpen
+                      ? a.key === "coordinateur"
+                        ? "border-amber-400 ring-1 ring-amber-200"
+                        : "border-violet-400 ring-1 ring-violet-200"
+                      : a.key === "coordinateur"
+                        ? "border-amber-200"
+                        : "border-slate-200"
                   }`}
                 >
                   <span className="shrink-0 text-2xl" aria-hidden>

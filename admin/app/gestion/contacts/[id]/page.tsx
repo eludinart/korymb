@@ -269,7 +269,7 @@ export default function GestionContactEditPage() {
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Tags libres (séparés par des virgules)</span>
-            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="Var, Fleur d'ÅmÔurs…" />
+            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="région, atelier, partenaire…" />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Notes sur le contact</span>

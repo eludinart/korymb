@@ -1051,7 +1051,7 @@ def seed_bootstrap_admin() -> None:
         return
 
     display = (settings.bootstrap_admin_display_name or email.split("@")[0])[:120]
-    ws_name = (settings.bootstrap_workspace_name or "Korymb — Élude In Art")[:200]
+    ws_name = (settings.bootstrap_workspace_name or "Mon espace Korymb")[:200]
 
     from database import get_conn
 

@@ -263,7 +263,7 @@ export default function RepriseAuditPage() {
         accent="amber"
         badge="Évolution d'activité"
         title="Pilotage & couverture métier"
-        description="Checklist ancrée dans votre réalité (tarot, commercial, IT, éditorial…). Ignorez ou reportez ce qui n'est pas pour maintenant — l'application et les agents en tiennent compte. Les sujets acquisition (banque, RH…) n'apparaissent que si une reprise est documentée en mémoire."
+        description="Checklist ancrée dans votre réalité (commercial, IT, éditorial, opérations…). Ignorez ou reportez ce qui n'est pas pour maintenant — l'application et les agents en tiennent compte. Les sujets acquisition (banque, RH…) n'apparaissent que si une reprise est documentée en mémoire."
         actions={
           <>
             <PageLink href="/briefing">Briefing</PageLink>

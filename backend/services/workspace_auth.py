@@ -275,7 +275,7 @@ def _send_guest_invite_email(
     import os
     from urllib.parse import quote
 
-    public = (os.getenv("KORYMB_PUBLIC_URL") or "https://korymb.eludein.art").strip().rstrip("/")
+    public = (os.getenv("KORYMB_PUBLIC_URL") or "http://127.0.0.1:3000").strip().rstrip("/")
     link = f"{public}/p/{quote(slug)}/invitation?email={quote(to)}&code={quote(code)}"
     body = (
         f"Bonjour {name},\n\n"

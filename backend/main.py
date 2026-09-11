@@ -149,13 +149,15 @@ app = FastAPI(title="Korymb — Moteur Agentique", version=BACKEND_VERSION, life
 def _cors_allow_origins() -> list[str]:
     if settings.env == "development":
         return ["*"]
-    base = [
+    extra = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    if extra:
+        return list(dict.fromkeys(extra))
+    # Fallback instance historique si KORYMB_CORS_ORIGINS non défini.
+    return [
         "https://korymb.eludein.art",
         "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
     ]
-    extra = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
-    return list(dict.fromkeys(base + extra))
 
 
 app.add_middleware(

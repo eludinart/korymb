@@ -49,7 +49,7 @@ export default function GestionProjetNouveauPage() {
         accent="emerald"
         badge="Projets"
         title="Nouveau projet"
-        description="Séance, stage SÏvåñà, module pro ou accompagnement."
+        description="Séance, stage, module pro ou accompagnement."
         actions={
           <Link href="/gestion/projets" className="btn-link-secondary">
             ← Retour à la liste
@@ -106,7 +106,7 @@ export default function GestionProjetNouveauPage() {
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Lieu</span>
-            <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="SÏvåñà, visio…" />
+            <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Lieu, visio…" />
           </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Début</span>

@@ -14,6 +14,7 @@ import {
   type InboxHint,
   type MissionPrimaryAction,
 } from "../../lib/missionDailyUx";
+import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 type Props = {
@@ -24,6 +25,8 @@ type Props = {
   actionBusy?: boolean;
   /** Libellé équipe (ex. Entreprise, Édition). */
   teamLabel?: string;
+  /** Identifiant du groupe — or pour le patron, ciel pour les équipes projet. */
+  teamGroupId?: string | null;
   onSelect: (jobId: string) => void;
   onFinish: (jobId: string, mission?: string | null) => void;
   onDelete: (jobId: string, mission?: string | null) => void;
@@ -132,6 +135,7 @@ export default function MissionListCard({
   deleteBusy = false,
   actionBusy = false,
   teamLabel,
+  teamGroupId,
   onSelect,
   onFinish,
   onDelete,
@@ -183,8 +187,10 @@ export default function MissionListCard({
               {origin.label}
             </span>
             {teamLabel ? (
-              <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                {teamLabel}
+              <span
+                className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ${teamBadgeClass(teamGroupId)}`}
+              >
+                {teamIdentityLabel(teamGroupId, teamLabel)}
               </span>
             ) : null}
           </div>

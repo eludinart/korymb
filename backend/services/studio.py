@@ -38,7 +38,7 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "brief": (
             "Rédige un article complet (1 000–1 600 mots), posture non divinatoire. "
             "Structure : titre accrocheur sans clickbait, chapô 2–3 phrases, 4–6 H2, "
-            "exemples concrets Fleur d'ÅmÔurs, CTA unique. HTML propre pour WordPress. "
+            "exemples concrets liés à l'offre, CTA unique. HTML propre pour WordPress. "
             "Puis wordpress_create_post (brouillon HITL)."
         ),
     },
@@ -86,7 +86,7 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "duration_hint": "130–220 mots",
         "brief": (
             "Rédige un post LinkedIn pour des professionnels de l'accompagnement : "
-            "une observation de terrain, un cadre Fleur d'ÅmÔurs, un enseignement, un CTA sobre. "
+            "une observation de terrain, un cadre métier clair, un enseignement, un CTA sobre. "
             "Pas de jargon marketing. post_linkedin (HITL)."
         ),
     },
@@ -319,7 +319,7 @@ def tool_connections(media: dict[str, Any] | None = None) -> list[dict[str, Any]
         {
             "id": "wordpress",
             "label": "WordPress",
-            "role": "Articles eludein.art",
+            "role": "Articles WordPress",
             "configured": _env_set("WP_BASE_URL") and _env_set("WP_APP_PASSWORD"),
             "required_for": ["article"],
             "setup": _setup_url("wordpress", "WP_BASE_URL"),
@@ -409,7 +409,7 @@ def _brand_kit() -> dict[str, Any]:
         if ws:
             storefront = public_workspace_payload(ws)
     return {
-        "name": str(facts.get("brand") or storefront.get("name") or "Élude In Art"),
+        "name": str(facts.get("brand") or storefront.get("name") or "Korymb"),
         "slug": str(storefront.get("slug") or ""),
         "tagline": str(facts.get("tagline") or storefront.get("tagline") or ""),
         "intro": str(facts.get("intro") or storefront.get("intro") or "")[:800],
@@ -452,9 +452,9 @@ def catalog() -> dict[str, Any]:
             "accent": brand["accent"],
         },
         "ethics": [
-            "Posture non divinatoire — cartographie systémique des relations.",
+            "Respecter la charte et la mémoire du workspace.",
             "Inviter plutôt que vendre. Un seul CTA par pièce.",
-            "Sïvåñà et Ti Spoun : propositions exécutables sur le terrain.",
+            "Propositions exécutables avec les ressources réellement disponibles.",
             "Vous validez la publication dans le Studio. Dans Korymb, ça devient une ressource. Sur un réseau, le connecteur envoie le post.",
         ],
         "media": media,
@@ -484,7 +484,7 @@ def build_production_brief(
     lines = [
         "# Brief de production — Studio Korymb",
         "",
-        "Tu es le Community Manager / rédacteur en chef d'Élude In Art. "
+        f"Tu es le Community Manager / rédacteur en chef de « {brand.get('name') or 'Korymb'} ». "
         "Tu produis des pièces **prêtes à l'emploi**, pas des intentions. "
         "Chaque format demandé a un bloc `#### LIVRABLE — <titre>` avec le contenu intégral.",
         "",

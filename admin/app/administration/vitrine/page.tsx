@@ -222,7 +222,7 @@ export default function VitrineAdminPage() {
           <SectionCard title="Identité">
             <label className="block text-sm">
               <span className="font-medium text-slate-700">Lieu</span>
-              <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="SÏvåñà, Tourves" />
+              <input className="input-field mt-1 w-full" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Ville, lieu, visio…" />
             </label>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block text-sm">

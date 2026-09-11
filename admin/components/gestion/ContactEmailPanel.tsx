@@ -45,10 +45,10 @@ export function defaultProspectSubject(contact: BizContact): string {
   );
   if (isCoachLike || company) {
     const angle = company || name || "votre pratique";
-    return `Proposition Fleur d'ÅmÔurs — enrichir ${angle}`.slice(0, 160);
+    return `Proposition de collaboration — enrichir ${angle}`.slice(0, 160);
   }
-  if (name) return `Élude In Art — échange avec ${name}`.slice(0, 160);
-  return "Élude In Art — proposition de collaboration";
+  if (name) return `Votre activité — échange avec ${name}`.slice(0, 160);
+  return "Proposition de collaboration";
 }
 
 function replySubject(subject: string): string {
@@ -410,7 +410,7 @@ export default function ContactEmailPanel({ contact, focusThreadId }: Props) {
               placeholder={
                 isReply
                   ? "Ex. : proposer un appel mardi matin, remercier pour l’atelier, ne pas parler de tarif."
-                  : "Ex. : se présenter via Fleur d’ÅmÔurs, proposer un module autour du corps, rester court."
+                  : "Ex. : se présenter brièvement, proposer un module ou un atelier, rester court."
               }
             />
             <span className="mt-1 block text-xs text-slate-500">

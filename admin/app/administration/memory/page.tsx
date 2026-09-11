@@ -273,7 +273,7 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
             placeholder={
               key === "global"
-                ? "Ex. Cette semaine : relance éditeurs tarot, bilan Q2, préparer posts Instagram…"
+                ? "Ex. Cette semaine : relance partenaires, bilan Q2, préparer posts Instagram…"
                 : `Contexte pour ${MEMORY_CONTEXT_TITLES[key]}…`
             }
           />

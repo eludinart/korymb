@@ -153,6 +153,11 @@ from tools.registry_extended import (
     EXTENDED_TOOL_SCHEMAS,
     dispatch_extended_tool,
 )
+from tools.workspace_setup import (
+    WORKSPACE_TAG_TO_TOOLS,
+    WORKSPACE_TOOL_SCHEMAS,
+    dispatch_workspace_tool,
+)
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
@@ -221,6 +226,8 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
 for _tag, _names in GESTION_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 for _tag, _names in EXTENDED_TAG_TO_TOOLS.items():
+    _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
+for _tag, _names in WORKSPACE_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
@@ -296,7 +303,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "post_instagram",
-        "description": "Publie un post sur le compte Instagram d'Élude In Art (réel si tokens Meta configurés).",
+        "description": "Publie un post sur le compte Instagram connecté (réel si tokens Meta configurés).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -309,7 +316,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_instagram_media",
         "description": (
-            "Lit les derniers médias publiés sur le compte Instagram d'Élude In Art. "
+            "Lit les derniers médias publiés sur le compte Instagram connecté. "
             "Retourne caption, type, date, lien, URL image. "
             "Utilise pour : auditer la présence Instagram, éviter les doublons, analyser les contenus passés."
         ),
@@ -323,7 +330,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "post_facebook",
-        "description": "Publie un post sur la page Facebook d'Élude In Art (réel si tokens Meta configurés).",
+        "description": "Publie un post sur la page Facebook connectée (réel si tokens Meta configurés).",
         "input_schema": {
             "type": "object",
             "properties": {"message": {"type": "string", "description": "Texte du post"}},
@@ -333,7 +340,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_facebook_posts",
         "description": (
-            "Lit les derniers posts de la page Facebook d'Élude In Art. "
+            "Lit les derniers posts de la page Facebook connectée. "
             "Retourne texte, date, lien, image. "
             "Utilise pour : auditer la présence Facebook, analyser l'engagement, éviter les doublons."
         ),
@@ -401,10 +408,9 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_fleet_status",
         "description": (
-            "Retourne les constantes d'actifs de l'Empire Élude In Art : "
-            "Sivana (écolieu, contraintes terrain), Ti Spoun (ancrage artisanal), "
-            "Éric (dirigeant), Fleur d'ÅmÔurs (tarot, business model). "
-            "Utilise en début de mission pour ancrer les propositions dans la réalité terrain."
+            "Retourne l'identité / les actifs du workspace courant "
+            "(mémoire, knowledge, pack legacy éventuel). "
+            "Utilise en début de mission pour ancrer les propositions dans la réalité du workspace."
         ),
         "input_schema": {
             "type": "object",
@@ -512,8 +518,8 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_list_tables",
         "description": (
-            "Liste les tables disponibles dans la base MariaDB Fleur d'Amours et le nombre de lignes "
-            "pour chaque table. Utiliser en premier pour cartographier la DB."
+            "Liste les tables disponibles dans la base produit externe connectée (si configurée) "
+            "et le nombre de lignes pour chaque table. Utiliser en premier pour cartographier la DB."
         ),
         "input_schema": {
             "type": "object",
@@ -524,7 +530,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_describe_table",
         "description": (
-            "Décrit la structure d'une table MariaDB Fleur d'Amours (colonnes et types). "
+            "Décrit la structure d'une table de la base produit externe (colonnes et types). "
             "Utiliser avant d'écrire une requête SQL."
         ),
         "input_schema": {
@@ -538,7 +544,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_query",
         "description": (
-            "Exécute une requête SQL en lecture seule sur la base Fleur d'Amours. "
+            "Exécute une requête SQL en lecture seule sur la base produit externe. "
             "Requêtes autorisées: SELECT, SHOW, DESCRIBE."
         ),
         "input_schema": {
@@ -552,7 +558,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_analyze_users",
         "description": (
-            "Répond à une question métier sur les utilisateurs Fleur d'Amours en construisant la requête SQL adaptée "
+            "Répond à une question métier sur les données de la base produit externe en construisant la requête SQL adaptée "
             "(ex: total users, derniers inscrits, répartition des abonnements)."
         ),
         "input_schema": {
@@ -582,7 +588,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
         "name": "get_facebook_insights",
         "description": (
             "Métriques page Facebook : impressions, engagement, fans. "
-            "Utilise pour analyser la performance de la page Élude In Art."
+            "Utilise pour analyser la performance de la page Facebook connectée."
         ),
         "input_schema": {
             "type": "object",
@@ -704,6 +710,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
 
 _ALL_ANTHROPIC_TOOLS.extend(EXTENDED_TOOL_SCHEMAS)
 _ALL_ANTHROPIC_TOOLS.extend(BUSINESS_TOOL_SCHEMAS)
+_ALL_ANTHROPIC_TOOLS.extend(WORKSPACE_TOOL_SCHEMAS)
 
 
 def tool_names_for_tags(tags: list[str]) -> list[str]:
@@ -1036,6 +1043,9 @@ def _execute_tool(name: str, inp: Any) -> str:
         ext = dispatch_extended_tool(name, inp)
         if ext is not None:
             return ext
+        ws = dispatch_workspace_tool(name, inp)
+        if ws is not None:
+            return ws
         if name.startswith("gestion_"):
             inp = _inject_tool_run_ctx(inp)
             from services.config_suggestions import CHAT_WRITE_TOOLS, enqueue_chat_write_proposal, format_proposal_tool_result

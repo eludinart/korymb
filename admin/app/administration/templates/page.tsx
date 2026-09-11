@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { requestJson, agentHeaders } from "../../../lib/api";
 import SimpleAccordion from "../../../components/SimpleAccordion";
+import { agentRoleSoftClass } from "../../../lib/agentRoleUi";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,16 +49,8 @@ function formatDate(iso: string) {
   }
 }
 
-const AGENT_COLORS: Record<string, string> = {
-  coordinateur: "bg-violet-100 text-violet-800",
-  commercial: "bg-blue-100 text-blue-800",
-  community_manager: "bg-pink-100 text-pink-800",
-  developpeur: "bg-emerald-100 text-emerald-800",
-  comptable: "bg-amber-100 text-amber-800",
-};
-
 function agentBadge(key: string) {
-  return AGENT_COLORS[key] ?? "bg-slate-100 text-slate-700";
+  return agentRoleSoftClass(key);
 }
 
 // ── Empty form state ──────────────────────────────────────────────────────────

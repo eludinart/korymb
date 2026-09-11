@@ -51,6 +51,7 @@ export default function CioPlanHitlPanel({ jobId, hitl, onResolved }: Props) {
   const [feedback, setFeedback] = useState("");
   const [parseErr, setParseErr] = useState("");
   const [showJson, setShowJson] = useState(false);
+  const [resolvedLabel, setResolvedLabel] = useState("");
 
   useEffect(() => {
     try {
@@ -82,16 +83,32 @@ export default function CioPlanHitlPanel({ jobId, hitl, onResolved }: Props) {
         const msg = formatHttpApiErrorPayload(data) || res.statusText || "Erreur";
         throw new Error(msg);
       }
-      return data as { chain?: { steps?: string[] } };
+      return data as { chain?: { steps?: string[] }; decision?: string };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, variables) => {
       invalidate();
       onResolved?.(data);
+      const decision = String((variables as { decision?: string })?.decision || "");
+      setResolvedLabel(
+        decision === "reject"
+          ? "Plan rejeté."
+          : decision === "amend"
+            ? "Plan amendé — relance en cours."
+            : "Plan validé — délégation en cours.",
+      );
     },
   });
 
   const busy = mut.isPending;
   const missionLabel = String(gate.mission || "").trim();
+
+  if (resolvedLabel || mut.isSuccess) {
+    return (
+      <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 shadow-sm">
+        {resolvedLabel || "Décision enregistrée."}
+      </div>
+    );
+  }
 
   const onApprove = () => {
     setParseErr("");
@@ -165,7 +182,8 @@ export default function CioPlanHitlPanel({ jobId, hitl, onResolved }: Props) {
           type="text"
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
-          className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm"
+          disabled={busy}
+          className="mt-1 w-full rounded-lg border border-violet-200 bg-white px-2 py-1.5 text-sm disabled:opacity-50"
           placeholder="Feedback pour l'équipe / le CIO…"
         />
       </label>
@@ -178,23 +196,23 @@ export default function CioPlanHitlPanel({ jobId, hitl, onResolved }: Props) {
           type="button"
           disabled={busy}
           onClick={() => void onApprove()}
-          className="rounded-lg bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800 disabled:opacity-40"
+          className="rounded-lg bg-green-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Valider et lancer
+          {busy ? "Traitement…" : "Valider et lancer"}
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => void onAmend()}
-          className="rounded-lg bg-violet-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-900 disabled:opacity-40"
+          className="rounded-lg bg-violet-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-900 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Envoyer ma version
+          {busy ? "Traitement…" : "Envoyer ma version"}
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => void onReject()}
-          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-40"
+          className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Rejeter
         </button>

@@ -325,7 +325,7 @@ def compress_chat_session(
     turn_count: int = 0,
 ) -> str:
     """
-    Synthétise une session chat en état compressé (Sivana, Ti Spoun, Élude In Art).
+    Synthétise une session chat en état compressé (projets et chantiers du workspace).
     Persiste dans chat_sessions via database.upsert_chat_session_summary.
     """
     from database import get_chat_session_summary, upsert_chat_session_summary
@@ -347,7 +347,7 @@ def compress_chat_session(
     system = (
         "Tu es l'assistant de synthèse conversationnelle de KORYMB. "
         "Compresse cet historique en état relationnel et opérationnel : décisions, projets "
-        "(Sivana, Ti Spoun, Élude In Art), tensions, suites ouvertes. "
+        "et chantiers du workspace, tensions, suites ouvertes. "
         "Maximum 400 mots, français, dense."
     )
     try:

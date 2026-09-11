@@ -4,7 +4,7 @@ tools/agent_tools.py — Outils augmentés KORYMB v3.
 Trois outils principaux utilisables par les agents (tags "knowledge", "validate") :
   - search_core_notes    : recherche dans les notes CORE et la documentation
   - validate_syntax      : sandbox de vérification syntaxique (Python, JS/TS)
-  - get_fleet_status     : constantes d'actifs Élude In Art (Ti Spoun / Sivana / Éric)
+  - get_fleet_status     : identité / actifs du workspace courant
 """
 from __future__ import annotations
 
@@ -213,56 +213,26 @@ def validate_syntax(code: str, language: str = "python") -> dict[str, Any]:
 # ── get_fleet_status ───────────────────────────────────────────────────────────
 
 def get_fleet_status() -> dict[str, Any]:
-    """
-    Retourne les constantes d'actifs de l'Empire Élude In Art :
-    Sivana, Ti Spoun, Éric, Fleur d'ÅmÔurs.
+    """Actifs / identité du workspace courant (plus d'Empire Élude hardcodé)."""
+    from services.workspace_brand import fleet_status_payload, is_legacy_elude_workspace
 
-    Données fusionnées depuis le graphe de connaissance (si disponible) et
-    les constantes statiques REALITY_ASSET_CONSTRAINTS.
-    """
-    # Constantes statiques (toujours disponibles)
-    static_assets: dict[str, Any] = {
-        "eric": {
-            "role": "Dirigeant & créateur",
-            "localisation": "Tourves, 83170, Var",
-            "contact": "eludinart@gmail.com / 0659582428",
-            "site": "eludein.art",
-        },
-        "sivana": {
-            "type": "Écolieu",
-            "contrainte": "Toute stratégie doit rester exécutable in situ",
-            "capacite": "Ressources humaines et logistique locale limitées",
-        },
-        "ti_spoun": {
-            "type": "Ancrage local artisanal",
-            "contrainte": "Rythme artisanal — éviter stratégies déconnectées terrain",
-            "valeurs": "Authenticité, proximité, lien humain",
-        },
-        "fleur_damours": {
-            "type": "Tarot systémique (65 cartes)",
-            "posture": "Non divinatoire — cartographie relationnelle",
-            "cible": "Coachs, thérapeutes, facilitateurs, couples",
-            "business": "Vente physique + séances + 7 Modules Pro + abonnements Stripe",
-            "app": "app-fleurdamours.eludein.art",
-        },
-    }
-
-    # Enrichissement depuis le graphe de connaissance (non bloquant)
+    base = fleet_status_payload()
+    assets: dict[str, Any] = {}
     try:
         from services.knowledge import list_entities
-        db_entities = {e["name"].lower(): e for e in list_entities()}
-        for key, data in static_assets.items():
-            canonical_name = key.replace("_", " ").replace("damours", "d'ÅmÔurs")
-            for name, entity in db_entities.items():
-                if key.split("_")[0] in name.lower():
-                    data["_kb_attributes"] = entity.get("attributes", {})
-                    data["_kb_relations"] = entity.get("relations", {})
-                    break
+
+        for entity in list_entities():
+            key = str(entity.get("name") or "").strip().lower().replace(" ", "_")[:64]
+            if not key:
+                continue
+            assets[key] = {
+                "attributes": entity.get("attributes") or {},
+                "relations": entity.get("relations") or {},
+                "entity_type": entity.get("entity_type"),
+            }
     except Exception:
         pass
-
-    return {
-        "assets": static_assets,
-        "source": "fleet_status_v1",
-        "note": "Contraintes terrain actives : SÏvåñà (exécution in situ) + Ti Spoun (rythme artisanal).",
-    }
+    if not assets and is_legacy_elude_workspace():
+        # Fallback minimal si knowledge vide sur instance legacy
+        assets = {"note": "Seed knowledge legacy absent — utiliser le contexte métier injecté."}
+    return {**base, "assets": assets, "source": "fleet_status_v2"}

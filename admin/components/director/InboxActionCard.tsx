@@ -106,6 +106,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   );
   const [hidden, setHidden] = useState(false);
   const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
+  const [doneFlash, setDoneFlash] = useState("");
   const jobId = item.job_id || "";
 
   const jobAnswersQuery = useQuery({
@@ -143,27 +144,31 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     setHidden(true);
     onDismissed?.();
   };
+  const flashDoneThenHide = (message: string) => {
+    setDoneFlash(message);
+    window.setTimeout(() => hideFromInbox(), 1400);
+  };
   const showChainThenHide = (data: { chain?: { steps?: string[] } } | undefined) => {
     const steps = data?.chain?.steps;
     if (Array.isArray(steps) && steps.length) {
       setChainFeedback(steps.map(String));
       window.setTimeout(() => hideFromInbox(), 1600);
     } else {
-      hideFromInbox();
+      flashDoneThenHide("Action effectuée.");
     }
   };
-  const validateMut = useValidateMission(jobId, hideFromInbox);
-  const closeMut = useCloseMission(jobId, hideFromInbox);
+  const validateMut = useValidateMission(jobId, () => flashDoneThenHide("Mission validée."));
+  const closeMut = useCloseMission(jobId, () => flashDoneThenHide("Mission terminée."));
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
-  const configMut = useConfigSuggestionResolve(hideFromInbox);
+  const configMut = useConfigSuggestionResolve(() => flashDoneThenHide("Suggestion appliquée."));
   const qualityMut = useQualityOverride(jobId);
-  const dismissMut = useInboxDismiss(hideFromInbox);
+  const dismissMut = useInboxDismiss(() => flashDoneThenHide("Retiré de Décisions."));
   const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
     showChainThenHide(data as { chain?: { steps?: string[] } });
   });
-  const completeFollowUpMut = useCompleteCrmFollowUp(hideFromInbox);
+  const completeFollowUpMut = useCompleteCrmFollowUp(() => flashDoneThenHide("Suivi marqué comme fait."));
 
   const busy =
     hitlResolve.isPending ||
@@ -252,6 +257,13 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       ? item.title
       : undefined);
 
+  if (doneFlash) {
+    return (
+      <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
+        <p className="text-sm font-bold text-emerald-900">{doneFlash}</p>
+      </li>
+    );
+  }
   if (hidden) return null;
   if (chainFeedback) {
     return (

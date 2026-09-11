@@ -289,7 +289,7 @@ function TaskForm({
               onChange={(e) => set("params_raw", e.target.value)}
               rows={4}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-violet-400"
-              placeholder={'{\n  "topics": ["bien-être émotionnel", "spiritualité", "tarot"],\n  "rss_feeds": [],\n  "output_type": "veille_summary"\n}'}
+              placeholder={'{\n  "topics": ["veille concurrentielle", "partenariats", "contenu éditorial"],\n  "rss_feeds": [],\n  "output_type": "veille_summary"\n}'}
             />
           </div>
         )}

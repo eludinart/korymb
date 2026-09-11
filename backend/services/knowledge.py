@@ -1,10 +1,7 @@
 """
-services/knowledge.py — Graphe de connaissance des entités de la Fleur d'ÅmÔurs.
+services/knowledge.py — Graphe de connaissance des entités (scopé workspace).
 
-Stocke les entités clés (personnes, organisations, projets) dans une table SQLite dédiée.
-Fournit build_entity_context_block() pour injecter le contexte pertinent dans les prompts.
-
-Entités initiales : Sivana, Ti Spoun, Éric, Fleur d'ÅmÔurs.
+Seed Élude / Fleur uniquement pour le workspace legacy.
 """
 from __future__ import annotations
 
@@ -14,12 +11,11 @@ from datetime import datetime
 from typing import Any
 
 from database import get_conn
+from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID, is_legacy_elude_workspace
 
 logger = logging.getLogger(__name__)
 
-# ── Entités fondatrices de l'écosystème ──────────────────────────────────────
-
-_SEED_ENTITIES: list[dict[str, Any]] = [
+_SEED_ENTITIES_ELUDE: list[dict[str, Any]] = [
     {
         "name": "Éric",
         "entity_type": "person",
@@ -79,27 +75,46 @@ _SEED_ENTITIES: list[dict[str, Any]] = [
     },
 ]
 
-# ── Init table ────────────────────────────────────────────────────────────────
+
+def _ws() -> str:
+    try:
+        from workspace_db import ws_id
+
+        return (ws_id() or LEGACY_ELUDE_WORKSPACE_ID).strip() or LEGACY_ELUDE_WORKSPACE_ID
+    except Exception:
+        return LEGACY_ELUDE_WORKSPACE_ID
+
 
 def init_knowledge_table() -> None:
-    """Crée la table knowledge_entities et insère les entités fondatrices si absentes."""
+    """Crée la table knowledge_entities et seed legacy si besoin."""
     with get_conn() as conn:
-        conn.execute("""
+        conn.execute(
+            """
             CREATE TABLE IF NOT EXISTS knowledge_entities (
                 entity_id   INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL UNIQUE,
+                name        TEXT NOT NULL,
                 entity_type TEXT NOT NULL DEFAULT 'project',
                 attributes_json TEXT NOT NULL DEFAULT '{}',
                 relations_json  TEXT NOT NULL DEFAULT '{}',
-                updated_at  TEXT NOT NULL
+                updated_at  TEXT NOT NULL,
+                workspace_id TEXT
             )
-        """)
+            """
+        )
+        try:
+            from workspace_db import ensure_workspace_columns
+
+            ensure_workspace_columns(conn)
+        except Exception:
+            pass
         conn.commit()
     _seed_initial_entities()
 
 
 def _seed_initial_entities() -> None:
-    for entity in _SEED_ENTITIES:
+    if not is_legacy_elude_workspace():
+        return
+    for entity in _SEED_ENTITIES_ELUDE:
         existing = get_entity(entity["name"])
         if existing is None:
             upsert_entity(
@@ -110,7 +125,25 @@ def _seed_initial_entities() -> None:
             )
 
 
-# ── CRUD ──────────────────────────────────────────────────────────────────────
+def _hydrate_entity_row(d: dict[str, Any]) -> dict[str, Any]:
+    try:
+        attrs = json.loads(d.get("attributes_json") or "{}")
+    except Exception:
+        attrs = {}
+    try:
+        rels = json.loads(d.get("relations_json") or "{}")
+    except Exception:
+        rels = {}
+    return {
+        "entity_id": d.get("entity_id"),
+        "name": d.get("name"),
+        "entity_type": d.get("entity_type"),
+        "attributes": attrs if isinstance(attrs, dict) else {},
+        "relations": rels if isinstance(rels, dict) else {},
+        "updated_at": d.get("updated_at"),
+        "workspace_id": d.get("workspace_id"),
+    }
+
 
 def upsert_entity(
     name: str,
@@ -118,38 +151,60 @@ def upsert_entity(
     attributes: dict[str, Any],
     relations: dict[str, Any],
 ) -> None:
-    """Crée ou met à jour une entité dans le graphe."""
     now = datetime.utcnow().isoformat()
     name_clean = (name or "").strip()
     if not name_clean:
         raise ValueError("Le nom de l'entité est obligatoire.")
+    wid = _ws()
     with get_conn() as conn:
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO knowledge_entities
-                (name, entity_type, attributes_json, relations_json, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (
-                name_clean,
-                (entity_type or "project")[:32],
-                json.dumps(attributes or {}, ensure_ascii=False),
-                json.dumps(relations or {}, ensure_ascii=False),
-                now,
-            ),
-        )
+        prev = conn.execute(
+            "SELECT entity_id FROM knowledge_entities WHERE lower(name) = lower(?) AND workspace_id = ?",
+            (name_clean, wid),
+        ).fetchone()
+        if prev:
+            eid = dict(prev).get("entity_id") if isinstance(prev, dict) else prev[0]
+            conn.execute(
+                """
+                UPDATE knowledge_entities
+                SET entity_type=?, attributes_json=?, relations_json=?, updated_at=?
+                WHERE entity_id=?
+                """,
+                (
+                    (entity_type or "project")[:32],
+                    json.dumps(attributes or {}, ensure_ascii=False),
+                    json.dumps(relations or {}, ensure_ascii=False),
+                    now,
+                    eid,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO knowledge_entities
+                    (name, entity_type, attributes_json, relations_json, updated_at, workspace_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    name_clean,
+                    (entity_type or "project")[:32],
+                    json.dumps(attributes or {}, ensure_ascii=False),
+                    json.dumps(relations or {}, ensure_ascii=False),
+                    now,
+                    wid,
+                ),
+            )
         conn.commit()
 
 
 def get_entity(name: str) -> dict[str, Any] | None:
-    """Récupère une entité par nom exact (insensible à la casse)."""
     name_clean = (name or "").strip()
     if not name_clean:
         return None
+    wid = _ws()
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM knowledge_entities WHERE lower(name) = lower(?)",
-            (name_clean,),
+            "SELECT * FROM knowledge_entities WHERE lower(name) = lower(?) AND workspace_id = ?",
+            (name_clean, wid),
         ).fetchone()
     if not row:
         return None
@@ -157,13 +212,14 @@ def get_entity(name: str) -> dict[str, Any] | None:
 
 
 def search_entities(query: str) -> list[dict[str, Any]]:
-    """Recherche par correspondance partielle sur le nom, le type ou les attributs."""
     q = (query or "").strip().lower()
     if not q:
         return []
+    wid = _ws()
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM knowledge_entities ORDER BY updated_at DESC LIMIT 50",
+            "SELECT * FROM knowledge_entities WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT 50",
+            (wid,),
         ).fetchall()
     results: list[dict[str, Any]] = []
     for row in rows or []:
@@ -181,61 +237,30 @@ def search_entities(query: str) -> list[dict[str, Any]]:
 
 
 def list_entities() -> list[dict[str, Any]]:
+    wid = _ws()
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM knowledge_entities ORDER BY entity_type, name"
+            "SELECT * FROM knowledge_entities WHERE workspace_id = ? ORDER BY entity_type, name",
+            (wid,),
         ).fetchall()
-    return [_hydrate_entity_row(dict(row)) for row in (rows or [])]
+    return [_hydrate_entity_row(dict(r)) for r in rows or []]
 
 
-def _hydrate_entity_row(d: dict[str, Any]) -> dict[str, Any]:
+def build_entity_context_block(mission_text: str = "") -> str:
+    """Injecte un extrait d'entités pertinentes pour la mission."""
     try:
-        d["attributes"] = json.loads(d.get("attributes_json") or "{}")
-    except json.JSONDecodeError:
-        d["attributes"] = {}
-    try:
-        d["relations"] = json.loads(d.get("relations_json") or "{}")
-    except json.JSONDecodeError:
-        d["relations"] = {}
-    d.pop("attributes_json", None)
-    d.pop("relations_json", None)
-    return d
-
-
-# ── Injection dans les prompts ────────────────────────────────────────────────
-
-def build_entity_context_block(mission_text: str = "", *, max_entities: int = 6) -> str:
-    """
-    Construit un bloc de contexte entités à injecter dans le prompt d'un agent.
-    Priorise les entités dont le nom apparaît dans le texte de la mission.
-    """
-    all_entities = list_entities()
-    if not all_entities:
+        entities = search_entities(mission_text) if (mission_text or "").strip() else list_entities()[:8]
+        if not entities:
+            entities = list_entities()[:6]
+        if not entities:
+            return ""
+        lines = ["--- Connaissance métier (entités workspace) ---"]
+        for e in entities[:8]:
+            attrs = e.get("attributes") or {}
+            summary = ", ".join(f"{k}={v}" for k, v in list(attrs.items())[:4])
+            lines.append(f"- {e.get('name')} ({e.get('entity_type')}): {summary}")
+        lines.append("--- Fin connaissance ---")
+        return "\n".join(lines)
+    except Exception:
+        logger.exception("build_entity_context_block")
         return ""
-
-    # Priorité : entités mentionnées dans la mission
-    mission_lower = (mission_text or "").lower()
-    prioritized: list[dict] = []
-    rest: list[dict] = []
-    for e in all_entities:
-        if e["name"].lower() in mission_lower:
-            prioritized.append(e)
-        else:
-            rest.append(e)
-
-    selected = (prioritized + rest)[:max_entities]
-    if not selected:
-        return ""
-
-    lines: list[str] = ["### Entités connues (Graphe Cognitif KORYMB)"]
-    for e in selected:
-        attrs = e.get("attributes") or {}
-        attrs_str = " | ".join(f"{k}: {v}" for k, v in attrs.items() if v)
-        rels = e.get("relations") or {}
-        rels_str = "; ".join(f"{k}→{', '.join(v) if isinstance(v, list) else v}" for k, v in rels.items()) if rels else ""
-        line = f"- **{e['name']}** ({e.get('entity_type', '?')}): {attrs_str}"
-        if rels_str:
-            line += f"\n  Relations: {rels_str}"
-        lines.append(line)
-
-    return "\n".join(lines) + "\n"

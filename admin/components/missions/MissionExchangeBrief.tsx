@@ -8,18 +8,7 @@ import DeliverableAccessHub from "../deliverables/DeliverableAccessHub";
 import type { DriveArtifact } from "../../lib/types";
 import { formatEventTs } from "../../lib/missionEvents";
 import { buildMissionExchangeBrief } from "../../lib/missionExchangeBrief";
-
-const AGENT_STYLES: Record<string, string> = {
-  commercial: "bg-blue-100 text-blue-900",
-  community_manager: "bg-pink-100 text-pink-900",
-  developpeur: "bg-emerald-100 text-emerald-900",
-  comptable: "bg-amber-100 text-amber-900",
-  coordinateur: "bg-violet-100 text-violet-900",
-};
-
-function agentBadgeClass(key: string) {
-  return AGENT_STYLES[key] || "bg-slate-100 text-slate-800";
-}
+import { agentRoleSoftClass } from "../../lib/agentRoleUi";
 
 type Props = {
   result?: string | null;
@@ -241,7 +230,7 @@ export default function MissionExchangeBrief({
                   panelClassName="border-t border-slate-100 px-3 py-3"
                 >
                   <span
-                    className={`mb-2 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${agentBadgeClass(group.agentKey)}`}
+                    className={`mb-2 inline-block rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${agentRoleSoftClass(group.agentKey)}`}
                   >
                     {group.agentLabel}
                   </span>

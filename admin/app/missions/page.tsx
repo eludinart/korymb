@@ -707,6 +707,7 @@ function MissionsContent() {
                 key={j.job_id}
                 job={j}
                 teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
+                teamGroupId={jobAgentGroupId(j)}
                 inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
                 busy={busyId === j.job_id}
                 deleteBusy={deleteMissionBusyId === j.job_id}

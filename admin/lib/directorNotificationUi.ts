@@ -10,6 +10,7 @@ export type DirectorNotification = {
   output_id?: string | null;
   read_at?: string | null;
   created_at?: string;
+  ephemeral?: boolean;
 };
 
 export type NotificationAction = {
@@ -135,4 +136,65 @@ export function notificationShareUrl(href: string): string {
   if (href.startsWith("http://") || href.startsWith("https://")) return href;
   if (typeof window === "undefined") return href;
   return `${window.location.origin}${href.startsWith("/") ? href : `/${href}`}`;
+}
+
+/** Types qui interrompent même si l'onglet Korymb est au premier plan. */
+const INTERRUPTIVE_NOTIFICATION_KINDS = new Set([
+  "hitl",
+  "scheduler_output",
+  "email_reply",
+  "chat_error",
+  "action_ticket",
+  "config_suggestion",
+]);
+
+function normalizePathname(pathname: string): string {
+  const path = pathname.split("?")[0] || "";
+  return path.replace(/\/+$/, "") || "/";
+}
+
+/** La surface actuelle affiche déjà l'info : pas de toast. */
+export function notificationConsumedByPath(kind: string, pathname: string): boolean {
+  const k = kind.trim().toLowerCase();
+  const path = normalizePathname(pathname);
+  if ((k === "chat_result" || k === "chat_error") && (path === "/chat" || path.startsWith("/chat/"))) {
+    return true;
+  }
+  if (k === "email_reply" && (path === "/gestion/courrier" || path.startsWith("/gestion/courrier/"))) {
+    return true;
+  }
+  if ((k === "hitl" || k === "action_ticket") && (path === "/inbox" || path.startsWith("/inbox/"))) {
+    return true;
+  }
+  if (k === "scheduler_output" && path.startsWith("/administration/approbations")) {
+    return true;
+  }
+  return false;
+}
+
+export function shouldShowNotificationToast(
+  kind: string,
+  opts: { pathname: string; documentHidden: boolean; ephemeral?: boolean },
+): boolean {
+  const k = kind.trim().toLowerCase();
+  if (notificationConsumedByPath(k, opts.pathname)) return false;
+  if (INTERRUPTIVE_NOTIFICATION_KINDS.has(k)) return true;
+  // Échos chat, infos, le reste : uniquement si l'onglet n'est plus visible.
+  return Boolean(opts.documentHidden);
+}
+
+/** Aperçu lisible sans markdown (toasts + liste). */
+export function notificationPreviewText(raw?: string | null, max = 180): string {
+  if (!raw) return "";
+  return raw
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/[*_~]+/g, "")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, max);
 }

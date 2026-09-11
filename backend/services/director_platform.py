@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import json
+import uuid as _uuid
 from datetime import datetime, timedelta
 from typing import Any
+
+# Réponses chat : déjà visibles dans /chat — pas d'archive cloche ni d'email/webhook.
+EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
+SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test"})
 
 from database import (
     _user_validated_set,
@@ -761,38 +766,45 @@ def emit_director_notification(
     output_id: str | None = None,
     action_url: str | None = None,
 ) -> dict:
-    row = insert_director_notification(
-        kind=kind,
-        title=title,
-        body=body,
-        job_id=job_id,
-        output_id=output_id,
-        action_url=action_url,
-    )
-    enqueue_job_sse_event({
-        "type": "director_notification",
-        "kind": kind,
-        "title": title,
-        "body": body,
-        "job_id": job_id,
-        "output_id": output_id,
-        "action_url": action_url,
-        "id": row.get("id"),
-        "ts": datetime.utcnow().isoformat(),
-    })
-    try:
-        from services.notifications import dispatch_external_notification
-
-        dispatch_external_notification(
-            kind=kind,
+    kind_norm = (kind or "info").strip().lower()[:32]
+    ephemeral = kind_norm in EPHEMERAL_NOTIFICATION_KINDS
+    if ephemeral:
+        row = {"id": f"eph-{_uuid.uuid4().hex[:12]}"}
+    else:
+        row = insert_director_notification(
+            kind=kind_norm,
             title=title,
             body=body,
             job_id=job_id,
             output_id=output_id,
             action_url=action_url,
         )
-    except Exception:
-        pass
+    enqueue_job_sse_event({
+        "type": "director_notification",
+        "kind": kind_norm,
+        "title": title,
+        "body": body,
+        "job_id": job_id,
+        "output_id": output_id,
+        "action_url": action_url,
+        "id": row.get("id"),
+        "ephemeral": ephemeral,
+        "ts": datetime.utcnow().isoformat(),
+    })
+    if not ephemeral and kind_norm not in SKIP_EXTERNAL_NOTIFICATION_KINDS:
+        try:
+            from services.notifications import dispatch_external_notification
+
+            dispatch_external_notification(
+                kind=kind_norm,
+                title=title,
+                body=body,
+                job_id=job_id,
+                output_id=output_id,
+                action_url=action_url,
+            )
+        except Exception:
+            pass
     return row
 
 

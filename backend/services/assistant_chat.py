@@ -106,7 +106,7 @@ def start_assistant_chat_job(
                 if h.get("role") in ("user", "assistant"):
                     messages.append({"role": h["role"], "content": h["content"]})
             messages.append({"role": "user", "content": msg_snap})
-            tool_tags = ["web", "drive", "teams"]
+            tool_tags = ["web", "drive", "teams", "workspace"]
             reply, ti, to = llm_chat_maybe_tools(
                 system_prompt,
                 messages,

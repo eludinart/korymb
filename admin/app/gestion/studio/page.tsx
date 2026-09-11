@@ -163,7 +163,7 @@ export default function StudioPage() {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               rows={6}
-              placeholder="Ex. Ouvrir Agapé comme posture d’accueil, pour les coachs qui démarrent Fleur d’ÅmÔurs — invitation à la soirée de juin, sans promesse divinatoire."
+              placeholder="Ex. Annoncer un atelier d’accueil pour les nouveaux participants — invitation à la soirée de juin, ton chaleureux et concret."
               className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
             />
             <div className="mt-4 grid gap-3 sm:grid-cols-3">

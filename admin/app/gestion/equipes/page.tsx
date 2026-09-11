@@ -9,10 +9,9 @@ import {
   LoadingLine,
   PageHeader,
   PageShell,
-  SectionCard,
 } from "../../../components/ui/PageChrome";
 import { agentHeaders, requestJson } from "../../../lib/api";
-import { jobAgentGroupId } from "../../../lib/agentGroupUi";
+import { IDENTITY_CARD, jobAgentGroupId, ENTERPRISE_ROLE_LABEL } from "../../../lib/agentGroupUi";
 import { QK } from "../../../lib/queryClient";
 import type { Job } from "../../../lib/types";
 
@@ -135,14 +134,24 @@ export default function GestionEquipesPage() {
       ) : null}
 
       {enterprise ? (
-        <SectionCard title="Flotte Entreprise — tronc métier">
-          <p className="text-sm text-slate-600">
+        <article className={`rounded-2xl border-2 p-4 shadow-sm ${IDENTITY_CARD.orchestra}`}>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-base font-bold text-amber-950">Flotte Entreprise — tronc métier</p>
+              <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                Lead · {enterprise.lead_label || "CIO"}
+              </p>
+            </div>
+            <span className="rounded-full bg-amber-200 px-2 py-0.5 text-[10px] font-bold tracking-wide text-amber-950">
+              {ENTERPRISE_ROLE_LABEL}
+            </span>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
             {enterprise.description?.trim() ||
               "Commercial, community, développement et comptable — c’est déjà le périmètre Contacts, Courrier, Planning et Devis."}
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Lead : <strong>{enterprise.lead_label || "CIO"}</strong>
-            {enterprise.members?.length ? ` · ${memberLabels(enterprise)}` : null}
+            {enterprise.members?.length ? memberLabels(enterprise) : null}
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <Link href="/chat?group=entreprise" className="btn-link-secondary text-xs">
@@ -155,7 +164,7 @@ export default function GestionEquipesPage() {
               Ouvrir l’activité
             </Link>
           </div>
-        </SectionCard>
+        </article>
       ) : null}
 
       <section className="space-y-3">
@@ -184,7 +193,7 @@ export default function GestionEquipesPage() {
             return (
               <article
                 key={group.id}
-                className="flex flex-col rounded-2xl border-2 border-sky-100 bg-white p-4 shadow-sm"
+                className={`flex flex-col rounded-2xl border-2 p-4 shadow-sm ${IDENTITY_CARD.project}`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">

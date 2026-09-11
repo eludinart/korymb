@@ -1335,7 +1335,15 @@ def _host_of(url: str) -> str:
         return ""
 
 
-_OWN_SITE_SUFFIXES = ("eludein.art",)
+def _own_site_suffixes() -> tuple[str, ...]:
+    try:
+        from services.workspace_brand import own_site_suffixes
+
+        return own_site_suffixes()
+    except Exception:
+        return ()
+
+
 _DIRECTORY_HOSTS = (
     "resalib.fr",
     "doctolib.fr",
@@ -1378,7 +1386,7 @@ def _host_matches_suffixes(host: str, suffixes: tuple[str, ...]) -> bool:
 
 
 def _is_own_site(host: str) -> bool:
-    return _host_matches_suffixes(host, _OWN_SITE_SUFFIXES)
+    return _host_matches_suffixes(host, _own_site_suffixes())
 
 
 def _is_directory_host(host: str) -> bool:
@@ -1427,7 +1435,7 @@ def distinctive_identity_tokens(contact: dict | None) -> list[str]:
 
 
 def website_belongs_to_contact(url: str, contact: dict | None) -> bool:
-    """True seulement si l'URL peut être le site du contact (pas Élude In Art, pas un annuaire)."""
+    """True seulement si l'URL peut être le site du contact (pas le site de l'espace, pas un annuaire)."""
     if not str(url or "").strip():
         return False
     if _is_junk_url(url, kind="website"):
@@ -2026,15 +2034,17 @@ def build_contact_exploration_mission(contact: dict) -> str:
         "- Un profil Instagram/Facebook/LinkedIn sans le nom ou la structure dans l’URL/titre = **hors sujet**.\n"
         "- Pages Jaunes, Google, Tavily, pages de résultats : ce ne sont **pas** le site du contact.\n"
         "- **Site web (`website`)** : uniquement le **site officiel personnel / cabinet** dont le nom de domaine "
-        "contient le nom (ou la structure). **Interdit** : eludein.art, app-fleurdamours, Resalib, Doctolib, "
+        "contient le nom (ou la structure). **Interdit** : le site de l'espace Korymb, les apps internes, Resalib, Doctolib, "
+        "annuaires et plateformes génériques.\n"
+        "- Les liens de **signature / vitrine de l'espace** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
         "Pages Jaunes, articles de blog local, page Facebook. Un annuaire va dans `resalib` / sources, pas dans `website`.\n"
-        "- Les liens de **signature Élude In Art** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
+        "- Les liens de **signature / vitrine de l'espace** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
         "- Interdit : inventer, approximer, recopier le contact d’un homonyme ou d’un cabinet voisin.\n"
         "- Mieux vaut un champ vide qu’une fausse information.\n\n"
         "### Livrable (structure imposée)\n"
         "Dans l'outil `gestion_propose_contact_enrichment` :\n"
         "- `notes_append` : spécialité, SIRET, contexte métier, sources — **pas** d'angle de vente.\n"
-        "- `outreach_suggestions` : comment approcher (canal, accroche Fleur d'ÅmÔurs, offre, timing) "
+        "- `outreach_suggestions` : comment approcher (canal, accroche liée à l'offre du workspace, timing) "
         "en **approfondissant** ce qui a déjà été suggéré ou fait.\n"
         "- Puis un court résumé dirigeant."
     )
@@ -2086,7 +2096,7 @@ def build_contact_outreach_mission(contact: dict) -> str:
         "   - pas de `notes_append` sauf fait vraiment nouveau et utile\n\n"
         "### Structure attendue de `outreach_suggestions`\n"
         "- **Canal prioritaire** (email / LinkedIn / tél / autre) + pourquoi\n"
-        "- **Accroche** adaptée au métier (Tarot Fleur d'ÅmÔurs, maïeutique)\n"
+        "- **Accroche** adaptée au métier (offre du workspace, ton de la mémoire partagée)\n"
         "- **Offre / format** (atelier, module pro, démo, partenariat…)\n"
         "- **Ce qui change vs suggestions précédentes** (approfondissement explicite)\n"
         "- **Prochaine action** concrète (1 phrase)\n"

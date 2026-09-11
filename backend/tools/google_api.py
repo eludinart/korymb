@@ -143,7 +143,9 @@ def run_send_gmail(
 
     from services.email_files import build_email_message
 
-    rfc_mid = f"<korymb-{secrets.token_hex(10)}@eludein.art>"
+    from services.workspace_brand import mail_message_id_domain
+
+    rfc_mid = f"<korymb-{secrets.token_hex(10)}@{mail_message_id_domain()}>"
     msg = build_email_message(
         to=to_addr,
         subject=subj,

@@ -123,11 +123,18 @@ export function AccountLoginForm({
             <Link href="/register" className="font-bold text-violet-700 hover:underline">
               Créer un espace Korymb
             </Link>
-            <span className="mx-2">·</span>
-            Vous êtes participant ?{" "}
-            <Link href="/p/eludein/connexion" className="font-semibold text-emerald-800 hover:underline">
-              Connexion participant
-            </Link>
+            {workspace ? (
+              <>
+                <span className="mx-2">·</span>
+                Vous êtes participant ?{" "}
+                <Link
+                  href={`/p/${encodeURIComponent(workspace)}/connexion`}
+                  className="font-semibold text-emerald-800 hover:underline"
+                >
+                  Connexion participant
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : (
           <p className="mt-4 text-center text-sm text-slate-600">
@@ -140,7 +147,7 @@ export function AccountLoginForm({
             <span className="mx-2">·</span>
             Pas encore de compte ?{" "}
             <Link
-              href={workspace ? `/p/${encodeURIComponent(workspace)}/inscription` : "/p/eludein/inscription"}
+              href={workspace ? `/p/${encodeURIComponent(workspace)}/inscription` : "/"}
               className="font-bold text-violet-700 hover:underline"
             >
               Demander l’inscription
@@ -148,7 +155,7 @@ export function AccountLoginForm({
             <span className="mx-2">·</span>
             Code invité ?{" "}
             <Link
-              href={workspace ? `/p/${encodeURIComponent(workspace)}/invitation` : "/p/eludein/invitation"}
+              href={workspace ? `/p/${encodeURIComponent(workspace)}/invitation` : "/"}
               className="font-bold text-emerald-800 hover:underline"
             >
               Première connexion

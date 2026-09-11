@@ -50,13 +50,22 @@ export default function PlaybooksPage() {
     generic: list.filter((p) => !p.category || p.category === "generic"),
   };
 
+  /** Soft labels — category keys (fleur, sivana…) stay for DB / seed compat. */
+  const CAT_LABELS: Record<string, string> = {
+    studio: "Studio",
+    fleur: "Catalogue / produit",
+    sivana: "Lieu / écolieu",
+    ops: "Ops",
+    generic: "Générique",
+  };
+
   return (
     <PageShell className="space-y-6">
       <PageHeader
         accent="violet"
         badge="Création"
         title="Playbooks"
-        description="Scénarios prêts à lancer — studio, Fleur, Sivana. Supervisé (Décisions) ou autonome."
+        description="Scénarios prêts à lancer (studio, catalogue, lieu, ops…). Supervisé (Décisions) ou autonome."
       />
       {playbooks.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {playbooks.isError ? (
@@ -77,7 +86,7 @@ export default function PlaybooksPage() {
       ) : null}
       {(["studio", "fleur", "sivana", "ops", "generic"] as const).map((cat) => (
         <section key={cat} className="section-card">
-          <h2 className="section-title capitalize">{cat}</h2>
+          <h2 className="section-title">{CAT_LABELS[cat]}</h2>
           <ul className="mt-4 space-y-3">
             {grouped[cat].length === 0 ? (
               <li className="text-sm text-slate-500">Aucun playbook.</li>

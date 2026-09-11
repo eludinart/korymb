@@ -134,7 +134,7 @@ def _synthesize_veille(raw_text: str, topics: list[str], task: dict) -> str:
         extra_instruction = f"\nInstructions spécifiques : {mission_template}" if mission_template else ""
 
         prompt = textwrap.dedent(f"""
-            Tu es le CIO d'Élude In Art. Tu viens de collecter les informations suivantes
+            Tu es le CIO du workspace. Tu viens de collecter les informations suivantes
             sur les thèmes : {topic_list}.
 
             ---
@@ -144,11 +144,11 @@ def _synthesize_veille(raw_text: str, topics: list[str], task: dict) -> str:
             {FLEUR_CONTEXT}
 
             Ta mission : produire une synthèse de veille structurée avec :
-            1. Les 3-5 tendances ou sujets les plus pertinents pour Élude In Art
-            2. Des insights actionnables (contenu à créer, sujets à aborder en consultation, messages clés)
+            1. Les 3-5 tendances ou sujets les plus pertinents pour l'activité
+            2. Des insights actionnables (contenu à créer, sujets à aborder, messages clés)
             3. Si pertinent, une ébauche d'article de blog ou de post réseaux sociaux prêt à adapter{extra_instruction}
 
-            Format : markdown structuré, ton professionnel et bienveillant, aligné avec le positionnement d'Élude In Art.
+            Format : markdown structuré, ton professionnel et bienveillant, aligné avec le positionnement du workspace.
         """).strip()
 
         result, _, _ = llm_turn(prompt, max_tokens=2000, or_profile="lite", usage_context=f"veille:{task['id']}")
@@ -251,7 +251,7 @@ def _generate_mission_proposals(nb_proposals: int, task: dict) -> list[dict]:
         context_block = format_context_for_prompt(ecosystem)
 
         prompt = textwrap.dedent(f"""
-            Tu es le CIO d'Élude In Art. Propose exactement {nb_proposals} missions concrètes et actionnables
+            Tu es le CIO du workspace. Propose exactement {nb_proposals} missions concrètes et actionnables
             que ton équipe agentique peut exécuter cette semaine.
 
             {FLEUR_CONTEXT}
@@ -266,7 +266,7 @@ def _generate_mission_proposals(nb_proposals: int, task: dict) -> list[dict]:
             2. Au moins 1 proposition doit prolonger un fil ou une mission récente (sections 2, 4 ou 5).
             3. Chaque proposition a un agent principal (commercial, community_manager, developpeur, comptable
                ou coordinateur) dans le champ agents.
-            4. Missions réalistes, < 30 min d'IA, forte valeur pour Élude In Art.
+            4. Missions réalistes, < 30 min d'IA, forte valeur pour l'activité.
 
             Réponds UNIQUEMENT avec un JSON (tableau) :
             [

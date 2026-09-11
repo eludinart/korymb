@@ -94,7 +94,8 @@ export const PROJECT_TYPE_LABELS: Record<string, string> = {
   stage: "Stage",
   module_pro: "Module Pro",
   accompagnement: "Accompagnement",
-  sivana: "SÏvåñà",
+  /** DB key `sivana` kept for compat — display label is generic. */
+  sivana: "Écolieu / lieu",
   autre: "Autre",
 };
 

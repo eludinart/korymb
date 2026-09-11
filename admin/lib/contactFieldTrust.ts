@@ -31,7 +31,12 @@ const JUNK_EMAIL_DOMAINS = new Set([
   "google.com",
 ]);
 
-const OWN_SITE_SUFFIXES = ["eludein.art"];
+const OWN_SITE_SUFFIXES = (
+  process.env.NEXT_PUBLIC_OWN_SITE_SUFFIXES || "eludein.art"
+)
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 const DIRECTORY_HOSTS = [
   "pagesjaunes.fr",
   "google.com",
@@ -111,7 +116,7 @@ export function enrichmentFieldCaution(contact: BizContact, key: string, propose
 
   if (key === "website") {
     const h = hostOf(next);
-    if (hostMatches(h, OWN_SITE_SUFFIXES)) return "c’est le site Élude In Art — pas celui du contact";
+    if (hostMatches(h, OWN_SITE_SUFFIXES)) return "c’est le site de votre espace — pas celui du contact";
     if (hostMatches(h, DIRECTORY_HOSTS)) return "annuaire / réseau — ce n’est pas un site officiel";
     if (!websiteMatchesIdentity(next, contact)) {
       return "le nom de domaine ne reprend pas le nom du contact — probablement faux";

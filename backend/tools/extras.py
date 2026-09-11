@@ -321,7 +321,14 @@ def run_send_newsletter(
     if lid <= 0:
         return "list_id Brevo requis (ou BREVO_DEFAULT_LIST_ID dans .env)."
     from_addr = (sender_email or getenv("BREVO_SENDER_EMAIL", "")).strip()
-    from_name = (sender_name or getenv("BREVO_SENDER_NAME", "Élude In Art")).strip()
+    from_name = (sender_name or getenv("BREVO_SENDER_NAME") or "").strip()
+    if not from_name:
+        try:
+            from services.workspace_brand import workspace_sender_name
+
+            from_name = workspace_sender_name("Korymb")
+        except Exception:
+            from_name = "Korymb"
     if not from_addr:
         return "BREVO_SENDER_EMAIL requis dans .env ou paramètre sender_email."
     try:
