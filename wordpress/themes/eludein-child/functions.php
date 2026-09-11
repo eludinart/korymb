@@ -258,6 +258,18 @@ function eludein_child_filter_custom_css($css)
         $css
     ) ?? $css;
 
+    $css = preg_replace('/\.container\{width:2697px\}/i', '.container{width:100%;max-width:1160px}', $css) ?? $css;
+    $css = preg_replace(
+        '/\.sidebar-main,\.widget-area\{width:22%\s*!important\}/i',
+        '.sidebar-main,.widget-area{width:100%!important}',
+        $css
+    ) ?? $css;
+    $css = preg_replace(
+        '/\.content-area\{width:78%\s*!important\}/i',
+        '.content-area{width:100%!important}',
+        $css
+    ) ?? $css;
+
     return $css;
 }
 add_filter('wp_get_custom_css', 'eludein_child_filter_custom_css');
@@ -298,7 +310,15 @@ function eludein_child_late_contrast_css(): void
         . 'body.oceanwp-theme.page.content-full-width .entry .alignfull,'
         . 'body.oceanwp-theme .entry-content .alignfull,body.oceanwp-theme .entry-content .alignwide'
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
-        . '#content-wrap,#primary,.entry-content{overflow-x:clip;max-width:100%;}'
+        . '#content-wrap,#primary,.entry-content{overflow-x:clip;}'
+        . 'body.has-sidebar #content-wrap.container{display:flex!important;flex-direction:column!important;'
+        . 'float:none!important;width:100%!important;max-width:1160px!important;'
+        . 'margin-left:auto!important;margin-right:auto!important;}'
+        . 'body.has-sidebar #primary,body.has-sidebar .content-area,body.has-sidebar #right-sidebar,'
+        . 'body.has-sidebar .widget-area,body.has-sidebar .sidebar-main'
+        . '{float:none!important;width:100%!important;max-width:100%!important;border:0!important;}'
+        . 'body.woocommerce-cart #right-sidebar,body.woocommerce-checkout #right-sidebar,'
+        . 'body.woocommerce-account #right-sidebar{display:none!important;}'
         . '#site-header #site-navigation-wrap .dropdown-menu > li > a{text-transform:none!important;}'
         . '#site-header #menu-main-menu > li:hover > ul.sub-menu,'
         . '#site-header #menu-main-menu > li.sfHover > ul.sub-menu'

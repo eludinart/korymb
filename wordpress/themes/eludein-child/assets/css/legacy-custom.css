@@ -53,12 +53,9 @@ img.emoji {
 
 @media (min-width: 1024px) {
   body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .sidebar-main,
-  body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .widget-area {
-    width: 22% !important;
-  }
-
+  body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .widget-area,
   body:not(.woocommerce-page):not(.woocommerce-cart):not(.woocommerce-checkout) .content-area {
-    width: 78% !important;
+    width: 100% !important;
   }
 }
 
