@@ -121,14 +121,14 @@ function eludein_child_rewrite_style_attribute($match)
 
     if (!$keep_light_text) {
         $style = preg_replace(
-            '/(?<!-)color:\s*(#fff|#ffffff|#fefefe)(\s*!important)?/i',
+            '/(?<!-)color:\s*(#ffffff|#fefefe|#fff)(\s*!important)?/i',
             'color: #243028$2',
             $style
         ) ?? $style;
     }
 
     $style = preg_replace(
-        '/(?<!-)color:\s*(#f0c3c3|#eabebe|#f2c2c2|#e3b15b|#e9c764|#fdd888|#f2ca8e|#d1d1d1|#ccc|#cccccc|#eee|#eeeeee|#ddd|#dddddd|#777|#777777|#999|#999999)(\s*!important)?/i',
+        '/(?<!-)color:\s*(#f0c3c3|#eabebe|#f2c2c2|#e3b15b|#e9c764|#fdd888|#f2ca8e|#d1d1d1|#cccccc|#eeeeee|#dddddd|#777777|#999999|#ccc|#eee|#ddd|#777|#999)(\s*!important)?/i',
         'color: #1a1816$2',
         $style
     ) ?? $style;
