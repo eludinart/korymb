@@ -410,7 +410,8 @@ function eludein_child_late_contrast_css(): void
         . 'html:has(body.page-id-592){font-size:22px!important;}'
         . 'body.page-id-592,body.page-id-592.oceanwp-theme{font-size:22px!important;line-height:1.7!important;}'
         . 'body.page-id-592 .entry p,body.page-id-592 .entry li{font-size:1.32rem!important;line-height:1.75!important;}'
-        . 'body.page-id-592 .eludein-tarot-hero p{font-size:1.48rem!important;}'
+        . 'body.page-id-592 .eludein-tarot-hero p,body.page-id-592 .eludein-tarot-hero__lead p'
+        . '{font-size:1.48rem!important;}'
         . 'body.page-id-592 .entry h2,body.page-id-592 .entry h2.wp-block-heading'
         . '{font-size:clamp(2.15rem,3.4vw,2.85rem)!important;}'
         . '</style>' . "\n";

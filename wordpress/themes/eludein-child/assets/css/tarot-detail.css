@@ -234,6 +234,13 @@ body.page-id-592 .entry > p.has-text-align-center {
   font-size: 1.38rem !important;
 }
 
+body.page-id-592 .eludein-tarot-hero p,
+body.page-id-592 .eludein-tarot-hero__lead p,
+body.page-id-592 .eludein-tarot-hero p.wp-block-paragraph {
+  font-size: 1.48rem !important;
+  line-height: 1.68 !important;
+}
+
 body.page-id-592 .entry ul:not(.eludein-tarot-anatomy):not(.eludein-tarot-audience):not(.eludein-tarot-box),
 body.page-id-592 .entry ol:not(.eludein-tarot-families) {
   margin: 0 0 1.5rem;
