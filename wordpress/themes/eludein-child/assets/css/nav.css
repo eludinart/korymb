@@ -171,17 +171,22 @@
   font-weight: 600;
 }
 
-/* Sous-menus : collés au parent (pas d’espace mort au survol). */
+/* Sous-menus : collés au parent, contenus dans le viewport.
+   Ne pas centrer (left:50% + translateX) : un panneau large sort à gauche. */
 #site-header .dropdown-menu .sub-menu,
 #site-header #menu-main-menu > li > ul.sub-menu {
   position: absolute !important;
   top: calc(100% - 2px) !important;
-  left: 50% !important;
+  left: 0 !important;
   right: auto !important;
-  transform: translateX(-50%);
+  transform: none !important;
   margin: 0 !important;
   padding: 10px 0.45rem 0.45rem !important;
-  min-width: 268px !important;
+  width: max-content;
+  min-width: 13.5rem !important;
+  max-width: min(22.5rem, calc(100vw - 1.5rem)) !important;
+  box-sizing: border-box;
+  overflow: hidden;
   border: 1px solid var(--eludein-line, #d9cdb8) !important;
   border-radius: 16px !important;
   background: #fffefb !important;
@@ -197,7 +202,17 @@
   visibility: visible !important;
   opacity: 1 !important;
   pointer-events: auto !important;
-  left: 50% !important;
+  left: 0 !important;
+  right: auto !important;
+  transform: none !important;
+}
+
+/* Dernier item de la rangée principale (ex. Jardin) : ouvrir vers la gauche. */
+#site-header #menu-main-menu > li.menu-item-has-children:has(+ .eludein-nav-utility) > ul.sub-menu,
+#site-header #menu-main-menu > li.menu-item-has-children:has(+ .eludein-nav-utility):hover > ul.sub-menu,
+#site-header #menu-main-menu > li.menu-item-has-children:has(+ .eludein-nav-utility).sfHover > ul.sub-menu {
+  left: auto !important;
+  right: 0 !important;
 }
 
 #site-header .dropdown-menu .sub-menu li {
@@ -212,13 +227,18 @@
   text-transform: none !important;
   color: var(--eludein-ink, #1a1816) !important;
   line-height: 1.35 !important;
+  white-space: normal !important;
 }
 
 #site-header .dropdown-menu .sub-menu a {
   display: block !important;
   padding: 0.7em 0.95em !important;
   border-radius: 11px;
-  white-space: normal;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 #site-header .dropdown-menu .sub-menu a:hover,
