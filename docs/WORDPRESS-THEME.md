@@ -38,6 +38,7 @@ wordpress/themes/eludein-child/
   functions.php             # enqueue CSS uniquement
   assets/css/legacy-custom.css
   assets/css/refresh.css
+  assets/css/layout.css
   assets/css/woocommerce.css
 ```
 

@@ -1,0 +1,243 @@
+/**
+ * Grille, alignements, blocs Gutenberg / Kadence.
+ * Ne masque aucun champ WooCommerce.
+ */
+
+body.oceanwp-theme,
+body.oceanwp-theme * {
+  box-sizing: border-box;
+}
+
+.has-sidebar .content-area,
+.has-sidebar .entry-content,
+.has-sidebar #content {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Sidebar à gauche : une vraie grille au lieu des flottants OceanWP. */
+@media (min-width: 960px) {
+  body.content-left-sidebar #content-wrap.container,
+  body.content-right-sidebar #content-wrap.container {
+    display: grid !important;
+    align-items: start;
+    column-gap: 2.25rem;
+    float: none !important;
+    width: 100% !important;
+    max-width: 1200px;
+  }
+
+  body.content-left-sidebar #content-wrap.clr::before,
+  body.content-left-sidebar #content-wrap.clr::after,
+  body.content-right-sidebar #content-wrap.clr::before,
+  body.content-right-sidebar #content-wrap.clr::after {
+    content: none !important;
+    display: none !important;
+  }
+
+  body.content-left-sidebar #content-wrap.container {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  }
+
+  body.content-right-sidebar #content-wrap.container {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+  }
+
+  body.content-left-sidebar #content-wrap > #right-sidebar,
+  body.content-left-sidebar #content-wrap > #left-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+    float: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.content-left-sidebar #content-wrap > #primary,
+  body.content-left-sidebar #content-wrap > .content-area {
+    grid-column: 2;
+    grid-row: 1;
+    float: none !important;
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.content-right-sidebar #content-wrap > #primary,
+  body.content-right-sidebar #content-wrap > .content-area {
+    grid-column: 1;
+    grid-row: 1;
+    float: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  body.content-right-sidebar #content-wrap > #right-sidebar {
+    grid-column: 2;
+    grid-row: 1;
+    float: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+}
+
+/* Les largeurs 22%/78% du CSS historique cassaient la grille. */
+@media (min-width: 1024px) {
+  body.has-sidebar .sidebar-main,
+  body.has-sidebar .widget-area,
+  body.has-sidebar .content-area {
+    width: auto !important;
+  }
+}
+
+/* Blocs alignfull / alignwide : rester dans la colonne, pas 100vw. */
+.has-sidebar .entry-content > .alignfull,
+.has-sidebar .entry-content > .alignwide,
+.has-sidebar .entry-content .alignfull,
+.has-sidebar .entry-content .alignwide,
+.has-sidebar .entry-content .wp-block-group.alignfull,
+.has-sidebar .entry-content .wp-block-columns.alignwide,
+.has-sidebar .entry-content .wp-block-cover {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  left: auto !important;
+  right: auto !important;
+  position: relative !important;
+}
+
+.has-sidebar .entry-content .wp-block-columns {
+  flex-wrap: wrap;
+}
+
+.has-sidebar .entry-content .wp-block-column {
+  flex-basis: auto;
+  min-width: 0;
+}
+
+/* En-tête de page : bandeau crème, plus le liseré or. */
+.page-header,
+.centered-page-header,
+body.oceanwp-theme .page-header {
+  background: var(--eludein-paper, #fbf7f1) !important;
+  background-color: var(--eludein-paper, #fbf7f1) !important;
+  border-bottom: 1px solid var(--eludein-line, #d9cdb8) !important;
+  padding: 1.15rem 0 1rem !important;
+  margin-bottom: 1.5rem !important;
+}
+
+.page-header-title,
+.page-header h1,
+body.oceanwp-theme .page-header-title {
+  color: var(--eludein-forest-deep, #243028) !important;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-size: clamp(1.55rem, 2.6vw, 2.15rem) !important;
+}
+
+/* Covers « light » : fond papier, texte encre (plus de rose pâle). */
+.entry-content .wp-block-cover.is-light {
+  color: var(--eludein-ink, #1a1816) !important;
+  background: var(--eludein-paper, #fbf7f1) !important;
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: var(--eludein-radius, 14px);
+  min-height: 0 !important;
+  margin: 0 0 1.5rem !important;
+  padding: 1.6rem 1.7rem !important;
+}
+
+.entry-content .wp-block-cover.is-light .wp-block-cover__background,
+.entry-content .wp-block-cover.is-light .wp-block-cover__image-background {
+  background: var(--eludein-paper, #fbf7f1) !important;
+  background-color: var(--eludein-paper, #fbf7f1) !important;
+  opacity: 1 !important;
+}
+
+.entry-content .wp-block-cover.is-light .wp-block-cover__inner-container {
+  color: var(--eludein-ink, #1a1816) !important;
+}
+
+.entry-content .wp-block-cover.is-light,
+.entry-content .wp-block-cover.is-light p,
+.entry-content .wp-block-cover.is-light h1,
+.entry-content .wp-block-cover.is-light h2,
+.entry-content .wp-block-cover.is-light h3,
+.entry-content .wp-block-cover.is-light h4,
+.entry-content .wp-block-cover.is-light li,
+.entry-content .wp-block-cover.is-light strong,
+.entry-content .wp-block-cover.is-light a:not(.wp-block-button__link):not(.button) {
+  color: var(--eludein-ink, #1a1816) !important;
+}
+
+/* Colonnes / cartes de même hauteur. */
+.entry-content .wp-block-columns,
+.entry-content .kt-row-column-wrap,
+.entry-content .kb-row-layout-wrap {
+  align-items: stretch !important;
+  gap: 1.35rem;
+}
+
+.entry-content .wp-block-column,
+.entry-content .wp-block-kadence-column,
+.entry-content .kt-inside-inner-col {
+  min-width: 0;
+}
+
+.entry-content .kt-inside-inner-col {
+  height: 100%;
+}
+
+/* Accueil : le cadre 900px ne doit pas flotter au milieu de la colonne. */
+.has-sidebar .entry-content > div[style*="max-width"] {
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+/* Sidebar : colonne régulière. */
+#right-sidebar .sidebar-box,
+#left-sidebar .sidebar-box {
+  margin-bottom: 1rem;
+}
+
+#right-sidebar .widget_block .wp-block-buttons,
+#left-sidebar .widget_block .wp-block-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+#right-sidebar .wp-block-button,
+#left-sidebar .wp-block-button,
+#right-sidebar .wp-block-button__link,
+#left-sidebar .wp-block-button__link {
+  width: 100%;
+  text-align: center;
+}
+
+/* Boutons CTA or : texte foncé lisible. */
+.entry-content a.wp-block-button__link[style*="background: #e3b15b"],
+.entry-content a.wp-block-button__link[style*="background:#e3b15b"] {
+  color: #1a1816 !important;
+}
+
+@media (max-width: 959px) {
+  body.content-left-sidebar #content-wrap.container,
+  body.content-right-sidebar #content-wrap.container {
+    display: block !important;
+  }
+
+  .page-header {
+    padding: 0.9rem 1rem !important;
+  }
+
+  .entry-content .wp-block-cover.is-light {
+    padding: 1.2rem 1.15rem !important;
+  }
+}

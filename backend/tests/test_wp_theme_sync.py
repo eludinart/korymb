@@ -36,11 +36,17 @@ def test_child_theme_beats_customizer_gold():
     functions = (REPO / "wordpress/themes/eludein-child/functions.php").read_text(encoding="utf-8")
     woo = (REPO / "wordpress/themes/eludein-child/assets/css/woocommerce.css").read_text(encoding="utf-8")
     refresh = (REPO / "wordpress/themes/eludein-child/assets/css/refresh.css").read_text(encoding="utf-8")
+    layout = (REPO / "wordpress/themes/eludein-child/assets/css/layout.css").read_text(encoding="utf-8")
     assert "eludein_child_filter_custom_css" in functions
     assert "eludein_child_late_contrast_css" in functions
+    assert "eludein_child_rewrite_style_attribute" in functions
+    assert "#f0c3c3" in functions
     assert "body.oceanwp-theme.woocommerce ul.products li.product h2 a" in woo
     assert "#243028" in woo
     assert "search-toggle-li" in refresh
+    assert "grid-template-columns" in layout
+    assert "wp-block-cover.is-light" in layout
+    assert "alignfull" in layout
 
 
 def test_local_theme_files_exist():
@@ -49,6 +55,7 @@ def test_local_theme_files_exist():
     assert "style.css" in names
     assert "functions.php" in names
     assert "refresh.css" in names
+    assert "layout.css" in names
     assert "woocommerce.css" in names
     assert "legacy-custom.css" in names
     for path in files:

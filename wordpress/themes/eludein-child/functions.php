@@ -38,11 +38,18 @@ function eludein_child_enqueue_styles(): void
         $ver
     );
 
+    wp_enqueue_style(
+        'eludein-child-layout',
+        $base . '/assets/css/layout.css',
+        array('eludein-child-refresh'),
+        $ver
+    );
+
     if (class_exists('WooCommerce')) {
         wp_enqueue_style(
             'eludein-child-woocommerce',
             $base . '/assets/css/woocommerce.css',
-            array('eludein-child-refresh'),
+            array('eludein-child-layout'),
             $ver
         );
     }
@@ -68,7 +75,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nlayout.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -88,24 +95,45 @@ function eludein_child_readable_inline_colors($html)
         return $html;
     }
 
-    $map = array(
-        'color: #e3b15b !important' => 'color: #243028 !important',
-        'color: #E3B15B !important' => 'color: #243028 !important',
-        'color: #d1d1d1 !important' => 'color: #1a1816 !important',
-        'color: #ccc !important' => 'color: #2a2724 !important',
-        'color: #CCCCCC !important' => 'color: #2a2724 !important',
-        'color: #777 !important' => 'color: #3a3530 !important',
-        'color: #777777 !important' => 'color: #3a3530 !important',
-        'color: #999 !important' => 'color: #3a3530 !important',
-        'color: #999999 !important' => 'color: #3a3530 !important',
-    );
-    $html = str_ireplace(array_keys($map), array_values($map), $html);
-
-    return preg_replace(
-        '/color:\s*#ffffff\s*!important;\s*font-weight:\s*bold\s*!important;\s*font-size:\s*12px/i',
-        'color: #3f4a3a !important; font-weight: bold !important; font-size: 12px',
+    $rewritten = preg_replace_callback(
+        '/style=(["\'])([^"\']*)\1/i',
+        'eludein_child_rewrite_style_attribute',
         $html
-    ) ?? $html;
+    );
+
+    return is_string($rewritten) ? $rewritten : $html;
+}
+
+/**
+ * Assombrit les couleurs de texte pâles dans un attribut style.
+ * Ne touche pas au texte blanc posé sur un fond or / forêt (CTA).
+ *
+ * @param array $match
+ */
+function eludein_child_rewrite_style_attribute($match)
+{
+    $quote = $match[1];
+    $style = $match[2];
+    $keep_light_text = (bool) preg_match(
+        '/background(?:-color)?:\s*(#e3b15b|#c4923a|#b8873a|#3f4a3a|#243028|#111|#000|#1a1f18|#1a1816)/i',
+        $style
+    );
+
+    if (!$keep_light_text) {
+        $style = preg_replace(
+            '/(?<!-)color:\s*(#fff|#ffffff|#fefefe)(\s*!important)?/i',
+            'color: #243028$2',
+            $style
+        ) ?? $style;
+    }
+
+    $style = preg_replace(
+        '/(?<!-)color:\s*(#f0c3c3|#eabebe|#f2c2c2|#e3b15b|#e9c764|#fdd888|#f2ca8e|#d1d1d1|#ccc|#cccccc|#eee|#eeeeee|#ddd|#dddddd|#777|#777777|#999|#999999)(\s*!important)?/i',
+        'color: #1a1816$2',
+        $style
+    ) ?? $style;
+
+    return 'style=' . $quote . $style . $quote;
 }
 add_filter('the_content', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
@@ -159,6 +187,14 @@ function eludein_child_late_contrast_css(): void
         . '#site-header.medium-header #site-navigation-wrap,'
         . '#site-header.medium-header .oceanwp-mobile-menu-icon{background-color:#fbf7f1!important;}'
         . '#site-header.medium-header .search-toggle-li{display:none!important;}'
+        . '.page-header,.centered-page-header{background:#fbf7f1!important;color:#243028!important;}'
+        . '.page-header-title{color:#243028!important;}'
+        . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
+        . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
+        . '.entry-content .wp-block-cover.is-light h3,.entry-content .wp-block-cover.is-light li,'
+        . '.entry-content .wp-block-cover.is-light strong{color:#1a1816!important;}'
+        . '.has-sidebar .entry-content .alignfull,.has-sidebar .entry-content .alignwide'
+        . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
