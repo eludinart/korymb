@@ -31,7 +31,11 @@ body.page-id-592 .entry .wp-block-spacer {
 /* ——— Héro ——— */
 .eludein-tarot-hero {
   margin: 0 0 3.4rem;
+  padding: 0;
   text-align: center;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .eludein-tarot-hero__kicker {
@@ -54,11 +58,11 @@ body.page-id-592 .entry .wp-block-spacer {
 
 .eludein-tarot-hero > h1 {
   margin: 0 auto 0.4rem;
-  max-width: 18ch;
+  max-width: 16ch;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(2.6rem, 4.2vw, 3.9rem);
+  font-size: clamp(2.75rem, 4.4vw, 4.15rem);
   font-weight: 600;
-  line-height: 1.12;
+  line-height: 1.1;
   letter-spacing: -0.03em;
   color: var(--eludein-forest-deep, #243028);
 }
@@ -68,8 +72,13 @@ body.page-id-592 .entry .wp-block-spacer {
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   gap: 2rem 2.75rem;
   align-items: center;
-  margin-top: 2.35rem;
+  margin-top: 2.5rem;
+  padding: 2.15rem 2.35rem 2.2rem;
   text-align: left;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid #e2d0ae;
+  border-radius: 28px;
+  box-shadow: 0 24px 50px rgba(36, 48, 40, 0.08);
 }
 
 .eludein-tarot-hero__visual {
@@ -162,13 +171,17 @@ body.page-id-592 .entry li {
 body.page-id-592 .wp-block-table,
 body.page-id-592 figure.wp-block-table {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9.4rem, 1fr));
-  gap: 1.15rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.25rem;
   margin: 1.75rem 0 2.4rem;
   padding: 0;
   border: 0;
   background: none;
   overflow: visible;
+}
+
+body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)) {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 body.page-id-592 .wp-block-table table,

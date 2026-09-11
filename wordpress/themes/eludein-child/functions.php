@@ -356,6 +356,7 @@ function eludein_child_late_contrast_css(): void
         . '.eludein-header-cta{font-size:14.5px!important;}'
         . '.eludein-shop-intro__title{font-size:clamp(2.7rem,3.4vw,3.85rem)!important;}'
         . '.eludein-shop-intro__lead{font-size:1.38rem!important;line-height:1.65!important;}'
+        . 'body.page-id-592 .page-header,body.page-id-592 .centered-page-header{display:none!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
         . '.entry-content .wp-block-cover.is-light h3,.entry-content .wp-block-cover.is-light li,'
