@@ -16,7 +16,10 @@
     "check:backend": "python -m compileall -q backend",
     "check:backend:tests": "cd backend && python -m pytest tests/ evals/ -q",
     "generate:api-schema": "node tools/generate-api-schema.mjs",
-    "check": "npm run check:suspense && npm run build && npm run check:backend && npm run check:backend:tests"
+    "check": "npm run check:suspense && npm run build && npm run check:backend && npm run check:backend:tests",
+    "wp:theme:pack": "python3 scripts/wp_theme_pack.py",
+    "wp:theme:sync": "python3 scripts/wp_theme_sync.py",
+    "wp:theme:status": "python3 scripts/wp_theme_sync.py status"
   },
   "dependencies": {},
   "devDependencies": {}

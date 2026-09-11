@@ -1,0 +1,656 @@
+/**
+ * Dossier « Le Tarot Fleur d’ÅmÔurs en détail ».
+ * Mise en page éditoriale — ne remplace pas le contenu WordPress.
+ */
+
+html:has(body.page-id-592) {
+  font-size: 22px;
+}
+
+body.page-id-592 {
+  overflow-x: clip;
+  font-size: 22px !important;
+  line-height: 1.7 !important;
+  background:
+    radial-gradient(ellipse 90% 42% at 50% -8%, rgba(201, 161, 74, 0.16), transparent 58%),
+    radial-gradient(ellipse 50% 28% at 100% 12%, rgba(63, 74, 58, 0.07), transparent 70%),
+    var(--eludein-cream, #f4efe6);
+}
+
+body.page-id-592 .page-header,
+body.page-id-592 .centered-page-header {
+  display: none !important;
+}
+
+body.page-id-592 #right-sidebar,
+body.page-id-592 #left-sidebar {
+  display: none !important;
+}
+
+body.page-id-592 #content-wrap,
+body.page-id-592 #primary,
+body.page-id-592 .entry-content,
+body.page-id-592 .entry {
+  overflow: visible !important;
+}
+
+body.page-id-592 #content-wrap.container {
+  max-width: 1180px !important;
+  padding-top: 0.4rem;
+  overflow: visible !important;
+}
+
+body.page-id-592.page #content .entry {
+  max-width: 1120px;
+  margin: 0 auto 4rem;
+  padding: 0 0.2rem 2.5rem;
+}
+
+body.page-id-592 .entry .wp-block-spacer {
+  display: none;
+}
+
+body.page-id-592 .entry hr {
+  border: 0;
+  height: 1px;
+  margin: 2.8rem auto;
+  max-width: 12rem;
+  background: linear-gradient(90deg, transparent, #c9a14a, transparent);
+}
+
+/* ——— Héro ——— */
+.eludein-tarot-hero {
+  margin: 0.4rem 0 3.8rem;
+  padding: 1.6rem 0 0;
+  text-align: center;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.eludein-tarot-hero__kicker {
+  margin: 0 0 1.1rem;
+  font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-hero__kicker::after {
+  content: "";
+  display: block;
+  width: 2.6rem;
+  height: 2px;
+  margin: 0.85rem auto 0;
+  background: #c9a14a;
+}
+
+.eludein-tarot-hero > h1 {
+  margin: 0 auto 0.35rem;
+  max-width: 14ch;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(3.1rem, 7.2vw, 5.4rem);
+  font-weight: 600;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+.eludein-tarot-hero__kicker-line {
+  display: block;
+  margin-bottom: 0.42em;
+  font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
+  font-size: 0.22em;
+  font-weight: 600;
+  letter-spacing: 0.38em;
+  text-transform: uppercase;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-hero__detail {
+  display: block;
+  margin-top: 0.38em;
+  font-size: 0.26em;
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: 0.18em;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-hero__stage {
+  display: grid;
+  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  gap: 2.4rem 3.2rem;
+  align-items: center;
+  margin-top: 2.8rem;
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+
+.eludein-tarot-hero__visual {
+  position: relative;
+  margin: 0 auto;
+  max-width: 340px;
+}
+
+.eludein-tarot-hero__visual::before {
+  content: "";
+  position: absolute;
+  inset: -14%;
+  z-index: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(201, 161, 74, 0.28), transparent 62%),
+    radial-gradient(circle at 50% 50%, rgba(251, 247, 241, 0.9), transparent 72%);
+}
+
+.eludein-tarot-hero__lead {
+  position: relative;
+  min-width: 0;
+  padding-left: 1.6rem;
+}
+
+.eludein-tarot-hero__lead::before {
+  content: "";
+  position: absolute;
+  top: 0.35rem;
+  bottom: 0.35rem;
+  left: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #c9a14a, rgba(201, 161, 74, 0.1));
+}
+
+.eludein-tarot-hero .wp-block-image,
+.eludein-tarot-hero figure,
+.eludein-tarot-hero figure.alignleft {
+  position: relative;
+  z-index: 1;
+  float: none !important;
+  margin: 0 auto !important;
+  max-width: 340px;
+  width: 100%;
+}
+
+.eludein-tarot-hero figure.alignleft img,
+.eludein-tarot-hero img {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  filter: drop-shadow(0 22px 40px rgba(36, 48, 40, 0.16));
+}
+
+body.page-id-592 .eludein-tarot-hero p,
+body.page-id-592 .eludein-tarot-hero__lead p {
+  margin: 0 0 1.2rem;
+  font-size: 1.48rem !important;
+  line-height: 1.68 !important;
+  color: #2c2824;
+}
+
+body.page-id-592 .eludein-tarot-hero p:last-child {
+  margin-bottom: 0;
+}
+
+/* ——— Corps ——— */
+body.page-id-592 .entry > h2,
+body.page-id-592 .entry h2.wp-block-heading {
+  margin: 3.4rem 0 1.1rem;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(2.15rem, 3.4vw, 2.85rem) !important;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+body.page-id-592 .entry > h3,
+body.page-id-592 .entry h3.wp-block-heading {
+  margin: 2.3rem 0 0.8rem;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(1.55rem, 2.3vw, 2rem) !important;
+  font-weight: 600;
+  line-height: 1.28;
+  color: var(--eludein-forest, #3f4a3a);
+}
+
+body.page-id-592 .entry > p,
+body.page-id-592 .entry p.wp-block-paragraph,
+body.page-id-592 .entry .eludein-tarot-appendix p {
+  margin: 0 0 1.25rem;
+  font-size: 1.32rem !important;
+  line-height: 1.75 !important;
+  color: #2a2622;
+}
+
+body.page-id-592 .entry > p.has-text-align-center {
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 1.38rem !important;
+}
+
+body.page-id-592 .eludein-tarot-hero p,
+body.page-id-592 .eludein-tarot-hero__lead p,
+body.page-id-592 .eludein-tarot-hero p.wp-block-paragraph {
+  font-size: 1.48rem !important;
+  line-height: 1.68 !important;
+}
+
+body.page-id-592 .entry ul:not(.eludein-tarot-anatomy):not(.eludein-tarot-audience):not(.eludein-tarot-box),
+body.page-id-592 .entry ol:not(.eludein-tarot-families) {
+  margin: 0 0 1.5rem;
+  padding-left: 1.2rem;
+}
+
+body.page-id-592 .entry li {
+  margin: 0 0 0.55rem;
+  font-size: 1.28rem !important;
+  line-height: 1.65;
+}
+
+body.page-id-592 .has-small-font-size,
+body.page-id-592 .has-regular-font-size,
+body.page-id-592 .has-medium-font-size {
+  font-size: 1.32rem !important;
+}
+
+body.page-id-592 .entry img.alignleft,
+body.page-id-592 .entry img.alignright {
+  float: none !important;
+  display: block;
+  margin: 0 auto 1.2rem !important;
+}
+
+/* ——— Quatre familles ——— */
+.eludein-tarot-families {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1.8rem 0 2.6rem;
+  padding: 0;
+  list-style: none;
+}
+
+.eludein-tarot-families__item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0 !important;
+  padding: 1.25rem 1.15rem 1.3rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 18px;
+  box-shadow: 0 16px 34px rgba(36, 48, 40, 0.06);
+  font-size: 1.12rem !important;
+}
+
+.eludein-tarot-families__index {
+  font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-families__name {
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: 1.22rem;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+.eludein-tarot-families__desc {
+  font-size: 1.08rem;
+  line-height: 1.45;
+  color: var(--eludein-muted, #3a3530);
+}
+
+/* ——— Galeries de cartes ——— */
+.eludein-tarot-gallery,
+body.page-id-592 .wp-block-table,
+body.page-id-592 figure.wp-block-table,
+body.page-id-592 figure.eludein-tarot-gallery {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.35rem 1.15rem;
+  margin: 1.9rem 0 2.6rem;
+  padding: 1.35rem 1.15rem 1.45rem;
+  border: 1px solid rgba(201, 161, 74, 0.28);
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(251, 247, 241, 0.65), rgba(244, 239, 230, 0.35));
+  overflow: visible;
+  justify-items: stretch;
+  align-items: stretch;
+}
+
+.eludein-tarot-gallery--5,
+body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)),
+body.page-id-592 figure.eludein-tarot-gallery:has(tr:nth-child(5)) {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+body.page-id-592 .wp-block-table table,
+body.page-id-592 .wp-block-table tbody,
+body.page-id-592 .wp-block-table tr {
+  display: contents;
+}
+
+body.page-id-592 .wp-block-table td {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: 0 !important;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.eludein-tarot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0.45rem 0.45rem 0.7rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 16px;
+  box-shadow: 0 14px 30px rgba(36, 48, 40, 0.08);
+  overflow: hidden;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+
+.eludein-tarot-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 22px 42px rgba(36, 48, 40, 0.14);
+}
+
+body.page-id-592 .wp-block-table td img,
+body.page-id-592 .wp-block-table img,
+body.page-id-592 .eludein-tarot-gallery img,
+.eludein-tarot-card img {
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 100% !important;
+  height: auto !important;
+  margin: 0 !important;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  object-position: center top;
+  border-radius: 10px;
+  display: block;
+  align-self: stretch;
+}
+
+.eludein-tarot-card__name {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0.5rem 0 0;
+  padding: 0 0.35rem;
+  font-family: var(--eludein-sans, "Source Sans 3", sans-serif);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--eludein-forest-deep, #243028);
+  text-align: center;
+  white-space: normal;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.eludein-tarot-minis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 13rem));
+  justify-content: center;
+  gap: 1.6rem 2rem;
+  margin: 1.4rem 0 1.8rem;
+}
+
+.eludein-tarot-card--mini {
+  max-width: 13rem;
+}
+
+/* ——— Huit formes ——— */
+.eludein-tarot-forms {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+  margin: 1.5rem 0 2.1rem;
+}
+
+.eludein-tarot-form {
+  margin: 0 !important;
+  padding: 1.05rem 1.15rem 1.1rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 16px;
+  font-size: 1.22rem !important;
+  line-height: 1.55 !important;
+  color: #2a2622;
+}
+
+.eludein-tarot-form__name {
+  display: block;
+  margin-bottom: 0.28rem;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: 1.48rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+/* ——— Anatomie / public / boîte ——— */
+.eludein-tarot-anatomy,
+.eludein-tarot-audience,
+.eludein-tarot-box {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem 1rem;
+  margin: 1.35rem 0 2rem;
+  padding: 0;
+  list-style: none;
+}
+
+.eludein-tarot-anatomy li,
+.eludein-tarot-audience li,
+.eludein-tarot-box li {
+  margin: 0 !important;
+  padding: 1.05rem 1.15rem 1.15rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 16px;
+  font-size: 1.22rem !important;
+  line-height: 1.55;
+}
+
+.eludein-tarot-box {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.eludein-tarot-box li {
+  padding: 1.4rem 1.35rem 1.5rem;
+  font-size: 1.28rem !important;
+}
+
+/* ——— Manifeste ——— */
+.eludein-tarot-manifesto {
+  box-sizing: border-box;
+  margin: 3.2rem 0 0;
+  padding: 3.6rem 2rem 3.4rem;
+  width: 100%;
+  max-width: none;
+  background:
+    radial-gradient(ellipse 70% 80% at 50% 0%, rgba(201, 161, 74, 0.18), transparent 58%),
+    #243028;
+  border: 0;
+  border-radius: 28px;
+  text-align: center;
+}
+
+.eludein-tarot-manifesto h1,
+.eludein-tarot-manifesto h1.wp-block-heading {
+  margin: 0 auto;
+  max-width: 22ch;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(2.15rem, 4vw, 3.2rem) !important;
+  font-weight: 500;
+  font-style: italic;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  color: #fbf7f1 !important;
+}
+
+.eludein-tarot-manifesto h1::before,
+.eludein-tarot-manifesto h1::after {
+  content: "";
+  display: block;
+  width: 3rem;
+  height: 1px;
+  margin: 1.35rem auto;
+  background: #c9a14a;
+}
+
+.eludein-tarot-manifesto h1::after {
+  margin-bottom: 0;
+}
+
+/* ——— CTA ——— */
+.eludein-tarot-cta {
+  margin: 2.8rem 0 1.2rem;
+  padding: 2.6rem 1.5rem 2.7rem;
+  width: 100%;
+  max-width: none;
+  background:
+    radial-gradient(ellipse 70% 90% at 50% 0%, rgba(201, 161, 74, 0.2), transparent 62%),
+    var(--eludein-paper, #fbf7f1);
+  border: 1px solid #e2d0ae;
+  border-radius: 28px;
+  text-align: center;
+}
+
+body.page-id-592 .eludein-tarot-cta .wp-block-buttons,
+body.page-id-592 .wp-block-buttons {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+
+body.page-id-592 .wp-block-button__link {
+  padding: 1.05em 2.1em !important;
+  font-size: 1.15rem !important;
+}
+
+/* ——— Chapitre système ——— */
+.eludein-tarot-appendix {
+  margin: 1.6rem 0 0;
+  padding: 2.8rem 0 1.5rem;
+  width: 100%;
+  max-width: none;
+  background: none;
+  border-top: 1px solid #e2d0ae;
+}
+
+.eludein-tarot-appendix > * {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.eludein-tarot-appendix__kicker {
+  margin: 0 0 0.7rem !important;
+  font-size: 0.95rem !important;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-appendix h2 {
+  text-align: center;
+}
+
+body.page-id-592 .sharedaddy,
+body.page-id-592 .sd-sharing {
+  margin-top: 2.4rem;
+  opacity: 0.8;
+}
+
+@media (max-width: 980px) {
+  .eludein-tarot-families {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .eludein-tarot-gallery--5,
+  body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)),
+  body.page-id-592 figure.eludein-tarot-gallery:has(tr:nth-child(5)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .eludein-tarot-hero > h1 {
+    max-width: none;
+  }
+
+  .eludein-tarot-hero__stage {
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    text-align: center;
+  }
+
+  .eludein-tarot-hero__lead {
+    padding-left: 0;
+  }
+
+  .eludein-tarot-hero__lead::before {
+    display: none;
+  }
+
+  .eludein-tarot-hero .wp-block-image,
+  .eludein-tarot-hero figure {
+    max-width: 260px;
+  }
+
+  .eludein-tarot-hero p,
+  body.page-id-592 .eludein-tarot-hero p,
+  body.page-id-592 .eludein-tarot-hero__lead p {
+    font-size: 1.38rem !important;
+  }
+
+  .eludein-tarot-gallery,
+  .eludein-tarot-gallery--4,
+  .eludein-tarot-gallery--5,
+  body.page-id-592 .wp-block-table,
+  body.page-id-592 figure.wp-block-table,
+  body.page-id-592 figure.eludein-tarot-gallery,
+  body.page-id-592 figure.wp-block-table:has(tr:nth-child(5)),
+  body.page-id-592 figure.eludein-tarot-gallery:has(tr:nth-child(5)) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem;
+    padding: 0.75rem;
+  }
+
+  .eludein-tarot-forms,
+  .eludein-tarot-anatomy,
+  .eludein-tarot-audience,
+  .eludein-tarot-box {
+    grid-template-columns: 1fr;
+  }
+}

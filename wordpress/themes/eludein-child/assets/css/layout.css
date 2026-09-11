@@ -1,0 +1,448 @@
+/**
+ * Grille, alignements, blocs Gutenberg / Kadence.
+ * Ne masque aucun champ WooCommerce.
+ */
+
+body.oceanwp-theme,
+body.oceanwp-theme * {
+  box-sizing: border-box;
+}
+
+.has-sidebar .content-area,
+.has-sidebar .entry-content,
+.has-sidebar #content {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+/* Plus de bandeau latéral : contenu centré, widgets en salon sous la page. */
+body.content-left-sidebar #content-wrap.container,
+body.content-right-sidebar #content-wrap.container,
+body.has-sidebar #content-wrap.container {
+  display: flex !important;
+  flex-direction: column;
+  align-items: stretch;
+  float: none !important;
+  width: 100% !important;
+  max-width: 1280px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  gap: 2.75rem;
+}
+
+body.content-left-sidebar #content-wrap.clr::before,
+body.content-left-sidebar #content-wrap.clr::after,
+body.content-right-sidebar #content-wrap.clr::before,
+body.content-right-sidebar #content-wrap.clr::after,
+body.has-sidebar #content-wrap.clr::before,
+body.has-sidebar #content-wrap.clr::after {
+  content: none !important;
+  display: none !important;
+}
+
+body.has-sidebar #content-wrap > #primary,
+body.has-sidebar #content-wrap > .content-area,
+body.has-sidebar #content-wrap > #right-sidebar,
+body.has-sidebar #content-wrap > #left-sidebar,
+body.has-sidebar .sidebar-main,
+body.has-sidebar .widget-area {
+  float: none !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+}
+
+body.has-sidebar .content-area,
+body.has-sidebar #primary {
+  border-color: transparent !important;
+}
+
+/* Pages de lecture : mesure confortable, vraiment centrée. */
+body.page:not(.home):not(.woocommerce-page) #content .entry,
+body.single-post #content .entry {
+  max-width: 1040px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body.home #content .entry,
+body.woocommerce-page #content {
+  max-width: none;
+}
+
+/* WooCommerce : le salon n’encombre pas boutique, fiches, panier, commande. */
+body.woocommerce #right-sidebar,
+body.woocommerce-page #right-sidebar,
+body.woocommerce #left-sidebar,
+body.woocommerce-page #left-sidebar,
+body.woocommerce-shop #right-sidebar,
+body.single-product #right-sidebar,
+body.tax-product_cat #right-sidebar,
+body.woocommerce-cart #right-sidebar,
+body.woocommerce-checkout #right-sidebar,
+body.woocommerce-account #right-sidebar {
+  display: none !important;
+}
+
+/* Blocs alignfull / alignwide : rester dans la colonne, pas 100vw. */
+.entry-content > .alignfull,
+.entry-content > .alignwide,
+.entry-content .alignfull,
+.entry-content .alignwide,
+.entry-content .wp-block-group.alignfull,
+.entry-content .wp-block-columns.alignwide,
+.entry-content .wp-block-cover,
+.has-sidebar .entry-content > .alignfull,
+.has-sidebar .entry-content > .alignwide {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  left: auto !important;
+  right: auto !important;
+  position: relative !important;
+}
+
+body.oceanwp-theme.page .entry .alignfull,
+body.oceanwp-theme.page .entry .alignwide,
+body.oceanwp-theme.page.content-max-width .entry .alignfull,
+body.oceanwp-theme.page.content-max-width .entry .alignwide,
+body.oceanwp-theme.page.content-full-width .entry .alignfull,
+body.oceanwp-theme .entry-content [class*="wp-container-"] > .alignfull,
+body.oceanwp-theme .entry-content [class*="wp-container-"] > .alignwide {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#content-wrap,
+#primary,
+.entry-content,
+.site-content {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+body.content-full-width #content-wrap.container,
+body.content-max-width #content-wrap.container {
+  width: 100%;
+  max-width: 1200px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+
+.has-sidebar .entry-content .wp-block-columns {
+  flex-wrap: wrap;
+}
+
+.has-sidebar .entry-content .wp-block-column {
+  flex-basis: auto;
+  min-width: 0;
+}
+
+/* En-tête de page : bandeau crème, plus le liseré or. */
+.page-header,
+.centered-page-header,
+body.oceanwp-theme .page-header {
+  background: var(--eludein-paper, #fbf7f1) !important;
+  background-color: var(--eludein-paper, #fbf7f1) !important;
+  border-bottom: 1px solid var(--eludein-line, #d9cdb8) !important;
+  padding: 1.15rem 0 1rem !important;
+  margin-bottom: 1.5rem !important;
+}
+
+.page-header-title,
+.page-header h1,
+body.oceanwp-theme .page-header-title {
+  color: var(--eludein-forest-deep, #243028) !important;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-size: clamp(2.05rem, 3.2vw, 2.85rem) !important;
+}
+
+/* Covers « light » : fond papier, texte encre (plus de rose pâle). */
+.entry-content .wp-block-cover.is-light {
+  color: var(--eludein-ink, #1a1816) !important;
+  background: var(--eludein-paper, #fbf7f1) !important;
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: var(--eludein-radius, 14px);
+  min-height: 0 !important;
+  margin: 0 0 1.5rem !important;
+  padding: 2.15rem 2.2rem !important;
+}
+
+.entry-content .wp-block-cover.is-light .wp-block-cover__background,
+.entry-content .wp-block-cover.is-light .wp-block-cover__image-background {
+  background: var(--eludein-paper, #fbf7f1) !important;
+  background-color: var(--eludein-paper, #fbf7f1) !important;
+  opacity: 1 !important;
+}
+
+.entry-content .wp-block-cover.is-light .wp-block-cover__inner-container {
+  color: var(--eludein-ink, #1a1816) !important;
+}
+
+.entry-content .wp-block-cover.is-light,
+.entry-content .wp-block-cover.is-light p,
+.entry-content .wp-block-cover.is-light h1,
+.entry-content .wp-block-cover.is-light h2,
+.entry-content .wp-block-cover.is-light h3,
+.entry-content .wp-block-cover.is-light h4,
+.entry-content .wp-block-cover.is-light li,
+.entry-content .wp-block-cover.is-light strong,
+.entry-content .wp-block-cover.is-light a:not(.wp-block-button__link):not(.button) {
+  color: var(--eludein-ink, #1a1816) !important;
+}
+
+/* Colonnes / cartes de même hauteur. */
+.entry-content .wp-block-columns,
+.entry-content .kt-row-column-wrap,
+.entry-content .kb-row-layout-wrap {
+  align-items: stretch !important;
+  gap: 1.35rem;
+}
+
+.entry-content .wp-block-column,
+.entry-content .wp-block-kadence-column,
+.entry-content .kt-inside-inner-col {
+  min-width: 0;
+  height: 100%;
+}
+
+.entry-content .wp-block-image.alignleft,
+.entry-content figure.alignleft {
+  float: left;
+  margin: 0.2rem 1.75rem 1.1rem 0;
+  max-width: min(320px, 46%);
+}
+
+.entry-content .wp-block-image.alignleft img,
+.entry-content figure.alignleft img {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+/* Accueil : laisser le cadre 900px se recentrer dans le canvas unique. */
+.has-sidebar .entry-content > div[style*="max-width"] {
+  margin-left: auto !important;
+  margin-right: auto !important;
+}
+
+/* Salon : les widgets quittent la gouttière et deviennent une frise éditoriale. */
+#right-sidebar,
+#left-sidebar {
+  order: 2;
+}
+
+#right-sidebar-inner,
+#left-sidebar-inner {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.35rem 1.5rem;
+  align-items: stretch;
+  padding: 2rem 1.6rem 2.15rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 24px;
+  box-shadow: 0 22px 50px rgba(36, 48, 40, 0.07);
+}
+
+#right-sidebar .sidebar-box,
+#left-sidebar .sidebar-box {
+  margin: 0;
+  background: transparent;
+}
+
+#right-sidebar .widget-title,
+#left-sidebar .widget-title,
+#right-sidebar .kt-adv-heading,
+#left-sidebar .kt-adv-heading {
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: 32px !important;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028) !important;
+  text-align: center;
+  margin: 0.35rem 0 0.85rem;
+  border: 0 !important;
+  padding-left: 0 !important;
+}
+
+#right-sidebar .widget-title::before,
+#right-sidebar .widget-title::after,
+#left-sidebar .widget-title::before,
+#left-sidebar .widget-title::after {
+  content: none !important;
+  display: none !important;
+}
+
+#right-sidebar .widget_media_image,
+#right-sidebar .widget-oceanwp-recent-posts,
+#right-sidebar .wp-block-separator,
+#block-37,
+#block-36,
+#block-39,
+#block-41 {
+  grid-column: 1 / -1;
+}
+
+#right-sidebar .sidebar-box:has(> .wp-block-separator),
+#right-sidebar .wp-block-separator {
+  display: none !important;
+}
+
+#right-sidebar .widget_media_image {
+  text-align: center;
+}
+
+#right-sidebar .widget_media_image img,
+#right-sidebar .widget_media_image a img {
+  width: min(280px, 100%) !important;
+  height: auto !important;
+  border-radius: 18px;
+  box-shadow: 0 14px 32px rgba(36, 48, 40, 0.1);
+}
+
+#right-sidebar .widget_block .wp-block-buttons,
+#left-sidebar .widget_block .wp-block-buttons {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.65rem;
+}
+
+#right-sidebar .wp-block-button,
+#left-sidebar .wp-block-button,
+#right-sidebar .wp-block-button__link,
+#left-sidebar .wp-block-button__link {
+  width: auto;
+  max-width: 100%;
+  text-align: center;
+}
+
+#right-sidebar .oceanwp-recent-posts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#right-sidebar .oceanwp-recent-posts > li {
+  float: none !important;
+  width: auto !important;
+  margin: 0;
+  padding: 1.15rem 1.2rem 1.2rem;
+  background: var(--eludein-cream, #f4efe6);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 16px;
+}
+
+#right-sidebar .recent-posts-title {
+  display: block;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: 21px;
+  line-height: 1.35;
+  color: var(--eludein-forest-deep, #243028) !important;
+  text-decoration: none;
+}
+
+#right-sidebar .recent-posts-date {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--eludein-sand, #8a6230) !important;
+}
+
+#right-sidebar .recent-posts-comments,
+#right-sidebar .recent-posts-info .sep {
+  display: none;
+}
+
+/* Témoignages : les cartes seules, pas un double cadre vide étiré. */
+#block-45,
+#block-34,
+#block-45 .wp-block-kadence-testimonials,
+#block-34 .wp-block-kadence-testimonials,
+#right-sidebar .kt-testimonial-grid-wrap {
+  display: contents;
+}
+
+#right-sidebar .kt-testimonial-grid-item {
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+}
+
+#right-sidebar .kt-testimonial-item-wrap,
+#right-sidebar .wp-block-kadence-testimonial {
+  height: 100%;
+  margin: 0;
+  background: var(--eludein-cream, #f4efe6);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+#right-sidebar .kt-testimonial-occupation:empty,
+#right-sidebar .kt-testimonial-occupation-wrap:has(.kt-testimonial-occupation:empty) {
+  display: none;
+}
+
+#block-28,
+#block-48 {
+  padding: 1.15rem 1.2rem;
+  background: var(--eludein-cream, #f4efe6);
+  border: 1px solid var(--eludein-line, #d9cdb8);
+  border-radius: 16px;
+}
+
+/* Boutons CTA or : texte foncé lisible. */
+.entry-content a.wp-block-button__link[style*="background: #e3b15b"],
+.entry-content a.wp-block-button__link[style*="background:#e3b15b"] {
+  color: #1a1816 !important;
+}
+
+@media (max-width: 959px) {
+  body.has-sidebar #content-wrap.container {
+    gap: 1.75rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  #right-sidebar-inner,
+  #left-sidebar-inner {
+    grid-template-columns: 1fr;
+    padding: 1.35rem 1.05rem 1.5rem;
+    border-radius: 18px;
+  }
+
+  #right-sidebar .oceanwp-recent-posts {
+    grid-template-columns: 1fr;
+  }
+
+  body.page:not(.home):not(.woocommerce-page) #content .entry,
+  body.single-post #content .entry {
+    max-width: none;
+  }
+
+  .page-header {
+    padding: 0.9rem 1rem !important;
+  }
+
+  .entry-content .wp-block-cover.is-light {
+    padding: 1.2rem 1.15rem !important;
+  }
+}

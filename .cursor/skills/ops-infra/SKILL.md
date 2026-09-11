@@ -27,6 +27,7 @@ Scripts : `scripts/vps-ssh.ps1`, `scripts/hermes-vps.ps1`
 | Hermes compose | `/docker/hermes-agent-aoxw/` |
 | Hermes WebUI | https://hermeswebui.eludein.art (fallback :3001) |
 | Hermes données | `/docker/hermes-agent-aoxw/data/` → `/opt/data` |
+| Site public WP | https://eludein.art (Hostinger hPanel, **pas** le VPS) |
 | Korymb prod app | https://korymb.eludein.art |
 | Korymb prod API | https://api-korymb.eludein.art |
 | Dev local | frontend `:3000`, backend `:8020`, tunnel DB `:3307` |
