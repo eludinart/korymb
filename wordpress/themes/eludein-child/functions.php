@@ -432,6 +432,26 @@ function eludein_child_shop_intro(): void
 add_action('woocommerce_archive_description', 'eludein_child_shop_intro', 20);
 
 /**
+ * OceanWP colle les paragraphes du résumé sans espace (« visioconférence.Un »).
+ */
+function eludein_child_shop_loop_description($html)
+{
+    if (!is_string($html) || $html === '') {
+        return $html;
+    }
+    if (!function_exists('is_shop') || !(is_shop() || (function_exists('is_product_taxonomy') && is_product_taxonomy()))) {
+        return $html;
+    }
+
+    $plain = wp_strip_all_tags($html);
+    $plain = preg_replace('/\.(\S)/u', '. $1', $plain) ?? $plain;
+    $plain = preg_replace('/\s+/u', ' ', $plain) ?? $plain;
+
+    return trim($plain);
+}
+add_filter('woocommerce_short_description', 'eludein_child_shop_loop_description', 20);
+
+/**
  * La boutique n’affiche que les produits, pas les cartes de catégories.
  * Front-office uniquement : l’option WooCommerce en admin reste inchangée.
  */
