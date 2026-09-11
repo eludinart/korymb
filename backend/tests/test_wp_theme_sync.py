@@ -70,6 +70,8 @@ def test_child_theme_beats_customizer_gold():
     assert "font-size: 19px" in refresh
     assert "font-size: 16px !important" in nav
     assert "eludein_child_bump_inline_font_size" in functions
+    assert "eludein_child_tarot_detail_content" in functions
+    assert (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").is_file()
     assert "woocommerce/*.php" not in "".join(
         p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()
     )
@@ -85,6 +87,7 @@ def test_local_theme_files_exist():
     assert "nav.css" in names
     assert "layout.css" in names
     assert "woocommerce.css" in names
+    assert "tarot-detail.css" in names
     assert "legacy-custom.css" in names
     for path in files:
         rel = path.relative_to(REPO / sync.THEME_REL).as_posix()

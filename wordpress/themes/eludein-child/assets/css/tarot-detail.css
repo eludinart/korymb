@@ -1,0 +1,266 @@
+/**
+ * Dossier « Le Tarot Fleur d’ÅmÔurs en détail ».
+ * Habillage éditorial de la page existante — pas un template Woo.
+ */
+
+body.page-id-592 .page-header,
+body.page-id-592 .centered-page-header {
+  display: none !important;
+}
+
+body.page-id-592 #right-sidebar,
+body.page-id-592 #left-sidebar {
+  display: none !important;
+}
+
+body.page-id-592 #content-wrap.container {
+  max-width: 1120px !important;
+  padding-top: 1.25rem;
+}
+
+body.page-id-592.page #content .entry {
+  max-width: 1080px;
+  margin: 0 auto 3rem;
+  padding: 0 0.5rem 2rem;
+}
+
+body.page-id-592 .entry .wp-block-spacer {
+  display: none;
+}
+
+/* ——— Héro ——— */
+.eludein-tarot-hero {
+  margin: 0 0 3.4rem;
+  text-align: center;
+}
+
+.eludein-tarot-hero__kicker {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--eludein-sand, #8a6230);
+}
+
+.eludein-tarot-hero__kicker::after {
+  content: "";
+  display: block;
+  width: 3.4rem;
+  height: 2px;
+  margin: 0.9rem auto 0;
+  background: #c9a14a;
+}
+
+.eludein-tarot-hero > h1 {
+  margin: 0 auto 0.4rem;
+  max-width: 18ch;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(2.6rem, 4.2vw, 3.9rem);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+.eludein-tarot-hero__stage {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: 2rem 2.75rem;
+  align-items: center;
+  margin-top: 2.35rem;
+  text-align: left;
+}
+
+.eludein-tarot-hero__visual {
+  margin: 0 auto;
+  max-width: 300px;
+}
+
+.eludein-tarot-hero__lead {
+  min-width: 0;
+}
+
+.eludein-tarot-hero .wp-block-image,
+.eludein-tarot-hero figure,
+.eludein-tarot-hero figure.alignleft {
+  float: none !important;
+  margin: 0 auto !important;
+  max-width: 300px;
+  width: 100%;
+}
+
+.eludein-tarot-hero figure.alignleft img,
+.eludein-tarot-hero img {
+  width: 100% !important;
+  height: auto !important;
+  display: block;
+  filter: drop-shadow(0 18px 36px rgba(36, 48, 40, 0.14));
+}
+
+.eludein-tarot-hero p {
+  margin: 0 0 1.15rem;
+  font-size: 1.26rem;
+  line-height: 1.7;
+  color: #2c2824;
+}
+
+.eludein-tarot-hero p:last-child {
+  margin-bottom: 0;
+}
+
+/* ——— Corps ——— */
+body.page-id-592 .entry > h2,
+body.page-id-592 .entry h2.wp-block-heading {
+  margin: 3.1rem 0 1.05rem;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(1.7rem, 2.5vw, 2.25rem);
+  font-weight: 600;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+body.page-id-592 .entry > h3,
+body.page-id-592 .entry h3.wp-block-heading {
+  margin: 2.15rem 0 0.75rem;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(1.28rem, 1.8vw, 1.55rem);
+  font-weight: 600;
+  line-height: 1.28;
+  color: var(--eludein-forest, #3f4a3a);
+}
+
+body.page-id-592 .entry > p,
+body.page-id-592 .entry p.wp-block-paragraph {
+  margin: 0 0 1.15rem;
+  font-size: 1.14rem;
+  line-height: 1.75;
+  color: #2a2622;
+}
+
+body.page-id-592 .entry > p.has-text-align-center {
+  max-width: 40rem;
+  margin-left: auto;
+  margin-right: auto;
+  font-size: 1.2rem;
+}
+
+body.page-id-592 .entry ul,
+body.page-id-592 .entry ol {
+  margin: 0 0 1.5rem;
+  padding-left: 1.2rem;
+}
+
+body.page-id-592 .entry li {
+  margin: 0 0 0.55rem;
+  font-size: 1.12rem;
+  line-height: 1.65;
+}
+
+/* ——— Galeries de cartes (tables Gutenberg) ——— */
+body.page-id-592 .wp-block-table,
+body.page-id-592 figure.wp-block-table {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.4rem, 1fr));
+  gap: 1.15rem;
+  margin: 1.75rem 0 2.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow: visible;
+}
+
+body.page-id-592 .wp-block-table table,
+body.page-id-592 .wp-block-table tbody,
+body.page-id-592 .wp-block-table tr {
+  display: contents;
+}
+
+body.page-id-592 .wp-block-table td {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0;
+  padding: 0.7rem 0.7rem 0.85rem;
+  background: var(--eludein-paper, #fbf7f1);
+  border: 1px solid var(--eludein-line, #d9cdb8) !important;
+  border-radius: 18px;
+  box-shadow: 0 14px 32px rgba(36, 48, 40, 0.07);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+body.page-id-592 .wp-block-table td:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 40px rgba(36, 48, 40, 0.12);
+}
+
+body.page-id-592 .wp-block-table td img,
+body.page-id-592 .wp-block-table img {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 12px;
+  display: block;
+}
+
+/* ——— Manifeste ——— */
+.eludein-tarot-manifesto {
+  margin: 3.6rem 0 2.4rem;
+  padding: 2.6rem 2.2rem 2.5rem;
+  background:
+    linear-gradient(180deg, rgba(201, 161, 74, 0.08), rgba(251, 247, 241, 0.4)),
+    var(--eludein-paper, #fbf7f1);
+  border: 1px solid #e2d0ae;
+  border-radius: 24px;
+  text-align: center;
+}
+
+.eludein-tarot-manifesto h1 {
+  margin: 0 auto;
+  max-width: 28ch;
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-size: clamp(1.75rem, 2.8vw, 2.45rem);
+  font-weight: 600;
+  line-height: 1.22;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+/* ——— CTA ——— */
+body.page-id-592 .wp-block-buttons {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0 2.6rem;
+}
+
+body.page-id-592 .wp-block-button__link {
+  padding: 0.95em 1.85em !important;
+  font-size: 1.02rem !important;
+}
+
+@media (max-width: 800px) {
+  .eludein-tarot-hero__stage {
+    grid-template-columns: 1fr;
+    gap: 1.4rem;
+    text-align: center;
+  }
+
+  .eludein-tarot-hero .wp-block-image,
+  .eludein-tarot-hero figure {
+    max-width: 240px;
+  }
+
+  .eludein-tarot-hero p {
+    font-size: 1.15rem;
+  }
+
+  body.page-id-592 .wp-block-table,
+  body.page-id-592 figure.wp-block-table {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+}

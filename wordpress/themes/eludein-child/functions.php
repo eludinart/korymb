@@ -69,6 +69,15 @@ function eludein_child_enqueue_styles(): void
         $button_deps,
         $ver
     );
+
+    if (function_exists('is_page') && (is_page('le-tarot-fleur-damours-en-detail') || is_page(592))) {
+        wp_enqueue_style(
+            'eludein-child-tarot-detail',
+            $base . '/assets/css/tarot-detail.css',
+            array('eludein-child-buttons'),
+            $ver
+        );
+    }
 }
 add_action('wp_enqueue_scripts', 'eludein_child_enqueue_styles', 110);
 
@@ -91,7 +100,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\ntarot-detail.css\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -590,4 +599,98 @@ function eludein_child_shop_declutter(): void
     remove_action('woocommerce_before_shop_loop', 'woocommerce_result_count', 20);
 }
 add_action('wp', 'eludein_child_shop_declutter');
+
+function eludein_child_is_tarot_detail_page(): bool
+{
+    return function_exists('is_page')
+        && (is_page('le-tarot-fleur-damours-en-detail') || is_page(592));
+}
+
+/**
+ * Dossier tarot : retirer les sauts forcés, grouper le héro, soigner la lecture.
+ */
+function eludein_child_tarot_detail_content($html)
+{
+    if (!is_string($html) || $html === '' || !eludein_child_is_tarot_detail_page()) {
+        return $html;
+    }
+
+    $html = preg_replace('#<p(?:\s[^>]*)?>\s*(?:&nbsp;|\s|<br\s*/?>)*\s*</p>#i', '', $html) ?? $html;
+    $html = preg_replace('#<h([1-6])(?:\s[^>]*)?>\s*(?:&nbsp;|\s)*\s*</h\1>#i', '', $html) ?? $html;
+    $html = preg_replace('#<br\s*/?>#i', ' ', $html) ?? $html;
+    $html = preg_replace('/[ \t]{2,}/', ' ', $html) ?? $html;
+
+    $html = str_replace(
+        'https://eludein.art/produit/prevente-tarot-fleur-damours-edition-dedicacee/',
+        home_url('/produit/tarot-fleur-d-amours/'),
+        $html
+    );
+
+    if (strpos($html, 'eludein-cta') === false) {
+        $html = str_replace(
+            'class="wp-block-button__link wp-element-button"',
+            'class="wp-block-button__link wp-element-button eludein-cta"',
+            $html
+        );
+    }
+
+    if (strpos($html, 'eludein-tarot-hero') === false) {
+        $wrapped = preg_replace(
+            '#(<h1\b[^>]*>.*?</h1>)(.*?)(<h2\b)#is',
+            '<header class="eludein-tarot-hero">'
+            . '<p class="eludein-tarot-hero__kicker">Le dossier</p>$1'
+            . '<div class="eludein-tarot-hero__stage">$2</div></header>$3',
+            $html,
+            1
+        );
+        if (is_string($wrapped)) {
+            $html = $wrapped;
+        }
+    }
+
+    if (strpos($html, 'eludein-tarot-hero__visual') === false) {
+        $split = preg_replace_callback(
+            '#<div class="eludein-tarot-hero__stage">(.*?)</div></header>#is',
+            'eludein_child_split_tarot_hero_stage',
+            $html
+        );
+        if (is_string($split)) {
+            $html = $split;
+        }
+    }
+
+    if (strpos($html, 'eludein-tarot-manifesto') === false) {
+        $wrapped = preg_replace(
+            '#(<h1\b[^>]*>.*?Bien plus.*?</h1>)#is',
+            '<div class="eludein-tarot-manifesto">$1</div>',
+            $html,
+            1
+        );
+        if (is_string($wrapped)) {
+            $html = $wrapped;
+        }
+    }
+
+    return $html;
+}
+add_filter('the_content', 'eludein_child_tarot_detail_content', 24);
+
+/**
+ * @param array $match
+ */
+function eludein_child_split_tarot_hero_stage($match): string
+{
+    $inner = $match[1];
+    if (!preg_match('#(<div class="wp-block-image"[\s\S]*?</figure>\s*</div>)#i', $inner, $img)) {
+        return $match[0];
+    }
+
+    $lead = str_replace($img[1], '', $inner);
+
+    return '<div class="eludein-tarot-hero__stage"><div class="eludein-tarot-hero__visual">'
+        . $img[1]
+        . '</div><div class="eludein-tarot-hero__lead">'
+        . $lead
+        . '</div></div></header>';
+}
 
