@@ -95,13 +95,15 @@ body.oceanwp-theme * {
 }
 
 /* Blocs alignfull / alignwide : rester dans la colonne, pas 100vw. */
+.entry-content > .alignfull,
+.entry-content > .alignwide,
+.entry-content .alignfull,
+.entry-content .alignwide,
+.entry-content .wp-block-group.alignfull,
+.entry-content .wp-block-columns.alignwide,
+.entry-content .wp-block-cover,
 .has-sidebar .entry-content > .alignfull,
-.has-sidebar .entry-content > .alignwide,
-.has-sidebar .entry-content .alignfull,
-.has-sidebar .entry-content .alignwide,
-.has-sidebar .entry-content .wp-block-group.alignfull,
-.has-sidebar .entry-content .wp-block-columns.alignwide,
-.has-sidebar .entry-content .wp-block-cover {
+.has-sidebar .entry-content > .alignwide {
   width: 100% !important;
   max-width: 100% !important;
   margin-left: 0 !important;
@@ -109,6 +111,24 @@ body.oceanwp-theme * {
   left: auto !important;
   right: auto !important;
   position: relative !important;
+}
+
+.entry-content .is-layout-constrained > .alignfull,
+.entry-content .is-layout-constrained > .alignwide,
+.wp-block-group__inner-container > .alignfull,
+.wp-block-group__inner-container > .alignwide {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+#content-wrap,
+#primary,
+.entry-content,
+.site-content {
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 .has-sidebar .entry-content .wp-block-columns {

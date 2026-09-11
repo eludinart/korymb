@@ -193,8 +193,10 @@ function eludein_child_late_contrast_css(): void
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
         . '.entry-content .wp-block-cover.is-light h3,.entry-content .wp-block-cover.is-light li,'
         . '.entry-content .wp-block-cover.is-light strong{color:#1a1816!important;}'
-        . '.has-sidebar .entry-content .alignfull,.has-sidebar .entry-content .alignwide'
+        . '.has-sidebar .entry-content .alignfull,.has-sidebar .entry-content .alignwide,'
+        . '.entry-content .alignfull,.entry-content .alignwide,.entry-content .wp-block-group.alignfull'
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
+        . '#content-wrap,#primary,.entry-content{overflow-x:clip;max-width:100%;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
