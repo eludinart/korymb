@@ -62,3 +62,18 @@ function eludein_child_enqueue_fonts(): void
     );
 }
 add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
+
+/**
+ * LiteSpeed UCSS/combine must not swallow the child stylesheets.
+ */
+function eludein_child_litespeed_css_excludes($excludes)
+{
+    $extra = "eludein-child\nrefresh.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
+    if (is_array($excludes)) {
+        return array_merge($excludes, explode("\n", $extra));
+    }
+    return trim((string) $excludes . "\n" . $extra);
+}
+add_filter('litespeed_optimize_css_excludes', 'eludein_child_litespeed_css_excludes');
+add_filter('litespeed_ucss_file_exc', 'eludein_child_litespeed_css_excludes');
+

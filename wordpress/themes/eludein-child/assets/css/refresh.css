@@ -43,9 +43,53 @@ body.oceanwp-theme .wp-block-kadence-advancedheading {
   color: var(--eludein-forest);
 }
 
+/* Palette unique : remplace le cyan OceanWP (#13aff0) et les bleus Gutenberg. */
+body.oceanwp-theme #content-wrap a:not(.wp-block-button__link):not(.button):not(.checkout-button):not(.wc-forward),
+body.oceanwp-theme .entry-content a:not(.wp-block-button__link):not(.button) {
+  color: var(--eludein-forest);
+}
+
+body.oceanwp-theme #content-wrap a:not(.wp-block-button__link):not(.button):not(.checkout-button):not(.wc-forward):hover,
+body.oceanwp-theme .entry-content a:not(.wp-block-button__link):not(.button):hover {
+  color: var(--eludein-sand) !important;
+}
+
+body.oceanwp-theme #scroll-top,
+body.oceanwp-theme .theme-button,
+body.oceanwp-theme input[type="submit"],
+body.oceanwp-theme button[type="submit"]:not(.single_add_to_cart_button) {
+  background-color: var(--eludein-forest) !important;
+  color: #fff !important;
+  border-color: var(--eludein-forest) !important;
+}
+
+body.oceanwp-theme #scroll-top:hover,
+body.oceanwp-theme .theme-button:hover,
+body.oceanwp-theme input[type="submit"]:hover {
+  background-color: var(--eludein-forest-deep) !important;
+  color: var(--eludein-gold) !important;
+}
+
+.entry-content .has-vivid-cyan-blue-background-color,
+.entry-content .has-vivid-purple-background-color,
+.entry-content .has-pale-cyan-blue-background-color,
+.entry-content .wp-block-button__link:not(.has-background):not(.has-text-color) {
+  background-color: var(--eludein-forest) !important;
+  color: #fff !important;
+}
+
+.entry-content .wp-block-button.is-style-outline .wp-block-button__link:not(.has-text-color),
+.entry-content .wp-block-button__link.is-style-outline:not(.has-text-color) {
+  background-color: transparent !important;
+  color: var(--eludein-forest) !important;
+  border: 1px solid var(--eludein-forest) !important;
+}
+
 /* Preloader OceanWP : le site paraît plus immédiat, sans changer le checkout. */
 #owp-preloader,
-.ocean-preloader--active #owp-preloader {
+#ocean-preloader,
+.ocean-preloader--active #owp-preloader,
+.ocean-preloader--active #ocean-preloader {
   display: none !important;
 }
 
@@ -53,14 +97,7 @@ body.ocean-preloader--active {
   overflow: auto !important;
 }
 
-/* Header plus respirant, lisible, sans changer la structure OceanWP. */
-#site-header {
-  background: rgba(247, 243, 236, 0.92) !important;
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--eludein-line);
-  box-shadow: none;
-}
-
+/* Header : on ne change pas le fond OceanWP (sombre déjà en place). */
 #site-header.medium-header {
   min-height: 72px;
 }
@@ -72,21 +109,21 @@ body.ocean-preloader--active {
 }
 
 @media (min-width: 1024px) {
-  #site-navigation-wrap .dropdown-menu > li > a,
-  nav a,
-  .menu a,
-  .main-navigation a {
+  #site-header #site-navigation-wrap .dropdown-menu > li > a,
+  #site-header nav a,
+  #site-header .menu a,
+  #site-header .main-navigation a {
     font-size: 14.5px !important;
     font-weight: 500;
-    letter-spacing: 0.02em;
-    color: var(--eludein-forest) !important;
+    letter-spacing: 0.04em;
+    color: var(--eludein-cream) !important;
     padding-top: 0.55rem;
     padding-bottom: 0.55rem;
   }
 
-  #site-navigation-wrap .dropdown-menu > li > a:hover,
-  #site-navigation-wrap .dropdown-menu > li.current-menu-item > a {
-    color: var(--eludein-forest-deep) !important;
+  #site-header #site-navigation-wrap .dropdown-menu > li > a:hover,
+  #site-header #site-navigation-wrap .dropdown-menu > li.current-menu-item > a {
+    color: var(--eludein-gold) !important;
   }
 }
 
@@ -183,6 +220,12 @@ body.ocean-preloader--active {
 #footer-bottom a,
 #footer-widgets a {
   color: var(--eludein-gold-soft) !important;
+}
+
+#footer a:hover,
+#footer-bottom a:hover,
+#footer-widgets a:hover {
+  color: var(--eludein-gold) !important;
 }
 
 #footer-bottom {

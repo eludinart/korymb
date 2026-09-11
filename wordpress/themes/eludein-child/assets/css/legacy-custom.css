@@ -7,14 +7,6 @@
  * - plus de `display: yes` (invalide)
  */
 
-@media (min-width: 1024px) {
-  nav a,
-  .menu a,
-  .main-navigation a {
-    font-size: 12px !important;
-  }
-}
-
 img.emoji {
   display: inline !important;
   width: 1.5em !important;
@@ -87,18 +79,9 @@ img.emoji {
   word-break: break-word;
 }
 
-.woocommerce ul.products li.product h2,
-.woocommerce ul.products li.product h2 a {
-  color: #e9c764 !important;
-}
-
-.woocommerce ul.products li.product h2 a:hover {
-  color: #fdd888 !important;
-}
-
 #fleur-duo-container {
   font-family: Helvetica, Arial, sans-serif;
-  color: #5d4037;
+  color: var(--eludein-ink, #1c1917);
 }
 
 #fleur-duo-container .card-amour {
@@ -126,8 +109,8 @@ img.emoji {
 #btn-magique-duo {
   width: 70%;
   padding: 18px;
-  background: #d4a373;
-  color: white;
+  background: var(--eludein-forest, #3f4a3a);
+  color: #fff;
   border: none;
   border-radius: 40px;
   font-size: 1.1em;
@@ -136,7 +119,7 @@ img.emoji {
 
 #fleur-container {
   font-family: Helvetica, Arial, sans-serif;
-  color: #5d4037;
+  color: var(--eludein-ink, #1c1917);
 }
 
 .card-amour {
@@ -169,8 +152,8 @@ input[type="radio"] {
 #send-invite {
   width: 70%;
   padding: 18px;
-  background: #d4a373;
-  color: white;
+  background: var(--eludein-forest, #3f4a3a);
+  color: #fff;
   border: none;
   border-radius: 40px;
   font-size: 1.1em;
