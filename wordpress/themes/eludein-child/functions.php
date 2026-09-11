@@ -100,7 +100,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\ntarot-detail.css\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\ntarot-detail.css\neludein-child-tarot-detail\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -406,6 +406,29 @@ function eludein_child_late_contrast_css(): void
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
+
+/**
+ * LiteSpeed combine n’embarque pas tarot-detail.css : on l’imprime ici, sur cette page seulement.
+ */
+function eludein_child_tarot_detail_late_css(): void
+{
+    if (!eludein_child_is_tarot_detail_page()) {
+        return;
+    }
+
+    $path = get_stylesheet_directory() . '/assets/css/tarot-detail.css';
+    if (!is_readable($path)) {
+        return;
+    }
+
+    $css = file_get_contents($path);
+    if (!is_string($css) || $css === '') {
+        return;
+    }
+
+    echo '<style id="eludein-child-tarot-detail" data-no-optimize="1">' . $css . '</style>' . "\n";
+}
+add_action('wp_head', 'eludein_child_tarot_detail_late_css', 10000);
 
 /**
  * Le logo header ne doit pas rester un placeholder LiteSpeed.

@@ -73,6 +73,7 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein_child_bump_inline_font_size" in functions
     assert "eludein_child_tarot_detail_content" in functions
     assert "eludein_child_tarot_families_markup" in functions
+    assert "eludein_child_tarot_detail_late_css" in functions
     assert r"(<h1\b[^>]*>\s*Bien plus[\s\S]*?</h1>)" in functions
     assert r"(<h1\b[^>]*>.*?Bien plus.*?</h1>)" not in functions
     tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
