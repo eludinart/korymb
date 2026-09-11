@@ -63,6 +63,8 @@ def test_child_theme_beats_customizer_gold():
     assert "oceanwp-toolbar" in woo
     assert "linear-gradient(105deg, #b8873a" in woo
     assert "background: var(--eludein-forest, #3f4a3a) !important;" not in woo
+    assert "woo-entry-inner > li.image-wrap" in woo
+    assert "display: none !important" not in woo.split("li.image-wrap")[1][:80]
     assert "body.woocommerce-shop #right-sidebar" in layout
     assert "woocommerce/*.php" not in "".join(
         p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()

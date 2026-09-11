@@ -134,11 +134,10 @@ body.tax-product_cat ul.products li.product img,
   margin: 0 !important;
 }
 
-body.woocommerce-shop ul.products li.product .woo-entry-inner > li.image-wrap,
+/* OceanWP masque .woo-entry-image hors de li.image-wrap : ne pas cacher image-wrap. */
 body.woocommerce-shop ul.products li.product .owp-quick-view,
 body.woocommerce-shop ul.products li.product li.rating,
 body.woocommerce-shop ul.products li.product li.category,
-body.tax-product_cat ul.products li.product .woo-entry-inner > li.image-wrap,
 body.tax-product_cat ul.products li.product .owp-quick-view,
 body.tax-product_cat ul.products li.product li.rating,
 body.tax-product_cat ul.products li.product li.category {
@@ -152,7 +151,30 @@ body.tax-product_cat ul.products li.product .woo-entry-inner {
   flex: 1 1 auto;
   list-style: none;
   margin: 0;
-  padding: 1.15rem 1.35rem 1.35rem;
+  padding: 0 0 1.35rem;
+}
+
+body.woocommerce-shop ul.products li.product .woo-entry-inner > li.image-wrap,
+body.tax-product_cat ul.products li.product .woo-entry-inner > li.image-wrap {
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body.woocommerce-shop ul.products li.product .woo-entry-inner > li.image-wrap .woo-entry-image,
+body.tax-product_cat ul.products li.product .woo-entry-inner > li.image-wrap .woo-entry-image {
+  display: block !important;
+}
+
+body.woocommerce-shop ul.products li.product .woo-entry-inner > li:not(.image-wrap),
+body.tax-product_cat ul.products li.product .woo-entry-inner > li:not(.image-wrap) {
+  padding-left: 1.35rem;
+  padding-right: 1.35rem;
+}
+
+body.woocommerce-shop ul.products li.product .woo-entry-inner > li.title,
+body.tax-product_cat ul.products li.product .woo-entry-inner > li.title {
+  padding-top: 1.15rem;
 }
 
 body.oceanwp-theme.woocommerce ul.products li.product .woocommerce-loop-product__title,
