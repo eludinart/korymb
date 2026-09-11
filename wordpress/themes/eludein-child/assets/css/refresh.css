@@ -6,15 +6,15 @@
 
 :root {
   --eludein-forest: #3f4a3a;
-  --eludein-forest-deep: #2a3227;
-  --eludein-ink: #1c1917;
-  --eludein-gold: #e3b15b;
-  --eludein-gold-soft: #e9c764;
-  --eludein-sand: #d4a373;
-  --eludein-cream: #f7f3ec;
-  --eludein-paper: #fdfaf6;
-  --eludein-line: #eaddcf;
-  --eludein-muted: #5c5854;
+  --eludein-forest-deep: #243028;
+  --eludein-ink: #1a1816;
+  --eludein-gold: #c4923a;
+  --eludein-gold-soft: #b8873a;
+  --eludein-sand: #8a6230;
+  --eludein-cream: #f4efe6;
+  --eludein-paper: #fbf7f1;
+  --eludein-line: #d9cdb8;
+  --eludein-muted: #3a3530;
   --eludein-radius: 14px;
   --eludein-serif: "Playfair Display", Merriweather, Georgia, serif;
   --eludein-sans: "Source Sans 3", "Open Sans", "Helvetica Neue", sans-serif;
@@ -97,34 +97,88 @@ body.ocean-preloader--active {
   overflow: auto !important;
 }
 
-/* Header : on ne change pas le fond OceanWP (sombre déjà en place). */
+/* Header clair moderne (remplace le bandeau noir OceanWP). */
+#site-header,
+#site-header.medium-header,
+#site-header #site-header-inner,
+#site-header .top-header-wrap,
+#site-header .top-header-inner,
+#site-header .container,
+#site-header #site-navigation-wrap,
+#site-header #site-navigation,
+#site-header.is-sticky,
+#site-header.fixed-scroll {
+  background: var(--eludein-paper) !important;
+  background-color: var(--eludein-paper) !important;
+}
+
+#site-header {
+  border-bottom: 1px solid var(--eludein-line) !important;
+  box-shadow: 0 10px 30px rgba(36, 48, 40, 0.06);
+}
+
 #site-header.medium-header {
-  min-height: 72px;
+  min-height: 88px;
 }
 
 #site-logo img,
 #site-logo .custom-logo {
-  max-height: 56px;
+  max-height: 58px;
   width: auto;
+  border-radius: 10px;
 }
 
-@media (min-width: 1024px) {
-  #site-header #site-navigation-wrap .dropdown-menu > li > a,
-  #site-header nav a,
-  #site-header .menu a,
-  #site-header .main-navigation a {
-    font-size: 14.5px !important;
-    font-weight: 500;
-    letter-spacing: 0.04em;
-    color: var(--eludein-cream) !important;
-    padding-top: 0.55rem;
-    padding-bottom: 0.55rem;
-  }
+#site-header #site-navigation-wrap .dropdown-menu > li > a,
+#site-header nav a,
+#site-header .menu a,
+#site-header .main-navigation a,
+#site-header .oceanwp-mobile-menu-icon a {
+  font-size: 14.5px !important;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--eludein-forest-deep) !important;
+}
 
-  #site-header #site-navigation-wrap .dropdown-menu > li > a:hover,
-  #site-header #site-navigation-wrap .dropdown-menu > li.current-menu-item > a {
-    color: var(--eludein-gold) !important;
-  }
+#site-header #site-navigation-wrap .dropdown-menu > li > a:hover,
+#site-header #site-navigation-wrap .dropdown-menu > li.current-menu-item > a,
+#site-header nav a:hover,
+#site-header .menu a:hover {
+  color: var(--eludein-sand) !important;
+}
+
+#site-header .oceanwp-social-menu ul li a,
+#site-header .oceanwp-social-menu.simple-social ul li a,
+#site-header .oceanwp-social-menu.dark ul li a {
+  background: var(--eludein-cream) !important;
+  color: var(--eludein-forest-deep) !important;
+  border: 1px solid var(--eludein-line) !important;
+  border-radius: 999px !important;
+}
+
+#site-header .oceanwp-social-menu ul li a:hover {
+  background: var(--eludein-forest) !important;
+  color: #fff !important;
+  border-color: var(--eludein-forest) !important;
+}
+
+#medium-searchform input,
+.header-searchform input[type="search"] {
+  border-radius: 999px;
+  border: 1px solid var(--eludein-line) !important;
+  background: #fff !important;
+  color: var(--eludein-ink) !important;
+}
+
+#site-header .search-submit,
+#medium-searchform .search-submit {
+  background: var(--eludein-forest) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+}
+
+#site-header .wcmenucart,
+#site-header .wcmenucart-details {
+  color: var(--eludein-forest-deep) !important;
 }
 
 #site-navigation-wrap .dropdown-menu > li > a:after {
@@ -153,14 +207,42 @@ body.ocean-preloader--active {
 }
 
 .entry-content p,
-.entry-content li {
-  color: var(--eludein-muted);
+.entry-content li,
+.entry-content blockquote,
+.entry-content .wp-block-paragraph,
+.entry-content .wp-block-quote,
+.sidebar-box,
+.sidebar-box a,
+.widget,
+.widget a,
+.recent-posts-date,
+.recent-posts-comments {
+  color: var(--eludein-ink) !important;
 }
 
 .entry-content > p:first-of-type,
 .has-text-align-center.wp-block-paragraph:first-of-type {
   font-size: 1.15rem;
-  color: var(--eludein-ink);
+  color: var(--eludein-ink) !important;
+  opacity: 1 !important;
+}
+
+/* Titres Kadence/Gutenberg : plus d’or pâle sur fond crème. */
+.entry-content h1,
+.entry-content h2,
+.entry-content h3,
+.entry-content h4,
+.entry-content .kt-adv-heading,
+.entry-content .kt-adv-heading span,
+.entry-content .wp-block-kadence-advancedheading,
+.entry-content .wp-block-kadence-advancedheading span {
+  color: var(--eludein-forest-deep) !important;
+}
+
+.sidebar-box .widget-title,
+.widget-title,
+.theme-heading .text {
+  color: var(--eludein-forest-deep) !important;
 }
 
 .wp-block-separator {

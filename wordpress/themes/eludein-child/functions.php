@@ -77,3 +77,37 @@ function eludein_child_litespeed_css_excludes($excludes)
 add_filter('litespeed_optimize_css_excludes', 'eludein_child_litespeed_css_excludes');
 add_filter('litespeed_ucss_file_exc', 'eludein_child_litespeed_css_excludes');
 
+/**
+ * Les blocs Kadence de l’accueil ont des couleurs inline !important
+ * (or pâle, gris, blanc) illisibles sur fond crème. On les assombrit
+ * à l’affichage, sans modifier la base ni WooCommerce.
+ */
+function eludein_child_readable_inline_colors($html)
+{
+    if (!is_string($html) || $html === '') {
+        return $html;
+    }
+
+    $map = array(
+        'color: #e3b15b !important' => 'color: #243028 !important',
+        'color: #E3B15B !important' => 'color: #243028 !important',
+        'color: #d1d1d1 !important' => 'color: #1a1816 !important',
+        'color: #ccc !important' => 'color: #2a2724 !important',
+        'color: #CCCCCC !important' => 'color: #2a2724 !important',
+        'color: #777 !important' => 'color: #3a3530 !important',
+        'color: #777777 !important' => 'color: #3a3530 !important',
+        'color: #999 !important' => 'color: #3a3530 !important',
+        'color: #999999 !important' => 'color: #3a3530 !important',
+    );
+    $html = str_ireplace(array_keys($map), array_values($map), $html);
+
+    return preg_replace(
+        '/color:\s*#ffffff\s*!important;\s*font-weight:\s*bold\s*!important;\s*font-size:\s*12px/i',
+        'color: #3f4a3a !important; font-weight: bold !important; font-size: 12px',
+        $html
+    ) ?? $html;
+}
+add_filter('the_content', 'eludein_child_readable_inline_colors', 20);
+add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
+add_filter('widget_block_content', 'eludein_child_readable_inline_colors', 20);
+
