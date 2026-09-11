@@ -113,14 +113,17 @@ body.oceanwp-theme * {
   position: relative !important;
 }
 
-.entry-content .is-layout-constrained > .alignfull,
-.entry-content .is-layout-constrained > .alignwide,
-.wp-block-group__inner-container > .alignfull,
-.wp-block-group__inner-container > .alignwide {
-  margin-left: 0 !important;
-  margin-right: 0 !important;
+body.oceanwp-theme.page .entry .alignfull,
+body.oceanwp-theme.page .entry .alignwide,
+body.oceanwp-theme.page.content-max-width .entry .alignfull,
+body.oceanwp-theme.page.content-max-width .entry .alignwide,
+body.oceanwp-theme.page.content-full-width .entry .alignfull,
+body.oceanwp-theme .entry-content [class*="wp-container-"] > .alignfull,
+body.oceanwp-theme .entry-content [class*="wp-container-"] > .alignwide {
   width: 100% !important;
   max-width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }
 
 #content-wrap,

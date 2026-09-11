@@ -193,8 +193,9 @@ function eludein_child_late_contrast_css(): void
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
         . '.entry-content .wp-block-cover.is-light h3,.entry-content .wp-block-cover.is-light li,'
         . '.entry-content .wp-block-cover.is-light strong{color:#1a1816!important;}'
-        . '.has-sidebar .entry-content .alignfull,.has-sidebar .entry-content .alignwide,'
-        . '.entry-content .alignfull,.entry-content .alignwide,.entry-content .wp-block-group.alignfull'
+        . 'body.oceanwp-theme.page.content-max-width .entry .alignfull,'
+        . 'body.oceanwp-theme.page.content-full-width .entry .alignfull,'
+        . 'body.oceanwp-theme .entry-content .alignfull,body.oceanwp-theme .entry-content .alignwide'
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
         . '#content-wrap,#primary,.entry-content{overflow-x:clip;max-width:100%;}'
         . '</style>' . "\n";
