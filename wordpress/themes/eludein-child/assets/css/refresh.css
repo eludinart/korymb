@@ -166,9 +166,15 @@ body.ocean-preloader--active {
 }
 
 #site-header.medium-header .top-col,
+#site-header.medium-header .top-col.col-1,
+#site-header.medium-header .top-col.col-2,
+#site-header.medium-header .top-col.col-3,
+#site-header.medium-header .top-col.logo-col,
 #site-header.medium-header #site-logo,
 #site-header.medium-header #site-logo-inner {
-  display: contents;
+  display: contents !important;
+  float: none !important;
+  width: auto !important;
 }
 
 #site-header #medium-searchform {
