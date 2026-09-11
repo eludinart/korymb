@@ -475,15 +475,15 @@ body.page-id-592 .wp-block-table img,
 /* ——— Manifeste ——— */
 .eludein-tarot-manifesto {
   box-sizing: border-box;
-  margin: 3.8rem calc(50% - 50vw) 0;
-  padding: 4.2rem 1.5rem 4rem;
-  width: 100vw;
-  max-width: 100vw;
+  margin: 3.2rem 0 0;
+  padding: 3.6rem 2rem 3.4rem;
+  width: 100%;
+  max-width: none;
   background:
     radial-gradient(ellipse 70% 80% at 50% 0%, rgba(201, 161, 74, 0.18), transparent 58%),
     #243028;
   border: 0;
-  border-radius: 0;
+  border-radius: 28px;
   text-align: center;
 }
 
@@ -516,15 +516,15 @@ body.page-id-592 .wp-block-table img,
 
 /* ——— CTA ——— */
 .eludein-tarot-cta {
-  margin: 3.2rem calc(50% - 50vw) 0;
-  padding: 3.1rem 1.5rem 3.2rem;
-  width: 100vw;
-  max-width: 100vw;
+  margin: 2.8rem 0 1.2rem;
+  padding: 2.6rem 1.5rem 2.7rem;
+  width: 100%;
+  max-width: none;
   background:
     radial-gradient(ellipse 70% 90% at 50% 0%, rgba(201, 161, 74, 0.2), transparent 62%),
     var(--eludein-paper, #fbf7f1);
-  border-top: 1px solid #e2d0ae;
-  border-bottom: 1px solid #e2d0ae;
+  border: 1px solid #e2d0ae;
+  border-radius: 28px;
   text-align: center;
 }
 
@@ -542,11 +542,12 @@ body.page-id-592 .wp-block-button__link {
 
 /* ——— Chapitre système ——— */
 .eludein-tarot-appendix {
-  margin: 0 calc(50% - 50vw);
-  padding: 3.4rem 1.5rem 4rem;
-  width: 100vw;
-  max-width: 100vw;
-  background: #efe8dc;
+  margin: 1.6rem 0 0;
+  padding: 2.8rem 0 1.5rem;
+  width: 100%;
+  max-width: none;
+  background: none;
+  border-top: 1px solid #e2d0ae;
 }
 
 .eludein-tarot-appendix > * {
@@ -633,14 +634,5 @@ body.page-id-592 .sd-sharing {
   .eludein-tarot-audience,
   .eludein-tarot-box {
     grid-template-columns: 1fr;
-  }
-
-  .eludein-tarot-manifesto,
-  .eludein-tarot-cta,
-  .eludein-tarot-appendix {
-    margin-left: -1.5rem;
-    margin-right: -1.5rem;
-    width: auto;
-    max-width: none;
   }
 }

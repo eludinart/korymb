@@ -917,15 +917,31 @@ function eludein_child_wrap_one_tarot_mini($match): string
 {
     $tag = $match[0];
     $tag = preg_replace('/\s(?:width|height)="\d+"/i', '', $tag) ?? $tag;
-    $label = 'Carte';
-    if (preg_match('/src="[^"]+\/([^"/]+)"/i', $tag, $src)) {
-        $label = eludein_child_tarot_card_label($src[1]);
-    }
+    $file = eludein_child_tarot_filename_from_img($tag);
+    $label = $file !== '' ? eludein_child_tarot_card_label($file) : 'Carte';
 
     return '<figure class="eludein-tarot-card eludein-tarot-card--mini">'
         . $tag
         . '<figcaption class="eludein-tarot-card__name">' . esc_html($label) . '</figcaption>'
         . '</figure>';
+}
+
+function eludein_child_tarot_filename_from_img(string $tag): string
+{
+    $blob = $tag;
+    if (preg_match('/srcset="([^"]+)"/i', $tag, $set)) {
+        $blob = $set[1];
+    } elseif (preg_match('/\ssrc="(https?:\/\/[^"]+)"/i', $tag, $src)) {
+        $blob = $src[1];
+    } elseif (preg_match('/data-src="(https?:\/\/[^"]+)"/i', $tag, $src)) {
+        $blob = $src[1];
+    }
+
+    if (preg_match('#/([^/"?]+)\.(png|jpe?g|webp|gif)#i', $blob, $file)) {
+        return $file[1] . '.' . strtolower($file[2]);
+    }
+
+    return '';
 }
 
 function eludein_child_tarot_card_label(string $filename): string
