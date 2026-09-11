@@ -39,9 +39,16 @@ function eludein_child_enqueue_styles(): void
     );
 
     wp_enqueue_style(
+        'eludein-child-nav',
+        $base . '/assets/css/nav.css',
+        array('eludein-child-refresh'),
+        $ver
+    );
+
+    wp_enqueue_style(
         'eludein-child-layout',
         $base . '/assets/css/layout.css',
-        array('eludein-child-refresh'),
+        array('eludein-child-nav'),
         $ver
     );
 
@@ -75,7 +82,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nlayout.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -83,6 +90,51 @@ function eludein_child_litespeed_css_excludes($excludes)
 }
 add_filter('litespeed_optimize_css_excludes', 'eludein_child_litespeed_css_excludes');
 add_filter('litespeed_ucss_file_exc', 'eludein_child_litespeed_css_excludes');
+
+/**
+ * Masque les emojis du premier niveau (ils cassent la DA) en les
+ * encapsulant ; les sous-menus les gardent, assourdis en CSS.
+ */
+function eludein_child_wrap_menu_emoji($title, $item = null, $args = null, $depth = 0)
+{
+    if (!is_string($title) || $title === '') {
+        return $title;
+    }
+
+    $wrapped = preg_replace(
+        '/^(\s*)((?:[\x{1F000}-\x{1FFFF}\x{2600}-\x{27BF}\x{FE0F}\x{200D}\x{20E3}]+)+)(\s*)/u',
+        '$1<span class="eludein-menu-emoji" aria-hidden="true">$2</span>$3',
+        $title,
+        1
+    );
+
+    return is_string($wrapped) ? $wrapped : $title;
+}
+add_filter('nav_menu_item_title', 'eludein_child_wrap_menu_emoji', 10, 4);
+
+/**
+ * Compte / contact / blog / espace pro : rangée utilitaire.
+ */
+function eludein_child_mark_utility_nav_items($items, $args)
+{
+    if (!is_array($items)) {
+        return $items;
+    }
+
+    foreach ($items as $item) {
+        $parent = isset($item->menu_item_parent) ? (int) $item->menu_item_parent : 0;
+        if ($parent !== 0) {
+            continue;
+        }
+        $hay = strtolower((string) ($item->url ?? '') . ' ' . wp_strip_all_tags((string) ($item->title ?? '')));
+        if (preg_match('/mon-compte|\/contact|category\/blog|espace[- ]pro|espace_pro|\/panier/', $hay)) {
+            $item->classes[] = 'eludein-nav-utility';
+        }
+    }
+
+    return $items;
+}
+add_filter('wp_nav_menu_objects', 'eludein_child_mark_utility_nav_items', 10, 2);
 
 /**
  * Les blocs Kadence de l’accueil ont des couleurs inline !important
@@ -198,6 +250,7 @@ function eludein_child_late_contrast_css(): void
         . 'body.oceanwp-theme .entry-content .alignfull,body.oceanwp-theme .entry-content .alignwide'
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
         . '#content-wrap,#primary,.entry-content{overflow-x:clip;max-width:100%;}'
+        . '#site-header #site-navigation-wrap .dropdown-menu > li > a{text-transform:none!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);

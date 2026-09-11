@@ -1,0 +1,240 @@
+/**
+ * Navigation — direction artistique.
+ * Les intitulés WordPress restent ; on change le rythme, pas l’arborescence.
+ */
+
+#site-header.medium-header #site-navigation-wrap {
+  border-top: 1px solid var(--eludein-line, #d9cdb8) !important;
+  padding: 6px 8px 10px;
+}
+
+#site-header #site-navigation {
+  width: 100%;
+}
+
+#site-header #menu-main-menu.dropdown-menu,
+#site-header #site-navigation-wrap .dropdown-menu {
+  display: flex !important;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px 4px;
+  float: none !important;
+  width: 100% !important;
+}
+
+#site-header #menu-main-menu > li,
+#site-header.medium-header #site-navigation-wrap .dropdown-menu > li {
+  float: none !important;
+  display: inline-flex !important;
+  height: auto !important;
+}
+
+#site-header #menu-main-menu::after {
+  content: "";
+  order: 1;
+  flex-basis: 100%;
+  width: 100%;
+  height: 0;
+  margin: 4px 10% 2px;
+  border-top: 1px solid var(--eludein-line, #d9cdb8);
+}
+
+#site-header #menu-main-menu > .eludein-nav-utility,
+#site-header #menu-main-menu > .woo-menu-icon,
+#site-header #menu-main-menu > .search-toggle-li {
+  order: 2;
+}
+
+/* Liens de premier niveau : casse naturelle, pas d’icônes multicolores. */
+#site-header #site-navigation-wrap .dropdown-menu > li > a,
+#site-header #site-navigation-wrap .dropdown-menu > li > a .text-wrap {
+  font-family: var(--eludein-sans, "Source Sans 3", sans-serif) !important;
+  font-size: 13.25px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.045em !important;
+  text-transform: none !important;
+  color: var(--eludein-forest-deep, #243028) !important;
+  line-height: 1.2 !important;
+}
+
+#site-header #site-navigation-wrap .dropdown-menu > li > a {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.55em 0.9em !important;
+  border-radius: 999px;
+  background: transparent !important;
+  height: auto !important;
+  line-height: 1.25 !important;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+#site-header #site-navigation-wrap .dropdown-menu > li > a img.emoji,
+#site-header #site-navigation-wrap .dropdown-menu > li > a .eludein-menu-emoji {
+  display: none !important;
+}
+
+#site-header #site-navigation-wrap .dropdown-menu > li > a .nav-arrow {
+  font-size: 10px !important;
+  margin-left: 0.28em;
+  opacity: 0.55;
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  border: 0 !important;
+}
+
+#site-header #site-navigation-wrap .dropdown-menu > li > a:hover,
+#site-header #site-navigation-wrap .dropdown-menu > li.sfHover > a,
+#site-header #site-navigation-wrap .dropdown-menu > li.current-menu-item > a,
+#site-header #site-navigation-wrap .dropdown-menu > li.current-menu-ancestor > a {
+  background: rgba(63, 74, 58, 0.07) !important;
+  color: var(--eludein-sand, #8a6230) !important;
+}
+
+/* Offre phare : une seule pastille forêt. */
+#site-header #menu-item-1967 > a {
+  background: var(--eludein-forest, #3f4a3a) !important;
+  color: #fff !important;
+  padding: 0.52em 1.15em !important;
+  box-shadow: 0 8px 18px rgba(63, 74, 58, 0.16);
+}
+
+#site-header #menu-item-1967 > a .text-wrap,
+#site-header #menu-item-1967 > a:hover,
+#site-header #menu-item-1967 > a:hover .text-wrap {
+  color: #fff !important;
+}
+
+#site-header #menu-item-1967 > a:hover {
+  background: var(--eludein-forest-deep, #243028) !important;
+}
+
+/* Rangée utilitaire : plus petite, plus calme. */
+#site-header #menu-main-menu > .eludein-nav-utility > a,
+#site-header #menu-main-menu > .eludein-nav-utility > a .text-wrap {
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.1em !important;
+  color: #5a554e !important;
+  text-transform: none !important;
+}
+
+#site-header #menu-main-menu > .eludein-nav-utility > a:hover,
+#site-header #menu-main-menu > .eludein-nav-utility > a:hover .text-wrap {
+  color: var(--eludein-forest-deep, #243028) !important;
+  background: rgba(63, 74, 58, 0.05) !important;
+}
+
+#site-header #site-navigation-wrap .dropdown-menu > li > a:after,
+#site-navigation-wrap .dropdown-menu > li > a:after {
+  display: none !important;
+}
+  padding: 0.4em 0.7em !important;
+  border-radius: 999px;
+}
+
+#site-header .wcmenucart,
+#site-header .wcmenucart i,
+#site-header .wcmenucart-details {
+  color: var(--eludein-forest-deep, #243028) !important;
+  font-size: 14px !important;
+}
+
+#site-header .wcmenucart-details.count {
+  background: var(--eludein-forest, #3f4a3a) !important;
+  color: #fff !important;
+  border-radius: 999px;
+  min-width: 1.15em;
+  height: 1.15em;
+  line-height: 1.15em;
+  font-size: 10px !important;
+  font-weight: 600;
+}
+
+/* Sous-menus : panneau papier, pas un bloc OceanWP. */
+#site-header .dropdown-menu .sub-menu {
+  padding: 0.45rem !important;
+  min-width: 268px !important;
+  border: 1px solid var(--eludein-line, #d9cdb8) !important;
+  border-radius: 16px !important;
+  background: #fffefb !important;
+  box-shadow: 0 22px 48px rgba(36, 48, 40, 0.14) !important;
+  top: calc(100% + 8px) !important;
+}
+
+#site-header .dropdown-menu .sub-menu li {
+  float: none !important;
+}
+
+#site-header .dropdown-menu .sub-menu a,
+#site-header .dropdown-menu .sub-menu a .text-wrap {
+  font-size: 14.25px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+  text-transform: none !important;
+  color: var(--eludein-ink, #1a1816) !important;
+  line-height: 1.35 !important;
+}
+
+#site-header .dropdown-menu .sub-menu a {
+  display: block !important;
+  padding: 0.7em 0.95em !important;
+  border-radius: 11px;
+  white-space: normal;
+}
+
+#site-header .dropdown-menu .sub-menu a:hover,
+#site-header .dropdown-menu .sub-menu a:hover .text-wrap {
+  background: var(--eludein-cream, #f4efe6) !important;
+  color: var(--eludein-forest, #3f4a3a) !important;
+}
+
+#site-header .dropdown-menu .sub-menu .eludein-menu-emoji {
+  display: inline !important;
+  margin-right: 0.4em;
+  filter: grayscale(1);
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
+#site-header .dropdown-menu .sub-menu img.emoji {
+  width: 0.95em !important;
+  height: 0.95em !important;
+  margin-right: 0.35em;
+  filter: grayscale(1);
+  opacity: 0.6;
+}
+
+/* Mobile */
+@media (max-width: 959px) {
+  #site-header #menu-main-menu::after {
+    display: none;
+  }
+
+  .sidr,
+  #mobile-dropdown {
+    background: var(--eludein-paper, #fbf7f1) !important;
+  }
+
+  .sidr a,
+  #mobile-dropdown a {
+    color: var(--eludein-forest-deep, #243028) !important;
+    text-transform: none !important;
+    letter-spacing: 0.02em !important;
+    font-weight: 500 !important;
+  }
+
+  .sidr .eludein-menu-emoji,
+  #mobile-dropdown .eludein-menu-emoji {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1100px) {
+  #site-header #site-navigation-wrap .dropdown-menu > li > a {
+    padding: 0.5em 0.7em !important;
+    font-size: 12.5px !important;
+  }
+}
