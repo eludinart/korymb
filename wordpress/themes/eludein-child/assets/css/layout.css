@@ -64,7 +64,8 @@ body.has-sidebar #primary {
 /* Pages de lecture : mesure confortable, vraiment centrée. */
 body.page:not(.home):not(.woocommerce-page) #content .entry,
 body.single-post #content .entry {
-  max-width: 46rem;
+  max-width: 760px;
+  width: 100%;
   margin-left: auto;
   margin-right: auto;
 }
@@ -249,12 +250,22 @@ body.oceanwp-theme .page-header-title {
 #right-sidebar .kt-adv-heading,
 #left-sidebar .kt-adv-heading {
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.45rem !important;
+  font-size: 28px !important;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--eludein-forest-deep, #243028) !important;
   text-align: center;
-  margin: 0.35rem 0 0.4rem;
+  margin: 0.35rem 0 0.85rem;
+  border: 0 !important;
+  padding-left: 0 !important;
+}
+
+#right-sidebar .widget-title::before,
+#right-sidebar .widget-title::after,
+#left-sidebar .widget-title::before,
+#left-sidebar .widget-title::after {
+  content: none !important;
+  display: none !important;
 }
 
 #right-sidebar .widget_media_image,
@@ -324,7 +335,7 @@ body.oceanwp-theme .page-header-title {
 #right-sidebar .recent-posts-title {
   display: block;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.05rem;
+  font-size: 17px;
   line-height: 1.35;
   color: var(--eludein-forest-deep, #243028) !important;
   text-decoration: none;
