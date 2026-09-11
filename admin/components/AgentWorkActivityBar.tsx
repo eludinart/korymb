@@ -318,9 +318,9 @@ function CompactProcessChips({ jobs }: { jobs: ActiveAgentJob[] }) {
   );
 }
 
-export default function AgentWorkActivityBar() {
+export default function AgentWorkActivityBar({ panelMode = false }: { panelMode?: boolean }) {
   const qc = useQueryClient();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(panelMode);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
   const [controlFeedback, setControlFeedback] = useState("");
 
@@ -331,17 +331,19 @@ export default function AgentWorkActivityBar() {
   }, [controlFeedback]);
 
   useEffect(() => {
+    if (panelMode) return;
     const stored = readCollapsedPreference();
     if (stored !== null) setExpanded(!stored);
-  }, []);
+  }, [panelMode]);
 
   useEffect(() => {
+    if (panelMode) return;
     try {
       localStorage.setItem(COLLAPSED_LS, expanded ? "false" : "true");
     } catch {
       /* ignore */
     }
-  }, [expanded]);
+  }, [expanded, panelMode]);
 
   const active = useQuery({
     queryKey: QK.jobsActive,
@@ -625,11 +627,6 @@ export default function AgentWorkActivityBar() {
             </div>
           ) : null}
         </div>
-      ) : !primary && recentlyStopped.length > 0 ? (
-        <p className="px-4 py-2 text-xs text-slate-600">
-          Aucun travail actif — {recentlyStopped.length} processus arrêté{recentlyStopped.length > 1 ? "s" : ""}{" "}
-          récent{recentlyStopped.length > 1 ? "s" : ""}. Ouvrez <strong>Détail</strong> pour les relancer.
-        </p>
       ) : null}
     </section>
   );

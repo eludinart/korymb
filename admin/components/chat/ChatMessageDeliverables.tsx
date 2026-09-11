@@ -54,13 +54,13 @@ export default function ChatMessageDeliverables({ message }: Props) {
   if (!hasContent && !loading) return null;
 
   return (
-    <div className="mt-2 max-w-[90%] space-y-2">
+    <div className="mt-1.5 w-full space-y-1">
       {loading ? (
         <p className="text-[11px] text-slate-500">Chargement des liens livrables…</p>
       ) : (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-2.5">
-          <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-emerald-900">
-            Livrables — accès direct
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50/90 px-2.5 py-1.5 sm:rounded-xl sm:px-3 sm:py-2.5">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-emerald-900 sm:mb-2">
+            Livrables
           </p>
           <DeliverableAccessHub
             jobId={jobId}
@@ -69,7 +69,7 @@ export default function ChatMessageDeliverables({ message }: Props) {
             result={message.content}
             compact
           />
-          <p className="mt-2 text-[10px] text-slate-500">
+          <p className="mt-1.5 hidden text-[10px] text-slate-500 sm:mt-2 sm:block">
             <Link href="/gestion/livrables" className="font-semibold text-violet-700 hover:underline">
               Tous les livrables
             </Link>

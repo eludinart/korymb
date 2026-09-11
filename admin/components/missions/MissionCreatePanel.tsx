@@ -12,10 +12,20 @@ type Props = {
   onCreated: (jobId: string) => void;
   onCancel?: () => void;
   className?: string;
+  /** Groupe d'agents à rattacher (contexte d'équipe projet). */
+  initialAgentGroupId?: string | null;
+  /** Libellé déjà résolu (évite un second fetch). */
+  agentGroupLabel?: string;
 };
 
 /** Formulaire de lancement mission — point d'entrée unique (hub Missions). */
-export default function MissionCreatePanel({ onCreated, onCancel, className = "" }: Props) {
+export default function MissionCreatePanel({
+  onCreated,
+  onCancel,
+  className = "",
+  initialAgentGroupId = null,
+  agentGroupLabel = "",
+}: Props) {
   const qc = useQueryClient();
   const [mission, setMission] = useState("");
   const [agent, setAgent] = useState("coordinateur");
@@ -27,6 +37,11 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
   const [costEst, setCostEst] = useState<{ estimated_cost_usd?: number; tier?: string; warnings?: string[] } | null>(
     null,
   );
+
+  const agentGroupId = (initialAgentGroupId || "").trim() || null;
+  const groupLabel =
+    (agentGroupLabel || "").trim() ||
+    (agentGroupId === "entreprise" ? "Entreprise" : agentGroupId ? "Équipe projet" : "");
 
   const agents = useQuery({
     queryKey: QK.agents,
@@ -75,18 +90,21 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
           recursive_refinement_enabled?: boolean;
           recursive_max_rounds?: number;
           cio_plan_hitl_enabled?: boolean;
+          agent_group_id?: string | null;
         };
       } = { mission: mission.trim(), agent };
       const mcfg: {
         recursive_refinement_enabled?: boolean;
         recursive_max_rounds?: number;
         cio_plan_hitl_enabled?: boolean;
+        agent_group_id?: string | null;
       } = {};
       if (refinementEnabled) {
         mcfg.recursive_refinement_enabled = true;
         mcfg.recursive_max_rounds = rounds;
       }
       if (skipPlanHitl) mcfg.cio_plan_hitl_enabled = false;
+      if (agentGroupId) mcfg.agent_group_id = agentGroupId;
       if (Object.keys(mcfg).length) payload.mission_config = mcfg;
 
       const { data } = await requestJson("/run", {
@@ -116,12 +134,25 @@ export default function MissionCreatePanel({ onCreated, onCancel, className = ""
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
-          <p className="mt-0.5 text-xs text-slate-600">Décrivez votre objectif — le CIO orchestre l&apos;équipe.</p>
+          <p className="mt-0.5 text-xs text-slate-600">
+            {agentGroupId
+              ? `Décrivez votre objectif — l’équipe « ${groupLabel} » l’exécute (délégation limitée à ses membres).`
+              : "Décrivez votre objectif — le CIO orchestre l'équipe."}
+          </p>
         </div>
-        {onCancel ? (
-          <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
-            Fermer
-          </button>
+        {agentGroupId || onCancel ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {agentGroupId ? (
+              <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-sky-800">
+                {groupLabel}
+              </span>
+            ) : null}
+            {onCancel ? (
+              <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
+                Fermer
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

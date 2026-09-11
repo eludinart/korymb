@@ -63,7 +63,7 @@ export default function EnterpriseMemoryContextPanel({
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold tracking-tight text-slate-900">Mémoire entreprise — {title}</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-slate-900">Mémoire partagée — {title}</h2>
       {description ? <p className="mt-2 text-sm leading-relaxed text-slate-500">{description}</p> : null}
       {q.isLoading ? <p className="mt-4 text-sm text-slate-400">Chargement…</p> : null}
       {q.isError ? (

@@ -46,6 +46,7 @@ def node_run_cio(state: MissionGraphState) -> dict[str, Any]:
 
         mission_txt = f"{mission_txt}\n\nContexte : {json.dumps(ctx, ensure_ascii=False)}"
 
+    gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
     result, ti, to = orchestrate_coordinateur_mission(
         mission_txt,
         state.get("mission_plain") or "",
@@ -54,6 +55,7 @@ def node_run_cio(state: MissionGraphState) -> dict[str, Any]:
         job_id=job_id,
         cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
         cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", False)),
+        agent_group_id=gid,
     )
     _set_phase(job_id, "completed")
     return {"result": result, "tokens_in": ti, "tokens_out": to, "phase": "completed"}
@@ -96,7 +98,9 @@ def node_run_single(state: MissionGraphState) -> dict[str, Any]:
     agent_cfg = agents_def().get(agent_key, agents_def()["coordinateur"])
     job_logs: list[str] = active_jobs.get(job_id, {}).setdefault("logs", [])
     _set_phase(job_id, "single")
-    mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+    cfg = state.get("mission_config") or {}
+    gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
+    mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id, agent_group_id=gid)
     sub = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
     system = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub
     mission = state.get("mission_plain") or ""

@@ -76,6 +76,7 @@ Connexion : **Korymb** = `/login` ; **participant** = `/p/{slug}/connexion`. Un 
 | **Studio** (`/gestion/studio`) | Générateur de contenus : articles, PDF, podcasts, vidéo, réseaux. Brief + mémoire ; **passes de correction** et texte copiable ; **moteurs média en chaîne**. Publication via Décisions |
 | **Playbooks** (`/gestion/playbooks`) | Scénarios prêts à lancer (studio, Fleur, Sivana, ops) ; relire, corriger, copier le livrable |
 | **Livrables** (`/gestion/livrables`) | Bibliothèque des livrables produits |
+| **Équipes projet** (`/gestion/equipes`) | Contextes de travail avec les autres groupes d’agents (hors flotte Entreprise) : chat, missions, brief d’équipe |
 | **Historique** | Missions et jobs passés |
 | **Configuration** | Provider LLM, modèle, paramètres runtime (sans secrets en clair côté UI) |
 | **Administration** | Agents, **page publique**, **intégrations** (Essentielles / Création / Métier / Technique ; Google et médias regroupés), budget, mémoire, orchestration, comportements (pas la création de contenus) |
@@ -109,6 +110,8 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 
 ### Modes importants
 
+- **Assistant (défaut chat)** : atelier dirigeant — clarifier, structurer, **proposer des équipes** (blueprints) sans orchestration métier. Validation UI « Créer l’équipe ».
+- **Groupes d’agents** : flotte `entreprise` (système, défaut métier) + équipes projet optionnelles ; délégation restreinte aux membres du groupe. Ops : **Équipes projet** (`/gestion/equipes`) pour ouvrir un contexte (chat, missions, brief). Admin : **Équipes** (`/administration/equipes`) avec onglets Identité / Composition / Politique / Mémoire. Si `memory_scope=group`, injection des notes `agent_group_memory` (héritage optionnel du global partagé) ; sinon mémoire workspace ou aucune. Mémoire partagée workspace : Moteur IA → Mémoire partagée.
 - **Mode cadrage** : échange sans lancer le pipeline multi-agents — le dirigeant valide ensuite dans l’app
 - **Mode exécution** : orchestration réelle (moteur **legacy** par défaut ; LangGraph gelé)
 - **Playbooks** (`/gestion/playbooks`) : bibliothèque de scénarios prêts à lancer (studio, thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social). Le résultat est relisible, corrigeable (nouvelle passe) et copiable.
@@ -117,23 +120,24 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 
 ## 4. L’équipe d’agents intégrée
 
-Korymb simule une **petite équipe** avec des rôles fixes :
+Korymb s’appuie sur une **flotte métier par défaut** (`entreprise`) avec des rôles fixes, plus des **équipes projet** composables pour des périmètres dédiés :
 
 | Clé | Rôle | Spécialité |
 |-----|------|------------|
+| **assistant** | Assistant | Atelier dirigeant : cadrage, blueprints d’équipes (pas d’orchestration métier) |
 | **coordinateur** | **CIO** — Orchestrateur | Stratégie, décomposition, délégation, synthèse, validation interne |
 | **commercial** | Commercial | Prospection, emails, leads (coachs, thérapeutes, facilitateurs) |
 | **community_manager** | Community Manager | Instagram, Facebook, contenu autour de Fleur d’ÅmÔurs |
 | **developpeur** | Développeur | Korymb, app Fleur d’ÅmÔurs, backend FastAPI, infra Coolify/Docker |
 | **comptable** | Comptable | Finances micro-entreprise, devis, factures |
 
-Des **agents personnalisés** peuvent être ajoutés en administration (pétales / compétences configurables).
+Des **agents personnalisés** et des **groupes** (Administration → Équipes d’agents) peuvent être ajoutés. Templates : édition, terrain, R&D. Le tronc commun reste la **gestion d’activité** ; les équipes sont des configurations d’exécution IA.
 
-Le **CIO** est le seul « manager » : il ne mobilise les autres agents que si leur expertise est nécessaire — pas de déploiement systématique de toute l’équipe.
+Le **CIO** (flotte `entreprise`) est le manager métier par défaut : il ne mobilise les autres agents que si leur expertise est nécessaire — pas de déploiement systématique de toute l’équipe. Les autres groupes ont leur propre **lead**.
 
 ### Module Gestion métier (CRM intégré)
 
-Korymb inclut un **cockpit Gestion** (`/gestion` dans l’admin) : contacts/prospects, projets, planning, devis. La fiche projet liste les **séances**, **documents / vidéos** et **devis** rattachés : un document à ouvrir est un créneau du planning (pas un rendez-vous), pas un module séparé. Les **factures légales** passent par **Tiime** (PA / facturation électronique) — Korymb prépare les devis et enregistre les références facture Tiime.
+Korymb inclut un **cockpit Gestion** (`/gestion` dans l’admin) : contacts/prospects, projets, planning, devis, et **équipes projet** (`/gestion/equipes`) pour travailler avec un autre groupe d’agents. La fiche projet liste les **séances**, **documents / vidéos** et **devis** rattachés : un document à ouvrir est un créneau du planning (pas un rendez-vous), pas un module séparé. Les **factures légales** passent par **Tiime** (PA / facturation électronique) — Korymb prépare les devis et enregistre les références facture Tiime.
 
 Les agents **commercial**, **comptable** et **coordinateur** disposent d’outils `gestion_*` (préférés aux outils CRM externes type Notion/HubSpot pour Élude In Art) :
 

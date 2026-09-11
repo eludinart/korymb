@@ -15,7 +15,7 @@ type BehaviorSetting = {
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  orchestration: "Orchestration CIO",
+  orchestration: "Prompts d’orchestration",
   fallbacks: "Filets de sécurité",
   synthesis: "Synthèse",
   learning: "Apprentissage",

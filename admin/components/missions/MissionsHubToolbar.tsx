@@ -9,6 +9,10 @@ type Props = {
   onToggleCreate: () => void;
   activeCount: number;
   archivesCount: number;
+  /** Filtre équipe (optionnel, affiché seulement s'il y a plusieurs équipes). */
+  teamFilterOptions?: Array<{ id: string; label: string }>;
+  teamFilter?: string;
+  onTeamFilterChange?: (id: string) => void;
 };
 
 export default function MissionsHubToolbar({
@@ -18,6 +22,9 @@ export default function MissionsHubToolbar({
   onToggleCreate,
   activeCount,
   archivesCount,
+  teamFilterOptions,
+  teamFilter = "all",
+  onTeamFilterChange,
 }: Props) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
@@ -53,6 +60,22 @@ export default function MissionsHubToolbar({
         >
           Cadrage
         </button>
+        {teamFilterOptions && onTeamFilterChange && (teamFilterOptions.length > 1 || teamFilter !== "all") ? (
+          <select
+            className="h-9 max-w-[11rem] truncate rounded-full border border-slate-200 bg-slate-50 px-2.5 text-xs font-semibold text-slate-700"
+            value={teamFilter}
+            onChange={(e) => onTeamFilterChange(e.target.value)}
+            aria-label="Filtrer par équipe"
+            title="Filtrer par équipe"
+          >
+            <option value="all">Toutes les équipes</option>
+            {teamFilterOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
       </div>
       <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
         {showCreate ? "Masquer" : "Nouvelle mission"}

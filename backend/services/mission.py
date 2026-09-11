@@ -1120,14 +1120,36 @@ def _past_missions_context_block(
     return "\n".join(parts)
 
 
-def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = None) -> str:
-    """Bloc texte injecté dans le system prompt : mémoire entreprise + missions récentes (+ historique DB pour le CIO)."""
+def _korymb_memory_prompt_for(
+    agent_key: str,
+    *,
+    exclude_job_id: str | None = None,
+    agent_group_id: str | None = None,
+) -> str:
+    """Bloc texte injecté : mémoire partagée / équipe / aucune (+ missions récentes pour le CIO)."""
     try:
         from services.drive_workspace import build_drive_workspace_memory_prompt
 
         drive_blk = build_drive_workspace_memory_prompt()
     except Exception:
         drive_blk = ""
+
+    gid = (agent_group_id or "").strip() or None
+    if gid:
+        try:
+            from services.agent_groups import format_group_memory_prompt, group_memory_scope
+
+            scope = group_memory_scope(gid)
+            if scope == "none":
+                return drive_blk if drive_blk else ""
+            if scope == "group":
+                group_blk = format_group_memory_prompt(gid)
+                if drive_blk and group_blk:
+                    return f"{group_blk}\n{drive_blk}".strip()
+                return group_blk or drive_blk or ""
+        except Exception:
+            logger.exception("group memory resolve")
+
     try:
         mem = get_enterprise_memory()
     except Exception:
@@ -1174,7 +1196,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
     if not ctx("global") and not has_roles and not recent and not db_block and not facts_blk:
         return drive_blk if drive_blk else ""
 
-    lines: list[str] = ["", "--- Mémoire entreprise (persistante) ---"]
+    lines: list[str] = ["", "--- Mémoire partagée (persistante) ---"]
     if facts_blk:
         lines.append(facts_blk)
 
@@ -1232,7 +1254,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
     if drive_blk:
         lines.append(drive_blk.strip())
 
-    lines.append("--- Fin mémoire entreprise ---")
+    lines.append("--- Fin mémoire partagée ---")
     return "\n".join(lines)
 
 
@@ -1447,8 +1469,9 @@ def _cio_prompt_memory(
     exclude_job_id: str | None,
     chat_mode: bool,
     user_text: str = "",
+    agent_group_id: str | None = None,
 ) -> str:
-    """Mémoire injectée au CIO : complète en mission, ciblée en chat."""
+    """Mémoire injectée au CIO / lead : complète en mission, ciblée en chat."""
     try:
         from services.drive_workspace import build_drive_workspace_memory_prompt
 
@@ -1463,9 +1486,24 @@ def _cio_prompt_memory(
             chat_mem = build_targeted_memory_block(user_text)
         except Exception:
             chat_mem = ""
+        # Chat : mémoire d'équipe si scope=group, sinon ciblage classique.
+        gid = (agent_group_id or "").strip() or None
+        if gid:
+            try:
+                from services.agent_groups import format_group_memory_prompt, group_memory_scope
+
+                if group_memory_scope(gid) == "group":
+                    gblk = format_group_memory_prompt(gid, max_chars=2500)
+                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + (drive_blk or "")
+                if group_memory_scope(gid) == "none":
+                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+            except Exception:
+                pass
         return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
     return (
-        _korymb_memory_prompt_for(agent_key, exclude_job_id=exclude_job_id)
+        _korymb_memory_prompt_for(
+            agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
+        )
         + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
     )
 
@@ -1476,6 +1514,7 @@ def _cio_attempt_direct_answer(
     job_id: str | None,
     job_logs: list | None,
     chat_mode: bool,
+    agent_group_id: str | None = None,
 ) -> tuple[str | None, int, int]:
     """Phase 0 : le CIO tente de répondre seul (mémoire + outils) avant plan JSON."""
     from services.chat_intelligence import (
@@ -1497,6 +1536,7 @@ def _cio_attempt_direct_answer(
             exclude_job_id=job_id,
             chat_mode=chat_mode,
             user_text=root_mission_label or mission_txt,
+            agent_group_id=agent_group_id,
         )
         + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
         "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
@@ -1550,22 +1590,47 @@ def orchestrate_coordinateur_mission(
     job_id: str | None = None,
     cio_questions_enabled: bool = True,
     cio_plan_hitl_enabled: bool = False,
+    allowed_agents: list[str] | tuple[str, ...] | None = None,
+    orchestrator_key: str = "coordinateur",
+    agent_group_id: str | None = None,
 ) -> tuple[str, int, int]:
     """
     Plan JSON → exécution par sous-agents → synthèse CIO.
     mission_txt : texte analysé par le CIO (peut inclure historique de chat).
     root_mission_label : rappel court pour les sous-agents (souvent la demande brute utilisateur).
     job_id : si fourni (mission /run), met à jour active_jobs[job_id]["team"] pour l'interface.
+    allowed_agents : si fourni, restreint la délégation à ces clés (groupe d'agents).
+    orchestrator_key : agent lead (coordinateur entreprise ou chef de groupe).
     """
-    agent_cfg = agents_def()["coordinateur"]
+    orch_key = (orchestrator_key or "coordinateur").strip() or "coordinateur"
+    if orch_key not in agents_def():
+        orch_key = "coordinateur"
+    agent_cfg = agents_def()[orch_key]
     memory_brain = _cio_prompt_memory(
-        "coordinateur",
+        orch_key if orch_key in ("coordinateur", "assistant") else "coordinateur",
         exclude_job_id=job_id,
         chat_mode=chat_mode,
         user_text=root_mission_label or mission_txt,
+        agent_group_id=agent_group_id,
     )
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain
-    deleg = delegatable_subagent_keys_ordered()
+    group_ctx = ""
+    if agent_group_id:
+        try:
+            from services.agent_groups import get_group
+
+            g = get_group(agent_group_id)
+            if g:
+                group_ctx = (
+                    f"\n\n### Groupe d'agents actif : {g.get('label')} (`{g.get('id')}`)\n"
+                    f"Tu pilotes uniquement cette équipe. Membres déléguables : "
+                    f"{', '.join(g.get('member_keys') or []) or 'aucun'}.\n"
+                    f"Hors périmètre du groupe : ne mobilise pas la flotte Entreprise élargie.\n"
+                )
+        except Exception:
+            group_ctx = ""
+    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain + group_ctx
+    allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
+    deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
     if len(deleg) >= 2:
         ex_a, ex_b = deleg[0], deleg[1]
@@ -1590,6 +1655,9 @@ def orchestrate_coordinateur_mission(
             "job_in_active_jobs": job_id in active_jobs if job_id else False,
             "chat_mode": chat_mode,
             "mission_preview": (root_mission_label or "")[:160],
+            "agent_group_id": agent_group_id or "",
+            "orchestrator_key": orch_key,
+            "deleg_count": len(deleg),
         },
     )
     # endregion
@@ -1603,7 +1671,7 @@ def orchestrate_coordinateur_mission(
 
     if job_id:
         team_rows.append({
-            "key": "coordinateur",
+            "key": orch_key,
             "label": agent_cfg["label"],
             "status": "running",
             "phase": "plan",
@@ -1613,15 +1681,24 @@ def orchestrate_coordinateur_mission(
         _emit_job_event(
             job_id,
             "orchestration_start",
-            "coordinateur",
-            {"chat_mode": chat_mode, "mission_preview": (root_mission_label or "")[:400]},
+            orch_key,
+            {
+                "chat_mode": chat_mode,
+                "mission_preview": (root_mission_label or "")[:400],
+                "agent_group_id": agent_group_id or "",
+            },
         )
 
     lazy_delegation = _behavior_bool("orchestration.strict_lazy_delegation", True)
 
     if lazy_delegation and not _mission_requires_delegation(mission_txt, root_mission_label):
         direct, ti0, to0 = _cio_attempt_direct_answer(
-            mission_txt, root_mission_label, job_id, job_logs, chat_mode,
+            mission_txt,
+            root_mission_label,
+            job_id,
+            job_logs,
+            chat_mode,
+            agent_group_id=agent_group_id,
         )
         t_in += ti0
         t_out += to0
@@ -2091,7 +2168,9 @@ def orchestrate_coordinateur_mission(
             + (
                 ""
                 if chat_mode
-                else _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+                else _korymb_memory_prompt_for(
+                    agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
+                )
                 + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
             )
         )
@@ -2639,6 +2718,10 @@ class MissionRunConfig(BaseModel):
     cio_questions_enabled: bool = True
     # Pause HITL après le plan CIO (validation / amendement dirigeant avant délégation)
     cio_plan_hitl_enabled: bool = True
+    # Groupe d'agents (filtre de délégation + lead)
+    agent_group_id: str | None = None
+    allowed_agents: list[str] | None = None
+    orchestrator_key: str | None = None
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -2904,7 +2987,11 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
-    mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+    mem = _korymb_memory_prompt_for(
+        agent_key,
+        exclude_job_id=job_id,
+        agent_group_id=(cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None,
+    )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
     system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
@@ -3013,11 +3100,34 @@ def _schedule_mission_execution(
                         memory_context=entity_ctx,
                     )
                     _raise_if_job_cancelled(job_id)
-                elif agent_key == "coordinateur":
+                elif agent_key == "coordinateur" or bool(cfg.get("agent_group_id")):
+                    gid = (cfg.get("agent_group_id") or "").strip() or None
+                    allowed = cfg.get("allowed_agents")
+                    orch = (cfg.get("orchestrator_key") or agent_key or "coordinateur").strip()
+                    if gid and (not allowed or orch == "coordinateur"):
+                        try:
+                            from services.agent_groups import (
+                                group_allowed_delegate_keys,
+                                group_orchestrator_key,
+                            )
+
+                            if not allowed:
+                                allowed = list(group_allowed_delegate_keys(gid) or ())
+                            if not cfg.get("orchestrator_key"):
+                                orch = group_orchestrator_key(gid)
+                        except Exception:
+                            pass
                     result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
-                        mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
+                        mission_txt,
+                        mission_plain,
+                        job_logs,
+                        chat_mode=False,
+                        job_id=job_id,
                         cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
                         cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", True)),
+                        allowed_agents=list(allowed) if allowed is not None else None,
+                        orchestrator_key=orch,
+                        agent_group_id=gid,
                     )
                     _raise_if_job_cancelled(job_id)
                     if cfg.get("recursive_refinement_enabled"):

@@ -12,6 +12,8 @@ import {
   GESTION_NAV_LINKS,
   GESTION_QUICK_ACTIONS,
   groupedGestionNavLinks,
+  gestionNavGroupCompactClass,
+  gestionNavGroupHeadingClass,
   isGestionLinkActive,
   isGestionPath,
 } from "../lib/gestionNav";
@@ -189,9 +191,7 @@ export default function AppNav() {
       {groupedGestionNavLinks().map((group) => (
         <div key={group.id} className={variant === "desktop" ? "mt-1 border-t border-emerald-50 pt-1" : "mt-2"}>
           <p
-            className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${
-              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
-            }`}
+            className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}
           >
             {group.label}
           </p>
@@ -270,8 +270,21 @@ export default function AppNav() {
   const adminSubLinks = adminActive ? (
     <div className="mt-3 space-y-3 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
       {ADMIN_NAV_GROUPS.map((group) => (
-        <div key={group.id} className="space-y-1">
-          <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{group.label}</p>
+        <div
+          key={group.id}
+          className={
+            group.emphasis === "agents"
+              ? "space-y-1 rounded-xl border border-violet-200 bg-violet-50/60 p-2"
+              : "space-y-1"
+          }
+        >
+          <p
+            className={`px-2 text-[10px] font-extrabold uppercase tracking-wider ${
+              group.emphasis === "agents" ? "text-violet-800" : "text-slate-500"
+            }`}
+          >
+            {group.label}
+          </p>
           {group.links.map((item) => {
             const active = isAdminLinkActive(pathname, item.href);
             const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
@@ -450,7 +463,7 @@ export default function AppNav() {
             })}
             {groupedGestionNavLinks().map((group) => (
               <div key={group.id} className="flex flex-wrap items-center gap-1">
-                <span className={`font-bold ${group.id === "creation" ? "text-violet-500" : "text-emerald-500"}`}>
+                <span className={`font-bold ${gestionNavGroupCompactClass(group.id)}`}>
                   {group.label}:
                 </span>
                 {group.links.map((item) => {
@@ -476,8 +489,15 @@ export default function AppNav() {
         {adminActive ? (
           <nav className="flex max-w-full flex-wrap justify-end gap-x-3 gap-y-1 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
             {ADMIN_NAV_GROUPS.map((group) => (
-              <div key={group.id} className="flex flex-wrap items-center gap-1">
-                <span className="font-bold text-slate-400">{group.label}:</span>
+              <div
+                key={group.id}
+                className={`flex flex-wrap items-center gap-1 ${
+                  group.emphasis === "agents" ? "rounded-full bg-violet-50 px-1.5 py-0.5 ring-1 ring-violet-200" : ""
+                }`}
+              >
+                <span className={`font-bold ${group.emphasis === "agents" ? "text-violet-700" : "text-slate-400"}`}>
+                  {group.label}:
+                </span>
                 {group.links.map((item) => {
                   const active = isAdminLinkActive(pathname, item.href);
                   const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;

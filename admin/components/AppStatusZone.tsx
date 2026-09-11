@@ -8,7 +8,7 @@ export default function AppStatusZone({ executiveMode = false }: { executiveMode
   return (
     <div className="w-full min-w-0 space-y-2.5">
       {!executiveMode ? <GlobalStatusBar /> : null}
-      <AgentWorkActivityBar />
+      <AgentWorkActivityBar panelMode />
     </div>
   );
 }

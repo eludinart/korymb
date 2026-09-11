@@ -31,6 +31,10 @@ export type MissionConfig = {
   require_user_validation?: boolean;
   /** Mode d'orchestration : 'cio' (défaut), 'triad' (Architect/Executor/Critic), 'single' */
   mode?: TriadMode;
+  cio_questions_enabled?: boolean;
+  cio_plan_hitl_enabled?: boolean;
+  /** Groupe d'agents (flotte entreprise ou équipe projet). */
+  agent_group_id?: string | null;
 };
 
 /** Dernier tour « Poursuivre avec le CIO » (job enfant source=chat) pour enrichir l’UI du parent */

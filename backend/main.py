@@ -64,6 +64,7 @@ from routers.core_memory import router as core_memory_router
 from routers.core_config import router as core_config_router
 from routers.core_integrations import router as core_integrations_router
 from routers.core_agents import router as core_agents_router
+from routers.core_agent_groups import router as core_agent_groups_router
 from routers.core_health import router as core_health_router
 from routers.core_jobs import router as core_jobs_router
 from routers.core_missions import router as core_missions_router
@@ -174,6 +175,7 @@ app.include_router(core_memory_router)
 app.include_router(core_config_router)
 app.include_router(core_integrations_router)
 app.include_router(core_agents_router)
+app.include_router(core_agent_groups_router)
 app.include_router(core_health_router)
 app.include_router(core_jobs_router)
 app.include_router(core_missions_router)

@@ -28,8 +28,10 @@ function now() {
 export function conversationTitleFromMessages(messages: ChatMsg[]): string {
   const firstUser = messages.find((m) => m.role === "user");
   const raw = (firstUser?.content || "").trim().replace(/\s+/g, " ");
-  if (!raw) return "Nouvelle conversation";
-  return raw.length > 52 ? `${raw.slice(0, 51)}…` : raw;
+  if (raw) return raw.length > 52 ? `${raw.slice(0, 51)}…` : raw;
+  const fileName = firstUser?.attachments?.[0]?.filename || "";
+  if (fileName) return fileName.length > 52 ? `${fileName.slice(0, 51)}…` : fileName;
+  return "Nouvelle conversation";
 }
 
 export function loadConversations(): ChatConversation[] {

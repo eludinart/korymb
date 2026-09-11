@@ -144,6 +144,4 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
   );
 }
 
-export function LoadingLine({ label = "Chargement…" }: { label?: string }) {
-  return <p className="loading-line">{label}</p>;
-}
+export { BusyNotice, LoadingLine } from "./BusyNotice";

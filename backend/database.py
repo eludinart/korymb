@@ -622,6 +622,7 @@ def init_db():
         """)
         _ensure_llm_usage_table(conn)
         _ensure_custom_agents_table(conn)
+        _ensure_agent_groups_tables(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS mission_templates (
                 id              """ + text_pk + """ PRIMARY KEY,
@@ -943,15 +944,19 @@ def seed_orchestration_prompt_defaults() -> None:
         for key, body in DEFAULT_ORCHESTRATION_PROMPTS.items():
             stored = _scoped_prompt_key(key)
             row = conn.execute(
-                "SELECT prompt_key FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
-                (stored, wid),
+                "SELECT prompt_key FROM orchestration_prompts WHERE workspace_id = ? AND (prompt_key = ? OR prompt_key = ?)",
+                (wid, stored, key),
             ).fetchone()
             if row:
                 continue
-            conn.execute(
-                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
-                (stored, body, now, wid),
-            )
+            try:
+                conn.execute(
+                    "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
+                    (stored, body, now, wid),
+                )
+            except Exception:
+                # Doublon PK (clé nue vs scopée) : ne pas faire échouer GET /admin.
+                continue
         conn.commit()
 
 
@@ -1014,18 +1019,31 @@ def upsert_orchestration_prompt(prompt_key: str, body: str) -> dict:
 
 
 def list_orchestration_prompts() -> list[dict]:
+    wid = _ws()
+    prefix = f"{wid}:"
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts "
+            "SELECT prompt_key, body, updated_at FROM orchestration_prompts "
             "WHERE workspace_id = ? ORDER BY prompt_key ASC",
-            (_ws(),),
+            (wid,),
         ).fetchall()
-    out: list[dict] = []
+    by_key: dict[str, dict] = {}
     for r in rows or []:
         d = dict(r)
-        d["prompt_key"] = _bare_prompt_key(str(d.get("prompt_key") or ""))
-        out.append(d)
-    return out
+        stored = str(d.get("prompt_key") or "")
+        bare = _bare_prompt_key(stored)
+        body = str(d.get("body") or "")
+        item = {
+            "prompt_key": bare,
+            "body": body,
+            "body_chars": len(body),
+            "updated_at": d.get("updated_at"),
+        }
+        prev = by_key.get(bare)
+        # Préférer la ligne scopée workspace aux anciennes clés nues.
+        if prev is None or stored.startswith(prefix):
+            by_key[bare] = item
+    return list(by_key.values())
 
 
 def _scoped_behavior_key(setting_key: str) -> str:
@@ -2476,7 +2494,16 @@ def _memory_user_deletable_keys() -> frozenset[str]:
 
 CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
 _CUSTOM_AGENT_RESERVED = frozenset(
-    {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable", "auto_summary"},
+    {
+        "global",
+        "coordinateur",
+        "commercial",
+        "community_manager",
+        "developpeur",
+        "comptable",
+        "auto_summary",
+        "assistant",
+    },
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
     {
@@ -2497,6 +2524,7 @@ ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
         "youtube",
         "pinterest",
         "social_auto",
+        "teams",
     },
 )
 
@@ -2643,6 +2671,293 @@ def delete_custom_agent(agent_key: str) -> bool:
         cur = conn.execute("DELETE FROM custom_agents WHERE agent_key=?", (canon,))
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
+def _ensure_agent_groups_tables(conn) -> None:
+    text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS agent_groups (
+            id {text_pk} PRIMARY KEY,
+            slug TEXT NOT NULL,
+            label TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            lead_agent_key TEXT NOT NULL,
+            member_keys_json TEXT NOT NULL DEFAULT '[]',
+            policy_json TEXT NOT NULL DEFAULT '{{}}',
+            is_system INTEGER NOT NULL DEFAULT 0,
+            template_key TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS team_blueprints (
+            id {text_pk} PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'proposed',
+            title TEXT NOT NULL DEFAULT '',
+            intent TEXT NOT NULL DEFAULT '',
+            dry_run_summary TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            group_id TEXT,
+            chat_session_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS agent_group_memory (
+            group_id {text_pk} PRIMARY KEY,
+            notes TEXT NOT NULL DEFAULT '',
+            inherit_shared INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def upsert_agent_group(
+    group_id: str,
+    *,
+    slug: str,
+    label: str,
+    description: str,
+    status: str,
+    lead_agent_key: str,
+    member_keys: list[str],
+    policy: dict[str, Any],
+    is_system: bool,
+    template_key: str | None,
+) -> dict[str, Any]:
+    now = datetime.utcnow().isoformat()
+    gid = (group_id or "").strip()
+    if not gid:
+        raise ValueError("group_id vide")
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        prev = conn.execute("SELECT created_at FROM agent_groups WHERE id=?", (gid,)).fetchone()
+        created = now
+        if prev is not None:
+            try:
+                created = str(dict(prev)["created_at"])
+            except Exception:
+                created = str(prev[0]) if prev else now
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_groups "
+            "(id, slug, label, description, status, lead_agent_key, member_keys_json, policy_json, "
+            "is_system, template_key, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                gid,
+                (slug or gid)[:80],
+                (label or gid)[:160],
+                (description or "")[:2000],
+                (status or "active")[:32],
+                (lead_agent_key or "coordinateur")[:80],
+                json.dumps(list(member_keys or []), ensure_ascii=False),
+                json.dumps(policy or {}, ensure_ascii=False),
+                1 if is_system else 0,
+                (template_key or None),
+                created,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM agent_groups WHERE id=?", (gid,)).fetchone()
+    d = dict(row)
+    d["member_keys"] = d.get("member_keys_json")
+    d["policy"] = d.get("policy_json")
+    return d
+
+
+def get_agent_group(group_id: str) -> dict[str, Any] | None:
+    gid = (group_id or "").strip()
+    if not gid:
+        return None
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute("SELECT * FROM agent_groups WHERE id=?", (gid,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["member_keys"] = d.get("member_keys_json")
+    d["policy"] = d.get("policy_json")
+    return d
+
+
+def list_agent_groups(*, include_archived: bool = False) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        if include_archived:
+            rows = conn.execute(
+                "SELECT * FROM agent_groups ORDER BY is_system DESC, label ASC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM agent_groups WHERE status != 'archived' ORDER BY is_system DESC, label ASC"
+            ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        d["member_keys"] = d.get("member_keys_json")
+        d["policy"] = d.get("policy_json")
+        out.append(d)
+    return out
+
+
+def insert_team_blueprint(
+    blueprint_id: str,
+    *,
+    status: str,
+    title: str,
+    intent: str,
+    dry_run_summary: str,
+    payload: dict[str, Any],
+    chat_session_id: str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any]:
+    now = datetime.utcnow().isoformat()
+    bid = (blueprint_id or "").strip()
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        conn.execute(
+            "INSERT INTO team_blueprints "
+            "(id, status, title, intent, dry_run_summary, payload_json, group_id, chat_session_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                bid,
+                (status or "proposed")[:32],
+                (title or "")[:200],
+                (intent or "")[:4000],
+                (dry_run_summary or "")[:4000],
+                json.dumps(payload or {}, ensure_ascii=False),
+                group_id,
+                chat_session_id,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM team_blueprints WHERE id=?", (bid,)).fetchone()
+    d = dict(row)
+    d["payload"] = d.get("payload_json")
+    return d
+
+
+def get_team_blueprint(blueprint_id: str) -> dict[str, Any] | None:
+    bid = (blueprint_id or "").strip()
+    if not bid:
+        return None
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute("SELECT * FROM team_blueprints WHERE id=?", (bid,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["payload"] = d.get("payload_json")
+    return d
+
+
+def list_team_blueprints(*, limit: int = 30) -> list[dict[str, Any]]:
+    lim = max(1, min(int(limit or 30), 100))
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        rows = conn.execute(
+            "SELECT * FROM team_blueprints ORDER BY created_at DESC LIMIT ?",
+            (lim,),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        d["payload"] = d.get("payload_json")
+        out.append(d)
+    return out
+
+
+def update_team_blueprint(
+    blueprint_id: str,
+    *,
+    status: str | None = None,
+    group_id: str | None = None,
+    dry_run_summary: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    bid = (blueprint_id or "").strip()
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute("SELECT * FROM team_blueprints WHERE id=?", (bid,)).fetchone()
+        if not row:
+            raise ValueError("blueprint introuvable")
+        d = dict(row)
+        conn.execute(
+            "UPDATE team_blueprints SET status=?, group_id=?, dry_run_summary=?, payload_json=?, updated_at=? WHERE id=?",
+            (
+                (status if status is not None else d.get("status")) or "proposed",
+                group_id if group_id is not None else d.get("group_id"),
+                dry_run_summary if dry_run_summary is not None else d.get("dry_run_summary") or "",
+                json.dumps(payload, ensure_ascii=False)
+                if payload is not None
+                else (d.get("payload_json") or "{}"),
+                now,
+                bid,
+            ),
+        )
+        conn.commit()
+
+
+def get_agent_group_memory(group_id: str) -> dict[str, Any]:
+    """Notes mémoire isolées d'un groupe d'agents."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return {"group_id": "", "notes": "", "inherit_shared": False, "updated_at": None}
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute(
+            "SELECT group_id, notes, inherit_shared, updated_at FROM agent_group_memory WHERE group_id=?",
+            (gid,),
+        ).fetchone()
+    if not row:
+        return {"group_id": gid, "notes": "", "inherit_shared": False, "updated_at": None}
+    d = dict(row)
+    return {
+        "group_id": str(d.get("group_id") or gid),
+        "notes": str(d.get("notes") or ""),
+        "inherit_shared": bool(int(d.get("inherit_shared") or 0)),
+        "updated_at": d.get("updated_at"),
+    }
+
+
+def upsert_agent_group_memory(
+    group_id: str,
+    *,
+    notes: str | None = None,
+    inherit_shared: bool | None = None,
+) -> dict[str, Any]:
+    gid = (group_id or "").strip()
+    if not gid:
+        raise ValueError("group_id vide")
+    cur = get_agent_group_memory(gid)
+    next_notes = notes if notes is not None else cur.get("notes") or ""
+    next_notes = str(next_notes)[:16_000]
+    next_inherit = (
+        bool(inherit_shared) if inherit_shared is not None else bool(cur.get("inherit_shared"))
+    )
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_group_memory (group_id, notes, inherit_shared, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (gid, next_notes, 1 if next_inherit else 0, now),
+        )
+        conn.commit()
+    return get_agent_group_memory(gid)
 
 
 def init_enterprise_memory_row() -> None:

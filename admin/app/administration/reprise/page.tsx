@@ -404,7 +404,7 @@ export default function RepriseAuditPage() {
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Peu de contexte « reprise » détecté. Ajoutez dans{" "}
               <Link href="/administration/memory" className="font-semibold underline">
-                Mémoire entreprise → Contexte global
+                Mémoire partagée → Contexte global
               </Link>{" "}
               les objectifs de reprise, le calendrier et les points déjà traités.
             </p>

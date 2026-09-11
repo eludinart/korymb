@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../../lib/adminNav";
+import AgentsAdminSubnav from "../../components/admin/AgentsAdminSubnav";
+import { ADMIN_NAV_GROUPS, isAdminLinkActive, isAgentsAdminPath } from "../../lib/adminNav";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
 
 function RepriseNavBadge({ count }: { count: number }) {
@@ -15,39 +16,62 @@ function RepriseNavBadge({ count }: { count: number }) {
 }
 
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+  const pathname = usePathname() || "";
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
+  const agentsZone = isAgentsAdminPath(pathname);
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
       <aside className="shrink-0 rounded-2xl border-2 border-violet-200 bg-white p-3 shadow-md sm:p-4 lg:sticky lg:top-28 lg:w-64">
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Administration</p>
         <nav className="-mx-1 mt-3 space-y-4 lg:mx-0">
-          {ADMIN_NAV_GROUPS.map((group) => (
-            <div key={group.id}>
-              <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{group.label}</p>
-              <div className="h-scroll-nav mt-1 lg:flex-col lg:overflow-visible lg:pb-0">
-                {group.links.map((l) => {
-                  const active = isAdminLinkActive(pathname, l.href);
-                  const showBadge = l.href === "/administration/reprise" && repriseGapCount > 0;
-                  return (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className={`${active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"} inline-flex shrink-0 items-center gap-2`}
-                    >
-                      <span className="min-w-0 truncate">{l.label}</span>
-                      {showBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
-                    </Link>
-                  );
-                })}
+          {ADMIN_NAV_GROUPS.map((group) => {
+            const agentsBlock = group.emphasis === "agents";
+            return (
+              <div
+                key={group.id}
+                className={
+                  agentsBlock
+                    ? "rounded-xl border-2 border-violet-300 bg-violet-50/80 p-2 ring-1 ring-violet-100"
+                    : undefined
+                }
+              >
+                <p
+                  className={`px-2 text-[10px] font-extrabold uppercase tracking-wider ${
+                    agentsBlock ? "text-violet-800" : "text-slate-500"
+                  }`}
+                >
+                  {group.label}
+                </p>
+                {group.id === "moteur" ? (
+                  <p className="px-2 pb-0.5 text-[10px] leading-snug text-slate-400">Réglages experts du moteur</p>
+                ) : null}
+                <div className="h-scroll-nav mt-1 lg:flex-col lg:overflow-visible lg:pb-0">
+                  {group.links.map((l) => {
+                    const active = isAdminLinkActive(pathname, l.href);
+                    const showBadge = l.href === "/administration/reprise" && repriseGapCount > 0;
+                    return (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        className={`${active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"} inline-flex shrink-0 items-center gap-2`}
+                      >
+                        <span className="min-w-0 truncate">{l.label}</span>
+                        {showBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
+                      </Link>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </nav>
       </aside>
-      <div className="min-w-0 flex-1 space-y-6">{children}</div>
+      <div className="min-w-0 flex-1 space-y-6">
+        {agentsZone ? <AgentsAdminSubnav /> : null}
+        {children}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 const STYLES: Record<string, string> = {
+  assistant: "bg-indigo-600 text-white",
   coordinateur: "bg-violet-600 text-white",
   commercial: "bg-blue-600 text-white",
   community_manager: "bg-pink-600 text-white",
@@ -9,6 +10,7 @@ const STYLES: Record<string, string> = {
 };
 
 const SHORT: Record<string, string> = {
+  assistant: "ASSIST.",
   coordinateur: "CIO",
   commercial: "COM.",
   community_manager: "CM",
@@ -30,7 +32,7 @@ export default function ChatAgentMacaron({ agentKey, label }: Props) {
 
   return (
     <span
-      className={`inline-flex max-w-[5.5rem] items-center rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide shadow-sm ${style}`}
+      className={`inline-flex max-w-[4.5rem] items-center rounded-full px-1.5 py-px text-[8px] font-bold uppercase tracking-wide ${style}`}
       title={label || agentKey}
     >
       <span className="truncate">{text}</span>

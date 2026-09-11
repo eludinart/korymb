@@ -132,11 +132,15 @@ export default function AdministrationAgentDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
         <Link href="/administration/agents" className="text-sm text-violet-700 hover:underline">
-          ← Agents métiers
+          ← Fiches agents
         </Link>
-      </div>
+        <span className="text-slate-300">·</span>
+        <Link href="/administration/equipes" className="text-sm text-violet-700 hover:underline">
+          Équipes
+        </Link>
+        </div>
       {agents.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {agent ? (
         <>

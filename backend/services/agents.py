@@ -95,6 +95,18 @@ SUB_AGENT_COORDINATION_FR = (
 
 # ── Définitions intégrées ─────────────────────────────────────────────────────
 BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
+    "assistant": {
+        "label": "Assistant",
+        "role": "Copilote conversationnel — exploration & cadrage",
+        # Pas de « knowledge » : search_core_notes ramène le prompt CIO et brouille l'identité.
+        "tools": ["web", "drive", "teams"],
+        "is_manager": True,
+        "system": (
+            "Tu es l'Assistant Korymb (pas le CIO) : chatbot généraliste. "
+            "Réponds à toutes les questions, explore avec le dirigeant. "
+            "Propose des équipes seulement sur demande ou projet multi-rôles clair.\n\n"
+        ),
+    },
     "commercial": {
         "label": "Commercial",
         "role": "Prospection & emails",
@@ -238,8 +250,11 @@ def agents_def() -> dict[str, dict]:
     return _agents_merged_cache
 
 
-def delegatable_subagent_keys_ordered() -> tuple[str, ...]:
-    """Sous-agents exécutables (hors CIO), ordre stable : intégrés d'abord, puis customs triés."""
+def delegatable_subagent_keys_ordered(
+    *,
+    allowed_keys: tuple[str, ...] | list[str] | None = None,
+) -> tuple[str, ...]:
+    """Sous-agents exécutables (hors CIO / managers), ordre stable : intégrés d'abord, puis customs triés."""
     ad = agents_def()
     prefer = ("commercial", "community_manager", "developpeur", "comptable")
     out: list[str] = []
@@ -249,7 +264,11 @@ def delegatable_subagent_keys_ordered() -> tuple[str, ...]:
     tail = sorted(
         k for k in ad if k not in out and k != "coordinateur" and not ad[k].get("is_manager")
     )
-    return tuple(out + tail)
+    keys = tuple(out + tail)
+    if allowed_keys is None:
+        return keys
+    allow = {str(x).strip() for x in allowed_keys if str(x).strip()}
+    return tuple(k for k in keys if k in allow)
 
 
 # ── Helpers alias délégation ──────────────────────────────────────────────────

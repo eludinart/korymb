@@ -4,11 +4,22 @@ export type AdminNavLink = { href: string; label: string };
 export type AdminNavGroup = {
   id: string;
   label: string;
+  /** Mise en avant visuelle (ex. gestion des agents). */
+  emphasis?: "agents";
   links: readonly AdminNavLink[];
 };
 
 /** Navigation administration regroupée par intention utilisateur. */
 export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
+  {
+    id: "agents",
+    label: "Gestion des agents",
+    emphasis: "agents",
+    links: [
+      { href: "/administration/equipes", label: "Équipes" },
+      { href: "/administration/agents", label: "Fiches agents" },
+    ],
+  },
   {
     id: "pilotage",
     label: "Pilotage",
@@ -21,10 +32,9 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     ],
   },
   {
-    id: "equipe",
-    label: "Équipe",
+    id: "presence",
+    label: "Présence & modèles",
     links: [
-      { href: "/administration/agents", label: "Agents métiers" },
       { href: "/administration/vitrine", label: "Page publique" },
       { href: "/administration/templates", label: "Templates missions" },
     ],
@@ -33,9 +43,9 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     id: "moteur",
     label: "Moteur IA",
     links: [
-      { href: "/administration/orchestration", label: "Orchestration CIO" },
+      { href: "/administration/orchestration", label: "Prompts d’orchestration" },
       { href: "/administration/comportements", label: "Comportements" },
-      { href: "/administration/memory", label: "Mémoire entreprise" },
+      { href: "/administration/memory", label: "Mémoire partagée" },
     ],
   },
   {
@@ -48,6 +58,18 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     ],
   },
 ] as const;
+
+/** Pages du périmètre « gestion des agents » (sous-nav dédiée). */
+export function isAgentsAdminPath(pathname: string): boolean {
+  return (
+    pathname === "/administration/equipes" ||
+    pathname.startsWith("/administration/equipes/") ||
+    pathname === "/administration/agents" ||
+    pathname.startsWith("/administration/agents/") ||
+    pathname === "/administration/agent-groups" ||
+    pathname.startsWith("/administration/agent-groups/")
+  );
+}
 
 export function isAdminLinkActive(pathname: string, href: string): boolean {
   return (

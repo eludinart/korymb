@@ -211,6 +211,12 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     # Outils augmentés KORYMB v3 (agentic OS)
     "knowledge": ("search_core_notes", "get_fleet_status", "korymb_overview", "propose_platform_change"),
     "validate": ("validate_syntax",),
+    "teams": (
+        "list_agent_groups",
+        "list_team_templates",
+        "propose_team_blueprint",
+        "propose_team_from_template",
+    ),
 }
 for _tag, _names in GESTION_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
@@ -404,6 +410,66 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "list_agent_groups",
+        "description": (
+            "Liste les groupes d'agents actifs (Entreprise + équipes custom). "
+            "Utile avant de proposer une nouvelle équipe pour éviter les doublons."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "list_team_templates",
+        "description": "Liste les templates d'équipes prêts à l'emploi (édition, terrain, R&D…).",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "propose_team_blueprint",
+        "description": (
+            "Propose une équipe d'agents adaptée à l'intention du dirigeant (dry-run). "
+            "Ne crée PAS encore le groupe : le dirigeant valide dans l'UI. "
+            "Fournis lead + 1..5 membres (clés snake_case), hors-périmètre, simulation courte, risques."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "description": "Nom du groupe / projet"},
+                "intent": {"type": "string", "description": "Intention du dirigeant"},
+                "lead_key": {"type": "string"},
+                "lead_label": {"type": "string"},
+                "lead_role": {"type": "string"},
+                "lead_system": {"type": "string"},
+                "members_json": {
+                    "type": "string",
+                    "description": (
+                        "JSON array d'objets {key,label,role,system,tools?} — max 5"
+                    ),
+                },
+                "out_of_scope_json": {
+                    "type": "string",
+                    "description": "JSON array de strings (hors périmètre)",
+                },
+                "simulation": {"type": "string"},
+                "risks_json": {"type": "string", "description": "JSON array de risques"},
+            },
+            "required": ["label", "intent", "lead_key", "lead_label", "members_json"],
+        },
+    },
+    {
+        "name": "propose_team_from_template",
+        "description": (
+            "Propose une équipe à partir d'un template (edition|terrain|rd_tech). "
+            "Dry-run uniquement — validation UI ensuite."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "template_key": {"type": "string", "description": "edition | terrain | rd_tech"},
+                "intent": {"type": "string", "description": "Brief du dirigeant (personnalisation)"},
+            },
+            "required": ["template_key"],
         },
     },
     {
@@ -790,6 +856,97 @@ def _execute_tool(name: str, inp: Any) -> str:
             return json.dumps(result, ensure_ascii=False)
         if name == "get_fleet_status":
             return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
+        if name == "list_agent_groups":
+            from services.agent_groups import list_groups
+
+            return json.dumps(
+                [
+                    {
+                        "id": g["id"],
+                        "label": g["label"],
+                        "status": g["status"],
+                        "lead": g.get("lead_agent_key"),
+                        "members": g.get("member_keys"),
+                        "is_system": g.get("is_system"),
+                    }
+                    for g in list_groups(include_archived=False)
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        if name == "list_team_templates":
+            from services.agent_groups import list_group_templates
+
+            return json.dumps(list_group_templates(), ensure_ascii=False, indent=2)
+        if name == "propose_team_from_template":
+            from services.agent_groups import propose_blueprint_from_template
+
+            bp = propose_blueprint_from_template(
+                str(inp.get("template_key") or ""),
+                intent=str(inp.get("intent") or ""),
+            )
+            return json.dumps(
+                {
+                    "ok": True,
+                    "blueprint_id": bp["id"],
+                    "title": bp["title"],
+                    "dry_run_summary": bp["dry_run_summary"],
+                    "status": bp["status"],
+                    "ui_hint": "Demande au dirigeant de valider « Créer l'équipe » dans le chat.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        if name == "propose_team_blueprint":
+            from services.agent_groups import create_blueprint_proposal
+
+            members_raw = inp.get("members_json") or "[]"
+            oos_raw = inp.get("out_of_scope_json") or "[]"
+            risks_raw = inp.get("risks_json") or "[]"
+            try:
+                members = json.loads(members_raw) if isinstance(members_raw, str) else members_raw
+            except json.JSONDecodeError:
+                members = []
+            try:
+                oos = json.loads(oos_raw) if isinstance(oos_raw, str) else oos_raw
+            except json.JSONDecodeError:
+                oos = []
+            try:
+                risks = json.loads(risks_raw) if isinstance(risks_raw, str) else risks_raw
+            except json.JSONDecodeError:
+                risks = []
+            if not isinstance(members, list):
+                members = []
+            payload = {
+                "label": str(inp.get("label") or "Équipe projet"),
+                "intent": str(inp.get("intent") or ""),
+                "lead": {
+                    "key": str(inp.get("lead_key") or "chef_projet"),
+                    "label": str(inp.get("lead_label") or "Chef de projet"),
+                    "role": str(inp.get("lead_role") or ""),
+                    "system": str(inp.get("lead_system") or ""),
+                    "tools": ["web", "drive", "knowledge", "studio"],
+                },
+                "members": members,
+                "out_of_scope": oos if isinstance(oos, list) else [],
+                "simulation": str(inp.get("simulation") or ""),
+                "risks": risks if isinstance(risks, list) else [],
+            }
+            ctx = _tool_run_ctx.get()
+            session = str(ctx.get("chat_session_id") or "") if isinstance(ctx, dict) else ""
+            bp = create_blueprint_proposal(payload, chat_session_id=session or None)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "blueprint_id": bp["id"],
+                    "title": bp["title"],
+                    "dry_run_summary": bp["dry_run_summary"],
+                    "status": bp["status"],
+                    "ui_hint": "Demande au dirigeant de valider « Créer l'équipe » dans le chat.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         if name == "korymb_overview":
             from services.korymb_overview import build_korymb_overview
 

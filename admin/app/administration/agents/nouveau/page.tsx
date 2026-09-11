@@ -47,7 +47,7 @@ export default function NouveauAgentPage() {
   const [msg, setMsg] = useState("");
 
   const agentsMeta = useQuery({
-    queryKey: QK.agents,
+    queryKey: ["agent-tool-tags"],
     queryFn: async () => {
       const { data } = await requestJson("/agents", { retries: 1 });
       const tags = data?.tool_tags;
@@ -91,13 +91,14 @@ export default function NouveauAgentPage() {
     save.mutate();
   };
 
-  const tagOptions = agentsMeta.data?.length ? agentsMeta.data : [...TOOL_TAGS];
+  const tagOptions = (agentsMeta.data || []).filter((t): t is string => typeof t === "string");
+  const tags = tagOptions.length ? tagOptions : [...TOOL_TAGS];
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <Link href="/administration/agents" className="text-sm text-violet-700 hover:underline">
-          ← Agents métiers
+          ← Fiches agents
         </Link>
       </div>
       <div>
@@ -175,7 +176,7 @@ export default function NouveauAgentPage() {
         <div>
           <p className="mb-2 text-sm font-medium text-slate-800">Outils autorisés</p>
           <div className="flex flex-wrap gap-2">
-            {tagOptions.map((t) => (
+            {tags.map((t) => (
               <label key={t} className="flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm">
                 <input
                   type="checkbox"

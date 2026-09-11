@@ -1,6 +1,6 @@
 /** Navigation Gestion entreprise — source unique (header, sidebar, Ctrl+K). */
 
-export type GestionNavGroupId = "creation" | "activite";
+export type GestionNavGroupId = "creation" | "equipes" | "activite";
 
 export type GestionNavLink = {
   href: string;
@@ -23,6 +23,7 @@ export const GESTION_HUB_HREF = "/gestion";
 
 export const GESTION_NAV_GROUP_LABELS: Record<GestionNavGroupId, string> = {
   creation: "Création",
+  equipes: "Équipes projet",
   activite: "Activité",
 };
 
@@ -55,6 +56,13 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
     hint: "Bibliothèque des pièces produites",
     icon: "📦",
     group: "creation",
+  },
+  {
+    href: "/gestion/equipes",
+    label: "Équipes projet",
+    hint: "Contextes de travail avec les autres groupes",
+    icon: "🤝",
+    group: "equipes",
   },
   {
     href: "/gestion/contacts",
@@ -111,10 +119,34 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
 }
 
 export function groupedGestionNavLinks(): { id: GestionNavGroupId; label: string; links: GestionNavLink[] }[] {
-  const order: GestionNavGroupId[] = ["creation", "activite"];
+  const order: GestionNavGroupId[] = ["creation", "equipes", "activite"];
   return order.map((id) => ({
     id,
     label: GESTION_NAV_GROUP_LABELS[id],
     links: GESTION_NAV_LINKS.filter((link) => link.group === id && !link.exact) as GestionNavLink[],
   }));
+}
+
+export function gestionNavGroupHeadingClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "text-violet-700";
+  if (id === "equipes") return "text-sky-700";
+  return "text-emerald-700";
+}
+
+export function gestionNavGroupCompactClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "text-violet-500";
+  if (id === "equipes") return "text-sky-500";
+  return "text-emerald-500";
+}
+
+export function gestionNavGroupCardBorderClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "border-violet-100 hover:border-violet-300";
+  if (id === "equipes") return "border-sky-100 hover:border-sky-300";
+  return "border-emerald-100 hover:border-emerald-300";
+}
+
+export function gestionNavGroupTitleHoverClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "group-hover:text-violet-900";
+  if (id === "equipes") return "group-hover:text-sky-900";
+  return "group-hover:text-emerald-900";
 }

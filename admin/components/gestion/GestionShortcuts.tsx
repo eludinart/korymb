@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { groupedGestionNavLinks } from "../../lib/gestionNav";
+import {
+  groupedGestionNavLinks,
+  gestionNavGroupCardBorderClass,
+  gestionNavGroupHeadingClass,
+  gestionNavGroupTitleHoverClass,
+} from "../../lib/gestionNav";
 import { businessApi } from "../../lib/business";
 
 /** Raccourcis gestion pour le briefing — accès en 1 clic aux modules métier. */
@@ -26,7 +31,7 @@ export default function GestionShortcuts() {
             Gestion entreprise
           </h2>
           <p className="mt-0.5 text-sm text-emerald-900/80">
-            Contacts, studio, planning et devis — commercial et création au même endroit.
+            Contacts, studio, équipes projet, planning et devis — commercial et création au même endroit.
           </p>
         </div>
         <Link href="/gestion" className="btn-success text-xs sm:text-sm">
@@ -36,11 +41,7 @@ export default function GestionShortcuts() {
 
       {groupedGestionNavLinks().map((group) => (
         <div key={group.id} className="mt-4">
-          <p
-            className={`mb-2 text-[10px] font-extrabold uppercase tracking-wider ${
-              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
-            }`}
-          >
+          <p className={`mb-2 text-[10px] font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}>
             {group.label}
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -61,20 +62,14 @@ export default function GestionShortcuts() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`group flex min-h-[4.5rem] flex-col justify-between rounded-xl border bg-white/90 px-3 py-3 shadow-sm transition hover:shadow-md ${
-                    group.id === "creation"
-                      ? "border-violet-100 hover:border-violet-300"
-                      : "border-emerald-100 hover:border-emerald-300"
-                  }`}
+                  className={`group flex min-h-[4.5rem] flex-col justify-between rounded-xl border bg-white/90 px-3 py-3 shadow-sm transition hover:shadow-md ${gestionNavGroupCardBorderClass(group.id)}`}
                 >
                   <span className="text-lg" aria-hidden>
                     {item.icon}
                   </span>
                   <div>
                     <p
-                      className={`text-sm font-bold text-slate-900 ${
-                        group.id === "creation" ? "group-hover:text-violet-900" : "group-hover:text-emerald-900"
-                      }`}
+                      className={`text-sm font-bold text-slate-900 ${gestionNavGroupTitleHoverClass(group.id)}`}
                     >
                       {item.label}
                     </p>

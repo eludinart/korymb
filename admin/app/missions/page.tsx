@@ -55,6 +55,7 @@ import {
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
 
+import { jobAgentGroupId, missionLeadLabel, teamBadgeLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 function MissionsContent() {
@@ -73,6 +74,8 @@ function MissionsContent() {
   const [deleteMissionBusyId, setDeleteMissionBusyId] = useState<string | null>(null);
   const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
   const [detailMode, setDetailMode] = useState<"daily" | "dossier">("daily");
+  const urlTeam = (searchParams.get("team") || "").trim();
+  const [teamFilter, setTeamFilter] = useState(() => urlTeam || "all");
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -92,6 +95,25 @@ function MissionsContent() {
     },
   });
 
+  const groupsQuery = useQuery({
+    queryKey: ["agent-groups"],
+    queryFn: async () => {
+      const { data, res } = await requestJson("/agent-groups", { retries: 0, expectOk: false });
+      if (!res.ok) return [] as Array<{ id: string; label: string }>;
+      const list = (data as { groups?: unknown })?.groups;
+      return Array.isArray(list) ? (list as Array<{ id: string; label: string }>) : [];
+    },
+    staleTime: 60_000,
+  });
+
+  const groupsById = useMemo(() => {
+    const map: Record<string, { label?: string }> = { entreprise: { label: "Entreprise" } };
+    for (const g of groupsQuery.data || []) {
+      if (g?.id) map[g.id] = { label: g.label };
+    }
+    return map;
+  }, [groupsQuery.data]);
+
   const inboxQuery = useQuery({
     queryKey: ["admin-inbox"],
     queryFn: () => fetchAdminInboxItems(100),
@@ -108,7 +130,19 @@ function MissionsContent() {
     () => dedupeMissionListJobs(rows.filter((j) => String(j.source || "mission") !== "chat")),
     [rows],
   );
-  const sortedRows = useMemo(() => sortJobsForBossView(missionRows), [missionRows]);
+  const teamFilterOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const j of missionRows) ids.add(jobAgentGroupId(j));
+    if (urlTeam) ids.add(urlTeam);
+    return Array.from(ids)
+      .map((id) => ({ id, label: teamBadgeLabel(id, groupsById) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [missionRows, groupsById, urlTeam]);
+  const filteredMissionRows = useMemo(() => {
+    if (teamFilter === "all") return missionRows;
+    return missionRows.filter((j) => jobAgentGroupId(j) === teamFilter);
+  }, [missionRows, teamFilter]);
+  const sortedRows = useMemo(() => sortJobsForBossView(filteredMissionRows), [filteredMissionRows]);
 
   // Pour chaque job parent, retrouver le job enfant le plus récent (continuation terminée)
   const latestChildByParent = useMemo(() => {
@@ -139,6 +173,10 @@ function MissionsContent() {
     const c = searchParams.get("create");
     if (c === "quick" || c === "1") setShowCreatePanel(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (urlTeam) setTeamFilter(urlTeam);
+  }, [urlTeam]);
 
   const archiveEntries = useMemo(() => buildHistoryEntries(rows), [rows]);
 
@@ -280,6 +318,25 @@ function MissionsContent() {
   const backendLikelyDown =
     /injoignable|8020|fetch failed|ECONNREFUSED|503/i.test(detailRefreshError) ||
     detailRefreshError === "HTTP 500";
+
+  const selectedGroupId = useMemo(
+    () => jobAgentGroupId(detail.data || {}),
+    [detail.data],
+  );
+  const leadShort = missionLeadLabel(selectedGroupId);
+  const leadTalkTitle =
+    leadShort === "CIO" ? "Discuter avec le CIO" : "Discuter avec le lead";
+  const leadSendLabel = leadShort === "CIO" ? "Envoyer au CIO" : "Envoyer au lead";
+  const leadPlaceholder =
+    leadShort === "CIO" ? "Votre message au CIO…" : "Votre message au lead…";
+  const leadQuestionsLabel =
+    leadShort === "CIO"
+      ? "Questions CIO pendant la mission"
+      : "Questions du lead pendant la mission";
+  const leadQuestionsSideLabel =
+    leadShort === "CIO"
+      ? "Questions CIO en cours de mission"
+      : "Questions du lead en cours de mission";
 
   const cioResumeLive = useJobDetail(cioResumeLiveId, {
     queryKey: ["mission-cio-resume-live", cioResumeLiveId],
@@ -573,6 +630,9 @@ function MissionsContent() {
           }}
           activeCount={sortedRows.length}
           archivesCount={archiveEntries.length}
+          teamFilterOptions={teamFilterOptions}
+          teamFilter={teamFilter}
+          onTeamFilterChange={setTeamFilter}
         />
         {!selected && hubView === "active" ? <MissionQuickLaunch /> : null}
         {hubView === "guided" ? (
@@ -581,6 +641,12 @@ function MissionsContent() {
         <>
         {showCreatePanel && hubView === "active" ? (
           <MissionCreatePanel
+            initialAgentGroupId={urlTeam || (teamFilter !== "all" ? teamFilter : null)}
+            agentGroupLabel={
+              urlTeam || (teamFilter !== "all" ? teamFilter : "")
+                ? teamBadgeLabel(urlTeam || teamFilter, groupsById)
+                : ""
+            }
             onCreated={onMissionCreated}
             onCancel={() => {
               setShowCreatePanel(false);
@@ -640,6 +706,7 @@ function MissionsContent() {
               <MissionListCard
                 key={j.job_id}
                 job={j}
+                teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
                 inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
                 busy={busyId === j.job_id}
                 deleteBusy={deleteMissionBusyId === j.job_id}
@@ -655,6 +722,9 @@ function MissionsContent() {
             ))}
             {jobs.isSuccess && missionRows.length === 0 ? (
               <p className="text-sm text-slate-400">Aucune mission en cours. Lancez-en une ou consultez les archives.</p>
+            ) : null}
+            {jobs.isSuccess && missionRows.length > 0 && sortedRows.length === 0 ? (
+              <p className="text-sm text-slate-400">Aucune mission pour ce filtre d’équipe.</p>
             ) : null}
           </>
         ) : (
@@ -841,7 +911,7 @@ function MissionsContent() {
                     {canResumeCio && !cioResumeLiveId ? (
                       <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2">
                         <div className="min-w-0 pr-2">
-                          <p className="text-[11px] font-semibold text-slate-800">Questions CIO pendant la mission</p>
+                          <p className="text-[11px] font-semibold text-slate-800">{leadQuestionsLabel}</p>
                           <p className="text-[10px] text-slate-500">Le CIO peut solliciter des précisions.</p>
                         </div>
                         <button
@@ -889,7 +959,7 @@ function MissionsContent() {
           >
             {showConversationSidebar && mobileDetailPane === "resultats" && showDecisionRail && canResumeCio && !cioResumeLiveId ? (
               <div className="rounded-2xl border border-violet-300 bg-violet-50/90 p-3 shadow-sm lg:hidden">
-                <p className="text-xs font-semibold text-violet-950">Discuter avec le CIO</p>
+                <p className="text-xs font-semibold text-violet-950">{leadTalkTitle}</p>
                 <p className="mt-1 text-[11px] text-violet-900/90">
                   Le champ de saisie est sur l&apos;onglet <span className="font-semibold">Résumé équipe</span>, ou utilisez le
                   formulaire ci‑dessous.
@@ -904,15 +974,15 @@ function MissionsContent() {
                     disabled={cioResumeBusy}
                     rows={3}
                     className="w-full resize-y rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-                    placeholder="Votre message au CIO…"
-                    aria-label="Consigne pour le CIO"
+                    placeholder={leadPlaceholder}
+                    aria-label={leadTalkTitle}
                   />
                   <button
                     type="submit"
                     disabled={cioResumeBusy || !cioResumeInput.trim()}
                     className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                   >
-                    {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                    {cioResumeBusy ? "Envoi…" : leadSendLabel}
                   </button>
                   {canCloseMission ? (
                     <button
@@ -1173,7 +1243,11 @@ function MissionsContent() {
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
                   {!cioResumeLiveId ? (
                     <>
-                      <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO sur cette mission</h3>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        {leadShort === "CIO"
+                          ? "Poursuivre avec le CIO sur cette mission"
+                          : "Poursuivre avec le lead sur cette mission"}
+                      </h3>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         Vous restez sur <span className="font-medium text-slate-800">la même mission</span> : la suite est
                         enregistrée dans le fil de cadrage et le livrable est mis à jour ici après exécution.
@@ -1188,8 +1262,12 @@ function MissionsContent() {
                       </div>
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <div>
-                          <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
-                          <p className="text-[10px] text-slate-400">Le CIO peut vous poser des précisions pendant l&apos;exécution</p>
+                          <p className="text-[11px] font-semibold text-slate-700">{leadQuestionsSideLabel}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {leadShort === "CIO"
+                              ? "Le CIO peut vous poser des précisions pendant l'exécution"
+                              : "Le lead peut vous poser des précisions pendant l'exécution"}
+                          </p>
                         </div>
                         <button
                           type="button"
@@ -1217,7 +1295,7 @@ function MissionsContent() {
                           disabled={cioResumeBusy || !cioResumeInput.trim()}
                           className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40"
                         >
-                          {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                          {cioResumeBusy ? "Envoi…" : leadSendLabel}
                         </button>
                       </form>
                     </>

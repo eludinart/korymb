@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
 from database import (
@@ -41,14 +41,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class ChatAttachmentIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    filename: str = ""
+    mime: str = ""
+    size: int = 0
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    message: str
-    agent: str = "coordinateur"
+    message: str = ""
+    agent: str = "assistant"
     history: list[dict] = []
     linked_job_id: str | None = None
     chat_session_id: str | None = None
+    agent_group_id: str | None = None
+    attachments: list[ChatAttachmentIn] = Field(default_factory=list)
 
 
 def _build_chat_mission_txt(
@@ -102,22 +113,63 @@ def _build_chat_mission_txt(
     )
 
 
+def _attachment_payload(request: ChatRequest) -> list[dict]:
+    from services.chat_attachments import normalize_attachment_refs
+
+    return normalize_attachment_refs([a.model_dump() for a in request.attachments])
+
+
+def _user_turn_text(message: str, att_block: str) -> str:
+    msg = (message or "").strip()
+    if msg and att_block:
+        return f"{msg}\n\n{att_block}"
+    if att_block:
+        return att_block
+    return msg
+
+
 @router.post("/chat", dependencies=[Depends(resolve_tenant)])
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    agent_cfg = agents_def().get(request.agent, agents_def()["coordinateur"])
+    agent_key = (request.agent or "assistant").strip().lower() or "assistant"
+    agent_cfg = agents_def().get(agent_key, agents_def().get("assistant") or agents_def()["coordinateur"])
+    att_snap = _attachment_payload(request)
+    msg_raw = (request.message or "").strip()
+    if not msg_raw and not att_snap:
+        raise HTTPException(status_code=400, detail="Message ou fichier requis.")
+    group_id = (request.agent_group_id or "").strip()[:64] or None
 
     try:
-        if request.agent == "coordinateur":
+        if agent_key == "assistant":
+            from services.assistant_chat import start_assistant_chat_job
+            from services.chat_attachments import build_attachment_mission_block
+
+            logger.info("chat route=assistant session=%s", (request.chat_session_id or "")[:24])
+            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+            turn = _user_turn_text(msg_raw, att_block)
+            return start_assistant_chat_job(
+                message=turn,
+                history=list(request.history or []),
+                linked_job_id=request.linked_job_id,
+                chat_session_id=request.chat_session_id,
+            )
+
+        if agent_key == "coordinateur" or group_id:
+            from services.agent_groups import group_allowed_delegate_keys, group_orchestrator_key
+
+            run_agent = group_orchestrator_key(group_id) if group_id else "coordinateur"
+            allowed = list(group_allowed_delegate_keys(group_id) or ()) if group_id else None
             job_id = str(uuid.uuid4())[:8]
             now_iso = datetime.utcnow().isoformat()
             linked_parent_id = (request.linked_job_id or "").strip()[:16]
             session_id = (request.chat_session_id or "").strip()[:64] or ""
             hist_snap = [] if linked_parent_id or session_id else list(request.history[-6:])
-            msg_snap = request.message
+            msg_snap = msg_raw or (
+                "Fichiers joints : " + ", ".join(a.get("filename") or a.get("id") or "fichier" for a in att_snap)
+            )
             save_job(
                 job_id,
-                "coordinateur",
-                (request.message or "")[:500],
+                run_agent,
+                (msg_snap or "")[:500],
                 source="chat",
                 parent_job_id=linked_parent_id or None,
                 chat_session_id=session_id or None,
@@ -125,8 +177,8 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             job_logs: list[str] = []
             active_jobs[job_id] = {
                 "status": "running",
-                "agent": "coordinateur",
-                "mission": (request.message or "")[:500],
+                "agent": run_agent,
+                "mission": (msg_snap or "")[:500],
                 "result": None,
                 "result_surface": None,
                 "logs": job_logs,
@@ -139,6 +191,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "created_at": now_iso,
                 "parent_job_id": linked_parent_id or None,
                 "chat_session_id": session_id or None,
+                "agent_group_id": group_id,
             }
             job_logs_ref = active_jobs[job_id]["logs"]
 
@@ -200,8 +253,14 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         "coordinateur",
                         {"label": agent_cfg["label"], "mode": "chat", "preview": (msg_snap or "")[:240]},
                     )
+                    from services.chat_attachments import build_attachment_mission_block
+
+                    att_block = build_attachment_mission_block(att_snap) if att_snap else ""
                     mission_txt = _build_chat_mission_txt(
-                        msg_snap, hist_snap, linked_parent_id, session_id,
+                        _user_turn_text(msg_snap, att_block),
+                        hist_snap,
+                        linked_parent_id,
+                        session_id,
                     )
                     text, ti, to = orchestrate_coordinateur_mission(
                         mission_txt,
@@ -210,6 +269,9 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         chat_mode=True,
                         job_id=job_id,
                         cio_questions_enabled=False,
+                        allowed_agents=allowed,
+                        orchestrator_key=run_agent,
+                        agent_group_id=group_id,
                     )
                     surface = surface_chat_result(text)
                     _add_daily_svc(ti, to)
@@ -367,9 +429,23 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             return {
                 "status": "accepted",
                 "job_id": job_id,
-                "agent": "coordinateur",
+                "agent": run_agent,
                 "mirror_ack": mirror_ack,
+                "agent_group_id": group_id,
             }
+
+        if agent_key == "assistant":
+            from services.assistant_chat import start_assistant_chat_job
+            from services.chat_attachments import build_attachment_mission_block
+
+            logger.warning("chat assistant via fallback guard")
+            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+            return start_assistant_chat_job(
+                message=_user_turn_text(msg_raw, att_block),
+                history=list(request.history or []),
+                linked_job_id=request.linked_job_id,
+                chat_session_id=request.chat_session_id,
+            )
 
         system_prompt = (
             agent_cfg["system"]
@@ -398,11 +474,14 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 )
             return {"response": reply, "agent": request.agent}
 
+        from services.chat_attachments import build_attachment_mission_block
+
+        att_block = build_attachment_mission_block(att_snap) if att_snap else ""
         messages = []
         for h in request.history[-10:]:
             if h.get("role") in ("user", "assistant"):
                 messages.append({"role": h["role"], "content": h["content"]})
-        messages.append({"role": "user", "content": request.message})
+        messages.append({"role": "user", "content": _user_turn_text(msg_raw, att_block)})
 
         link_th = (request.linked_job_id or "").strip()[:16]
         usage_kw: dict = {"usage_context": f"chat_sync:{request.agent}"}

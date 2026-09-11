@@ -44,6 +44,8 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "behavior_settings",
     "llm_runtime_settings",
     "custom_agents",
+    "agent_groups",
+    "team_blueprints",
     "enterprise_memory",
     "mission_idempotency",
     "mission_checkpoints",

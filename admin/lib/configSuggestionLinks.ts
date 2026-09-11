@@ -143,7 +143,7 @@ export function configLinksForSuggestion(s: SuggestionLike): ConfigSuggestionLin
 
   if (kind === "orchestration") {
     return [
-      { href: "/administration/orchestration", label: "Ouvrir Orchestration CIO" },
+      { href: "/administration/orchestration", label: "Ouvrir Prompts d’orchestration" },
       { href: "/administration/historique", label: "Historique" },
     ];
   }

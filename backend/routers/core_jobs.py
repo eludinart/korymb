@@ -603,6 +603,8 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "parent_job_id": parent_out or None,
             "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
+            "pending_blueprint_id": job.get("pending_blueprint_id"),
+            "agent_group_id": job.get("agent_group_id"),
         }
         if fb:
             out["latest_chat_followup"] = fb

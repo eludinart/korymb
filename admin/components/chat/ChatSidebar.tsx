@@ -50,16 +50,16 @@ export default function ChatSidebar({
 
   return (
     <aside
-      className={`flex h-full min-h-0 w-full flex-col border-r border-slate-200 bg-slate-50/90 lg:w-72 lg:shrink-0 ${className}`}
+      className={`h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r border-slate-200 bg-white lg:w-72 lg:shrink-0 lg:bg-slate-50/90 ${className}`}
       aria-label="Conversations"
     >
-      <div className="shrink-0 border-b border-slate-200 px-3 py-3">
+      <div className="shrink-0 border-b border-slate-200 px-3 py-2">
         <button
           type="button"
           onClick={onNew}
-          className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
+          className="w-full rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
         >
-          + Nouvelle conversation
+          Nouvelle conversation
         </button>
       </div>
 

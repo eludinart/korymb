@@ -20,17 +20,17 @@ export default function MissionContextBanner({ jobId, missionTitle, variant = "c
     );
   }
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sm text-sky-950">
-      <p className="min-w-0">
-        <span className="font-semibold">Lié à la mission</span>
+    <div className="flex items-center gap-2 px-3 py-1.5 text-xs text-sky-950 sm:flex-wrap sm:justify-between sm:rounded-xl sm:border sm:border-sky-200 sm:bg-sky-50 sm:px-3 sm:py-2.5 sm:text-sm">
+      <p className="min-w-0 truncate">
+        <span className="font-semibold">Mission</span>
         <span className="mx-1 text-sky-700">·</span>
-        <span className="truncate text-sky-900">{title}</span>
+        <span className="text-sky-900">{title}</span>
       </p>
       <Link
         href={`/missions?job=${encodeURIComponent(jobId)}`}
-        className="shrink-0 rounded-lg bg-sky-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-800"
+        className="shrink-0 font-semibold text-sky-800 underline-offset-2 hover:underline sm:rounded-lg sm:bg-sky-700 sm:px-3 sm:py-1.5 sm:text-xs sm:font-bold sm:text-white sm:no-underline sm:hover:bg-sky-800 sm:hover:no-underline"
       >
-        Voir dans Missions →
+        Ouvrir
       </Link>
     </div>
   );

@@ -62,10 +62,13 @@ export default function AdministrationAgentsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Agents métiers</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Fiches agents</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Rôles Korymb : ouvrez la fiche pour les outils, la mémoire entreprise et — pour les agents personnalisés —
-            la définition complète (prompt, outils). Le CIO peut déléguer à tout rôle listé ici (hors orchestrateur).
+            Répertoire de rôles (prompt, outils, mémoire de rôle). Pour composer qui exécute une mission, allez dans{" "}
+            <Link href="/administration/equipes" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
+              Équipes
+            </Link>{" "}
+            — la flotte métier par défaut reste <span className="font-medium text-slate-700">Entreprise</span>.
           </p>
         </div>
         <Link
