@@ -43,7 +43,12 @@ def test_child_theme_beats_customizer_gold():
     assert "eludein-nav-utility" in functions
     nav = (REPO / "wordpress/themes/eludein-child/assets/css/nav.css").read_text(encoding="utf-8")
     assert "eludein-nav-utility" in nav
-    assert "menu-item-1967" in nav
+    assert "eludein_child_mark_content_buttons" in functions
+    buttons = (REPO / "wordpress/themes/eludein-child/assets/css/buttons.css").read_text(encoding="utf-8")
+    assert "eludein-cta" in buttons
+    assert "eludein-sheen" in buttons
+    assert "top: calc(100% - 2px)" in nav
+    assert "li:hover > ul.sub-menu" in nav
     assert "#f0c3c3" in functions
     assert "body.oceanwp-theme.woocommerce ul.products li.product h2 a" in woo
     assert "#243028" in woo
@@ -59,6 +64,7 @@ def test_local_theme_files_exist():
     assert "style.css" in names
     assert "functions.php" in names
     assert "refresh.css" in names
+    assert "buttons.css" in names
     assert "nav.css" in names
     assert "layout.css" in names
     assert "woocommerce.css" in names

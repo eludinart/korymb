@@ -26,8 +26,16 @@
 #site-header #menu-main-menu > li,
 #site-header.medium-header #site-navigation-wrap .dropdown-menu > li {
   float: none !important;
-  display: inline-flex !important;
+  display: inline-block !important;
+  position: relative;
   height: auto !important;
+}
+
+#site-header,
+#site-header #site-navigation-wrap,
+#site-header #site-navigation,
+#site-header #menu-main-menu {
+  overflow: visible !important;
 }
 
 #site-header #menu-main-menu::after {
@@ -98,22 +106,25 @@
   color: var(--eludein-sand, #8a6230) !important;
 }
 
-/* Offre phare : une seule pastille forêt. */
+/* Offre phare : CTA scintillant. */
 #site-header #menu-item-1967 > a {
-  background: var(--eludein-forest, #3f4a3a) !important;
-  color: #fff !important;
+  background: linear-gradient(105deg, #b8873a 0%, #e3b15b 42%, #f6e0a8 50%, #e3b15b 58%, #b8873a 100%) !important;
+  background-size: 220% 100%;
+  animation: eludein-sheen 3.4s ease-in-out infinite;
+  color: #1a1816 !important;
   padding: 0.52em 1.15em !important;
-  box-shadow: 0 8px 18px rgba(63, 74, 58, 0.16);
+  box-shadow: 0 8px 24px rgba(196, 146, 58, 0.38);
+  border: 1px solid #c9a14a !important;
 }
 
 #site-header #menu-item-1967 > a .text-wrap,
 #site-header #menu-item-1967 > a:hover,
 #site-header #menu-item-1967 > a:hover .text-wrap {
-  color: #fff !important;
+  color: #1a1816 !important;
 }
 
 #site-header #menu-item-1967 > a:hover {
-  background: var(--eludein-forest-deep, #243028) !important;
+  filter: brightness(1.06);
 }
 
 /* Rangée utilitaire : plus petite, plus calme. */
@@ -136,6 +147,8 @@
 #site-navigation-wrap .dropdown-menu > li > a:after {
   display: none !important;
 }
+
+#site-header #menu-main-menu > .woo-menu-icon > a {
   padding: 0.4em 0.7em !important;
   border-radius: 999px;
 }
@@ -158,15 +171,33 @@
   font-weight: 600;
 }
 
-/* Sous-menus : panneau papier, pas un bloc OceanWP. */
-#site-header .dropdown-menu .sub-menu {
-  padding: 0.45rem !important;
+/* Sous-menus : collés au parent (pas d’espace mort au survol). */
+#site-header .dropdown-menu .sub-menu,
+#site-header #menu-main-menu > li > ul.sub-menu {
+  position: absolute !important;
+  top: calc(100% - 2px) !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%);
+  margin: 0 !important;
+  padding: 10px 0.45rem 0.45rem !important;
   min-width: 268px !important;
   border: 1px solid var(--eludein-line, #d9cdb8) !important;
   border-radius: 16px !important;
   background: #fffefb !important;
   box-shadow: 0 22px 48px rgba(36, 48, 40, 0.14) !important;
-  top: calc(100% + 8px) !important;
+  z-index: 10000;
+}
+
+#site-header #menu-main-menu > li:hover > ul.sub-menu,
+#site-header #menu-main-menu > li.sfHover > ul.sub-menu,
+#site-header .dropdown-menu > li:hover > ul.sub-menu,
+#site-header .dropdown-menu > li.sfHover > ul.sub-menu {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  left: 50% !important;
 }
 
 #site-header .dropdown-menu .sub-menu li {

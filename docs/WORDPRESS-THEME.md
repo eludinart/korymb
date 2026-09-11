@@ -40,6 +40,7 @@ wordpress/themes/eludein-child/
   assets/css/refresh.css
   assets/css/nav.css
   assets/css/layout.css
+  assets/css/buttons.css
   assets/css/woocommerce.css
 ```
 

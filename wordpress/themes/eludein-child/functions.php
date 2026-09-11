@@ -52,6 +52,7 @@ function eludein_child_enqueue_styles(): void
         $ver
     );
 
+    $button_deps = array('eludein-child-layout');
     if (class_exists('WooCommerce')) {
         wp_enqueue_style(
             'eludein-child-woocommerce',
@@ -59,7 +60,15 @@ function eludein_child_enqueue_styles(): void
             array('eludein-child-layout'),
             $ver
         );
+        $button_deps = array('eludein-child-woocommerce');
     }
+
+    wp_enqueue_style(
+        'eludein-child-buttons',
+        $base . '/assets/css/buttons.css',
+        $button_deps,
+        $ver
+    );
 }
 add_action('wp_enqueue_scripts', 'eludein_child_enqueue_styles', 110);
 
@@ -82,7 +91,7 @@ add_action('wp_enqueue_scripts', 'eludein_child_enqueue_fonts', 5);
  */
 function eludein_child_litespeed_css_excludes($excludes)
 {
-    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
+    $extra = "eludein-child\nrefresh.css\nnav.css\nlayout.css\nbuttons.css\nlegacy-custom.css\nwoocommerce.css\neludein-child-fonts";
     if (is_array($excludes)) {
         return array_merge($excludes, explode("\n", $extra));
     }
@@ -192,6 +201,46 @@ add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_block_content', 'eludein_child_readable_inline_colors', 20);
 
 /**
+ * Boutons or = CTA accent. Boutons forêt = pastille outline.
+ */
+function eludein_child_mark_content_buttons($html)
+{
+    if (!is_string($html) || $html === '') {
+        return $html;
+    }
+
+    $rewritten = preg_replace_callback(
+        '/<(a|button)([^>]*class="[^"]*(?:wp-block-button__link|kt-button|kb-button|wp-element-button)[^"]*"[^>]*)>/i',
+        'eludein_child_mark_one_button_tag',
+        $html
+    );
+
+    return is_string($rewritten) ? $rewritten : $html;
+}
+
+/**
+ * @param array $match
+ */
+function eludein_child_mark_one_button_tag($match)
+{
+    $tag = $match[0];
+    $is_gold = (bool) preg_match('/background(?:-color)?:\s*(#e3b15b|#c4923a|#e9c764|#d4a017|#c9a14a)/i', $tag);
+
+    if ($is_gold && strpos($tag, 'eludein-cta') === false) {
+        $tag = preg_replace('/class="/', 'class="eludein-cta ', $tag, 1) ?? $tag;
+    }
+
+    if (strpos($tag, 'eludein-cta') === false) {
+        $tag = preg_replace('/background(?:-color)?:\s*(#3f4a3a|#243028|#2a3227|#111|#000)(\s*!important)?;?/i', '', $tag) ?? $tag;
+        $tag = preg_replace('/(?<!-)color:\s*#(?:fff|ffffff)(\s*!important)?;?/i', '', $tag) ?? $tag;
+    }
+
+    return $tag;
+}
+add_filter('the_content', 'eludein_child_mark_content_buttons', 21);
+add_filter('widget_block_content', 'eludein_child_mark_content_buttons', 21);
+
+/**
  * Le CSS additionnel du Personnaliser charge après les feuilles du child
  * et force encore color:#e9c764 !important sur les titres boutique.
  */
@@ -251,6 +300,9 @@ function eludein_child_late_contrast_css(): void
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
         . '#content-wrap,#primary,.entry-content{overflow-x:clip;max-width:100%;}'
         . '#site-header #site-navigation-wrap .dropdown-menu > li > a{text-transform:none!important;}'
+        . '#site-header #menu-main-menu > li:hover > ul.sub-menu,'
+        . '#site-header #menu-main-menu > li.sfHover > ul.sub-menu'
+        . '{display:block!important;visibility:visible!important;opacity:1!important;left:50%!important;top:calc(100% - 2px)!important;}'
         . '</style>' . "\n";
 }
 add_action('wp_head', 'eludein_child_late_contrast_css', 9999);
