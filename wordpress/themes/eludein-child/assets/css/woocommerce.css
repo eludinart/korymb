@@ -38,21 +38,32 @@ body.woocommerce-page #owp-preloader {
   border-radius: 12px;
 }
 
-.woocommerce ul.products li.product .woocommerce-loop-product__title,
-.woocommerce ul.products li.product h2,
-.woocommerce ul.products li.product h2 a,
-.woocommerce-page ul.products li.product h2,
-.woocommerce-page ul.products li.product h2 a {
+body.oceanwp-theme.woocommerce ul.products li.product .woocommerce-loop-product__title,
+body.oceanwp-theme.woocommerce ul.products li.product h2,
+body.oceanwp-theme.woocommerce ul.products li.product h2 a,
+body.oceanwp-theme.woocommerce-page ul.products li.product h2,
+body.oceanwp-theme.woocommerce-page ul.products li.product h2 a,
+body.oceanwp-theme li.product h2 a,
+body.oceanwp-theme .woocommerce-loop-category__title {
   font-family: var(--eludein-serif, Georgia, serif);
   font-size: 1.15rem !important;
   line-height: 1.35;
-  color: var(--eludein-forest, #3f4a3a) !important;
+  color: var(--eludein-forest-deep, #243028) !important;
   text-decoration: none;
 }
 
-.woocommerce ul.products li.product h2 a:hover,
-.woocommerce-page ul.products li.product h2 a:hover {
-  color: var(--eludein-sand, #d4a373) !important;
+body.oceanwp-theme.woocommerce ul.products li.product h2 a:hover,
+body.oceanwp-theme.woocommerce-page ul.products li.product h2 a:hover,
+body.oceanwp-theme li.product h2 a:hover {
+  color: var(--eludein-sand, #8a6230) !important;
+}
+
+body.oceanwp-theme.woocommerce ul.products li.product .category,
+body.oceanwp-theme.woocommerce ul.products li.product .category a {
+  color: var(--eludein-sand, #8a6230) !important;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 .woocommerce ul.products li.product .price {

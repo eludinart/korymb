@@ -107,25 +107,70 @@ body.ocean-preloader--active {
 #site-header #site-navigation-wrap,
 #site-header #site-navigation,
 #site-header.is-sticky,
-#site-header.fixed-scroll {
+#site-header.fixed-scroll,
+#site-header.medium-header #site-navigation-wrap,
+#site-header.medium-header .oceanwp-mobile-menu-icon {
   background: var(--eludein-paper) !important;
   background-color: var(--eludein-paper) !important;
 }
 
 #site-header {
   border-bottom: 1px solid var(--eludein-line) !important;
-  box-shadow: 0 10px 30px rgba(36, 48, 40, 0.06);
+  box-shadow: 0 8px 28px rgba(36, 48, 40, 0.05);
 }
 
 #site-header.medium-header {
   min-height: 88px;
 }
 
+#site-header.medium-header .top-header-wrap {
+  padding: 12px 0 8px !important;
+}
+
+#site-header.medium-header #site-navigation-wrap {
+  border-top: 1px solid var(--eludein-line) !important;
+}
+
 #site-logo img,
 #site-logo .custom-logo {
-  max-height: 58px;
+  max-height: 64px;
   width: auto;
-  border-radius: 10px;
+  border-radius: 12px;
+}
+
+/* Recherche déjà présente en haut : on masque le doublon du menu. */
+#site-header.medium-header .search-toggle-li,
+#site-header.medium-header #searchform-header-replace:not(.show) {
+  display: none !important;
+}
+
+#site-header .oceanwp-social-menu ul li a i,
+#site-header .oceanwp-social-menu ul li a .owp-icon,
+#site-header .wcmenucart i,
+#site-header .search-submit i,
+#site-header .oceanwp-mobile-menu-icon i {
+  color: inherit !important;
+}
+
+#site-header .oceanwp-social-menu .owp-icon use,
+#site-header .wcmenucart .owp-icon use {
+  stroke: var(--eludein-forest-deep) !important;
+}
+
+#site-header.medium-header #medium-searchform .search-bg {
+  background: #fff !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--eludein-line);
+}
+
+#site-header.medium-header #medium-searchform input {
+  color: var(--eludein-ink) !important;
+}
+
+#site-header.medium-header #medium-searchform button {
+  background: var(--eludein-forest) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
 }
 
 #site-header #site-navigation-wrap .dropdown-menu > li > a,

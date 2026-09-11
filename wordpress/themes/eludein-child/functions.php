@@ -111,3 +111,75 @@ add_filter('the_content', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_block_content', 'eludein_child_readable_inline_colors', 20);
 
+/**
+ * Le CSS additionnel du Personnaliser charge après les feuilles du child
+ * et force encore color:#e9c764 !important sur les titres boutique.
+ */
+function eludein_child_filter_custom_css($css)
+{
+    if (!is_string($css) || $css === '') {
+        return $css;
+    }
+
+    $css = preg_replace('/(?<!-)color:\s*#e9c764\s*!important/i', 'color: #243028 !important', $css) ?? $css;
+    $css = preg_replace('/(?<!-)color:\s*#fdd888\s*!important/i', 'color: #8a6230 !important', $css) ?? $css;
+    $css = preg_replace(
+        '/#site-header\.medium-header #site-navigation-wrap,#site-header\.medium-header \.oceanwp-mobile-menu-icon\{background-color:#000\}/i',
+        '#site-header.medium-header #site-navigation-wrap,#site-header.medium-header .oceanwp-mobile-menu-icon{background-color:#fbf7f1}',
+        $css
+    ) ?? $css;
+
+    return $css;
+}
+add_filter('wp_get_custom_css', 'eludein_child_filter_custom_css');
+
+/**
+ * Surcharges tardives : Personnaliser + UCSS ne doivent pas réintroduire
+ * l’or pâle ni le bandeau noir.
+ */
+function eludein_child_late_contrast_css(): void
+{
+    echo '<style id="eludein-child-contrast">'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product h2,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product h2 a,'
+        . 'body.oceanwp-theme.woocommerce-page ul.products li.product h2,'
+        . 'body.oceanwp-theme.woocommerce-page ul.products li.product h2 a,'
+        . 'body.oceanwp-theme li.product h2 a,'
+        . 'body.oceanwp-theme .woocommerce-loop-category__title{color:#243028!important;}'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product h2 a:hover,'
+        . 'body.oceanwp-theme li.product h2 a:hover{color:#8a6230!important;}'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product .category,'
+        . 'body.oceanwp-theme.woocommerce ul.products li.product .category a{color:#8a6230!important;}'
+        . '#site-header,#site-header.medium-header,#site-header .top-header-wrap,'
+        . '#site-header.medium-header #site-navigation-wrap,'
+        . '#site-header.medium-header .oceanwp-mobile-menu-icon{background-color:#fbf7f1!important;}'
+        . '</style>' . "\n";
+}
+add_action('wp_head', 'eludein_child_late_contrast_css', 120);
+
+/**
+ * Le logo header ne doit pas rester un placeholder LiteSpeed.
+ */
+function eludein_child_litespeed_lazy_excludes($excludes)
+{
+    $extra = "custom-logo\nChatGPT-Image-20-nov";
+    if (is_array($excludes)) {
+        return array_merge($excludes, explode("\n", $extra));
+    }
+    return trim((string) $excludes . "\n" . $extra);
+}
+add_filter('litespeed_media_lazy_img_excludes', 'eludein_child_litespeed_lazy_excludes');
+
+function eludein_child_logo_skip_lazy(array $attr): array
+{
+    $class = (string) ($attr['class'] ?? '');
+    if (strpos($class, 'custom-logo') !== false) {
+        $attr['data-no-lazy'] = '1';
+        $attr['data-skip-lazy'] = '1';
+        $attr['loading'] = 'eager';
+        $attr['fetchpriority'] = 'high';
+    }
+    return $attr;
+}
+add_filter('wp_get_attachment_image_attributes', 'eludein_child_logo_skip_lazy', 20);
+

@@ -32,6 +32,17 @@ def test_protocol_from_cfg():
     assert sync.protocol_from_cfg({"port": 21, "secure": False}) == "ftp"
 
 
+def test_child_theme_beats_customizer_gold():
+    functions = (REPO / "wordpress/themes/eludein-child/functions.php").read_text(encoding="utf-8")
+    woo = (REPO / "wordpress/themes/eludein-child/assets/css/woocommerce.css").read_text(encoding="utf-8")
+    refresh = (REPO / "wordpress/themes/eludein-child/assets/css/refresh.css").read_text(encoding="utf-8")
+    assert "eludein_child_filter_custom_css" in functions
+    assert "eludein_child_late_contrast_css" in functions
+    assert "body.oceanwp-theme.woocommerce ul.products li.product h2 a" in woo
+    assert "#243028" in woo
+    assert "search-toggle-li" in refresh
+
+
 def test_local_theme_files_exist():
     files = sync.local_files()
     names = {p.name for p in files}
