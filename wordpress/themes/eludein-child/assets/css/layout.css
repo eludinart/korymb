@@ -353,20 +353,34 @@ body.oceanwp-theme .page-header-title {
   display: none;
 }
 
+/* Témoignages : les cartes seules, pas un double cadre vide étiré. */
+#block-45,
+#block-34,
+#block-45 .wp-block-kadence-testimonials,
+#block-34 .wp-block-kadence-testimonials,
+#right-sidebar .kt-testimonial-grid-wrap {
+  display: contents;
+}
+
+#right-sidebar .kt-testimonial-grid-item {
+  list-style: none;
+  margin: 0;
+  min-width: 0;
+}
+
 #right-sidebar .kt-testimonial-item-wrap,
-#right-sidebar .wp-block-kadence-testimonials {
+#right-sidebar .wp-block-kadence-testimonial {
   height: 100%;
+  margin: 0;
   background: var(--eludein-cream, #f4efe6);
   border: 1px solid var(--eludein-line, #d9cdb8);
   border-radius: 18px;
   box-shadow: none;
 }
 
-#right-sidebar .kt-blocks-testimonials-wrap,
-#right-sidebar .kb-gallery-wrap-id {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 1rem;
+#right-sidebar .kt-testimonial-occupation:empty,
+#right-sidebar .kt-testimonial-occupation-wrap:has(.kt-testimonial-occupation:empty) {
+  display: none;
 }
 
 #block-28,

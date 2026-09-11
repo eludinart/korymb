@@ -362,3 +362,27 @@ function eludein_child_logo_skip_lazy(array $attr): array
 }
 add_filter('wp_get_attachment_image_attributes', 'eludein_child_logo_skip_lazy', 20);
 
+/**
+ * Un CTA de chaque côté du logo (boutique / application).
+ */
+function eludein_child_header_cta_markup(string $which): string
+{
+    if ($which === 'shop') {
+        return '<a class="eludein-header-cta eludein-header-cta--shop eludein-cta" href="'
+            . esc_url(home_url('/boutique/'))
+            . '">Acheter le tarot Fleur d\'Amours</a>';
+    }
+
+    return '<a class="eludein-header-cta eludein-header-cta--app" href="https://app-fleurdamours.eludein.art/jardin" target="_blank" rel="noopener noreferrer">Découvrez en exclusivité l\'application Fleur d\'Åmõürs</a>';
+}
+
+function eludein_child_wrap_logo_with_ctas($html)
+{
+    if (!is_string($html) || $html === '' || is_admin()) {
+        return $html;
+    }
+
+    return eludein_child_header_cta_markup('shop') . $html . eludein_child_header_cta_markup('app');
+}
+add_filter('get_custom_logo', 'eludein_child_wrap_logo_with_ctas', 20);
+
