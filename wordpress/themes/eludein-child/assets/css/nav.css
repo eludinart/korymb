@@ -182,9 +182,9 @@
   transform: none !important;
   margin: 0 !important;
   padding: 10px 0.45rem 0.45rem !important;
-  width: 22rem;
-  min-width: 18rem !important;
-  max-width: min(24rem, calc(100vw - 1.5rem)) !important;
+  width: 28rem;
+  min-width: 22rem !important;
+  max-width: min(30rem, calc(100vw - 1.5rem)) !important;
   box-sizing: border-box;
   overflow: hidden;
   border: 1px solid var(--eludein-line, #d9cdb8) !important;
