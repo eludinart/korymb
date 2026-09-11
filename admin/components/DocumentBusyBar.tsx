@@ -2,8 +2,11 @@
 
 import { useIsFetching, useIsMutating } from "@tanstack/react-query";
 
-function isBackgroundPoll(query: { options: { refetchInterval?: unknown } }) {
-  const interval = query.options.refetchInterval;
+function isBackgroundPoll(query: { options: object }) {
+  const interval =
+    "refetchInterval" in query.options
+      ? (query.options as { refetchInterval?: unknown }).refetchInterval
+      : undefined;
   if (typeof interval === "function") return true;
   if (typeof interval === "number" && interval > 0) return true;
   return false;
