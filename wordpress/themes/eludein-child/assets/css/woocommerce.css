@@ -18,14 +18,14 @@ body.woocommerce-page #owp-preloader {
 
 /* Boutique : intro maison, pas de barre d’entrepôt. */
 .eludein-shop-intro {
-  max-width: 46rem;
-  margin: 0.35rem auto 3.4rem;
+  max-width: 54rem;
+  margin: 0.5rem auto 3.75rem;
   text-align: center;
 }
 
 .eludein-shop-intro__kicker {
-  margin: 0 0 0.85rem;
-  font-size: 0.92rem;
+  margin: 0 0 0.95rem;
+  font-size: 1rem;
   font-weight: 600;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -35,16 +35,16 @@ body.woocommerce-page #owp-preloader {
 .eludein-shop-intro__kicker::after {
   content: "";
   display: block;
-  width: 3.2rem;
+  width: 3.6rem;
   height: 2px;
-  margin: 0.85rem auto 0;
+  margin: 0.95rem auto 0;
   background: #c9a14a;
 }
 
 .eludein-shop-intro__title {
-  margin: 0 0 1.15rem;
+  margin: 0 0 1.35rem;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: clamp(2.35rem, 5.4vw, 3.45rem);
+  font-size: clamp(2.7rem, 3.4vw, 3.85rem);
   font-weight: 600;
   line-height: 1.12;
   letter-spacing: -0.03em;
@@ -52,10 +52,10 @@ body.woocommerce-page #owp-preloader {
 }
 
 .eludein-shop-intro__lead {
-  margin: 0 auto 0.85rem;
-  max-width: 40rem;
-  font-size: 1.28rem;
-  line-height: 1.6;
+  margin: 0 auto 1rem;
+  max-width: 46rem;
+  font-size: 1.38rem;
+  line-height: 1.65;
   color: #2f2a26;
 }
 
@@ -78,7 +78,7 @@ body.tax-product_cat .result-count {
 
 body.woocommerce-shop #primary,
 body.tax-product_cat #primary {
-  max-width: 1040px;
+  max-width: 1180px;
   margin-left: auto;
   margin-right: auto;
 }
@@ -142,7 +142,7 @@ body.tax-product_cat ul.products li.product img,
 .woocommerce-page ul.products li.product img {
   display: block;
   width: 100% !important;
-  height: 240px !important;
+  height: 280px !important;
   object-fit: cover;
   border-radius: 0;
   margin: 0 !important;
@@ -201,7 +201,7 @@ body.oceanwp-theme .woocommerce-loop-category__title,
 body.oceanwp-theme.woocommerce ul.products li.product li.title h2,
 body.oceanwp-theme.woocommerce ul.products li.product li.title a {
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.42rem !important;
+  font-size: 1.55rem !important;
   font-weight: 600;
   line-height: 1.28;
   color: var(--eludein-forest-deep, #243028) !important;
@@ -222,7 +222,7 @@ body.tax-product_cat ul.products li.product .woo-desc {
   -webkit-line-clamp: 4;
   overflow: hidden;
   margin: 0.7rem 0 0;
-  font-size: 1.08rem;
+  font-size: 1.16rem;
   line-height: 1.55;
   color: #3a3530;
 }
@@ -234,10 +234,12 @@ body.tax-product_cat ul.products li.product .price-wrap {
 }
 
 .woocommerce ul.products li.product .price,
+.woocommerce ul.products li.product .price .amount,
+.woocommerce ul.products li.product .price .woocommerce-Price-amount,
 body.woocommerce-shop ul.products li.product .price {
   display: block;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 1.7rem !important;
+  font-size: 1.85rem !important;
   font-weight: 600;
   color: var(--eludein-forest-deep, #243028) !important;
 }

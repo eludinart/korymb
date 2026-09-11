@@ -67,6 +67,9 @@ def test_child_theme_beats_customizer_gold():
     assert "woo-entry-inner > li.image-wrap" in woo
     assert "display: none !important" not in woo.split("li.image-wrap")[1][:80]
     assert "body.woocommerce-shop #right-sidebar" in layout
+    assert "font-size: 19px" in refresh
+    assert "font-size: 16px !important" in nav
+    assert "eludein_child_bump_inline_font_size" in functions
     assert "woocommerce/*.php" not in "".join(
         p.relative_to(REPO / sync.THEME_REL).as_posix() for p in sync.local_files()
     )

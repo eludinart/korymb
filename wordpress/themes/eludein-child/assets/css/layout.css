@@ -24,7 +24,7 @@ body.has-sidebar #content-wrap.container {
   align-items: stretch;
   float: none !important;
   width: 100% !important;
-  max-width: 1160px !important;
+  max-width: 1280px !important;
   margin-left: auto !important;
   margin-right: auto !important;
   padding-left: 1.5rem;
@@ -64,7 +64,7 @@ body.has-sidebar #primary {
 /* Pages de lecture : mesure confortable, vraiment centrée. */
 body.page:not(.home):not(.woocommerce-page) #content .entry,
 body.single-post #content .entry {
-  max-width: 760px;
+  max-width: 840px;
   width: 100%;
   margin-left: auto;
   margin-right: auto;
@@ -166,7 +166,7 @@ body.oceanwp-theme .page-header-title {
   font-family: var(--eludein-serif, Georgia, serif);
   font-weight: 600;
   letter-spacing: -0.02em;
-  font-size: clamp(1.55rem, 2.6vw, 2.15rem) !important;
+  font-size: clamp(2.05rem, 3.2vw, 2.85rem) !important;
 }
 
 /* Covers « light » : fond papier, texte encre (plus de rose pâle). */
@@ -177,7 +177,7 @@ body.oceanwp-theme .page-header-title {
   border-radius: var(--eludein-radius, 14px);
   min-height: 0 !important;
   margin: 0 0 1.5rem !important;
-  padding: 1.6rem 1.7rem !important;
+  padding: 2.15rem 2.2rem !important;
 }
 
 .entry-content .wp-block-cover.is-light .wp-block-cover__background,
@@ -257,7 +257,7 @@ body.oceanwp-theme .page-header-title {
 #right-sidebar .kt-adv-heading,
 #left-sidebar .kt-adv-heading {
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 28px !important;
+  font-size: 32px !important;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--eludein-forest-deep, #243028) !important;
@@ -342,7 +342,7 @@ body.oceanwp-theme .page-header-title {
 #right-sidebar .recent-posts-title {
   display: block;
   font-family: var(--eludein-serif, Georgia, serif);
-  font-size: 17px;
+  font-size: 21px;
   line-height: 1.35;
   color: var(--eludein-forest-deep, #243028) !important;
   text-decoration: none;

@@ -194,11 +194,46 @@ function eludein_child_rewrite_style_attribute($match)
         $style
     ) ?? $style;
 
+    $style = preg_replace_callback(
+        '/font-size:\s*(\d+(?:\.\d+)?)px(\s*!important)?/i',
+        'eludein_child_bump_inline_font_size',
+        $style
+    ) ?? $style;
+
     return 'style=' . $quote . $style . $quote;
 }
 add_filter('the_content', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
 add_filter('widget_block_content', 'eludein_child_readable_inline_colors', 20);
+
+/**
+ * Kadence pose des font-size:16px trop petites à 100 % sur grand écran.
+ *
+ * @param array $match
+ */
+function eludein_child_bump_inline_font_size($match): string
+{
+    $px = (float) $match[1];
+    $imp = $match[2] ?? '';
+
+    if ($px > 0 && $px < 14) {
+        $px = 16;
+    } elseif ($px < 17) {
+        $px = 19;
+    } elseif ($px < 20) {
+        $px = 21;
+    } elseif ($px < 26) {
+        $px = 30;
+    } elseif ($px < 34) {
+        $px = 38;
+    } elseif ($px < 44) {
+        $px = 50;
+    }
+
+    $out = (string) (int) round($px);
+
+    return 'font-size: ' . $out . 'px' . $imp;
+}
 
 /**
  * Boutons or = CTA accent. Boutons forêt = pastille outline.
@@ -258,7 +293,7 @@ function eludein_child_filter_custom_css($css)
         $css
     ) ?? $css;
 
-    $css = preg_replace('/\.container\{width:2697px\}/i', '.container{width:100%;max-width:1160px}', $css) ?? $css;
+    $css = preg_replace('/\.container\{width:2697px\}/i', '.container{width:100%;max-width:1280px}', $css) ?? $css;
     $css = preg_replace(
         '/\.sidebar-main,\.widget-area\{width:22%\s*!important\}/i',
         '.sidebar-main,.widget-area{width:100%!important}',
@@ -302,6 +337,16 @@ function eludein_child_late_contrast_css(): void
         . '#site-header.medium-header .search-toggle-li{display:none!important;}'
         . '.page-header,.centered-page-header{background:#fbf7f1!important;color:#243028!important;}'
         . '.page-header-title{color:#243028!important;}'
+        . 'body.oceanwp-theme{font-size:19px!important;line-height:1.72!important;}'
+        . '#site-header #site-navigation-wrap .dropdown-menu>li>a,'
+        . '#site-header #site-navigation-wrap .dropdown-menu>li>a .text-wrap'
+        . '{font-size:16px!important;}'
+        . '#site-header #menu-main-menu>.eludein-nav-utility>a,'
+        . '#site-header #menu-main-menu>.eludein-nav-utility>a .text-wrap'
+        . '{font-size:13.5px!important;}'
+        . '.eludein-header-cta{font-size:13.5px!important;}'
+        . '.eludein-shop-intro__title{font-size:clamp(2.7rem,3.4vw,3.85rem)!important;}'
+        . '.eludein-shop-intro__lead{font-size:1.38rem!important;line-height:1.65!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
         . '.entry-content .wp-block-cover.is-light h3,.entry-content .wp-block-cover.is-light li,'
@@ -312,7 +357,7 @@ function eludein_child_late_contrast_css(): void
         . '{width:100%!important;max-width:100%!important;margin-left:0!important;margin-right:0!important;left:auto!important;}'
         . '#content-wrap,#primary,.entry-content{overflow-x:clip;}'
         . 'body.has-sidebar #content-wrap.container{display:flex!important;flex-direction:column!important;'
-        . 'float:none!important;width:100%!important;max-width:1160px!important;'
+        . 'float:none!important;width:100%!important;max-width:1280px!important;'
         . 'margin-left:auto!important;margin-right:auto!important;}'
         . 'body.has-sidebar #primary,body.has-sidebar .content-area,body.has-sidebar #right-sidebar,'
         . 'body.has-sidebar .widget-area,body.has-sidebar .sidebar-main'
