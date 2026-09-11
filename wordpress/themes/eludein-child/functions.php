@@ -997,9 +997,9 @@ function eludein_child_tarot_prepare_card_img(string $tag): string
     $tag = str_ireplace(array('alignleft', 'alignright', 'aligncenter'), '', $tag);
     $tag = preg_replace('/\sclass="\s*"/i', '', $tag) ?? $tag;
     if (preg_match('/\ssizes="/i', $tag)) {
-        $tag = preg_replace('/\ssizes="[^"]*"/i', ' sizes="(max-width: 800px) 42vw, 220px"', $tag, 1) ?? $tag;
+        $tag = preg_replace('/\ssizes="[^"]*"/i', ' sizes="(max-width: 700px) 46vw, 200px"', $tag, 1) ?? $tag;
     } else {
-        $tag = preg_replace('/<img\b/i', '<img sizes="(max-width: 800px) 42vw, 220px"', $tag, 1) ?? $tag;
+        $tag = preg_replace('/<img\b/i', '<img sizes="(max-width: 700px) 46vw, 200px"', $tag, 1) ?? $tag;
     }
 
     $full = eludein_child_tarot_full_src_from_tag($tag);
@@ -1015,6 +1015,8 @@ function eludein_child_tarot_full_src_from_tag(string $tag): string
     if (preg_match('/srcset="([^"]+)"/i', $tag, $set)) {
         $best_url = '';
         $best_w = -1;
+        $usable = '';
+        $usable_w = -1;
         foreach (preg_split('/\s*,\s*/', $set[1]) as $part) {
             if (!preg_match('#(https?://\S+)\s+(\d+)w#', trim($part), $piece)) {
                 continue;
@@ -1024,6 +1026,13 @@ function eludein_child_tarot_full_src_from_tag(string $tag): string
                 $best_w = $width;
                 $best_url = $piece[1];
             }
+            if ($width >= 600 && ($usable_w < 0 || $width < $usable_w)) {
+                $usable_w = $width;
+                $usable = $piece[1];
+            }
+        }
+        if ($usable !== '') {
+            return $usable;
         }
         if ($best_url !== '') {
             return $best_url;
