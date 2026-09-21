@@ -62,9 +62,9 @@ def node_run_cio(state: MissionGraphState) -> dict[str, Any]:
 
 
 def node_run_triad(state: MissionGraphState) -> dict[str, Any]:
-    from services.workspace_brand import group_sees_workspace_identity, workspace_identity_block
     from services.knowledge import build_entity_context_block
     from services.triad_orchestrator import orchestrate_triad
+    from services.workspace_brand import workspace_identity_block
 
     job_id = state["job_id"]
     job_logs: list[str] = active_jobs.get(job_id, {}).setdefault("logs", [])
@@ -76,9 +76,7 @@ def node_run_triad(state: MissionGraphState) -> dict[str, Any]:
     def on_tool(actor: str, tool_name: str, meta: dict):
         emit_job_event(job_id, "tool_call", actor or "executor", {"tool": tool_name, **(meta or {})})
 
-    entity_ctx = ""
-    if group_sees_workspace_identity(gid):
-        entity_ctx = build_entity_context_block(mission)
+    entity_ctx = build_entity_context_block(mission, agent_group_id=gid)
     result, ti, to = orchestrate_triad(
         mission,
         mission,
@@ -95,7 +93,7 @@ def node_run_triad(state: MissionGraphState) -> dict[str, Any]:
 def node_run_single(state: MissionGraphState) -> dict[str, Any]:
     from agent_tool_use import llm_turn_maybe_tools
     from services.agents import agents_def, SUB_AGENT_COORDINATION_FR
-    from services.mission import _korymb_memory_prompt_for
+    from services.mission import _group_scope_block, _korymb_memory_prompt_for
     from services.workspace_brand import workspace_identity_block
 
     job_id = state["job_id"]
@@ -107,7 +105,7 @@ def node_run_single(state: MissionGraphState) -> dict[str, Any]:
     gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
     mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id, agent_group_id=gid)
     sub = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system = agent_cfg["system"] + workspace_identity_block(gid) + mem + sub
+    system = agent_cfg["system"] + workspace_identity_block(gid) + mem + _group_scope_block(gid) + sub
     mission = state.get("mission_plain") or ""
     tool_tags = list(agent_cfg.get("tools") or [])
 

@@ -96,6 +96,32 @@ def _behavior_int(key: str, fallback: int) -> int:
         return fallback
 
 
+def _scoped_brand_context(agent_group_id: str | None) -> str:
+    """Identité workspace, ou consigne d'isolation si l'équipe a un périmètre fermé."""
+    return workspace_identity_block(agent_group_id)
+
+
+def _group_scope_block(agent_group_id: str | None) -> str:
+    if not (agent_group_id or "").strip():
+        return ""
+    try:
+        from services.agent_groups import format_group_scope_prompt
+
+        return format_group_scope_prompt(agent_group_id)
+    except Exception:
+        logger.exception("format_group_scope_prompt")
+        return ""
+
+
+def _uses_enterprise_science(agent_group_id: str | None) -> bool:
+    try:
+        from services.agent_groups import group_uses_enterprise_science
+
+        return bool(group_uses_enterprise_science(agent_group_id))
+    except Exception:
+        return True
+
+
 def _behavior_float(key: str, fallback: float) -> float:
     v = _behavior_value(key)
     try:
@@ -1491,19 +1517,26 @@ def _cio_prompt_memory(
                 if group_memory_scope(gid) == "group":
                     gblk = format_group_memory_prompt(gid, max_chars=2500)
                     extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
-                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + extra
+                    return (
+                        CHAT_MODE_RESPONSE_RULES
+                        + (gblk or "")
+                        + extra
+                        + _group_scope_block(gid)
+                    )
                 if group_memory_scope(gid) == "none":
                     extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
-                    return CHAT_MODE_RESPONSE_RULES + extra
+                    return CHAT_MODE_RESPONSE_RULES + extra + _group_scope_block(gid)
             except Exception:
                 pass
-        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
+        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "") + _group_scope_block(gid)
     mem = _korymb_memory_prompt_for(
         agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
     )
-    if not group_sees_workspace_identity(agent_group_id):
-        return mem
-    return mem + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+    # memory_scope=group n'ouvre pas les faits ni l'historique, même avec inherit_shared.
+    extra = ""
+    if _uses_enterprise_science(agent_group_id):
+        extra = active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+    return mem + extra + _group_scope_block(agent_group_id)
 
 
 def _cio_attempt_direct_answer(
@@ -1569,6 +1602,7 @@ def _cio_attempt_direct_answer(
         + "\n\n"
         + chat_speaker_persona(agent_cfg, orchestrator_key=orch_key, agent_group_id=agent_group_id)
         + _identity_block(agent_group_id)
+        + _group_scope_block(agent_group_id)
         + _cio_prompt_memory(
             orch_key,
             exclude_job_id=job_id,
@@ -1832,22 +1866,7 @@ def orchestrate_coordinateur_mission(
         user_text=root_mission_label or mission_txt,
         agent_group_id=agent_group_id,
     )
-    group_ctx = ""
-    if agent_group_id:
-        try:
-            from services.agent_groups import get_group
-
-            g = get_group(agent_group_id)
-            if g:
-                group_ctx = (
-                    f"\n\n### Groupe d'agents actif : {g.get('label')} (`{g.get('id')}`)\n"
-                    f"Tu pilotes uniquement cette équipe. Membres déléguables : "
-                    f"{', '.join(g.get('member_keys') or []) or 'aucun'}.\n"
-                    f"Hors périmètre du groupe : ne mobilise pas la flotte Entreprise élargie.\n"
-                )
-        except Exception:
-            group_ctx = ""
-    system_prompt = agent_cfg["system"] + _identity_block(agent_group_id) + memory_brain + group_ctx
+    system_prompt = agent_cfg["system"] + _identity_block(agent_group_id) + memory_brain
     try:
         from services.thinking_modes import inject_thinking_mode, thinking_mode_from_job
 
@@ -2377,21 +2396,18 @@ def orchestrate_coordinateur_mission(
                 agent_key,
                 {"task_preview": tache.replace("\n", " ")[:320]},
             )
+        sub_mem = ""
+        if not chat_mode:
+            sub_mem = _korymb_memory_prompt_for(
+                agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
+            )
+            if _uses_enterprise_science(agent_group_id):
+                sub_mem += operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
         agent_sys = (
             agents_def()[agent_key]["system"]
             + _identity_block(agent_group_id)
-            + (
-                ""
-                if chat_mode
-                else _korymb_memory_prompt_for(
-                    agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
-                )
-                + (
-                    operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
-                    if group_sees_workspace_identity(agent_group_id)
-                    else ""
-                )
-            )
+            + _group_scope_block(agent_group_id)
+            + sub_mem
         )
 
         web_evidence_calls = 0
@@ -3043,7 +3059,12 @@ def _cio_refinement_round_mission(
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
     _raise_if_job_cancelled(job_id)
-    crit_sys = agents_def()["coordinateur"]["system"] + _identity_block(_job_group_id(job_id))
+    refine_gid = _job_group_id(job_id)
+    crit_sys = (
+        agents_def()["coordinateur"]["system"]
+        + _identity_block(refine_gid)
+        + _group_scope_block(refine_gid)
+    )
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
@@ -3219,14 +3240,20 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
-    gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
+    run_gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
     mem = _korymb_memory_prompt_for(
         agent_key,
         exclude_job_id=job_id,
-        agent_group_id=gid,
+        agent_group_id=run_gid,
     )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system_prompt = agent_cfg["system"] + _identity_block(gid) + mem + sub_coord
+    system_prompt = (
+        agent_cfg["system"]
+        + _identity_block(run_gid)
+        + mem
+        + _group_scope_block(run_gid)
+        + sub_coord
+    )
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
     mission_txt = f"{mission_plain}{context_str}"
 
@@ -3352,17 +3379,14 @@ def _schedule_mission_execution(
                 if mission_mode == "triad":
                     from services.triad_orchestrator import orchestrate_triad
                     from services.knowledge import build_entity_context_block
-                    from services.workspace_brand import group_sees_workspace_identity
 
                     _emit_job_event(
                         job_id, "delegation", "architect",
                         {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
                     )
                     triad_gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
-                    entity_ctx = (
-                        build_entity_context_block(mission_plain)
-                        if group_sees_workspace_identity(triad_gid)
-                        else ""
+                    entity_ctx = build_entity_context_block(
+                        mission_plain, agent_group_id=triad_gid
                     )
                     result, t_in_total, t_out_total = orchestrate_triad(
                         mission_txt,
