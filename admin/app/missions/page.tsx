@@ -28,6 +28,7 @@ import MissionsArchivesList from "../../components/missions/MissionsArchivesList
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import MissionFleetHandoffPanel from "../../components/missions/MissionFleetHandoffPanel";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
@@ -55,7 +56,7 @@ import {
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
 
-import { jobAgentGroupId, missionLeadLabel, teamBadgeLabel } from "../../lib/agentGroupUi";
+import { jobAgentGroupId, missionLeadLabel, teamBadgeClass, teamBadgeLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 function MissionsContent() {
@@ -126,6 +127,15 @@ function MissionsContent() {
   const inboxItems = useMemo(() => asInboxItems(inboxQuery.data), [inboxQuery.data]);
 
   const rows = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
+  const titleByJobId = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const j of rows) {
+      const id = String(j.job_id || "").trim();
+      if (!id) continue;
+      map[id] = missionTitleLabel(j.mission, 70) || id;
+    }
+    return map;
+  }, [rows]);
   const missionRows = useMemo(
     () => dedupeMissionListJobs(rows.filter((j) => String(j.source || "mission") !== "chat")),
     [rows],
@@ -708,6 +718,8 @@ function MissionsContent() {
                 job={j}
                 teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
                 teamGroupId={jobAgentGroupId(j)}
+                parentJobId={j.parent_job_id || null}
+                parentTitle={j.parent_job_id ? titleByJobId[j.parent_job_id] : null}
                 inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
                 busy={busyId === j.job_id}
                 deleteBusy={deleteMissionBusyId === j.job_id}
@@ -779,6 +791,11 @@ function MissionsContent() {
             <h1 className="min-w-0 flex-1 truncate text-base font-bold tracking-tight text-slate-900 sm:text-lg">
               {missionTitleLabel(detail.data?.mission, 90) || "Mission"}
             </h1>
+            <span
+              className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(selectedGroupId)}`}
+            >
+              Flotte · {teamBadgeLabel(selectedGroupId, groupsById)}
+            </span>
             <div className="flex shrink-0 items-center gap-1 rounded-full bg-slate-100 p-0.5 text-[11px] font-semibold">
               <button
                 type="button"
@@ -1016,6 +1033,31 @@ function MissionsContent() {
                   document.getElementById("mission-hitl-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
                 }}
               />
+              {selected && detail.data ? (
+                <div className="rounded-2xl border border-sky-200 bg-sky-50/60 p-4 shadow-sm">
+                  {detail.data.parent_job_id ? (
+                    <p className="mb-3 text-xs text-slate-600">
+                      Relais de{" "}
+                      <button
+                        type="button"
+                        className="font-semibold text-violet-800 underline-offset-2 hover:underline"
+                        onClick={() => openMission(String(detail.data?.parent_job_id))}
+                      >
+                        {titleByJobId[detail.data.parent_job_id] || "la mission d’origine"}
+                      </button>
+                    </p>
+                  ) : null}
+                  <MissionFleetHandoffPanel
+                    parentJobId={String(selected)}
+                    parentGroupId={selectedGroupId}
+                    parentMission={detail.data.mission}
+                    onCreated={(jobId) => {
+                      setFeedback("Nouvelle mission créée pour l’autre flotte.");
+                      openMission(jobId);
+                    }}
+                  />
+                </div>
+              ) : null}
               {!missionClosedByUser ? (
                 <MissionProcessingBanner
                   status={displayMissionStatus || detail.data.status}

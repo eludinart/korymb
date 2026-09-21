@@ -1,3 +1,4 @@
+import { jobAgentGroupId } from "./agentGroupUi";
 import { stripMarkdownLight } from "./normalizeLooseMarkdown";
 import type { BossJobLike } from "@/lib/types";
 
@@ -41,7 +42,12 @@ export function missionClusterKey<T extends MissionClusterJob>(job: T, rows: T[]
   const parent = normalizeJobId(job.parent_job_id);
 
   if (parent && parent !== self) {
+    const selfGroup = jobAgentGroupId(job);
     if (ids.has(parent)) {
+      const parentJob = byId.get(parent);
+      if (parentJob && jobAgentGroupId(parentJob) !== selfGroup) {
+        return `job:${self}`;
+      }
       let cur = self;
       let p = parent;
       const seen = new Set<string>();
@@ -50,9 +56,9 @@ export function missionClusterKey<T extends MissionClusterJob>(job: T, rows: T[]
         cur = p;
         p = normalizeJobId(byId.get(cur)?.parent_job_id);
       }
-      return `root:${cur}`;
+      return `root:${cur}:g:${selfGroup}`;
     }
-    return `parent:${parent}`;
+    return `parent:${parent}:g:${selfGroup}`;
   }
 
   const sig = normalizeMissionSignature(job.mission);

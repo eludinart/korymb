@@ -178,7 +178,29 @@ def default_group_policy() -> dict[str, Any]:
         "hitl_strict": True,
         "memory_scope": "group",  # group | enterprise | none
         "forbid_external_send": True,
+        "out_of_scope": [],
     }
+
+
+def normalize_out_of_scope(raw: Any) -> list[str]:
+    items: list[str] = []
+    if isinstance(raw, str):
+        parts = [p.strip() for p in raw.replace("\n", ",").split(",")]
+        items = [p for p in parts if p]
+    elif isinstance(raw, (list, tuple)):
+        items = [str(x).strip() for x in raw if str(x).strip()]
+    # Déduplique en conservant l'ordre
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item[:160])
+        if len(out) >= 12:
+            break
+    return out
 
 
 def ensure_enterprise_group() -> dict[str, Any]:
@@ -421,8 +443,13 @@ def normalize_blueprint_payload(raw: dict[str, Any], *, intent: str = "") -> dic
     # Cap anti-usine
     members = members[: MAX_AGENTS_PER_GROUP - 1]
 
-    out_of_scope = raw.get("out_of_scope") if isinstance(raw.get("out_of_scope"), list) else []
-    out_of_scope = [str(x).strip() for x in out_of_scope if str(x).strip()][:12]
+    out_of_scope = normalize_out_of_scope(raw.get("out_of_scope"))
+
+    policy = {
+        **default_group_policy(),
+        **(_parse_json_obj(raw.get("policy"))),
+        "out_of_scope": out_of_scope,
+    }
 
     return {
         "label": label,
@@ -433,10 +460,7 @@ def normalize_blueprint_payload(raw: dict[str, Any], *, intent: str = "") -> dic
         "simulation": str(raw.get("simulation") or "").strip()[:2000],
         "risks": [str(x).strip() for x in (raw.get("risks") or []) if str(x).strip()][:8],
         "template_key": str(raw.get("template_key") or "").strip() or None,
-        "policy": {
-            **default_group_policy(),
-            **(_parse_json_obj(raw.get("policy"))),
-        },
+        "policy": policy,
     }
 
 
@@ -661,6 +685,9 @@ def update_group_members(
     for k in members:
         if k not in ad:
             raise ValueError(f"membre inconnu : {k}")
+    next_policy = policy if policy is not None else (_parse_json_obj(row.get("policy")) or default_group_policy())
+    if isinstance(next_policy, dict) and "out_of_scope" in next_policy:
+        next_policy = {**next_policy, "out_of_scope": normalize_out_of_scope(next_policy.get("out_of_scope"))}
     updated = upsert_agent_group(
         str(row["id"]),
         slug=str(row["slug"]),
@@ -669,7 +696,7 @@ def update_group_members(
         status=(status if status is not None else row.get("status") or "active"),
         lead_agent_key=lead,
         member_keys=members,
-        policy=policy if policy is not None else (_parse_json_obj(row.get("policy")) or default_group_policy()),
+        policy=next_policy,
         is_system=bool(int(row.get("is_system") or 0)),
         template_key=row.get("template_key"),
     )
@@ -741,6 +768,89 @@ def format_group_memory_prompt(group_id: str, *, max_chars: int = 4000) -> str:
         except Exception:
             pass
     return "\n".join(parts)
+
+
+def group_uses_enterprise_science(group_id: str | None) -> bool:
+    """
+    True si la science d'entreprise (mémoire globale, faits, historique missions)
+    doit être injectée dans le prompt. La flotte métier `entreprise` reste couplée
+    au workspace ; les équipes projet (memory_scope=group|none) restent sur leur mission.
+    """
+    gid = (group_id or "").strip()
+    if not gid or gid == ENTERPRISE_GROUP_ID:
+        return True
+    return group_memory_scope(gid) == "enterprise"
+
+
+def group_out_of_scope(group_id: str | None) -> list[str]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    g = get_group(gid)
+    if not g:
+        return []
+    policy = g.get("policy") if isinstance(g.get("policy"), dict) else {}
+    items = normalize_out_of_scope(policy.get("out_of_scope"))
+    if items:
+        return items
+    tk = str(g.get("template_key") or "").strip()
+    tpl = GROUP_TEMPLATES.get(tk) or {}
+    return normalize_out_of_scope(tpl.get("out_of_scope"))
+
+
+def format_group_scope_prompt(group_id: str | None) -> str:
+    """Consigne runtime : rester sur la mission de l'équipe, pas sur l'entreprise entière."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return ""
+    g = get_group(gid)
+    if not g:
+        return ""
+    members = [str(k) for k in (g.get("member_keys") or []) if str(k).strip()]
+    oos = group_out_of_scope(gid)
+    uses_ent = group_uses_enterprise_science(gid)
+    label = str(g.get("label") or gid).strip() or gid
+    lines = [
+        f"### Périmètre de l'équipe : {label} (`{g.get('id')}`)",
+        f"Tu pilotes uniquement cette équipe. Membres déléguables : {', '.join(members) or 'aucun'}.",
+    ]
+    if gid == ENTERPRISE_GROUP_ID:
+        lines.append(
+            "Flotte métier de l'entreprise : tu peux t'appuyer sur la mémoire partagée et les opérations workspace."
+        )
+    else:
+        lines.extend(
+            [
+                "Reste strictement sur la consigne / la mission demandée.",
+                "N'élargis pas aux opérations de l'entreprise entière (CRM, prospection, réseaux sociaux, "
+                "facturation, stratégie workspace, historique de toutes les missions) sauf si la consigne "
+                "le demande explicitement.",
+                "Ne mobilise pas la flotte Entreprise élargie.",
+            ]
+        )
+        if not uses_ent:
+            lines.append(
+                "Science d'entreprise : non injectée. Ignore la mémoire globale, les faits workspace et "
+                "l'historique transverse. Appuie-toi sur la consigne, la mémoire d'équipe, et les sources "
+                "de cette mission. Les consignes génériques « charte / mémoire partagée du workspace » "
+                "ne doivent pas élargir le sujet."
+            )
+        desc = str(g.get("description") or "").strip()
+        if desc:
+            lines.append(f"Intention de l'équipe : {desc[:800]}")
+        if oos:
+            lines.append("Hors périmètre déclaré : " + ", ".join(oos) + ".")
+            lines.append("Si une idée sort de ce périmètre, signale-le et reste sur le livrable demandé.")
+    return "\n\n" + "\n".join(lines) + "\n"
+
+
+def brand_context_for_group(group_id: str | None) -> str:
+    """Contexte métier workspace — vide pour une équipe projet isolée de la science d'entreprise."""
+    if not group_uses_enterprise_science(group_id):
+        return ""
+    from services.workspace_brand import build_workspace_brand_context
+
+    return build_workspace_brand_context()
 
 
 ASSISTANT_SYSTEM = (

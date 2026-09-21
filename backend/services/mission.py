@@ -77,6 +77,38 @@ def _behavior_int(key: str, fallback: int) -> int:
         return fallback
 
 
+def _scoped_brand_context(agent_group_id: str | None) -> str:
+    """Contexte métier workspace, omis pour une équipe projet isolée."""
+    try:
+        from services.agent_groups import brand_context_for_group
+
+        return brand_context_for_group(agent_group_id)
+    except Exception:
+        logger.exception("brand_context_for_group")
+        return str(FLEUR_CONTEXT)
+
+
+def _group_scope_block(agent_group_id: str | None) -> str:
+    if not (agent_group_id or "").strip():
+        return ""
+    try:
+        from services.agent_groups import format_group_scope_prompt
+
+        return format_group_scope_prompt(agent_group_id)
+    except Exception:
+        logger.exception("format_group_scope_prompt")
+        return ""
+
+
+def _uses_enterprise_science(agent_group_id: str | None) -> bool:
+    try:
+        from services.agent_groups import group_uses_enterprise_science
+
+        return bool(group_uses_enterprise_science(agent_group_id))
+    except Exception:
+        return True
+
+
 def _behavior_float(key: str, fallback: float) -> float:
     v = _behavior_value(key)
     try:
@@ -1494,17 +1526,26 @@ def _cio_prompt_memory(
 
                 if group_memory_scope(gid) == "group":
                     gblk = format_group_memory_prompt(gid, max_chars=2500)
-                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + (drive_blk or "")
+                    return (
+                        CHAT_MODE_RESPONSE_RULES
+                        + (gblk or "")
+                        + (drive_blk or "")
+                        + _group_scope_block(gid)
+                    )
                 if group_memory_scope(gid) == "none":
-                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "") + _group_scope_block(gid)
             except Exception:
                 pass
-        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
+        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "") + _group_scope_block(gid)
+    extra = ""
+    if _uses_enterprise_science(agent_group_id):
+        extra = active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
     return (
         _korymb_memory_prompt_for(
             agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
         )
-        + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+        + extra
+        + _group_scope_block(agent_group_id)
     )
 
 
@@ -1530,7 +1571,7 @@ def _cio_attempt_direct_answer(
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     system = (
         agent_cfg["system"]
-        + FLEUR_CONTEXT
+        + _scoped_brand_context(agent_group_id)
         + _cio_prompt_memory(
             "coordinateur",
             exclude_job_id=job_id,
@@ -1613,22 +1654,7 @@ def orchestrate_coordinateur_mission(
         user_text=root_mission_label or mission_txt,
         agent_group_id=agent_group_id,
     )
-    group_ctx = ""
-    if agent_group_id:
-        try:
-            from services.agent_groups import get_group
-
-            g = get_group(agent_group_id)
-            if g:
-                group_ctx = (
-                    f"\n\n### Groupe d'agents actif : {g.get('label')} (`{g.get('id')}`)\n"
-                    f"Tu pilotes uniquement cette équipe. Membres déléguables : "
-                    f"{', '.join(g.get('member_keys') or []) or 'aucun'}.\n"
-                    f"Hors périmètre du groupe : ne mobilise pas la flotte Entreprise élargie.\n"
-                )
-        except Exception:
-            group_ctx = ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain + group_ctx
+    system_prompt = agent_cfg["system"] + _scoped_brand_context(agent_group_id) + memory_brain
     allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
     deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -2162,17 +2188,18 @@ def orchestrate_coordinateur_mission(
                 agent_key,
                 {"task_preview": tache.replace("\n", " ")[:320]},
             )
+        sub_mem = ""
+        if not chat_mode:
+            sub_mem = _korymb_memory_prompt_for(
+                agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
+            )
+            if _uses_enterprise_science(agent_group_id):
+                sub_mem += operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
         agent_sys = (
             agents_def()[agent_key]["system"]
-            + FLEUR_CONTEXT
-            + (
-                ""
-                if chat_mode
-                else _korymb_memory_prompt_for(
-                    agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
-                )
-                + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
-            )
+            + _scoped_brand_context(agent_group_id)
+            + _group_scope_block(agent_group_id)
+            + sub_mem
         )
 
         web_evidence_calls = 0
@@ -2722,6 +2749,8 @@ class MissionRunConfig(BaseModel):
     agent_group_id: str | None = None
     allowed_agents: list[str] | None = None
     orchestrator_key: str | None = None
+    # Relais : job d'origine dont le livrable alimente cette nouvelle mission
+    handoff_from_job_id: str | None = None
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -2811,7 +2840,13 @@ def _cio_refinement_round_mission(
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
     _raise_if_job_cancelled(job_id)
-    crit_sys = agents_def()["coordinateur"]["system"] + FLEUR_CONTEXT
+    cfg = (active_jobs.get(job_id) or {}).get("mission_config") or {}
+    refine_gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
+    crit_sys = (
+        agents_def()["coordinateur"]["system"]
+        + _scoped_brand_context(refine_gid)
+        + _group_scope_block(refine_gid)
+    )
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
@@ -2886,6 +2921,70 @@ def _cio_refinement_round_mission(
     return (improved or current_result).strip(), t_in, t_out
 
 
+def _apply_group_to_mission_config(cfg: dict) -> dict:
+    """Renseigne flotte, lead et délégués — défaut flotte métier Entreprise."""
+    out = dict(cfg or {})
+    try:
+        from services.agent_groups import (
+            ENTERPRISE_GROUP_ID,
+            group_allowed_delegate_keys,
+            group_orchestrator_key,
+        )
+    except Exception:
+        logger.exception("apply_group_to_mission_config")
+        return out
+    gid = str(out.get("agent_group_id") or "").strip() or ENTERPRISE_GROUP_ID
+    out["agent_group_id"] = gid
+    if not str(out.get("orchestrator_key") or "").strip():
+        out["orchestrator_key"] = group_orchestrator_key(gid)
+    if not out.get("allowed_agents"):
+        allowed = group_allowed_delegate_keys(gid)
+        if allowed is not None:
+            out["allowed_agents"] = list(allowed)
+    return out
+
+
+def _fleet_handoff_context_from_parent(parent_job_id: str, *, new_group_id: str | None = None) -> str:
+    """Nouvelle mission pour une autre flotte : livrable d'origine en entrée, périmètres séparés."""
+    row = db_get_job(parent_job_id)
+    if not row:
+        return ""
+    try:
+        from services.agent_groups import ENTERPRISE_GROUP_ID, get_group
+    except Exception:
+        logger.exception("group resolve for handoff")
+        ENTERPRISE_GROUP_ID = "entreprise"
+
+        def get_group(_gid: str | None) -> dict | None:
+            return None
+
+    mc = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
+    parent_gid = str(mc.get("agent_group_id") or "").strip() or ENTERPRISE_GROUP_ID
+    parent_g = get_group(parent_gid) if callable(get_group) else None
+    parent_label = str((parent_g or {}).get("label") or "").strip() or (
+        "Entreprise" if parent_gid == ENTERPRISE_GROUP_ID else parent_gid
+    )
+    new_gid = (new_group_id or "").strip()
+    new_g = get_group(new_gid) if new_gid and callable(get_group) else None
+    new_label = str((new_g or {}).get("label") or "").strip() or (new_gid or "cette équipe")
+
+    parts = [
+        f"--- Relais de flotte : nouvelle mission (liée à #{parent_job_id}) ---",
+        f"La mission d'origine a été menée par la flotte « {parent_label} ».",
+        f"Tu es la flotte « {new_label} ». C'est une **nouvelle mission**, pas une continuation dans le même périmètre.",
+        "Utilise le livrable ci-dessous comme **entrée**. Reste dans TON périmètre d'équipe.",
+        "N'élargis pas aux opérations de l'autre flotte ni à l'entreprise entière, sauf consigne explicite.",
+    ]
+    mission = (row.get("mission") or "").strip()
+    if mission:
+        parts.append(f"Consigne d'origine :\n{_clip_mem_text(mission, 4000)}")
+    res = (row.get("result") or "").strip()
+    if res:
+        parts.append(f"Livrable / synthèse à reprendre :\n{_clip_mem_text(res, 16000)}")
+    parts.append("Livrable attendu : le travail demandé dans TA consigne, en t'appuyant sur ce relais.")
+    return "\n\n".join(parts) + "\n\n"
+
+
 def _compose_mission_brief_from_session(session: dict, brief_override: str | None) -> str:
     if brief_override and str(brief_override).strip():
         return str(brief_override).strip()
@@ -2952,7 +3051,14 @@ def _schedule_mission_execution(
     requested_agent_key = agent_key
     agent_cfg = agents_def().get(agent_key, agents_def()["coordinateur"])
     now_iso = datetime.utcnow().isoformat()
-    cfg = _mission_config_from_payload(mission_config)
+    cfg = _apply_group_to_mission_config(_mission_config_from_payload(mission_config))
+    parent_id = (parent_job_id or "").strip() or None
+    if parent_id and source_tag == "mission":
+        cfg = {**cfg, "handoff_from_job_id": parent_id}
+    orch = str(cfg.get("orchestrator_key") or "").strip()
+    if agent_key == "coordinateur" and orch and orch in agents_def():
+        agent_key = orch
+        agent_cfg = agents_def()[orch]
     if cfg.get("recursive_refinement_enabled"):
         try:
             rr = int(cfg.get("recursive_max_rounds") or 0)
@@ -2960,7 +3066,7 @@ def _schedule_mission_execution(
             rr = 0
         if rr < 1:
             cfg = {**cfg, "recursive_max_rounds": 1}
-        if agent_key != "coordinateur":
+        if agent_key != "coordinateur" and str(cfg.get("agent_group_id") or "") in ("", "entreprise"):
             agent_key = "coordinateur"
             agent_cfg = agents_def()["coordinateur"]
     active_jobs[job_id] = {
@@ -2987,15 +3093,31 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
+    run_gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
     mem = _korymb_memory_prompt_for(
         agent_key,
         exclude_job_id=job_id,
-        agent_group_id=(cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None,
+        agent_group_id=run_gid,
     )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
+    system_prompt = (
+        agent_cfg["system"]
+        + _scoped_brand_context(run_gid)
+        + mem
+        + _group_scope_block(run_gid)
+        + sub_coord
+    )
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
+    handoff_blk = ""
+    if parent_id and source_tag == "mission":
+        try:
+            handoff_blk = _fleet_handoff_context_from_parent(parent_id, new_group_id=run_gid)
+        except Exception:
+            logger.exception("_fleet_handoff_context_from_parent")
+            handoff_blk = ""
     mission_txt = f"{mission_plain}{context_str}"
+    if handoff_blk:
+        mission_txt = f"{mission_txt}\n\n{handoff_blk}"
 
     def execute():
         media_token = None
@@ -3088,7 +3210,10 @@ def _schedule_mission_execution(
                         job_id, "delegation", "architect",
                         {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
                     )
-                    entity_ctx = build_entity_context_block(mission_plain)
+                    triad_gid = (cfg.get("agent_group_id") or "").strip() or None
+                    entity_ctx = build_entity_context_block(
+                        mission_plain, agent_group_id=triad_gid
+                    )
                     result, t_in_total, t_out_total = orchestrate_triad(
                         mission_txt,
                         mission_plain,
@@ -3096,7 +3221,7 @@ def _schedule_mission_execution(
                         job_id=job_id,
                         tool_tags=agent_cfg.get("tools") or None,
                         on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
-                        fleur_context=FLEUR_CONTEXT,
+                        fleur_context=_scoped_brand_context(triad_gid),
                         memory_context=entity_ctx,
                     )
                     _raise_if_job_cancelled(job_id)

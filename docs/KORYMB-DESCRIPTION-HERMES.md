@@ -116,7 +116,7 @@ Telegram : Hermes garde `TELEGRAM_BOT_TOKEN` + `getUpdates`. Pour Valider/Rejete
 ### Modes importants
 
 - **Assistant (défaut chat)** : atelier dirigeant — clarifier, structurer, **proposer des équipes** (blueprints) sans orchestration métier. Validation UI « Créer l’équipe ».
-- **Groupes d’agents** : flotte `entreprise` (système, défaut métier) + équipes projet optionnelles ; délégation restreinte aux membres du groupe. Ops : **Équipes projet** (`/gestion/equipes`) pour ouvrir un contexte (chat, missions, brief). Admin : **Équipes** (`/administration/equipes`) avec onglets Identité / Composition / Politique / Mémoire. Si `memory_scope=group`, injection des notes `agent_group_memory` (héritage optionnel du global partagé) ; sinon mémoire workspace ou aucune. Mémoire partagée workspace : Moteur IA → Mémoire partagée.
+- **Groupes d’agents** : flotte `entreprise` (système, défaut métier) + équipes projet optionnelles ; délégation restreinte aux membres du groupe. Ops : **Équipes projet** (`/gestion/equipes`) pour ouvrir un contexte (chat, missions, brief). Admin : **Équipes** (`/administration/equipes`) avec onglets Identité / Composition / Politique / Mémoire. Au lancement d’une mission, on **attribue une flotte** (visible sur les cartes et le dossier). Un relais « Faire travailler une autre flotte » crée une **nouvelle mission** liée, nourrie du livrable d’origine, sans mélanger les périmètres. Si `memory_scope=group` (défaut des équipes projet), le prompt **n’injecte pas** la science d’entreprise (mémoire globale, faits, historique de toutes les missions) : uniquement notes d’équipe, hors-périmètre, et la consigne. `inherit_shared` peut réinjecter un extrait du global. `memory_scope=enterprise` (flotte métier) conserve la mémoire workspace. Mémoire partagée : Moteur IA → Mémoire partagée.
 - **Mode cadrage** : échange sans lancer le pipeline multi-agents — le dirigeant valide ensuite dans l’app
 - **Mode exécution** : orchestration réelle (moteur **legacy** par défaut ; LangGraph gelé)
 - **Playbooks** (`/gestion/playbooks`) : bibliothèque de scénarios prêts à lancer (studio, thèmes Fleur / Sivana, relance prospect, article WP, agenda, post social). Le résultat est relisible, corrigeable (nouvelle passe) et copiable.
@@ -136,7 +136,7 @@ Korymb s’appuie sur une **flotte métier par défaut** (`entreprise`) avec des
 | **developpeur** | Développeur | Plateforme Korymb, backends, infra |
 | **comptable** | Comptable | Finances, devis, factures |
 
-Des **agents personnalisés** et des **groupes** (Administration → Équipes d’agents) peuvent être ajoutés. Templates : édition, terrain, R&D. Le tronc commun reste la **gestion d’activité** ; les équipes sont des configurations d’exécution IA.
+Des **agents personnalisés** et des **groupes** (Administration → Équipes d’agents) peuvent être ajoutés. Templates : édition, terrain, R&D. La flotte `entreprise` reste couplée à la science du workspace ; une **équipe projet** (`memory_scope=group`) travaille sur sa mission, pas sur les opérations de l’entreprise entière.
 
 Le **CIO** (flotte `entreprise`) est le manager métier par défaut : il ne mobilise les autres agents que si leur expertise est nécessaire — pas de déploiement systématique de toute l’équipe. Les autres groupes ont leur propre **lead**.
 
