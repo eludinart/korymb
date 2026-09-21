@@ -161,7 +161,7 @@ export default function MissionCreatePanel({
         gid === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : groupLabel,
       );
       const okMsg = newId
-        ? `Mission lancée : « ${missionTitleLabel(mission, 80) || newId} »`
+        ? `Mission lancée pour « ${groupLabel} » : « ${missionTitleLabel(mission, 80) || newId} »`
         : "Mission acceptée.";
       setMsg(okMsg);
       pushToast(okMsg);
@@ -187,7 +187,7 @@ export default function MissionCreatePanel({
         <div>
           <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
           <p className="mt-0.5 text-xs text-slate-600">
-            Une phrase suffit. Options avancées (équipe, agent, plan) si besoin.
+            « {groupLabel} » exécute la mission dans son périmètre. Une phrase suffit.
           </p>
         </div>
         {onCancel ? (
@@ -203,6 +203,26 @@ export default function MissionCreatePanel({
           </div>
         ) : null}
       </div>
+
+      <MissionFleetSelect
+        id="mission-create-fleet"
+        value={fleetId}
+        onChange={(id) => {
+          setFleetId(id);
+          const g = fleets.find((row) => row.id === id);
+          rememberInterlocutor(
+            interlocutorFromGroupId(id),
+            id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
+          );
+        }}
+        groups={fleets}
+        disabled={busy}
+      />
+      {groupsQuery.isError ? (
+        <p className="text-xs text-amber-800" role="alert">
+          Liste des flottes incomplète — défaut Entreprise.
+        </p>
+      ) : null}
 
       <div>
         <label htmlFor="mission-create-text" className="field-label">
@@ -235,25 +255,9 @@ export default function MissionCreatePanel({
 
       <details className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
         <summary className="cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
-          Options (équipe, agent, affinage, plan)
+          Options (agent, affinage, plan)
         </summary>
         <div className="mt-3 space-y-3">
-          <MissionFleetSelect
-            value={fleetId}
-            onChange={(id) => {
-              setFleetId(id);
-              const g = fleets.find((row) => row.id === id);
-              rememberInterlocutor(
-                interlocutorFromGroupId(id),
-                id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
-              );
-            }}
-            groups={fleets}
-            disabled={busy}
-          />
-          {groupsQuery.isError ? (
-            <p className="text-xs text-amber-800">Impossible de charger les équipes — flotte Entreprise par défaut.</p>
-          ) : null}
           <div>
             <label htmlFor="mission-create-agent" className="field-label">
               Agent pilote
@@ -312,7 +316,7 @@ export default function MissionCreatePanel({
       </details>
 
       <button type="submit" disabled={busy || !mission.trim()} className="btn-primary w-full sm:w-auto">
-        {busy ? "Lancement…" : "Lancer"}
+        {busy ? "Lancement…" : `Lancer la mission pour ${groupLabel}`}
       </button>
       {msg ? (
         <p className="text-sm text-slate-700" role="status">

@@ -35,6 +35,10 @@ export type MissionConfig = {
   cio_plan_hitl_enabled?: boolean;
   /** Groupe d'agents (flotte entreprise ou équipe projet). */
   agent_group_id?: string | null;
+  allowed_agents?: string[] | null;
+  orchestrator_key?: string | null;
+  /** Mission d'origine dont le livrable alimente ce relais de flotte. */
+  handoff_from_job_id?: string | null;
   /** Dossier Gestion auquel la mission est rattachée. */
   project_id?: string | null;
 };
