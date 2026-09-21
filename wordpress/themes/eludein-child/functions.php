@@ -724,6 +724,28 @@ function eludein_child_shop_loop_description($html)
 }
 add_filter('woocommerce_short_description', 'eludein_child_shop_loop_description', 20);
 add_filter('woocommerce_product_get_short_description', 'eludein_child_unglue_product_copy', 20);
+add_filter('get_the_excerpt', 'eludein_child_unglue_product_excerpt', 20);
+add_filter('the_excerpt', 'eludein_child_unglue_product_excerpt', 20);
+
+function eludein_child_unglue_product_excerpt($html)
+{
+    if (function_exists('get_post_type') && get_post_type() !== 'product') {
+        return $html;
+    }
+
+    return eludein_child_unglue_product_copy($html);
+}
+
+function eludein_child_unglue_product_post($post)
+{
+    if (!is_object($post) || (($post->post_type ?? '') !== 'product') || is_admin()) {
+        return;
+    }
+    if (!empty($post->post_excerpt) && is_string($post->post_excerpt)) {
+        $post->post_excerpt = eludein_child_unglue_product_copy($post->post_excerpt);
+    }
+}
+add_action('the_post', 'eludein_child_unglue_product_post');
 
 /**
  * La boutique n’affiche que les produits, pas les cartes de catégories.

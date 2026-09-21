@@ -71,6 +71,8 @@ def test_child_theme_beats_customizer_gold():
     assert "font-size: 1.22rem !important" in woo
     assert "eludein_child_unglue_product_copy" in functions
     assert "woocommerce_product_get_short_description" in functions
+    assert "eludein_child_unglue_product_post" in functions
+    assert "get_the_excerpt" in functions
     assert "--eludein-radius-card" in refresh
     assert "body.woocommerce-shop #right-sidebar" in layout
     assert "font-size: 22px" in refresh
