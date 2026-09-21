@@ -110,7 +110,9 @@ export default function TeamMemoryPanel({
       <div>
         <h3 className="text-lg font-bold text-slate-900">Mémoire de l’équipe</h3>
         <p className="mt-1 text-xs text-slate-500">
-          Ce que « {groupLabel} » injecte dans ses missions / chat. Trois couches : partagée · équipe · rôle.
+          Ce que « {groupLabel} » injecte dans ses missions / chat. Par défaut une équipe projet
+          reste sur sa mission : elle ne lit pas la science d’entreprise (mémoire globale, faits,
+          historique de toutes les missions).
         </p>
       </div>
 
@@ -120,7 +122,7 @@ export default function TeamMemoryPanel({
           {(
             [
               ["enterprise", "Partagée (workspace)"],
-              ["group", "Équipe seule"],
+              ["group", "Équipe / mission"],
               ["none", "Aucune"],
             ] as const
           ).map(([value, label]) => {
@@ -143,7 +145,8 @@ export default function TeamMemoryPanel({
           })}
         </div>
         <p className="mt-2 text-[11px] text-slate-500">
-          Identique au champ « Mémoire » de l’onglet Politique.
+          « Équipe / mission » isole le prompt de la science d’entreprise. « Partagée » réinjecte
+          la mémoire globale, les faits et l’historique workspace.
         </p>
       </div>
 
@@ -176,7 +179,8 @@ export default function TeamMemoryPanel({
       {scope === "group" ? (
         <form onSubmit={onSubmit} className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/50 p-4">
           <p className="text-sm font-semibold text-emerald-950">
-            Scope <strong>équipe</strong> — notes injectées en mission / chat pour ce groupe uniquement.
+            Scope <strong>équipe / mission</strong> — notes injectées pour ce groupe uniquement.
+            Les agents ne reçoivent plus la science d’entreprise globale.
           </p>
           {groupMem.isLoading ? <p className="text-xs text-slate-400">Chargement…</p> : null}
           {groupMem.isError ? (
@@ -203,7 +207,8 @@ export default function TeamMemoryPanel({
             <span>
               Hériter aussi du <strong>contexte global</strong> partagé
               <span className="mt-0.5 block text-xs text-slate-500">
-                Ajoute un extrait de la mémoire workspace sans exposer tous les volets métier.
+                Réintroduit un extrait de la science d’entreprise dans les missions de cette équipe.
+                À n’activer que si la mission a vraiment besoin du cadre workspace.
               </span>
             </span>
           </label>

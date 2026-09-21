@@ -77,6 +77,38 @@ def _behavior_int(key: str, fallback: int) -> int:
         return fallback
 
 
+def _scoped_brand_context(agent_group_id: str | None) -> str:
+    """Contexte métier workspace, omis pour une équipe projet isolée."""
+    try:
+        from services.agent_groups import brand_context_for_group
+
+        return brand_context_for_group(agent_group_id)
+    except Exception:
+        logger.exception("brand_context_for_group")
+        return str(FLEUR_CONTEXT)
+
+
+def _group_scope_block(agent_group_id: str | None) -> str:
+    if not (agent_group_id or "").strip():
+        return ""
+    try:
+        from services.agent_groups import format_group_scope_prompt
+
+        return format_group_scope_prompt(agent_group_id)
+    except Exception:
+        logger.exception("format_group_scope_prompt")
+        return ""
+
+
+def _uses_enterprise_science(agent_group_id: str | None) -> bool:
+    try:
+        from services.agent_groups import group_uses_enterprise_science
+
+        return bool(group_uses_enterprise_science(agent_group_id))
+    except Exception:
+        return True
+
+
 def _behavior_float(key: str, fallback: float) -> float:
     v = _behavior_value(key)
     try:
@@ -1494,17 +1526,26 @@ def _cio_prompt_memory(
 
                 if group_memory_scope(gid) == "group":
                     gblk = format_group_memory_prompt(gid, max_chars=2500)
-                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + (drive_blk or "")
+                    return (
+                        CHAT_MODE_RESPONSE_RULES
+                        + (gblk or "")
+                        + (drive_blk or "")
+                        + _group_scope_block(gid)
+                    )
                 if group_memory_scope(gid) == "none":
-                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "") + _group_scope_block(gid)
             except Exception:
                 pass
-        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
+        return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "") + _group_scope_block(gid)
+    extra = ""
+    if _uses_enterprise_science(agent_group_id):
+        extra = active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
     return (
         _korymb_memory_prompt_for(
             agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
         )
-        + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+        + extra
+        + _group_scope_block(agent_group_id)
     )
 
 
@@ -1530,7 +1571,7 @@ def _cio_attempt_direct_answer(
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     system = (
         agent_cfg["system"]
-        + FLEUR_CONTEXT
+        + _scoped_brand_context(agent_group_id)
         + _cio_prompt_memory(
             "coordinateur",
             exclude_job_id=job_id,
@@ -1613,22 +1654,7 @@ def orchestrate_coordinateur_mission(
         user_text=root_mission_label or mission_txt,
         agent_group_id=agent_group_id,
     )
-    group_ctx = ""
-    if agent_group_id:
-        try:
-            from services.agent_groups import get_group
-
-            g = get_group(agent_group_id)
-            if g:
-                group_ctx = (
-                    f"\n\n### Groupe d'agents actif : {g.get('label')} (`{g.get('id')}`)\n"
-                    f"Tu pilotes uniquement cette équipe. Membres déléguables : "
-                    f"{', '.join(g.get('member_keys') or []) or 'aucun'}.\n"
-                    f"Hors périmètre du groupe : ne mobilise pas la flotte Entreprise élargie.\n"
-                )
-        except Exception:
-            group_ctx = ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain + group_ctx
+    system_prompt = agent_cfg["system"] + _scoped_brand_context(agent_group_id) + memory_brain
     allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
     deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -2162,17 +2188,18 @@ def orchestrate_coordinateur_mission(
                 agent_key,
                 {"task_preview": tache.replace("\n", " ")[:320]},
             )
+        sub_mem = ""
+        if not chat_mode:
+            sub_mem = _korymb_memory_prompt_for(
+                agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
+            )
+            if _uses_enterprise_science(agent_group_id):
+                sub_mem += operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
         agent_sys = (
             agents_def()[agent_key]["system"]
-            + FLEUR_CONTEXT
-            + (
-                ""
-                if chat_mode
-                else _korymb_memory_prompt_for(
-                    agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
-                )
-                + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
-            )
+            + _scoped_brand_context(agent_group_id)
+            + _group_scope_block(agent_group_id)
+            + sub_mem
         )
 
         web_evidence_calls = 0
@@ -2811,7 +2838,13 @@ def _cio_refinement_round_mission(
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
     _raise_if_job_cancelled(job_id)
-    crit_sys = agents_def()["coordinateur"]["system"] + FLEUR_CONTEXT
+    cfg = (active_jobs.get(job_id) or {}).get("mission_config") or {}
+    refine_gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
+    crit_sys = (
+        agents_def()["coordinateur"]["system"]
+        + _scoped_brand_context(refine_gid)
+        + _group_scope_block(refine_gid)
+    )
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
@@ -2987,13 +3020,20 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
+    run_gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
     mem = _korymb_memory_prompt_for(
         agent_key,
         exclude_job_id=job_id,
-        agent_group_id=(cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None,
+        agent_group_id=run_gid,
     )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
+    system_prompt = (
+        agent_cfg["system"]
+        + _scoped_brand_context(run_gid)
+        + mem
+        + _group_scope_block(run_gid)
+        + sub_coord
+    )
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
     mission_txt = f"{mission_plain}{context_str}"
 
@@ -3088,7 +3128,10 @@ def _schedule_mission_execution(
                         job_id, "delegation", "architect",
                         {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
                     )
-                    entity_ctx = build_entity_context_block(mission_plain)
+                    triad_gid = (cfg.get("agent_group_id") or "").strip() or None
+                    entity_ctx = build_entity_context_block(
+                        mission_plain, agent_group_id=triad_gid
+                    )
                     result, t_in_total, t_out_total = orchestrate_triad(
                         mission_txt,
                         mission_plain,
@@ -3096,7 +3139,7 @@ def _schedule_mission_execution(
                         job_id=job_id,
                         tool_tags=agent_cfg.get("tools") or None,
                         on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
-                        fleur_context=FLEUR_CONTEXT,
+                        fleur_context=_scoped_brand_context(triad_gid),
                         memory_context=entity_ctx,
                     )
                     _raise_if_job_cancelled(job_id)

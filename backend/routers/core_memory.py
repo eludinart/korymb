@@ -131,10 +131,13 @@ def memory_compact(force: bool = Query(default=False)):
 def memory_preview(
     agent_key: str = Query(default="coordinateur"),
     agents: str | None = Query(default=None, description="Liste CSV d'agents (ex. coordinateur,commercial)"),
+    agent_group_id: str | None = Query(default=None, description="Groupe d'agents (isole la science d'entreprise si scope=group)"),
 ):
     """Preview mémoire injectée — un agent ou plusieurs (tiers sémantique + épisodique)."""
-    from services.agents import FLEUR_CONTEXT, agents_def
+    from services.agent_groups import brand_context_for_group, format_group_scope_prompt, group_uses_enterprise_science
+    from services.agents import agents_def
     from services.memory import active_memory_prompt
+    from services.mission import _korymb_memory_prompt_for
 
     keys = []
     if agents and str(agents).strip():
@@ -142,14 +145,17 @@ def memory_preview(
     elif agent_key:
         keys = [agent_key.strip()]
 
+    gid = (agent_group_id or "").strip() or None
     previews: dict[str, str] = {}
     for k in keys:
         if k not in agents_def():
             continue
         try:
-            mem = active_memory_prompt(agent_key=k)
             base = agents_def()[k].get("system") or ""
-            previews[k] = base + FLEUR_CONTEXT + mem
+            brand = brand_context_for_group(gid)
+            mem = _korymb_memory_prompt_for(k, agent_group_id=gid)
+            extra = active_memory_prompt(agent_key=k) if group_uses_enterprise_science(gid) else ""
+            previews[k] = base + brand + mem + extra + format_group_scope_prompt(gid)
         except Exception as exc:
             previews[k] = f"(erreur preview: {exc})"
     primary = keys[0] if keys else ""

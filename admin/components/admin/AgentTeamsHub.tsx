@@ -35,6 +35,7 @@ type GroupPolicy = {
   hitl_strict?: boolean;
   memory_scope?: string;
   forbid_external_send?: boolean;
+  out_of_scope?: string[];
 };
 
 type GroupRow = {
@@ -110,6 +111,7 @@ export default function AgentTeamsHub() {
   const [editHitl, setEditHitl] = useState(true);
   const [editMemoryScope, setEditMemoryScope] = useState("group");
   const [editForbidSend, setEditForbidSend] = useState(true);
+  const [editOutOfScope, setEditOutOfScope] = useState("");
 
   const groups = useQuery({
     queryKey: ["agent-groups", "admin"],
@@ -172,6 +174,7 @@ export default function AgentTeamsHub() {
     setEditHitl(p.hitl_strict !== false);
     setEditMemoryScope(p.memory_scope || "group");
     setEditForbidSend(p.forbid_external_send !== false);
+    setEditOutOfScope(Array.isArray(p.out_of_scope) ? p.out_of_scope.join("\n") : "");
     setOkMsg("");
     setError("");
   }, [selected?.id, selected?.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -257,6 +260,10 @@ export default function AgentTeamsHub() {
         hitl_strict: editHitl,
         memory_scope: editMemoryScope,
         forbid_external_send: editForbidSend,
+        out_of_scope: editOutOfScope
+          .split(/[\n,]/)
+          .map((s) => s.trim())
+          .filter(Boolean),
       },
     });
   };
@@ -272,6 +279,10 @@ export default function AgentTeamsHub() {
         hitl_strict: editHitl,
         memory_scope: scope,
         forbid_external_send: editForbidSend,
+        out_of_scope: editOutOfScope
+          .split(/[\n,]/)
+          .map((s) => s.trim())
+          .filter(Boolean),
       },
     });
   };
@@ -727,7 +738,7 @@ export default function AgentTeamsHub() {
               <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                 <h3 className="text-lg font-bold text-slate-900">Politique</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  Garde-fous de l’équipe (outils autorisés, HITL, mémoire, envois externes).
+                  Garde-fous de l’équipe (outils autorisés, HITL, mémoire, hors périmètre).
                 </p>
                 <form onSubmit={savePolicy} className="mt-4 space-y-4">
                   <div className="grid gap-3 sm:grid-cols-3">
@@ -749,7 +760,7 @@ export default function AgentTeamsHub() {
                         onChange={(e) => setEditMemoryScope(e.target.value)}
                         className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
                       >
-                        <option value="group">Équipe seule</option>
+                        <option value="group">Équipe / mission</option>
                         <option value="enterprise">Partagée (workspace)</option>
                         <option value="none">Aucune</option>
                       </select>
@@ -776,6 +787,24 @@ export default function AgentTeamsHub() {
                       </label>
                     </div>
                   </div>
+                  {selected.id !== ENTERPRISE_GROUP_ID ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-slate-700">
+                      Hors périmètre (un item par ligne)
+                    </label>
+                    <textarea
+                      value={editOutOfScope}
+                      onChange={(e) => setEditOutOfScope(e.target.value)}
+                      rows={4}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm leading-relaxed"
+                      placeholder="prospection commerciale&#10;publication réseaux sociaux&#10;facturation"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      Injecté aux agents au runtime : ils restent sur la mission de l’équipe et
+                      n’élargissent pas aux opérations de l’entreprise entière.
+                    </p>
+                  </div>
+                  ) : null}
                   <div>
                     <p className="mb-2 text-xs font-semibold text-slate-700">Tags d’outils autorisés</p>
                     <div className="flex flex-wrap gap-2">
