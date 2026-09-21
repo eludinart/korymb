@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionTitleLabel } from "../../lib/missionLabel";
-import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+import { ENTERPRISE_GROUP_ID, teamBadgeClass, teamBadgeLabel } from "../../lib/agentGroupUi";
 import { QK } from "../../lib/queryClient";
 
 type Props = {
@@ -17,6 +17,14 @@ type Props = {
   initialAgentGroupId?: string | null;
   /** Libellé déjà résolu (évite un second fetch). */
   agentGroupLabel?: string;
+};
+
+type GroupRow = {
+  id: string;
+  label: string;
+  status?: string;
+  lead_agent_key?: string;
+  lead_label?: string;
 };
 
 /** Formulaire de lancement mission — point d'entrée unique (hub Missions). */
@@ -30,6 +38,9 @@ export default function MissionCreatePanel({
   const qc = useQueryClient();
   const [mission, setMission] = useState("");
   const [agent, setAgent] = useState("coordinateur");
+  const [selectedGroupId, setSelectedGroupId] = useState(
+    () => (initialAgentGroupId || "").trim() || ENTERPRISE_GROUP_ID,
+  );
   const [refinementEnabled, setRefinementEnabled] = useState(false);
   const [refinementRounds, setRefinementRounds] = useState(DEFAULT_REFINEMENT_ROUNDS);
   const [skipPlanHitl, setSkipPlanHitl] = useState(false);
@@ -39,10 +50,47 @@ export default function MissionCreatePanel({
     null,
   );
 
-  const agentGroupId = (initialAgentGroupId || "").trim() || null;
+  const groupsQuery = useQuery({
+    queryKey: ["agent-groups"],
+    queryFn: async () => {
+      const { data, res } = await requestJson("/agent-groups", { retries: 1, expectOk: false });
+      if (!res.ok) throw new Error(String(data?.detail || `HTTP ${res.status}`));
+      const list = (data as { groups?: unknown })?.groups;
+      return Array.isArray(list) ? (list as GroupRow[]) : [];
+    },
+    staleTime: 60_000,
+  });
+
+  const groupOptions = useMemo(() => {
+    const rows = (groupsQuery.data || []).filter((g) => g.id && String(g.status || "active") !== "archived");
+    if (!rows.some((g) => g.id === ENTERPRISE_GROUP_ID)) {
+      return [{ id: ENTERPRISE_GROUP_ID, label: "Entreprise", lead_agent_key: "coordinateur", lead_label: "CIO" }, ...rows];
+    }
+    return rows;
+  }, [groupsQuery.data]);
+
+  const groupsById = useMemo(() => {
+    const map: Record<string, { label?: string }> = { [ENTERPRISE_GROUP_ID]: { label: "Entreprise" } };
+    for (const g of groupOptions) map[g.id] = { label: g.label };
+    return map;
+  }, [groupOptions]);
+
+  const agentGroupId = (selectedGroupId || "").trim() || ENTERPRISE_GROUP_ID;
+  const selectedGroup = groupOptions.find((g) => g.id === agentGroupId);
   const groupLabel =
+    (selectedGroup?.label || "").trim() ||
     (agentGroupLabel || "").trim() ||
-    (agentGroupId === "entreprise" ? "Entreprise" : agentGroupId ? "Équipe projet" : "");
+    teamBadgeLabel(agentGroupId, groupsById);
+
+  useEffect(() => {
+    const fromUrl = (initialAgentGroupId || "").trim();
+    if (fromUrl) setSelectedGroupId(fromUrl);
+  }, [initialAgentGroupId]);
+
+  useEffect(() => {
+    const lead = selectedGroup?.lead_agent_key?.trim();
+    if (lead) setAgent(lead);
+  }, [selectedGroup?.lead_agent_key]);
 
   const agents = useQuery({
     queryKey: QK.agents,
@@ -105,8 +153,8 @@ export default function MissionCreatePanel({
         mcfg.recursive_max_rounds = rounds;
       }
       if (skipPlanHitl) mcfg.cio_plan_hitl_enabled = false;
-      if (agentGroupId) mcfg.agent_group_id = agentGroupId;
-      if (Object.keys(mcfg).length) payload.mission_config = mcfg;
+      mcfg.agent_group_id = agentGroupId;
+      payload.mission_config = mcfg;
 
       const { data } = await requestJson("/run", {
         method: "POST",
@@ -115,7 +163,11 @@ export default function MissionCreatePanel({
         timeoutMs: 20000,
       });
       const newId = String(data.job_id || "");
-      setMsg(newId ? `Mission lancée : « ${missionTitleLabel(mission, 80) || newId} »` : "Mission acceptée.");
+      setMsg(
+        newId
+          ? `Mission lancée pour « ${groupLabel} » : « ${missionTitleLabel(mission, 80) || newId} »`
+          : "Mission acceptée.",
+      );
       setMission("");
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
       void qc.invalidateQueries({ queryKey: QK.tokens });
@@ -136,24 +188,40 @@ export default function MissionCreatePanel({
         <div>
           <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
           <p className="mt-0.5 text-xs text-slate-600">
-            {agentGroupId
-              ? `Décrivez votre objectif — l’équipe « ${groupLabel} » l’exécute (délégation limitée à ses membres).`
-              : "Décrivez votre objectif — le CIO orchestre l'équipe."}
+            Choisissez la flotte, puis décrivez l’objectif. « {groupLabel} » exécute la mission dans son périmètre.
           </p>
         </div>
-        {agentGroupId || onCancel ? (
-          <div className="flex flex-wrap items-center gap-2">
-            {agentGroupId ? (
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(agentGroupId)}`}>
-                {teamIdentityLabel(agentGroupId, groupLabel)}
-              </span>
-            ) : null}
-            {onCancel ? (
-              <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
-                Fermer
-              </button>
-            ) : null}
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(agentGroupId)}`}>
+            Flotte · {groupLabel}
+          </span>
+          {onCancel ? (
+            <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
+              Fermer
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div>
+        <label htmlFor="mission-create-fleet" className="field-label">
+          Flotte d’agents
+        </label>
+        <select
+          id="mission-create-fleet"
+          value={agentGroupId}
+          onChange={(e) => setSelectedGroupId(e.target.value)}
+          className={`field-input ${teamBadgeClass(agentGroupId)}`}
+        >
+          {groupOptions.map((g) => (
+            <option key={g.id} value={g.id}>
+              {g.label}
+              {g.lead_label ? ` · ${g.lead_label}` : ""}
+            </option>
+          ))}
+        </select>
+        {groupsQuery.isError ? (
+          <p className="mt-1 text-xs text-amber-800">Liste des flottes incomplète — défaut Entreprise.</p>
         ) : null}
       </div>
 

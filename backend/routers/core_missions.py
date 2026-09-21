@@ -47,6 +47,7 @@ class MissionRequest(BaseModel):
     agent: str = "coordinateur"
     context: dict | None = None
     mission_config: MissionRunConfig | None = None
+    parent_job_id: str | None = None
     user_validate_job_id: str | None = None
     remove_mission_session_id: str | None = Field(
         default=None,
@@ -145,6 +146,12 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
             return MissionResponse(status="accepted", job_id=claimed, agent=agent_key)
 
     mcfg = request.mission_config.model_dump() if request.mission_config else _mission_config_from_payload(None)
+    parent_id = (request.parent_job_id or "").strip()[:64] or None
+    if parent_id:
+        parent_row = db_get_job(parent_id)
+        if not parent_row:
+            raise HTTPException(status_code=404, detail="Mission d'origine introuvable.")
+        mcfg = {**mcfg, "handoff_from_job_id": parent_id}
     _schedule_mission_execution(
         background_tasks,
         job_id,
@@ -153,6 +160,7 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
         request.context,
         "mission",
         mission_config=mcfg,
+        parent_job_id=parent_id,
     )
     return MissionResponse(status="accepted", job_id=job_id, agent=agent_key)
 

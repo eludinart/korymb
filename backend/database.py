@@ -548,6 +548,9 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = "cio"
     merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
     merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
+    for extra_key in ("agent_group_id", "allowed_agents", "orchestrator_key", "handoff_from_job_id"):
+        if extra_key in mc and mc.get(extra_key) not in (None, "", []):
+            merged[extra_key] = mc[extra_key]
     out["mission_config"] = merged
     out.pop("plan_json", None)
     out.pop("events_json", None)
@@ -4103,7 +4106,7 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
-            "hitl_gate_json, "
+            "hitl_gate_json, mission_config_json, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
@@ -4118,6 +4121,23 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             gate = {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        try:
+            mc = json.loads(d.pop("mission_config_json", None) or "{}")
+        except (json.JSONDecodeError, TypeError):
+            mc = {}
+        if not isinstance(mc, dict):
+            mc = {}
+        slim: dict = {}
+        gid = str(mc.get("agent_group_id") or "").strip()
+        if gid:
+            slim["agent_group_id"] = gid
+        orch = str(mc.get("orchestrator_key") or "").strip()
+        if orch:
+            slim["orchestrator_key"] = orch
+        hid = str(mc.get("handoff_from_job_id") or "").strip()
+        if hid:
+            slim["handoff_from_job_id"] = hid
+        d["mission_config"] = slim
         out.append(d)
     return out
 

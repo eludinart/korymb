@@ -2749,6 +2749,8 @@ class MissionRunConfig(BaseModel):
     agent_group_id: str | None = None
     allowed_agents: list[str] | None = None
     orchestrator_key: str | None = None
+    # Relais : job d'origine dont le livrable alimente cette nouvelle mission
+    handoff_from_job_id: str | None = None
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -2919,6 +2921,70 @@ def _cio_refinement_round_mission(
     return (improved or current_result).strip(), t_in, t_out
 
 
+def _apply_group_to_mission_config(cfg: dict) -> dict:
+    """Renseigne flotte, lead et délégués — défaut flotte métier Entreprise."""
+    out = dict(cfg or {})
+    try:
+        from services.agent_groups import (
+            ENTERPRISE_GROUP_ID,
+            group_allowed_delegate_keys,
+            group_orchestrator_key,
+        )
+    except Exception:
+        logger.exception("apply_group_to_mission_config")
+        return out
+    gid = str(out.get("agent_group_id") or "").strip() or ENTERPRISE_GROUP_ID
+    out["agent_group_id"] = gid
+    if not str(out.get("orchestrator_key") or "").strip():
+        out["orchestrator_key"] = group_orchestrator_key(gid)
+    if not out.get("allowed_agents"):
+        allowed = group_allowed_delegate_keys(gid)
+        if allowed is not None:
+            out["allowed_agents"] = list(allowed)
+    return out
+
+
+def _fleet_handoff_context_from_parent(parent_job_id: str, *, new_group_id: str | None = None) -> str:
+    """Nouvelle mission pour une autre flotte : livrable d'origine en entrée, périmètres séparés."""
+    row = db_get_job(parent_job_id)
+    if not row:
+        return ""
+    try:
+        from services.agent_groups import ENTERPRISE_GROUP_ID, get_group
+    except Exception:
+        logger.exception("group resolve for handoff")
+        ENTERPRISE_GROUP_ID = "entreprise"
+
+        def get_group(_gid: str | None) -> dict | None:
+            return None
+
+    mc = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
+    parent_gid = str(mc.get("agent_group_id") or "").strip() or ENTERPRISE_GROUP_ID
+    parent_g = get_group(parent_gid) if callable(get_group) else None
+    parent_label = str((parent_g or {}).get("label") or "").strip() or (
+        "Entreprise" if parent_gid == ENTERPRISE_GROUP_ID else parent_gid
+    )
+    new_gid = (new_group_id or "").strip()
+    new_g = get_group(new_gid) if new_gid and callable(get_group) else None
+    new_label = str((new_g or {}).get("label") or "").strip() or (new_gid or "cette équipe")
+
+    parts = [
+        f"--- Relais de flotte : nouvelle mission (liée à #{parent_job_id}) ---",
+        f"La mission d'origine a été menée par la flotte « {parent_label} ».",
+        f"Tu es la flotte « {new_label} ». C'est une **nouvelle mission**, pas une continuation dans le même périmètre.",
+        "Utilise le livrable ci-dessous comme **entrée**. Reste dans TON périmètre d'équipe.",
+        "N'élargis pas aux opérations de l'autre flotte ni à l'entreprise entière, sauf consigne explicite.",
+    ]
+    mission = (row.get("mission") or "").strip()
+    if mission:
+        parts.append(f"Consigne d'origine :\n{_clip_mem_text(mission, 4000)}")
+    res = (row.get("result") or "").strip()
+    if res:
+        parts.append(f"Livrable / synthèse à reprendre :\n{_clip_mem_text(res, 16000)}")
+    parts.append("Livrable attendu : le travail demandé dans TA consigne, en t'appuyant sur ce relais.")
+    return "\n\n".join(parts) + "\n\n"
+
+
 def _compose_mission_brief_from_session(session: dict, brief_override: str | None) -> str:
     if brief_override and str(brief_override).strip():
         return str(brief_override).strip()
@@ -2985,7 +3051,14 @@ def _schedule_mission_execution(
     requested_agent_key = agent_key
     agent_cfg = agents_def().get(agent_key, agents_def()["coordinateur"])
     now_iso = datetime.utcnow().isoformat()
-    cfg = _mission_config_from_payload(mission_config)
+    cfg = _apply_group_to_mission_config(_mission_config_from_payload(mission_config))
+    parent_id = (parent_job_id or "").strip() or None
+    if parent_id and source_tag == "mission":
+        cfg = {**cfg, "handoff_from_job_id": parent_id}
+    orch = str(cfg.get("orchestrator_key") or "").strip()
+    if agent_key == "coordinateur" and orch and orch in agents_def():
+        agent_key = orch
+        agent_cfg = agents_def()[orch]
     if cfg.get("recursive_refinement_enabled"):
         try:
             rr = int(cfg.get("recursive_max_rounds") or 0)
@@ -2993,7 +3066,7 @@ def _schedule_mission_execution(
             rr = 0
         if rr < 1:
             cfg = {**cfg, "recursive_max_rounds": 1}
-        if agent_key != "coordinateur":
+        if agent_key != "coordinateur" and str(cfg.get("agent_group_id") or "") in ("", "entreprise"):
             agent_key = "coordinateur"
             agent_cfg = agents_def()["coordinateur"]
     active_jobs[job_id] = {
@@ -3035,7 +3108,16 @@ def _schedule_mission_execution(
         + sub_coord
     )
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
+    handoff_blk = ""
+    if parent_id and source_tag == "mission":
+        try:
+            handoff_blk = _fleet_handoff_context_from_parent(parent_id, new_group_id=run_gid)
+        except Exception:
+            logger.exception("_fleet_handoff_context_from_parent")
+            handoff_blk = ""
     mission_txt = f"{mission_plain}{context_str}"
+    if handoff_blk:
+        mission_txt = f"{mission_txt}\n\n{handoff_blk}"
 
     def execute():
         media_token = None

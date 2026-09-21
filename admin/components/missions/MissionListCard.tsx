@@ -14,7 +14,7 @@ import {
   type InboxHint,
   type MissionPrimaryAction,
 } from "../../lib/missionDailyUx";
-import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+import { teamBadgeClass } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 type Props = {
@@ -27,6 +27,9 @@ type Props = {
   teamLabel?: string;
   /** Identifiant du groupe — or pour le patron, ciel pour les équipes projet. */
   teamGroupId?: string | null;
+  /** Titre de la mission d'origine si celle-ci est un relais. */
+  parentTitle?: string | null;
+  parentJobId?: string | null;
   onSelect: (jobId: string) => void;
   onFinish: (jobId: string, mission?: string | null) => void;
   onDelete: (jobId: string, mission?: string | null) => void;
@@ -136,6 +139,8 @@ export default function MissionListCard({
   actionBusy = false,
   teamLabel,
   teamGroupId,
+  parentTitle,
+  parentJobId,
   onSelect,
   onFinish,
   onDelete,
@@ -190,7 +195,7 @@ export default function MissionListCard({
               <span
                 className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ${teamBadgeClass(teamGroupId)}`}
               >
-                {teamIdentityLabel(teamGroupId, teamLabel)}
+                Flotte · {teamLabel}
               </span>
             ) : null}
           </div>
@@ -201,6 +206,21 @@ export default function MissionListCard({
             {j.agent || "coordinateur"}
             {action.type === "approve_ticket" ? " · action prête" : null}
           </p>
+          {parentJobId ? (
+            <p className="text-[11px] text-slate-500">
+              Relais de{" "}
+              <button
+                type="button"
+                className="font-semibold text-violet-800 underline-offset-2 hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(parentJobId);
+                }}
+              >
+                {parentTitle || "la mission d’origine"}
+              </button>
+            </p>
+          ) : null}
         </div>
 
         <div className="flex w-full shrink-0 items-stretch gap-2 sm:w-auto sm:items-center">
