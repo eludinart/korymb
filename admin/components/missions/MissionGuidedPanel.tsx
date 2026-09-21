@@ -72,11 +72,6 @@ function MissionGuidedPanelInner() {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    const gid = String(sessionDetail.data?.agent_group_id || "").trim();
-    if (gid) setFleetId(gid);
-  }, [sessionDetail.data?.agent_group_id]);
-
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
@@ -111,6 +106,11 @@ function MissionGuidedPanelInner() {
       ).data,
     refetchInterval: () => (sessionId ? visibleInterval(3000) : false),
   });
+
+  useEffect(() => {
+    const gid = String(sessionDetail.data?.agent_group_id || "").trim();
+    if (gid) setFleetId(gid);
+  }, [sessionDetail.data?.agent_group_id]);
 
   const effectiveJobId = String(sessionDetail.data?.linked_job_id || trackingJobId || "");
 
