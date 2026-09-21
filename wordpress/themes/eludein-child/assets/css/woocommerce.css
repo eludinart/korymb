@@ -493,10 +493,10 @@ body.single-product div.product form.cart .quantity .qty {
 }
 
 body.single-product [class*="express-checkout"],
-body.single-product [class*="wcpay-express"],
-body.single-product .wc-proceed-to-cart {
-  margin-top: 0.85rem;
-  padding-top: 0.85rem;
+body.single-product [class*="wcpay-express"] {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  border: 0;
 }
 
 body.single-product .product_meta {
