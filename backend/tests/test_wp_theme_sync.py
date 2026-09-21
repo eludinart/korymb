@@ -80,10 +80,17 @@ def test_child_theme_beats_customizer_gold():
     assert "charter.css" in functions
     assert "display: table !important" in charter
     assert "font-size: 22px" in charter
+    assert "#right-sidebar .kt-testimonial-title" in layout
+    assert "font-size: 18px !important" in layout
+    assert "font-size: 26px !important" in layout
+    assert "eludein_child_readable_widget_colors" in functions
+    assert "#right-sidebar h1" in functions
     assert "#fleur-container img" in charter
     assert "height: 280px !important" in charter
     assert ".shop_table" in charter
     assert "font-size: 16px !important" in nav
+    assert "eludein_child_readable_inline_colors" in functions
+    assert "eludein_child_readable_widget_colors" in functions
     assert "eludein_child_bump_inline_font_size" in functions
     tarot_css = (REPO / "wordpress/themes/eludein-child/assets/css/tarot-detail.css").read_text(
         encoding="utf-8"

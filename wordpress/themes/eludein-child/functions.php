@@ -173,13 +173,25 @@ add_filter('wp_nav_menu_objects', 'eludein_child_mark_utility_nav_items', 10, 2)
  */
 function eludein_child_readable_inline_colors($html)
 {
+    return eludein_child_rewrite_inline_styles($html, true);
+}
+
+function eludein_child_readable_widget_colors($html)
+{
+    return eludein_child_rewrite_inline_styles($html, false);
+}
+
+function eludein_child_rewrite_inline_styles($html, bool $bump_fonts)
+{
     if (!is_string($html) || $html === '') {
         return $html;
     }
 
     $rewritten = preg_replace_callback(
         '/style=(["\'])([^"\']*)\1/i',
-        'eludein_child_rewrite_style_attribute',
+        static function ($match) use ($bump_fonts) {
+            return eludein_child_rewrite_style_attribute($match, $bump_fonts);
+        },
         $html
     );
 
@@ -189,10 +201,11 @@ function eludein_child_readable_inline_colors($html)
 /**
  * Assombrit les couleurs de texte pâles dans un attribut style.
  * Ne touche pas au texte blanc posé sur un fond or / forêt (CTA).
+ * Le bump de font-size ne s’applique pas aux widgets (salon).
  *
  * @param array $match
  */
-function eludein_child_rewrite_style_attribute($match)
+function eludein_child_rewrite_style_attribute($match, bool $bump_fonts = true): string
 {
     $quote = $match[1];
     $style = $match[2];
@@ -215,17 +228,19 @@ function eludein_child_rewrite_style_attribute($match)
         $style
     ) ?? $style;
 
-    $style = preg_replace_callback(
-        '/font-size:\s*(\d+(?:\.\d+)?)px(\s*!important)?/i',
-        'eludein_child_bump_inline_font_size',
-        $style
-    ) ?? $style;
+    if ($bump_fonts) {
+        $style = preg_replace_callback(
+            '/font-size:\s*(\d+(?:\.\d+)?)px(\s*!important)?/i',
+            'eludein_child_bump_inline_font_size',
+            $style
+        ) ?? $style;
+    }
 
     return 'style=' . $quote . $style . $quote;
 }
 add_filter('the_content', 'eludein_child_readable_inline_colors', 20);
-add_filter('widget_text', 'eludein_child_readable_inline_colors', 20);
-add_filter('widget_block_content', 'eludein_child_readable_inline_colors', 20);
+add_filter('widget_text', 'eludein_child_readable_widget_colors', 20);
+add_filter('widget_block_content', 'eludein_child_readable_widget_colors', 20);
 
 /**
  * Kadence pose des font-size:16px trop petites à 100 % sur grand écran.
@@ -374,6 +389,16 @@ function eludein_child_late_contrast_css(): void
         . '#result-fleur img,#result-fleur-duo img{max-width:340px!important;height:auto!important;}'
         . '.woocommerce ul.products li.product img,.woocommerce-page ul.products li.product img'
         . '{height:280px!important;object-fit:cover!important;}'
+        . '#right-sidebar,#left-sidebar{font-size:16px!important;line-height:1.5!important;}'
+        . '#right-sidebar .widget-title,#left-sidebar .widget-title{font-size:18px!important;}'
+        . '#right-sidebar h1,#left-sidebar h1,#right-sidebar .kt-adv-heading,#left-sidebar .kt-adv-heading,'
+        . '#right-sidebar .wp-block-kadence-advancedheading,#left-sidebar .wp-block-kadence-advancedheading'
+        . '{font-size:26px!important;line-height:1.2!important;}'
+        . '#right-sidebar h2,#left-sidebar h2,#right-sidebar h3,#left-sidebar h3{font-size:20px!important;line-height:1.25!important;}'
+        . '#right-sidebar .kt-testimonial-title,#left-sidebar .kt-testimonial-title{font-size:18px!important;line-height:1.3!important;}'
+        . '#right-sidebar p,#left-sidebar p,#right-sidebar .kt-testimonial-content,#right-sidebar .kt-testimonial-content p'
+        . '{font-size:15px!important;line-height:1.5!important;}'
+        . '#right-sidebar .recent-posts-title{font-size:16px!important;}'
         . '#site-header #site-navigation-wrap .dropdown-menu>li>a,'
         . '#site-header #site-navigation-wrap .dropdown-menu>li>a .text-wrap'
         . '{font-size:16px!important;}'

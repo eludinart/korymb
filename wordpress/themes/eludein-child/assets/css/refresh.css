@@ -53,17 +53,17 @@ body.oceanwp-theme .wp-block-kadence-advancedheading {
   color: var(--eludein-forest);
 }
 
-body.oceanwp-theme h1 {
+body.oceanwp-theme .entry-content h1 {
   font-size: clamp(2.35rem, 4.2vw, 3.4rem);
   line-height: 1.15;
 }
 
-body.oceanwp-theme h2 {
+body.oceanwp-theme .entry-content h2 {
   font-size: clamp(2.15rem, 3.4vw, 2.85rem);
   line-height: 1.2;
 }
 
-body.oceanwp-theme h3 {
+body.oceanwp-theme .entry-content h3 {
   font-size: clamp(1.55rem, 2.3vw, 2rem);
   line-height: 1.28;
 }
@@ -397,7 +397,7 @@ body.ocean-preloader--active {
 }
 
 .entry-content > p:first-of-type,
-.has-text-align-center.wp-block-paragraph:first-of-type {
+.entry-content .has-text-align-center.wp-block-paragraph:first-of-type {
   font-size: 1.48rem;
   line-height: 1.68;
   color: var(--eludein-ink) !important;

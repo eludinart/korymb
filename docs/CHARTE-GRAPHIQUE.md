@@ -34,8 +34,11 @@ Pas de cyan OceanWP (`#13aff0`). Pas d’or pâle `#e9c764` sur titres boutique.
 | Corps (p, li) | `1.32rem` / interligne 1.75 |
 | Nav principale | 16px (px, pas rem) |
 | CTA header | 14.5px |
+| Salon widgets | compacte en px : titres 26px, cartes 18px, corps 15–16px |
 
 Colonne de lecture (pages / articles, hors accueil et Woo) : **1040px**. Dossier tarot : **1120px**.
+
+Le salon de widgets en bas de page **n’utilise pas** l’échelle lecture 1.32rem : titres Kadence / témoignages restent en px, sinon les cartes explosent.
 
 Panier et commande : ne pas forcer `1.32rem` sur les paragraphes (champs et totaux restent lisibles).
 
