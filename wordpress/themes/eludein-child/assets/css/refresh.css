@@ -16,6 +16,9 @@
   --eludein-line: #d9cdb8;
   --eludein-muted: #3a3530;
   --eludein-radius: 14px;
+  --eludein-radius-card: 22px;
+  --eludein-gold-line: rgba(201, 161, 74, 0.48);
+  --eludein-shadow: 0 16px 40px rgba(36, 48, 40, 0.08);
   --eludein-serif: "Playfair Display", Merriweather, Georgia, serif;
   --eludein-sans: "Source Sans 3", "Open Sans", "Helvetica Neue", sans-serif;
 }
@@ -456,9 +459,10 @@ body.ocean-preloader--active {
 .blog-entry.post,
 .single-post .entry {
   background: var(--eludein-paper);
-  border: 1px solid var(--eludein-line);
-  border-radius: var(--eludein-radius);
-  padding: 1.25rem 1.4rem;
+  border: 1px solid var(--eludein-gold-line, rgba(201, 161, 74, 0.48));
+  border-radius: var(--eludein-radius-card, 22px);
+  padding: 1.35rem 1.5rem 1.45rem;
+  box-shadow: var(--eludein-shadow, 0 16px 40px rgba(36, 48, 40, 0.08));
 }
 
 .blog-entry.post .blog-entry-header .entry-title a,

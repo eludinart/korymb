@@ -35,10 +35,15 @@ Pas de cyan OceanWP (`#13aff0`). Pas d’or pâle `#e9c764` sur titres boutique.
 | Nav principale | 16px (px, pas rem) |
 | CTA header | 14.5px |
 | Salon widgets | compacte en px : titres 26px, cartes 18px, corps 15–16px |
+| Cartes boutique (titre) | `clamp(1.35rem, 2vw, 1.55rem)` — échelle h3, pas le h1 de page |
+| Cartes boutique (extrait) | 16px / 3 lignes — exception comme le salon |
+| Prix boutique / fiche | `1.22rem` / `1.35rem` Playfair sable `#8a6230`, pas 36–40px Woo |
 
 Colonne de lecture (pages / articles, hors accueil et Woo) : **1040px**. Dossier tarot : **1120px**.
 
 Le salon de widgets en bas de page **n’utilise pas** l’échelle lecture 1.32rem : titres Kadence / témoignages restent en px, sinon les cartes explosent.
+
+Cartes (accueil Kadence, blog, boutique, fiche) : **radius 22px**, filet or `rgba(201, 161, 74, 0.48)`, ombre `--eludein-shadow`. La boutique n’est pas un catalogue d’entrepôt : titre → extrait → prix → CTA.
 
 Panier et commande : ne pas forcer `1.32rem` sur les paragraphes (champs et totaux restent lisibles).
 
@@ -56,7 +61,7 @@ Les photos d’article / Gutenberg **remplissent leur cadre** (`width: 100%`, `h
 | Fleur (`#fleur-container`, `#fleur-duo-container`) | inchangé |
 | Résultat Fleur (`#result-fleur img`) | `max-width: 340px` |
 | Cartes boutique (`.woo-entry-image`, `ul.products li.product img`) | crop **280px**, `object-fit: cover` |
-| Galerie produit Woo | `height: auto`, `object-fit: contain` |
+| Galerie produit Woo | cadre papier + filet or, `height: auto`, `object-fit: contain` |
 | Images Gutenberg `is-resized` | respecter la taille auteur |
 
 Tableaux Gutenberg **qui contiennent des images** (hors Woo) : grille CSS, comme le dossier tarot.

@@ -89,6 +89,13 @@ body.woocommerce-account #right-sidebar {
   display: none !important;
 }
 
+/* Boutique / fiche : le héraut maison remplace le bandeau OceanWP. */
+body.woocommerce-shop .page-header,
+body.tax-product_cat .page-header,
+body.single-product .page-header {
+  display: none !important;
+}
+
 /* Blocs alignfull / alignwide : rester dans la colonne, pas 100vw. */
 .entry-content > .alignfull,
 .entry-content > .alignwide,
@@ -167,6 +174,12 @@ body.oceanwp-theme .page-header-title {
   font-weight: 600;
   letter-spacing: -0.02em;
   font-size: clamp(2.05rem, 3.2vw, 2.85rem) !important;
+  text-align: center;
+}
+
+.page-header .container,
+.centered-page-header .container {
+  text-align: center;
 }
 
 /* Covers « light » : fond papier, texte encre (plus de rose pâle). */
@@ -208,7 +221,11 @@ body.oceanwp-theme .page-header-title {
 .entry-content .kt-row-column-wrap,
 .entry-content .kb-row-layout-wrap {
   align-items: stretch !important;
-  gap: 1.35rem;
+  gap: 1.5rem;
+}
+
+body.home .entry-content .kt-inside-inner-col {
+  border-radius: var(--eludein-radius-card, 22px) !important;
 }
 
 .entry-content .wp-block-column,

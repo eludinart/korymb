@@ -407,7 +407,19 @@ function eludein_child_late_contrast_css(): void
         . '{font-size:13.5px!important;}'
         . '.eludein-header-cta{font-size:14.5px!important;}'
         . '.eludein-shop-intro__title{font-size:clamp(2.35rem,4.2vw,3.4rem)!important;}'
-        . '.eludein-shop-intro__lead{font-size:1.48rem!important;line-height:1.68!important;}'
+        . '.eludein-shop-intro__lead{font-size:1.32rem!important;line-height:1.7!important;}'
+        . '.eludein-shop-intro__lead:first-of-type{font-size:1.48rem!important;line-height:1.68!important;}'
+        . 'body.woocommerce-shop .page-header,body.tax-product_cat .page-header,body.single-product .page-header{display:none!important;}'
+        . 'body.woocommerce-shop ul.products li.product .price,body.woocommerce-shop ul.products li.product .price .amount'
+        . '{font-size:1.22rem!important;color:#8a6230!important;}'
+        . '.woocommerce div.product p.price,.woocommerce div.product span.price,'
+        . '.woocommerce div.product p.price .amount,.woocommerce div.product p.price .woocommerce-Price-amount'
+        . '{font-size:1.35rem!important;line-height:1.3!important;color:#8a6230!important;}'
+        . '.woocommerce div.product .product_title{font-size:clamp(2.05rem,3.4vw,2.7rem)!important;color:#243028!important;}'
+        . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.title{order:2;}'
+        . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.woo-desc{order:3;}'
+        . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.price-wrap{order:4;}'
+        . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.btn-wrap{order:5;}'
         . 'body.page-id-592 .page-header,body.page-id-592 .centered-page-header{display:none!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'
@@ -682,6 +694,19 @@ add_action('woocommerce_archive_description', 'eludein_child_shop_intro', 20);
 /**
  * OceanWP colle les paragraphes du résumé sans espace (« visioconférence.Un »).
  */
+function eludein_child_unglue_product_copy($html)
+{
+    if (!is_string($html) || $html === '' || is_admin()) {
+        return $html;
+    }
+
+    $html = preg_replace('/<br\s*\/?>/i', ' ', $html) ?? $html;
+    $html = preg_replace('/\.(\S)/u', '. $1', $html) ?? $html;
+    $html = preg_replace('/\s+/u', ' ', $html) ?? $html;
+
+    return trim($html);
+}
+
 function eludein_child_shop_loop_description($html)
 {
     if (!is_string($html) || $html === '') {
@@ -691,13 +716,14 @@ function eludein_child_shop_loop_description($html)
         return $html;
     }
 
-    $plain = wp_strip_all_tags($html);
+    $plain = wp_strip_all_tags(eludein_child_unglue_product_copy($html));
     $plain = preg_replace('/\.(\S)/u', '. $1', $plain) ?? $plain;
     $plain = preg_replace('/\s+/u', ' ', $plain) ?? $plain;
 
     return trim($plain);
 }
 add_filter('woocommerce_short_description', 'eludein_child_shop_loop_description', 20);
+add_filter('woocommerce_product_get_short_description', 'eludein_child_unglue_product_copy', 20);
 
 /**
  * La boutique n’affiche que les produits, pas les cartes de catégories.
@@ -721,10 +747,12 @@ function eludein_child_plain_product_title($title, $post_id = 0)
     if (!is_string($title) || $title === '' || is_admin()) {
         return $title;
     }
-    if (!function_exists('is_shop') || !(is_shop() || is_product_taxonomy())) {
+    $on_catalog = function_exists('is_shop') && (is_shop() || is_product_taxonomy());
+    $on_product = function_exists('is_product') && is_product();
+    if (!$on_catalog && !$on_product) {
         return $title;
     }
-    if (!in_the_loop()) {
+    if ($on_catalog && !in_the_loop()) {
         return $title;
     }
     if ($post_id && get_post_type((int) $post_id) !== 'product') {
@@ -750,6 +778,7 @@ function eludein_child_shop_declutter(): void
 
     remove_action('woocommerce_before_shop_loop', 'woocommerce_catalog_ordering', 30);
     remove_action('woocommerce_before_shop_loop', 'woocommerce_result_count', 20);
+    add_filter('woocommerce_show_page_title', '__return_false');
 }
 add_action('wp', 'eludein_child_shop_declutter');
 

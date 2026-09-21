@@ -67,6 +67,11 @@ def test_child_theme_beats_customizer_gold():
     assert "background: var(--eludein-forest, #3f4a3a) !important;" not in woo
     assert "woo-entry-inner > li.image-wrap" in woo
     assert "display: none !important" not in woo.split("li.image-wrap")[1][:80]
+    assert "order: 3" in woo
+    assert "font-size: 1.22rem !important" in woo
+    assert "eludein_child_unglue_product_copy" in functions
+    assert "woocommerce_product_get_short_description" in functions
+    assert "--eludein-radius-card" in refresh
     assert "body.woocommerce-shop #right-sidebar" in layout
     assert "font-size: 22px" in refresh
     assert "max-width: 1040px" in layout
