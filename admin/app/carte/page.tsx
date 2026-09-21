@@ -21,7 +21,6 @@ import {
   mapNodeProjectId,
   matchesMapQuery,
   saveHiddenMapIds,
-  waitingNodes,
   type MapNode,
   type OperationalMapPayload,
 } from "../../lib/operationalMap";
@@ -135,7 +134,6 @@ export default function CartePage() {
     return visibleNodes.filter((n) => n.kind !== "team" && matchesMapQuery(n, q)).length;
   }, [query, visibleNodes]);
 
-  const nextWaiting = waitingNodes(visibleNodes).find((n) => n.kind === "mission" || n.kind === "project") || null;
   const sheetOpen = Boolean(selectedId) || situationOpen;
 
   const closeSheet = () => {
@@ -297,11 +295,11 @@ export default function CartePage() {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#e8edf7]">
-      <div className="shrink-0 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur sm:px-4">
+    <div className="flex flex-col bg-[#e8edf7] lg:h-full lg:min-h-0 lg:flex-1 lg:overflow-hidden">
+      <div className="shrink-0 border-b border-slate-200 bg-white/95 px-3 py-1.5 sm:px-4 sm:py-2">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-sky-800">Orientation</p>
+            <p className="hidden text-[10px] font-bold uppercase tracking-wide text-sky-800 sm:block">Orientation</p>
             <h1 className="truncate text-base font-semibold text-slate-900">Carte du QG</h1>
           </div>
           {hiddenIds.length ? (
@@ -327,29 +325,13 @@ export default function CartePage() {
             {stats.waiting ?? counts.waiting} à valider · {stats.active ?? counts.live} en cours
           </p>
         </div>
-        {nextWaiting ? (
-          <button
-            type="button"
-            onClick={() => selectNode(nextWaiting.id)}
-            className="mt-2 flex w-full items-start gap-2 rounded-xl bg-amber-50 px-3 py-2.5 text-left ring-1 ring-amber-200 lg:hidden"
-          >
-            <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-            <span className="min-w-0">
-              <span className="block text-[10px] font-bold uppercase tracking-wide text-amber-800">À traiter</span>
-              <span className="block truncate text-sm font-semibold text-slate-900">{nextWaiting.label}</span>
-              <span className="mt-0.5 block line-clamp-2 text-xs text-amber-900/80">
-                {nextWaiting.detail || nextWaiting.next || nextWaiting.where}
-              </span>
-            </span>
-          </button>
-        ) : null}
-        <div className="mt-2 h-scroll-nav">
+        <div className="mt-1.5 h-scroll-nav">
           {filters.map((f) => (
             <button
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold sm:py-2 ${
                 filter === f.id ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -358,13 +340,13 @@ export default function CartePage() {
             </button>
           ))}
         </div>
-        <label className="relative mt-2 block">
+        <label className="relative mt-1.5 block">
           <span className="sr-only">Rechercher sur la carte</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher une mission, une équipe…"
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-base text-slate-800 outline-none ring-sky-200 placeholder:text-slate-400 focus:ring-2 lg:py-1.5 lg:text-sm"
+            placeholder="Rechercher…"
+            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none ring-sky-200 placeholder:text-slate-400 focus:ring-2 sm:py-1.5"
           />
           {searchHits > 0 ? (
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
@@ -401,7 +383,7 @@ export default function CartePage() {
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden">
         <MapBoard
           board={board}
           edges={visibleEdges}

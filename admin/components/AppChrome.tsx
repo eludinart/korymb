@@ -19,7 +19,8 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
   const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname() || "";
   const isChat = pathname === "/chat";
-  const isFlushPage = isChat || pathname === "/carte";
+  const isCarte = pathname === "/carte";
+  const isFlushPage = isChat || isCarte;
   const [statusOpen, setStatusOpen] = useState(false);
 
   useEffect(() => {
@@ -99,9 +100,11 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
       </header>
       <main
         className={
-          isFlushPage
+          isChat
             ? "app-flush-main"
-            : "w-full min-w-0 px-3 py-4 pb-safe sm:px-5 sm:py-6 lg:px-6 lg:py-8 xl:px-8"
+            : isCarte
+              ? "app-flush-main app-carte-main"
+              : "w-full min-w-0 px-3 py-4 pb-safe sm:px-5 sm:py-6 lg:px-6 lg:py-8 xl:px-8"
         }
       >
         {children}

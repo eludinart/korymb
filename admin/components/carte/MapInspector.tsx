@@ -144,7 +144,7 @@ export default function MapInspector({
 }: Props) {
   const sheet = layout === "sheet";
   const shell = sheet
-    ? "flex max-h-[min(86dvh,42rem)] min-h-0 flex-col overflow-hidden bg-white"
+    ? "flex h-[min(88dvh,42rem)] min-h-0 flex-col overflow-hidden bg-white"
     : "flex h-full min-h-0 flex-col overflow-hidden border-l border-slate-200 bg-white";
 
   if (!node) {

@@ -34,7 +34,7 @@ export default function MapColumnLaunch({ teamLabel, busy, onLaunch }: Props) {
     return (
       <button
         type="button"
-        className="mt-1 w-full rounded-xl border border-dashed border-sky-300 bg-white/70 px-3 py-2.5 text-sm font-bold text-sky-900 hover:bg-white"
+        className="w-full rounded-xl border border-dashed border-sky-300 bg-white/90 px-3 py-2.5 text-sm font-bold text-sky-900 hover:bg-white"
         onClick={() => setOpen(true)}
       >
         + Nouvelle mission
@@ -43,7 +43,7 @@ export default function MapColumnLaunch({ teamLabel, busy, onLaunch }: Props) {
   }
 
   return (
-    <form onSubmit={(e) => void submit(e)} className="mt-1 space-y-2 rounded-xl border border-sky-200 bg-white p-2.5">
+    <form onSubmit={(e) => void submit(e)} className="space-y-2 rounded-xl border border-sky-200 bg-white p-2.5">
       <label className="block">
         <span className="text-[10px] font-bold uppercase tracking-wide text-sky-800">Mission · {teamLabel}</span>
         <textarea

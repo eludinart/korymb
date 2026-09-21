@@ -70,6 +70,15 @@ body {
     max-height: calc(100dvh - var(--app-header-offset, 7rem));
   }
 
+  @media (max-width: 1023px) {
+    .app-carte-main {
+      height: auto;
+      max-height: none;
+      overflow: visible;
+      min-height: calc(100dvh - var(--app-header-offset, 7rem));
+    }
+  }
+
   @media (min-width: 1024px) {
     .h-app-panel {
       height: min(70vh, calc(100dvh - var(--app-header-offset, 0px) - 10rem));

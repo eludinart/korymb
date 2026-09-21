@@ -52,6 +52,7 @@ function WorkCard({
   onDragStart,
   onDragHover,
   onDropMission,
+  canDrag,
 }: {
   node: MapNode;
   selected: boolean;
@@ -62,10 +63,11 @@ function WorkCard({
   onDragStart?: (e: React.DragEvent) => void;
   onDragHover?: () => void;
   onDropMission?: (jobId: string) => void;
+  canDrag?: boolean;
 }) {
   const who = (node.who || []).filter(Boolean);
   const when = formatMapTime(node.updated_at);
-  const draggable = node.kind === "mission";
+  const draggable = Boolean(canDrag && node.kind === "mission");
   return (
     <div
       role="button"
@@ -118,9 +120,11 @@ function WorkCard({
           </span>
         ) : null}
       </span>
-      <span className="mt-1 block text-sm font-semibold leading-snug text-slate-900">{node.label}</span>
-      <span className="mt-1 block line-clamp-3 text-[12px] leading-snug text-slate-600">
-        {node.detail || node.next || node.where || node.subtitle || " "}
+      <span className="mt-1 block text-sm font-semibold leading-snug text-slate-900 [overflow-wrap:anywhere]">
+        {node.label}
+      </span>
+      <span className="mt-1 block line-clamp-2 text-[12px] leading-snug text-slate-600 lg:line-clamp-3">
+        {node.next || node.where || node.detail || node.subtitle || " "}
       </span>
       <span className="mt-2 flex flex-wrap items-center gap-1">
         {who.slice(0, 3).map((name) => (
@@ -146,6 +150,8 @@ function Column({
   onLaunch,
   onLinkMission,
   onDragOverTarget,
+  canDrag,
+  layout = "rail",
 }: {
   cluster: MapCluster;
   selectedId: string | null;
@@ -157,6 +163,8 @@ function Column({
   onLaunch?: (groupId: string, mission: string) => Promise<void> | void;
   onLinkMission?: (jobId: string, projectId: string) => void;
   onDragOverTarget: (id: string | null) => void;
+  canDrag?: boolean;
+  layout?: "rail" | "page";
 }) {
   const tone = clusterTone(cluster.kind);
   const selectedHere = selectedId === cluster.teamNode?.id;
@@ -181,9 +189,11 @@ function Column({
     <section
       id={`map-col-${cluster.id}`}
       data-map-cluster={cluster.id}
-      className={`flex h-full w-[min(88vw,20.5rem)] shrink-0 snap-start flex-col rounded-2xl border ${tone.wrap} ${
-        selectedHere ? "ring-2 ring-sky-400" : ""
-      } ${dragOverId === cluster.id ? "ring-2 ring-emerald-400" : ""} ${dimColumn ? "opacity-40" : ""}`}
+      className={`flex flex-col rounded-2xl border ${
+        layout === "page" ? "w-full" : "h-full min-h-0 w-[min(88vw,20.5rem)] shrink-0 snap-start"
+      } ${tone.wrap} ${selectedHere ? "ring-2 ring-sky-400" : ""} ${
+        dragOverId === cluster.id ? "ring-2 ring-emerald-400" : ""
+      } ${dimColumn ? "opacity-40" : ""}`}
       onDragOver={
         canDropOnColumn
           ? (e) => {
@@ -231,7 +241,13 @@ function Column({
           ) : null}
         </button>
       </header>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain px-2.5 pb-3">
+      <div
+        className={
+          layout === "page"
+            ? "space-y-2 px-2.5 pb-2"
+            : "min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain touch-pan-y px-2.5 pb-3"
+        }
+      >
         {cluster.cards.length === 0 ? (
           <p className="px-1 py-4 text-center text-xs leading-relaxed text-slate-500">Rien à afficher ici pour ce filtre.</p>
         ) : (
@@ -245,6 +261,7 @@ function Column({
                 related={Boolean(selectedId && neighbors.has(card.node.id) && selectedId !== card.node.id)}
                 dimmed={Boolean(q) && !matchesMapQuery(card.node, q)}
                 dropActive={Boolean(projectId && dragOverId === card.node.id)}
+                canDrag={canDrag}
                 onSelect={() => onSelect(card.node.id)}
                 onDragStart={card.node.kind === "mission" ? startDrag(card.node) : undefined}
                 onDragHover={projectId ? () => onDragOverTarget(card.node.id) : undefined}
@@ -258,11 +275,13 @@ function Column({
           })
         )}
         {onLaunch && groupId ? (
-          <MapColumnLaunch
-            teamLabel={cluster.title}
-            busy={launchBusy}
-            onLaunch={(mission) => onLaunch(groupId, mission)}
-          />
+          <div className={layout === "page" ? "pb-24 pt-1" : ""}>
+            <MapColumnLaunch
+              teamLabel={cluster.title}
+              busy={launchBusy}
+              onLaunch={(mission) => onLaunch(groupId, mission)}
+            />
+          </div>
         ) : null}
       </div>
     </section>
@@ -281,35 +300,82 @@ export default function MapBoard({
 }: Props) {
   const clusters = board.clusters;
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [canDrag, setCanDrag] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
   const neighbors = useMemo(() => (selectedId ? neighborsOf(selectedId, edges) : new Set<string>()), [edges, selectedId]);
 
+  useEffect(() => {
+    const dragMq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const deskMq = window.matchMedia("(min-width: 1024px)");
+    const sync = () => {
+      setCanDrag(dragMq.matches);
+      setIsDesktop(deskMq.matches);
+    };
+    sync();
+    dragMq.addEventListener("change", sync);
+    deskMq.addEventListener("change", sync);
+    return () => {
+      dragMq.removeEventListener("change", sync);
+      deskMq.removeEventListener("change", sync);
+    };
+  }, []);
+
   const activeColumnId = useMemo(() => {
-    if (!selectedId) return null;
-    const hit = clusters.find(
-      (c) => c.id === selectedId || c.teamNode?.id === selectedId || c.cards.some((card) => card.node.id === selectedId),
-    );
-    return hit?.id || null;
-  }, [clusters, selectedId]);
+    if (focusId && clusters.some((c) => c.id === focusId)) return focusId;
+    return clusters[0]?.id || null;
+  }, [clusters, focusId]);
+
+  const focusIndex = Math.max(0, clusters.findIndex((c) => c.id === activeColumnId));
+  const focusCluster = clusters[focusIndex] || clusters[0] || null;
 
   useEffect(() => {
     if (!selectedId) return;
-    const card = document.querySelector<HTMLElement>(`[data-map-card="${CSS.escape(selectedId)}"]`);
-    const col = activeColumnId ? document.getElementById(`map-col-${activeColumnId}`) : null;
-    (card || col)?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  }, [activeColumnId, selectedId]);
+    const hit = clusters.find(
+      (c) => c.id === selectedId || c.teamNode?.id === selectedId || c.cards.some((card) => card.node.id === selectedId),
+    );
+    if (hit) setFocusId(hit.id);
+  }, [clusters, selectedId]);
 
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) return;
     const hit = clusters.flatMap((c) => c.cards).find((card) => matchesMapQuery(card.node, q));
     if (!hit) return;
+    const col = clusters.find((c) => c.cards.some((card) => card.node.id === hit.node.id));
+    if (col) setFocusId(col.id);
     document
       .querySelector<HTMLElement>(`[data-map-card="${CSS.escape(hit.node.id)}"]`)
       ?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
   }, [clusters, query]);
 
   const jumpTo = (clusterId: string) => {
-    document.getElementById(`map-col-${clusterId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    setFocusId(clusterId);
+    if (isDesktop) {
+      document.getElementById(`map-col-${clusterId}`)?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      document.getElementById(`map-col-${clusterId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const goRelative = (delta: number) => {
+    const next = clusters[focusIndex + delta];
+    if (next) jumpTo(next.id);
+  };
+
+  const columnProps = {
+    selectedId,
+    neighbors,
+    query,
+    dragOverId,
+    launchBusy,
+    onSelect,
+    onLaunch,
+    onLinkMission,
+    onDragOverTarget: setDragOverId,
+    canDrag,
   };
 
   if (!clusters.length) {
@@ -318,6 +384,56 @@ export default function MapBoard({
         <p className="max-w-sm text-center text-sm text-slate-500">
           Rien à afficher dans ce filtre. Revenez sur Travail pour voir les équipes et les missions.
         </p>
+      </div>
+    );
+  }
+
+  if (!isDesktop) {
+    return (
+      <div className="pb-safe">
+        <div
+          className="sticky z-20 flex items-center gap-1 border-b border-slate-200/80 bg-[#e8edf7] px-2 py-2"
+          style={{ top: "var(--app-header-offset, 0px)" }}
+        >
+          <button
+            type="button"
+            className="touch-target shrink-0 rounded-full text-lg font-bold text-slate-600 disabled:opacity-30"
+            disabled={focusIndex <= 0}
+            aria-label="Équipe précédente"
+            onClick={() => goRelative(-1)}
+          >
+            ‹
+          </button>
+          <nav className="h-scroll-nav min-w-0 flex-1" aria-label="Aller à une équipe">
+            {clusters.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => jumpTo(c.id)}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${
+                  activeColumnId === c.id ? "bg-slate-900 text-white" : "bg-white text-slate-700 ring-1 ring-slate-200"
+                }`}
+              >
+                <span className="max-w-[9rem] truncate">{c.title}</span>
+                <span className={activeColumnId === c.id ? "text-white/70" : "text-slate-400"}>{c.cards.length}</span>
+              </button>
+            ))}
+          </nav>
+          <button
+            type="button"
+            className="touch-target shrink-0 rounded-full text-lg font-bold text-slate-600 disabled:opacity-30"
+            disabled={focusIndex >= clusters.length - 1}
+            aria-label="Équipe suivante"
+            onClick={() => goRelative(1)}
+          >
+            ›
+          </button>
+        </div>
+        {focusCluster ? (
+          <div className="px-3 py-3">
+            <Column key={focusCluster.id} cluster={focusCluster} layout="page" {...columnProps} />
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -342,28 +458,16 @@ export default function MapBoard({
         </nav>
       ) : null}
       {onLinkMission ? (
-        <p className="hidden px-3 pt-1 text-[11px] text-slate-400 lg:block">
+        <p className="px-3 pt-1 text-[11px] text-slate-400">
           Glissez une mission sur un dossier client pour la rattacher.
         </p>
       ) : null}
       <div
-        className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain px-3 py-3 snap-x snap-mandatory scroll-smooth lg:snap-proximity"
+        className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden overscroll-x-contain px-3 py-3 snap-x snap-proximity scroll-smooth"
         onDragEnd={() => setDragOverId(null)}
       >
         {clusters.map((cluster) => (
-          <Column
-            key={cluster.id}
-            cluster={cluster}
-            selectedId={selectedId}
-            neighbors={neighbors}
-            query={query}
-            dragOverId={dragOverId}
-            launchBusy={launchBusy}
-            onSelect={onSelect}
-            onLaunch={onLaunch}
-            onLinkMission={onLinkMission}
-            onDragOverTarget={setDragOverId}
-          />
+          <Column key={cluster.id} cluster={cluster} layout="rail" {...columnProps} />
         ))}
       </div>
     </div>
