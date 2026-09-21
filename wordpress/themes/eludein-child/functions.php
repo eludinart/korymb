@@ -420,6 +420,8 @@ function eludein_child_late_contrast_css(): void
         . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.woo-desc{order:3;}'
         . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.price-wrap{order:4;}'
         . 'body.woocommerce-shop ul.products li.product .woo-entry-inner>li.btn-wrap{order:5;}'
+        . 'body.single-product .woocommerce-product-gallery{opacity:1!important;}'
+        . 'body.single-product .sharedaddy,body.single-product .sd-sharing-enabled{display:none!important;}'
         . 'body.page-id-592 .page-header,body.page-id-592 .centered-page-header{display:none!important;}'
         . '.entry-content .wp-block-cover.is-light,.entry-content .wp-block-cover.is-light p,'
         . '.entry-content .wp-block-cover.is-light h1,.entry-content .wp-block-cover.is-light h2,'

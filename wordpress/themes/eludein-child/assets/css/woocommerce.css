@@ -370,12 +370,20 @@ body.single-product div.product div.images {
   width: auto !important;
   flex: 1 1 38%;
   max-width: 28rem;
+  min-width: min(100%, 16rem);
   margin: 0 !important;
   padding: 0.75rem;
   background: var(--eludein-paper, #fbf7f1);
   border: 1px solid var(--eludein-gold-line, rgba(201, 161, 74, 0.48));
   border-radius: var(--eludein-radius-card, 22px);
   box-shadow: var(--eludein-shadow, 0 16px 40px rgba(36, 48, 40, 0.08));
+  opacity: 1 !important;
+}
+
+body.single-product div.product .owp-product-nav-wrap,
+body.single-product div.product .clear-after-summary {
+  flex: 1 1 100%;
+  width: 100%;
 }
 
 body.single-product div.product .summary {
@@ -506,9 +514,15 @@ body.single-product .product_meta a {
 }
 
 body.single-product .entry-share,
-body.single-product .entry-share-wrap {
-  margin-top: 0.4rem;
-  opacity: 0.72;
+body.single-product .entry-share-wrap,
+body.single-product .sharedaddy,
+body.single-product .sd-sharing-enabled {
+  display: none !important;
+}
+
+body.single-product #payment-method-message {
+  height: auto !important;
+  min-height: 0;
 }
 
 .woocommerce div.product .woocommerce-tabs {
