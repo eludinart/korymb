@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from services.agents import agents_def, FLEUR_CONTEXT
+from services.agents import agents_def
 
 _MIRROR_FALLBACK_CLOSING = (
     "Je lance l'exploration en arrière-plan — vous serez notifié dans ce fil "
@@ -108,18 +108,20 @@ def finalize_mirror_ack(text: str) -> str:
     return t.strip()
 
 
-def generate_mirror_ack(message: str) -> str:
+def generate_mirror_ack(message: str, agent_group_id: str | None = None) -> str:
     """Accusé de réception immédiat : reformule le besoin et annonce le travail en arrière-plan."""
     msg = (message or "").strip()
     if not msg:
         return ""
     try:
         from llm_client import llm_turn
+        from services.workspace_brand import workspace_identity_block
 
         agent_cfg = agents_def()["coordinateur"]
+        ident = workspace_identity_block(agent_group_id)
         system = (
             agent_cfg["system"][:900]
-            + FLEUR_CONTEXT[:500]
+            + ident[:500]
             + "\n\nMode « accusé de réception » (avant mission en arrière-plan).\n"
             "Réponse **courte** (80 à 120 mots max), en français :\n"
             "- 1 phrase : reformulation du besoin.\n"

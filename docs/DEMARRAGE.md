@@ -11,7 +11,7 @@ Guide pour lancer Korymb en local : backend FastAPI (port 8020) + frontend Next.
 
 Puis ouvrir :
 
-- Frontend : http://127.0.0.1:3000/briefing (ou /dashboard)
+- Frontend : http://127.0.0.1:3000/briefing (ou /carte pour le tableau spatial)
 - Backend : http://127.0.0.1:8020/health
 
 Arrêt : `Ctrl+C` dans le terminal, ou `.\stop-dev-cursor.ps1`.

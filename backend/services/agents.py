@@ -14,7 +14,7 @@ from database import (
 )
 from services.agents_config import load_agent_petals
 from services.workspace_brand import (
-    build_workspace_asset_constraints,
+    build_generic_asset_constraints,
     build_workspace_brand_context,
 )
 
@@ -242,7 +242,7 @@ def agents_def() -> dict[str, dict]:
         for k, v in custom.items():
             if k not in BUILTIN_AGENT_DEFINITIONS:
                 merged[k] = v
-        asset_blk = build_workspace_asset_constraints()
+        asset_blk = build_generic_asset_constraints()
         for key, cfg in list(merged.items()):
             row = dict(cfg)
             sys_prompt = str(row.get("system") or "")

@@ -12,6 +12,11 @@ import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
+import { ENTERPRISE_GROUP_ID } from "../../lib/agentGroupUi";
+import MissionFleetSelect, {
+  activeFleetGroups,
+  type FleetGroupOption,
+} from "./MissionFleetSelect";
 
 const visibleInterval = (ms: number) =>
   typeof document !== "undefined" && document.visibilityState === "visible" ? ms : false;
@@ -45,6 +50,7 @@ function MissionGuidedPanelInner() {
   /** Job renvoyé par validate (avant que `linked_job_id` soit reflété dans le détail session). */
   const [trackingJobId, setTrackingJobId] = useState("");
   const [agent, setAgent] = useState("coordinateur");
+  const [fleetId, setFleetId] = useState(ENTERPRISE_GROUP_ID);
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [err, setErr] = useState("");
@@ -66,10 +72,27 @@ function MissionGuidedPanelInner() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    const gid = String(sessionDetail.data?.agent_group_id || "").trim();
+    if (gid) setFleetId(gid);
+  }, [sessionDetail.data?.agent_group_id]);
+
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
   });
+  const groupsQuery = useQuery({
+    queryKey: ["agent-groups"],
+    queryFn: async () => {
+      const { data, res } = await requestJson("/agent-groups", { retries: 1, expectOk: false });
+      if (!res.ok) throw new Error(String(data?.detail || `HTTP ${res.status}`));
+      const list = (data as { groups?: unknown })?.groups;
+      return Array.isArray(list) ? (list as FleetGroupOption[]) : [];
+    },
+    staleTime: 30_000,
+  });
+  const fleets = useMemo(() => activeFleetGroups(groupsQuery.data || []), [groupsQuery.data]);
+  const selectedFleet = fleets.find((g) => g.id === fleetId) || fleets[0];
   const sessions = useQuery({
     queryKey: QK.missionSessions,
     queryFn: async () => (await requestJson("/mission-sessions", { headers: agentHeaders(), retries: 1 })).data.sessions || [],
@@ -132,10 +155,16 @@ function MissionGuidedPanelInner() {
     setErr("");
     setOk("");
     try {
+      const gid = (selectedFleet?.id || fleetId || ENTERPRISE_GROUP_ID).trim();
+      const orch = (selectedFleet?.lead_agent_key || agent || "coordinateur").trim();
       const { data } = await requestJson("/mission-sessions", {
         method: "POST",
         headers: agentHeaders(),
-        body: JSON.stringify({ agent, title: title.trim() || null }),
+        body: JSON.stringify({
+          agent: orch,
+          title: title.trim() || null,
+          agent_group_id: gid,
+        }),
       });
       setShowNewSessionForm(false);
       setSessionId(data.id);
@@ -266,9 +295,26 @@ function MissionGuidedPanelInner() {
     setOk("");
     try {
       const rounds = clampRefinementRounds(refinementRounds);
-      const body: { mission_config?: { recursive_refinement_enabled: boolean; recursive_max_rounds: number } } = {};
+      const sessionGid = String(sessionDetail.data?.agent_group_id || selectedFleet?.id || fleetId || "").trim();
+      const body: {
+        mission_config?: {
+          recursive_refinement_enabled?: boolean;
+          recursive_max_rounds?: number;
+          agent_group_id?: string;
+          orchestrator_key?: string;
+        };
+      } = {
+        mission_config: {
+          agent_group_id: sessionGid || ENTERPRISE_GROUP_ID,
+          orchestrator_key: (selectedFleet?.lead_agent_key || agent || "coordinateur").trim(),
+        },
+      };
       if (refinementEnabled) {
-        body.mission_config = { recursive_refinement_enabled: true, recursive_max_rounds: rounds };
+        body.mission_config = {
+          ...body.mission_config,
+          recursive_refinement_enabled: true,
+          recursive_max_rounds: rounds,
+        };
       }
       const { data } = await requestJson(`/mission-sessions/${sessionId}/validate`, {
         method: "POST",
@@ -479,11 +525,11 @@ function MissionGuidedPanelInner() {
           {showNewSessionForm ? (
             <form onSubmit={createSession} className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
               <p className="text-sm font-semibold">Nouvelle session</p>
-              <select value={agent} onChange={(e) => setAgent(e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                {(agents.data || []).map((a: { key: string; label: string }) => (
-                  <option key={a.key} value={a.key}>{a.label}</option>
-                ))}
-              </select>
+              <MissionFleetSelect value={fleetId} onChange={(id) => {
+                setFleetId(id);
+                const g = fleets.find((x) => x.id === id);
+                if (g?.lead_agent_key) setAgent(g.lead_agent_key);
+              }} groups={fleets} disabled={busy} id="guided-fleet" />
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre optionnel" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               <button disabled={busy} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40">
                 {busy ? "Création…" : "Créer"}

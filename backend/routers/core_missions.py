@@ -65,6 +65,7 @@ class MissionSessionCreate(BaseModel):
     agent: str = "coordinateur"
     title: str = ""
     initial_message: str | None = None
+    agent_group_id: str | None = None
 
 
 class MissionSessionMessageBody(BaseModel):
@@ -161,7 +162,12 @@ async def run_mission(request: MissionRequest, background_tasks: BackgroundTasks
 def mission_sessions_create(body: MissionSessionCreate):
     agent_key = body.agent if body.agent in agents_def() else "coordinateur"
     sid = str(uuid.uuid4()).replace("-", "")[:12]
-    create_mission_session(sid, agent_key, (body.title or "").strip())
+    create_mission_session(
+        sid,
+        agent_key,
+        (body.title or "").strip(),
+        agent_group_id=(body.agent_group_id or "").strip() or None,
+    )
     if body.initial_message and str(body.initial_message).strip():
         append_session_message(sid, "user", str(body.initial_message).strip())
         s = get_mission_session(sid)
@@ -247,6 +253,16 @@ def mission_sessions_validate(
         brief = _append_session_exchange_for_delegation(s, brief)
     job_id = str(uuid.uuid4())[:8]
     mcfg = _mission_config_from_payload(body.mission_config)
+    session_gid = str(s.get("agent_group_id") or "").strip() or None
+    if session_gid and not mcfg.get("agent_group_id"):
+        mcfg["agent_group_id"] = session_gid
+    if session_gid and not mcfg.get("orchestrator_key"):
+        try:
+            from services.agent_groups import group_orchestrator_key
+
+            mcfg["orchestrator_key"] = group_orchestrator_key(session_gid)
+        except Exception:
+            pass
     _schedule_mission_execution(
         background_tasks, job_id, agent_key, brief, None, "mission_session", mission_config=mcfg,
     )

@@ -40,6 +40,13 @@ _GENERIC_ASSET_CONSTRAINTS = (
     "- Respecte la charte et la mémoire partagée du workspace ; n'invente pas d'actifs ou de marques.\n"
 )
 
+_ISOLATED_TEAM_IDENTITY = (
+    "Identité de cette équipe : uniquement son brief et sa mémoire d'équipe.\n"
+    "N'emprunte pas de marque, produit, titre d'ouvrage ou nom de fichier "
+    "d'un autre périmètre du workspace (flotte Entreprise comprise), "
+    "sauf s'ils figurent explicitement dans la mémoire d'équipe ou la consigne du dirigeant.\n"
+)
+
 
 def current_workspace_id() -> str:
     try:
@@ -110,10 +117,49 @@ def build_workspace_brand_context() -> str:
     )
 
 
+def build_generic_asset_constraints() -> str:
+    """Contraintes sans marque — à coller dans les fiches agents (le pack legacy va au runtime)."""
+    return _GENERIC_ASSET_CONSTRAINTS
+
+
 def build_workspace_asset_constraints() -> str:
     if is_legacy_elude_workspace():
         return _LEGACY_ASSET_CONSTRAINTS
     return _GENERIC_ASSET_CONSTRAINTS
+
+
+def group_sees_workspace_identity(agent_group_id: str | None = None) -> bool:
+    """True si ce run a droit au pack marque / fichiers / mémoire partagée du workspace."""
+    gid = (agent_group_id or "").strip()
+    if not gid:
+        return True
+    try:
+        from services.agent_groups import ENTERPRISE_GROUP_ID, get_group_memory, group_memory_scope
+
+        if gid == ENTERPRISE_GROUP_ID:
+            return True
+        scope = group_memory_scope(gid)
+        if scope == "enterprise":
+            return True
+        if scope == "none":
+            return False
+        mem = get_group_memory(gid)
+        return bool(mem.get("inherit_shared"))
+    except Exception:
+        return False
+
+
+def workspace_identity_block(agent_group_id: str | None = None) -> str:
+    """
+    Bloc identité injecté au runtime.
+    Équipe isolée (memory_scope=group sans héritage, ou none) : pas de pack Fleur / Élude.
+    """
+    if group_sees_workspace_identity(agent_group_id):
+        brand = build_workspace_brand_context().strip()
+        assets = build_workspace_asset_constraints().strip()
+        parts = [p for p in (brand, assets) if p]
+        return ("\n".join(parts) + "\n") if parts else ""
+    return _ISOLATED_TEAM_IDENTITY
 
 
 def own_site_suffixes() -> tuple[str, ...]:

@@ -171,5 +171,12 @@ export function urgencyLabel(urgency?: string, daysOverdue?: number): string | n
 }
 
 export function inboxItemKey(item: InboxActionItem, idx: number): string {
-  return `${item.kind}-${item.event_id || item.ticket_id || item.job_id || item.output_id || item.suggestion_id || idx}`;
+  const unique =
+    item.suggestion_id ||
+    item.ticket_id ||
+    item.event_id ||
+    item.output_id ||
+    item.job_id ||
+    String(idx);
+  return `${item.kind}-${unique}`;
 }

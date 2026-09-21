@@ -548,6 +548,9 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = "cio"
     merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
     merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
+    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents"):
+        if extra in mc and mc.get(extra) not in (None, ""):
+            merged[extra] = mc[extra]
     out["mission_config"] = merged
     out.pop("plan_json", None)
     out.pop("events_json", None)
@@ -632,6 +635,7 @@ def init_db():
                 updated_at      TEXT NOT NULL
             )
         """)
+        _ensure_mission_sessions_columns(conn)
         _ensure_llm_usage_table(conn)
         _ensure_custom_agents_table(conn)
         _ensure_agent_groups_tables(conn)
@@ -2042,6 +2046,117 @@ def list_jobs(limit: int = 50) -> list[dict]:
     return [_hydrate_job_row(dict(row)) for row in rows]
 
 
+def list_job_refs_for_agent_group(group_id: str, *, limit: int = 400) -> list[dict[str, Any]]:
+    """Missions dont mission_config.agent_group_id pointe vers ce groupe."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 400), 800))
+    ws = _ws()
+    rows = None
+    with get_conn() as conn:
+        try:
+            if _is_mariadb():
+                rows = conn.execute(
+                    "SELECT id, status, mission, agent, created_at FROM jobs "
+                    "WHERE workspace_id=? AND JSON_UNQUOTE(JSON_EXTRACT(mission_config_json, '$.agent_group_id'))=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (ws, gid, lim),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, status, mission, agent, created_at FROM jobs "
+                    "WHERE workspace_id=? AND json_extract(mission_config_json, '$.agent_group_id')=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (ws, gid, lim),
+                ).fetchall()
+        except Exception:
+            rows = conn.execute(
+                "SELECT id, status, mission, agent, created_at, mission_config_json FROM jobs "
+                "WHERE workspace_id=? AND mission_config_json LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (ws, f"%{gid}%", lim),
+            ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        raw_cfg = d.get("mission_config_json")
+        if raw_cfg:
+            try:
+                mc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(mc, dict) or str(mc.get("agent_group_id") or "").strip() != gid:
+                continue
+        out.append(
+            {
+                "id": str(d.get("id") or ""),
+                "status": str(d.get("status") or ""),
+                "mission": str(d.get("mission") or "")[:160],
+                "agent": str(d.get("agent") or ""),
+                "created_at": str(d.get("created_at") or ""),
+            }
+        )
+    return out
+
+
+def list_mission_session_refs_for_group(group_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 50), 100))
+    with get_conn() as conn:
+        _ensure_mission_sessions_columns(conn)
+        rows = conn.execute(
+            "SELECT id, title, status, agent FROM mission_sessions "
+            "WHERE agent_group_id=? ORDER BY updated_at DESC LIMIT ?",
+            (gid, lim),
+        ).fetchall()
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+            "agent": str(dict(r).get("agent") or ""),
+        }
+        for r in (rows or [])
+    ]
+
+
+def list_blueprint_refs_for_group(group_id: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 30), 80))
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        rows = conn.execute(
+            "SELECT id, title, status FROM team_blueprints WHERE group_id=? ORDER BY created_at DESC LIMIT ?",
+            (gid, lim),
+        ).fetchall()
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+        }
+        for r in (rows or [])
+    ]
+
+
+def delete_agent_group_row(group_id: str) -> bool:
+    gid = (group_id or "").strip()
+    if not gid:
+        return False
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        conn.execute("DELETE FROM agent_group_memory WHERE group_id=?", (gid,))
+        conn.execute("DELETE FROM team_blueprints WHERE group_id=?", (gid,))
+        cur = conn.execute("DELETE FROM agent_groups WHERE id=?", (gid,))
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
 def list_jobs_prompt_digest(*, limit: int = 12, exclude_job_id: str | None = None) -> list[dict]:
     """
     Lignes jobs légères (sans hydratation JSON lourde) pour injection dans le prompt CIO :
@@ -2404,22 +2519,44 @@ def _ensure_jobs_hitl_column(conn) -> None:
     conn.commit()
 
 
+def _ensure_mission_sessions_columns(conn) -> None:
+    """Colonnes optionnelles des sessions de cadrage (flotte / périmètre)."""
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM mission_sessions")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(mission_sessions)")
+        cols = {row[1] for row in cur.fetchall()}
+    if "agent_group_id" not in cols:
+        conn.execute("ALTER TABLE mission_sessions ADD COLUMN agent_group_id TEXT")
+
+
 def _hydrate_session_row(d: dict) -> dict:
     out = dict(d)
     try:
         out["messages"] = json.loads(out.get("messages") or "[]")
     except json.JSONDecodeError:
         out["messages"] = []
+    gid = str(out.get("agent_group_id") or "").strip()
+    out["agent_group_id"] = gid or None
     return out
 
 
-def create_mission_session(session_id: str, agent: str, title: str = "") -> None:
+def create_mission_session(
+    session_id: str,
+    agent: str,
+    title: str = "",
+    *,
+    agent_group_id: str | None = None,
+) -> None:
     now = datetime.utcnow().isoformat()
+    gid = (agent_group_id or "").strip() or None
     with get_conn() as conn:
+        _ensure_mission_sessions_columns(conn)
         conn.execute(
-            "INSERT INTO mission_sessions (id, agent, title, status, messages, linked_job_id, validated_brief, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'draft', '[]', NULL, NULL, ?, ?)",
-            (session_id, agent, title or "", now, now),
+            "INSERT INTO mission_sessions (id, agent, title, status, messages, linked_job_id, validated_brief, created_at, updated_at, agent_group_id) "
+            "VALUES (?, ?, ?, 'draft', '[]', NULL, NULL, ?, ?, ?)",
+            (session_id, agent, title or "", now, now, gid),
         )
         conn.commit()
 

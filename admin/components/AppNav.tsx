@@ -18,14 +18,20 @@ import {
   isGestionPath,
 } from "../lib/gestionNav";
 
-type NavPrimaryItem = { href: string; label: string; priority?: boolean };
+type NavPrimaryItem = { href: string; label: string; priority?: boolean; tone?: "amber" | "sky" };
 
-const NAV_PRIMARY: NavPrimaryItem[] = [
-  { href: "/briefing", label: "Briefing", priority: true },
-  { href: DIRECTOR_QUEUE_HREF, label: DIRECTOR_QUEUE_LABEL, priority: true },
+const NAV_BEFORE_GESTION: NavPrimaryItem[] = [
+  { href: "/briefing", label: "Briefing", priority: true, tone: "amber" },
+  { href: "/carte", label: "Carte", priority: true, tone: "sky" },
+];
+
+const NAV_AFTER_GESTION: NavPrimaryItem[] = [
+  { href: DIRECTOR_QUEUE_HREF, label: DIRECTOR_QUEUE_LABEL, priority: true, tone: "amber" },
   { href: "/missions", label: "Missions", priority: true },
   { href: "/chat", label: "Chat" },
 ];
+
+const NAV_PRIMARY: NavPrimaryItem[] = [...NAV_BEFORE_GESTION, ...NAV_AFTER_GESTION];
 
 const NAV_MORE = [
   { href: "/dashboard", label: "Vue agents" },
@@ -49,8 +55,11 @@ function drawerLinkClass(active: boolean, priority?: boolean) {
   return priority && !active ? `${base} nav-drawer-link-priority` : base;
 }
 
-function desktopLinkClass(active: boolean, priority?: boolean) {
+function desktopLinkClass(active: boolean, priority?: boolean, tone: "amber" | "sky" | "violet" = "amber") {
   if (active) return "rounded-full bg-violet-700 px-3 py-2.5 text-sm font-bold text-white shadow-sm";
+  if (priority && tone === "sky") {
+    return "rounded-full border-2 border-sky-300 bg-sky-50 px-3 py-2.5 text-sm font-bold text-sky-950 hover:bg-sky-100";
+  }
   if (priority)
     return "rounded-full border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-950 hover:bg-amber-100";
   return "rounded-full px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-violet-50";
@@ -357,10 +366,14 @@ export default function AppNav() {
     <>
       <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 xl:flex">
         <nav className="flex flex-wrap items-center justify-end gap-2">
-          {NAV_PRIMARY.slice(0, 1).map((item) => {
+          {NAV_BEFORE_GESTION.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
-              <Link key={item.href} href={item.href} className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
+              >
                 {item.label}
               </Link>
             );
@@ -389,10 +402,14 @@ export default function AppNav() {
             ) : null}
           </div>
 
-          {NAV_PRIMARY.slice(1).map((item) => {
+          {NAV_AFTER_GESTION.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
-              <Link key={item.href} href={item.href} className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
+              >
                 {item.label}
               </Link>
             );

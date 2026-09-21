@@ -6,6 +6,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi, type BizContact, type BizEvent, type BizQuote } from "../../../../lib/business";
+import { agentHeaders, requestJson } from "../../../../lib/api";
+import { missionTitleLabel } from "../../../../lib/missionLabel";
+import { QK } from "../../../../lib/queryClient";
+import type { Job } from "../../../../lib/types";
 import {
   EVENT_RESOURCE_TYPE_LABELS,
   EVENT_STATUS_LABELS,
@@ -82,6 +86,14 @@ export default function GestionProjetEditPage() {
     enabled: Boolean(id),
   });
   const quotes = useQuery({ queryKey: ["business-quotes"], queryFn: () => businessApi.listQuotes() });
+  const jobs = useQuery({
+    queryKey: QK.jobsCards,
+    queryFn: async () => {
+      const { data } = await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 1, timeoutMs: 20_000 });
+      return ((data as { jobs?: Job[] })?.jobs || []) as Job[];
+    },
+    staleTime: 20_000,
+  });
 
   useEffect(() => {
     if (!project.data || hydrated) return;
@@ -102,6 +114,11 @@ export default function GestionProjetEditPage() {
     () => (quotes.data || []).filter((q: BizQuote) => q.project_id === id),
     [quotes.data, id],
   );
+  const linkedJobs = useMemo(() => {
+    const ids = new Set((project.data?.linked_job_ids || []).map(String));
+    if (!ids.size) return [];
+    return (jobs.data || []).filter((j) => ids.has(String(j.job_id)));
+  }, [jobs.data, project.data?.linked_job_ids]);
   const sessions = useMemo(() => (events.data || []).filter((ev) => !isMatiereEvent(ev)), [events.data]);
   const resources = useMemo(() => (events.data || []).filter((ev) => isMatiereEvent(ev)), [events.data]);
 
@@ -300,6 +317,40 @@ export default function GestionProjetEditPage() {
             {saved ? <p className="text-sm text-emerald-800">{saved}</p> : null}
           </div>
         </form>
+      </SectionCard>
+
+      <SectionCard
+        title={`Missions liées (${linkedJobs.length})`}
+        action={
+          <Link href="/carte" className="text-xs font-semibold text-violet-800 hover:underline">
+            Voir sur la carte
+          </Link>
+        }
+      >
+        {jobs.isLoading ? <LoadingLine /> : null}
+        {!jobs.isLoading && linkedJobs.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Aucune mission rattachée pour l’instant. Les missions liées apparaissent aussi sur la carte.
+          </p>
+        ) : null}
+        <ul className="divide-y divide-slate-100">
+          {linkedJobs.map((j) => (
+            <li key={j.job_id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+              <div>
+                <Link href={`/missions?job=${encodeURIComponent(j.job_id)}`} className="font-semibold text-slate-900 hover:underline">
+                  {missionTitleLabel(j.mission, 80) || j.job_id}
+                </Link>
+                <p className="text-xs text-slate-500">{j.status || "—"}</p>
+              </div>
+              <Link
+                href={`/missions?job=${encodeURIComponent(j.job_id)}`}
+                className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900"
+              >
+                Ouvrir
+              </Link>
+            </li>
+          ))}
+        </ul>
       </SectionCard>
 
       <SectionCard

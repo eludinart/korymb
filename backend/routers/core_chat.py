@@ -23,9 +23,10 @@ from database import (
     upsert_chat_conversation,
     delete_chat_conversation,
 )
-from services.agents import agents_def, FLEUR_CONTEXT, SUB_AGENT_COORDINATION_FR
+from services.agents import agents_def, SUB_AGENT_COORDINATION_FR
 from services.chat_surface import surface_chat_result
 from services.chat_mirror import generate_mirror_ack
+from services.workspace_brand import workspace_identity_block
 from services.memory import compress_chat_session, maybe_refresh_mission_summary
 from services.mission import (
     orchestrate_coordinateur_mission,
@@ -408,7 +409,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 finally:
                     active_jobs.pop(job_id, None)
 
-            mirror_ack = generate_mirror_ack(msg_snap)
+            mirror_ack = generate_mirror_ack(msg_snap, agent_group_id=group_id)
             if linked_parent_id and linked_parent_id != job_id and mirror_ack:
                 try:
                     append_job_mission_thread(
@@ -445,7 +446,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
         system_prompt = (
             agent_cfg["system"]
-            + FLEUR_CONTEXT
+            + workspace_identity_block(group_id)
             + SUB_AGENT_COORDINATION_FR
             + "\nRéponds de façon concise et directe."
         )

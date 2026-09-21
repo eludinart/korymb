@@ -167,7 +167,7 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
           <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Vos priorités</h3>
           <ol className="mt-3 space-y-2">
             {priorities.map((p, i) => (
-              <li key={p.id}>
+              <li key={`${String(p.id)}:${i}`}>
                 <Link
                   href={p.href}
                   className={`flex items-center gap-3 rounded-2xl border-2 p-3 ring-2 transition hover:shadow-md ${urgencyRing(p.urgency)}`}

@@ -18,6 +18,25 @@ def test_post_run_creates_job(client):
     mock_sched.assert_called_once()
 
 
+def test_post_run_keeps_agent_group_in_config(client):
+    with patch("routers.core_missions._schedule_mission_execution") as mock_sched:
+        r = client.post(
+            "/run",
+            json={
+                "mission": "Chapitre 1 isolé",
+                "agent": "coordinateur",
+                "mission_config": {
+                    "agent_group_id": "grp_livre",
+                    "orchestrator_key": "editeur_en_chef",
+                },
+            },
+        )
+    assert r.status_code == 200
+    cfg = mock_sched.call_args.kwargs["mission_config"]
+    assert cfg["agent_group_id"] == "grp_livre"
+    assert cfg["orchestrator_key"] == "editeur_en_chef"
+
+
 def test_get_job_detail_shape(client):
     from database import save_job
 

@@ -8,13 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from auth import require_admin, resolve_tenant
 from services.agent_groups import (
+    GroupInUseError,
     archive_group,
     confirm_blueprint,
     create_blueprint_proposal,
+    delete_group,
     ensure_enterprise_group,
     get_blueprint,
     get_group,
     get_group_memory,
+    group_delete_preview,
     list_blueprints,
     list_group_templates,
     list_groups,
@@ -129,6 +132,25 @@ def api_archive_group(group_id: str):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "group": g}
+
+
+@router.get("/admin/agent-groups/{group_id}/delete-preview", dependencies=[Depends(require_admin)])
+def api_group_delete_preview(group_id: str):
+    try:
+        return group_delete_preview(group_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404 if "introuvable" in str(e) else 400, detail=str(e)) from e
+
+
+@router.delete("/admin/agent-groups/{group_id}", dependencies=[Depends(require_admin)])
+def api_delete_group(group_id: str):
+    try:
+        return delete_group(group_id)
+    except GroupInUseError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    except ValueError as e:
+        code = 404 if "introuvable" in str(e) else 400
+        raise HTTPException(status_code=code, detail=str(e)) from e
 
 
 @router.get("/team-blueprints", dependencies=[Depends(resolve_tenant)])

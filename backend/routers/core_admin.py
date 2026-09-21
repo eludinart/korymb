@@ -257,6 +257,15 @@ def _require_database_or_503() -> None:
         )
 
 
+@router.get("/overview/map", dependencies=[Depends(resolve_tenant)])
+def overview_operational_map():
+    """Graphe opérationnel : équipes, missions, projets, agents, connaissance."""
+    _require_database_or_503()
+    from services.operational_map import build_operational_map
+
+    return build_operational_map()
+
+
 @router.get("/admin/briefing", dependencies=[Depends(require_admin)])
 def admin_briefing(period: str = Query("today")):
     _require_database_or_503()

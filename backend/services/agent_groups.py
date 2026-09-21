@@ -16,6 +16,7 @@ from typing import Any
 from database import (
     ALLOWED_AGENT_TOOL_TAGS,
     delete_custom_agent,
+    list_custom_agent_keys_raw,
     upsert_custom_agent,
     validate_custom_agent_key,
 )
@@ -28,6 +29,14 @@ from services.agents import (
 ENTERPRISE_GROUP_ID = "entreprise"
 MAX_AGENTS_PER_GROUP = 6
 SAFE_DEFAULT_TOOLS = ("web", "drive", "knowledge", "studio")
+
+
+class GroupInUseError(ValueError):
+    """Suppression refusée : missions, cadrages ou propositions encore liés."""
+
+    def __init__(self, preview: dict[str, Any]):
+        self.preview = preview
+        super().__init__(str(preview.get("summary") or "flotte encore utilisée"))
 
 GROUP_TEMPLATES: dict[str, dict[str, Any]] = {
     "edition": {
@@ -257,6 +266,24 @@ def serialize_group(row: dict[str, Any]) -> dict[str, Any]:
             }
         )
     lead_cfg = ad.get(lead) or {}
+    policy = _parse_json_obj(row.get("policy")) or default_group_policy()
+    gid = str(row.get("id") or "")
+    scope = str(policy.get("memory_scope") or "group").strip().lower()
+    if scope not in ("enterprise", "group", "none"):
+        scope = "group"
+    inherit_shared = False
+    try:
+        from database import get_agent_group_memory
+
+        inherit_shared = bool(get_agent_group_memory(gid).get("inherit_shared"))
+    except Exception:
+        inherit_shared = False
+    if gid == ENTERPRISE_GROUP_ID or scope == "enterprise":
+        sees_identity = True
+    elif scope == "none":
+        sees_identity = False
+    else:
+        sees_identity = inherit_shared
     return {
         "id": row.get("id"),
         "slug": row.get("slug"),
@@ -270,7 +297,10 @@ def serialize_group(row: dict[str, Any]) -> dict[str, Any]:
         "lead_builtin": lead in BUILTIN_AGENT_DEFINITIONS,
         "member_keys": members,
         "members": member_details,
-        "policy": _parse_json_obj(row.get("policy")) or default_group_policy(),
+        "policy": policy,
+        "memory_scope": scope,
+        "inherit_shared": inherit_shared,
+        "sees_workspace_identity": sees_identity,
         "is_system": bool(int(row.get("is_system") or 0)),
         "template_key": row.get("template_key"),
         "created_at": row.get("created_at"),
@@ -631,6 +661,158 @@ def archive_group(group_id: str) -> dict[str, Any]:
         template_key=row.get("template_key"),
     )
     return serialize_group(updated)
+
+
+def _live_job_refs_for_group(group_id: str) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    try:
+        from state import active_jobs
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    for jid, job in (active_jobs or {}).items():
+        if not isinstance(job, dict):
+            continue
+        cfg = job.get("mission_config") if isinstance(job.get("mission_config"), dict) else {}
+        if str(cfg.get("agent_group_id") or "").strip() != gid:
+            continue
+        out.append(
+            {
+                "id": str(jid),
+                "status": str(job.get("status") or "running"),
+                "mission": str(job.get("mission") or "")[:160],
+                "agent": str(job.get("agent") or ""),
+                "created_at": "",
+            }
+        )
+    return out
+
+
+def _exclusive_custom_agents(row: dict[str, Any]) -> list[dict[str, str]]:
+    gid = str(row.get("id") or "").strip()
+    keys = [str(row.get("lead_agent_key") or "").strip(), *_parse_json_list(row.get("member_keys"))]
+    keys = [k for k in keys if k]
+    used_elsewhere: set[str] = set()
+    try:
+        from database import list_agent_groups
+
+        for other in list_agent_groups(include_archived=True):
+            oid = str(other.get("id") or "")
+            if oid == gid:
+                continue
+            used_elsewhere.add(str(other.get("lead_agent_key") or "").strip())
+            used_elsewhere.update(_parse_json_list(other.get("member_keys")))
+    except Exception:
+        used_elsewhere = set()
+    custom = set(list_custom_agent_keys_raw())
+    ad = agents_def()
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for k in keys:
+        if k in seen or k in BUILTIN_AGENT_DEFINITIONS or k in used_elsewhere or k not in custom:
+            continue
+        seen.add(k)
+        cfg = ad.get(k) or {}
+        out.append({"key": k, "label": str(cfg.get("label") or k)})
+    return out
+
+
+def group_delete_preview(group_id: str) -> dict[str, Any]:
+    from database import (
+        get_agent_group,
+        list_blueprint_refs_for_group,
+        list_job_refs_for_agent_group,
+        list_mission_session_refs_for_group,
+    )
+
+    gid = (group_id or "").strip()
+    row = get_agent_group(gid)
+    if not row:
+        raise ValueError("groupe introuvable")
+    is_system = bool(int(row.get("is_system") or 0)) or gid == ENTERPRISE_GROUP_ID
+    jobs = list_job_refs_for_agent_group(gid)
+    live = _live_job_refs_for_group(gid)
+    live_ids = {j["id"] for j in jobs}
+    for item in live:
+        if item["id"] not in live_ids:
+            jobs.append(item)
+            live_ids.add(item["id"])
+    sessions = list_mission_session_refs_for_group(gid)
+    blueprints = [
+        b
+        for b in list_blueprint_refs_for_group(gid)
+        if str(b.get("status") or "") == "proposed"
+    ]
+    exclusive = [] if is_system else _exclusive_custom_agents(row)
+
+    parts: list[str] = []
+    if is_system:
+        parts.append("la flotte Entreprise ne peut pas être supprimée")
+    if jobs:
+        n = len(jobs)
+        parts.append(f"{n} mission{'s' if n != 1 else ''}")
+    if sessions:
+        n = len(sessions)
+        parts.append(f"{n} cadrage{'s' if n != 1 else ''}")
+    if blueprints:
+        n = len(blueprints)
+        parts.append(f"{n} proposition{'s' if n != 1 else ''} d'équipe en attente")
+
+    can_delete = not is_system and not jobs and not sessions and not blueprints
+    if can_delete:
+        summary = "Aucun usage restant : la flotte peut être supprimée."
+    elif is_system:
+        summary = "La flotte Entreprise ne peut pas être supprimée."
+    else:
+        summary = "Impossible de supprimer : " + ", ".join(parts) + "."
+
+    return {
+        "group_id": gid,
+        "label": str(row.get("label") or gid),
+        "is_system": is_system,
+        "can_delete": can_delete,
+        "summary": summary,
+        "jobs": jobs[:25],
+        "jobs_count": len(jobs),
+        "sessions": sessions[:25],
+        "sessions_count": len(sessions),
+        "blueprints": blueprints[:15],
+        "exclusive_agents": exclusive,
+    }
+
+
+def delete_group(group_id: str) -> dict[str, Any]:
+    from database import delete_agent_group_row, get_agent_group
+
+    preview = group_delete_preview(group_id)
+    if preview.get("is_system"):
+        raise ValueError(preview["summary"])
+    if not preview["can_delete"]:
+        raise GroupInUseError(preview)
+    row = get_agent_group(group_id)
+    if not row:
+        raise ValueError("groupe introuvable")
+    deleted_agents: list[dict[str, str]] = []
+    for agent in preview.get("exclusive_agents") or []:
+        key = str(agent.get("key") or "").strip()
+        if not key:
+            continue
+        try:
+            if delete_custom_agent(key):
+                deleted_agents.append({"key": key, "label": str(agent.get("label") or key)})
+        except ValueError:
+            continue
+    refresh_agents_definitions_cache()
+    if not delete_agent_group_row(str(row["id"])):
+        raise ValueError("suppression impossible")
+    refresh_agents_definitions_cache()
+    return {
+        "ok": True,
+        "deleted_id": str(row["id"]),
+        "deleted_agents": deleted_agents,
+    }
 
 
 def update_group_members(

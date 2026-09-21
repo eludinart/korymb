@@ -44,12 +44,15 @@ from state import (
 )
 from services.agents import (
     agents_def,
-    FLEUR_CONTEXT,
     delegatable_subagent_keys_ordered,
     SUB_AGENT_COORDINATION_FR,
     MODE_CADRAGE_CIO,
     MODE_CADRAGE_AGENT,
     _ascii_fold,
+)
+from services.workspace_brand import (
+    group_sees_workspace_identity,
+    workspace_identity_block,
 )
 from services.memory import active_memory_prompt, operational_memory_digest_prompt
 from services.mission_labels import (
@@ -62,6 +65,21 @@ from services.behavior_defaults import behavior_default_value
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
+
+
+def _identity_block(agent_group_id: str | None = None) -> str:
+    """Pack marque workspace, ou consigne d'isolation si l'équipe a un périmètre fermé."""
+    return workspace_identity_block(agent_group_id)
+
+
+def _job_group_id(job_id: str | None) -> str | None:
+    if not job_id:
+        return None
+    cfg = (active_jobs.get(job_id) or {}).get("mission_config") or {}
+    if not isinstance(cfg, dict):
+        return None
+    gid = str(cfg.get("agent_group_id") or "").strip()
+    return gid or None
 
 
 def _behavior_value(key: str):
@@ -1140,13 +1158,16 @@ def _korymb_memory_prompt_for(
             from services.agent_groups import format_group_memory_prompt, group_memory_scope
 
             scope = group_memory_scope(gid)
+            shared = group_sees_workspace_identity(gid)
             if scope == "none":
-                return drive_blk if drive_blk else ""
+                return drive_blk if (shared and drive_blk) else ""
             if scope == "group":
                 group_blk = format_group_memory_prompt(gid)
-                if drive_blk and group_blk:
+                if shared and drive_blk and group_blk:
                     return f"{group_blk}\n{drive_blk}".strip()
-                return group_blk or drive_blk or ""
+                if shared:
+                    return group_blk or drive_blk or ""
+                return group_blk or ""
         except Exception:
             logger.exception("group memory resolve")
 
@@ -1494,18 +1515,20 @@ def _cio_prompt_memory(
 
                 if group_memory_scope(gid) == "group":
                     gblk = format_group_memory_prompt(gid, max_chars=2500)
-                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + (drive_blk or "")
+                    extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
+                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + extra
                 if group_memory_scope(gid) == "none":
-                    return CHAT_MODE_RESPONSE_RULES + (drive_blk or "")
+                    extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
+                    return CHAT_MODE_RESPONSE_RULES + extra
             except Exception:
                 pass
         return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
-    return (
-        _korymb_memory_prompt_for(
-            agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
-        )
-        + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+    mem = _korymb_memory_prompt_for(
+        agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
     )
+    if not group_sees_workspace_identity(agent_group_id):
+        return mem
+    return mem + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
 
 
 def _cio_attempt_direct_answer(
@@ -1530,7 +1553,7 @@ def _cio_attempt_direct_answer(
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     system = (
         agent_cfg["system"]
-        + FLEUR_CONTEXT
+        + _identity_block(agent_group_id)
         + _cio_prompt_memory(
             "coordinateur",
             exclude_job_id=job_id,
@@ -1628,7 +1651,7 @@ def orchestrate_coordinateur_mission(
                 )
         except Exception:
             group_ctx = ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain + group_ctx
+    system_prompt = agent_cfg["system"] + _identity_block(agent_group_id) + memory_brain + group_ctx
     allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
     deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -2164,14 +2187,18 @@ def orchestrate_coordinateur_mission(
             )
         agent_sys = (
             agents_def()[agent_key]["system"]
-            + FLEUR_CONTEXT
+            + _identity_block(agent_group_id)
             + (
                 ""
                 if chat_mode
                 else _korymb_memory_prompt_for(
                     agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
                 )
-                + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+                + (
+                    operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+                    if group_sees_workspace_identity(agent_group_id)
+                    else ""
+                )
             )
         )
 
@@ -2753,8 +2780,10 @@ def _user_visible_chat_sync_failure_text(exc: BaseException) -> str:
 
 KORYMB_MAX_REFINEMENT_ROUNDS = 12
 
-def _planning_system(agent_key: str) -> str:
-    base = agents_def().get(agent_key, agents_def()["coordinateur"])["system"] + FLEUR_CONTEXT
+def _planning_system(agent_key: str, agent_group_id: str | None = None) -> str:
+    base = agents_def().get(agent_key, agents_def()["coordinateur"])["system"] + _identity_block(
+        agent_group_id
+    )
     if agent_key == "coordinateur":
         return base + MODE_CADRAGE_CIO
     return base + MODE_CADRAGE_AGENT + SUB_AGENT_COORDINATION_FR
@@ -2772,7 +2801,7 @@ def _session_messages_for_llm(messages: list[dict]) -> list[dict]:
 
 
 def _session_planning_llm_turn(session: dict) -> tuple[str, int, int]:
-    system = _planning_system(session["agent"])
+    system = _planning_system(session["agent"], session.get("agent_group_id"))
     msgs = _session_messages_for_llm(session["messages"])
     if not msgs:
         return "(Aucun message à traiter.)", 0, 0
@@ -2811,7 +2840,7 @@ def _cio_refinement_round_mission(
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
     _raise_if_job_cancelled(job_id)
-    crit_sys = agents_def()["coordinateur"]["system"] + FLEUR_CONTEXT
+    crit_sys = agents_def()["coordinateur"]["system"] + _identity_block(_job_group_id(job_id))
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
@@ -2987,13 +3016,14 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
+    gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
     mem = _korymb_memory_prompt_for(
         agent_key,
         exclude_job_id=job_id,
-        agent_group_id=(cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None,
+        agent_group_id=gid,
     )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
+    system_prompt = agent_cfg["system"] + _identity_block(gid) + mem + sub_coord
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
     mission_txt = f"{mission_plain}{context_str}"
 
@@ -3084,11 +3114,18 @@ def _schedule_mission_execution(
                 if mission_mode == "triad":
                     from services.triad_orchestrator import orchestrate_triad
                     from services.knowledge import build_entity_context_block
+                    from services.workspace_brand import group_sees_workspace_identity
+
                     _emit_job_event(
                         job_id, "delegation", "architect",
                         {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
                     )
-                    entity_ctx = build_entity_context_block(mission_plain)
+                    triad_gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
+                    entity_ctx = (
+                        build_entity_context_block(mission_plain)
+                        if group_sees_workspace_identity(triad_gid)
+                        else ""
+                    )
                     result, t_in_total, t_out_total = orchestrate_triad(
                         mission_txt,
                         mission_plain,
@@ -3096,7 +3133,7 @@ def _schedule_mission_execution(
                         job_id=job_id,
                         tool_tags=agent_cfg.get("tools") or None,
                         on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
-                        fleur_context=FLEUR_CONTEXT,
+                        fleur_context=_identity_block(triad_gid),
                         memory_context=entity_ctx,
                     )
                     _raise_if_job_cancelled(job_id)

@@ -59,6 +59,7 @@ body {
     max-height: 100%;
   }
 
+  .app-flush-main,
   .chat-flush-main {
     display: flex;
     flex-direction: column;

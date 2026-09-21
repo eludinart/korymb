@@ -6,18 +6,26 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionTitleLabel } from "../../lib/missionLabel";
-import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+import { ENTERPRISE_GROUP_ID, fleetPerimeterInfo, teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
 import { QK } from "../../lib/queryClient";
+import MissionFleetSelect, {
+  activeFleetGroups,
+  type FleetGroupOption,
+} from "./MissionFleetSelect";
 
 type Props = {
   onCreated: (jobId: string) => void;
   onCancel?: () => void;
   className?: string;
-  /** Groupe d'agents à rattacher (contexte d'équipe projet). */
+  /** Groupe d'agents pré-sélectionné (filtre hub / URL). */
   initialAgentGroupId?: string | null;
   /** Libellé déjà résolu (évite un second fetch). */
   agentGroupLabel?: string;
 };
+
+function leadKeyForGroup(group: FleetGroupOption | undefined): string {
+  return (group?.lead_agent_key || "coordinateur").trim() || "coordinateur";
+}
 
 /** Formulaire de lancement mission — point d'entrée unique (hub Missions). */
 export default function MissionCreatePanel({
@@ -29,6 +37,7 @@ export default function MissionCreatePanel({
 }: Props) {
   const qc = useQueryClient();
   const [mission, setMission] = useState("");
+  const [fleetId, setFleetId] = useState(() => (initialAgentGroupId || "").trim() || ENTERPRISE_GROUP_ID);
   const [agent, setAgent] = useState("coordinateur");
   const [refinementEnabled, setRefinementEnabled] = useState(false);
   const [refinementRounds, setRefinementRounds] = useState(DEFAULT_REFINEMENT_ROUNDS);
@@ -39,20 +48,51 @@ export default function MissionCreatePanel({
     null,
   );
 
-  const agentGroupId = (initialAgentGroupId || "").trim() || null;
+  const groupsQuery = useQuery({
+    queryKey: ["agent-groups"],
+    queryFn: async () => {
+      const { data, res } = await requestJson("/agent-groups", { retries: 1, expectOk: false });
+      if (!res.ok) throw new Error(String(data?.detail || `HTTP ${res.status}`));
+      const list = (data as { groups?: unknown })?.groups;
+      return Array.isArray(list) ? (list as FleetGroupOption[]) : [];
+    },
+    staleTime: 30_000,
+  });
+
+  const fleets = useMemo(() => activeFleetGroups(groupsQuery.data || []), [groupsQuery.data]);
+  const selectedFleet = fleets.find((g) => g.id === fleetId) || fleets[0];
+  const perimeter = fleetPerimeterInfo(selectedFleet || { id: fleetId });
   const groupLabel =
+    (selectedFleet?.label || "").trim() ||
     (agentGroupLabel || "").trim() ||
-    (agentGroupId === "entreprise" ? "Entreprise" : agentGroupId ? "Équipe projet" : "");
+    (fleetId === ENTERPRISE_GROUP_ID ? "Entreprise" : "Équipe projet");
 
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
   });
 
-  const agentOptions = useMemo(
-    () => (agents.data || []) as { key: string; label: string }[],
-    [agents.data],
-  );
+  const agentOptions = useMemo(() => {
+    const all = (agents.data || []) as { key: string; label: string }[];
+    if (!selectedFleet) return all;
+    const allow = new Set<string>([
+      leadKeyForGroup(selectedFleet),
+      ...(selectedFleet.member_keys || []),
+      ...(selectedFleet.members || []).map((m) => m.key),
+    ]);
+    const filtered = all.filter((a) => allow.has(a.key));
+    return filtered.length ? filtered : all;
+  }, [agents.data, selectedFleet]);
+
+  useEffect(() => {
+    const fromUrl = (initialAgentGroupId || "").trim();
+    if (fromUrl) setFleetId(fromUrl);
+  }, [initialAgentGroupId]);
+
+  const fleetLead = selectedFleet?.lead_agent_key || "";
+  useEffect(() => {
+    if (fleetLead) setAgent(fleetLead);
+  }, [fleetId, fleetLead]);
 
   useEffect(() => {
     const text = mission.trim();
@@ -84,29 +124,19 @@ export default function MissionCreatePanel({
     setMsg("");
     try {
       const rounds = clampRefinementRounds(refinementRounds);
-      const payload: {
-        mission: string;
-        agent: string;
-        mission_config?: {
-          recursive_refinement_enabled?: boolean;
-          recursive_max_rounds?: number;
-          cio_plan_hitl_enabled?: boolean;
-          agent_group_id?: string | null;
-        };
-      } = { mission: mission.trim(), agent };
-      const mcfg: {
-        recursive_refinement_enabled?: boolean;
-        recursive_max_rounds?: number;
-        cio_plan_hitl_enabled?: boolean;
-        agent_group_id?: string | null;
-      } = {};
-      if (refinementEnabled) {
-        mcfg.recursive_refinement_enabled = true;
-        mcfg.recursive_max_rounds = rounds;
-      }
-      if (skipPlanHitl) mcfg.cio_plan_hitl_enabled = false;
-      if (agentGroupId) mcfg.agent_group_id = agentGroupId;
-      if (Object.keys(mcfg).length) payload.mission_config = mcfg;
+      const gid = (selectedFleet?.id || fleetId || ENTERPRISE_GROUP_ID).trim();
+      const orch = leadKeyForGroup(selectedFleet);
+      const payload = {
+        mission: mission.trim(),
+        agent: agent || orch,
+        mission_config: {
+          recursive_refinement_enabled: refinementEnabled || undefined,
+          recursive_max_rounds: refinementEnabled ? rounds : undefined,
+          cio_plan_hitl_enabled: skipPlanHitl ? false : undefined,
+          agent_group_id: gid,
+          orchestrator_key: orch,
+        },
+      };
 
       const { data } = await requestJson("/run", {
         method: "POST",
@@ -136,26 +166,28 @@ export default function MissionCreatePanel({
         <div>
           <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
           <p className="mt-0.5 text-xs text-slate-600">
-            {agentGroupId
-              ? `Décrivez votre objectif — l’équipe « ${groupLabel} » l’exécute (délégation limitée à ses membres).`
-              : "Décrivez votre objectif — le CIO orchestre l'équipe."}
+            Choisissez la flotte, puis décrivez l&apos;objectif. Le périmètre (contexte global ou mémoire d&apos;équipe) est
+            celui de l&apos;équipe.
           </p>
         </div>
-        {agentGroupId || onCancel ? (
+        {onCancel ? (
           <div className="flex flex-wrap items-center gap-2">
-            {agentGroupId ? (
-              <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(agentGroupId)}`}>
-                {teamIdentityLabel(agentGroupId, groupLabel)}
+            {selectedFleet ? (
+              <span className={`rounded-full px-2 py-1 text-[10px] font-bold tracking-wide ${teamBadgeClass(selectedFleet.id)}`}>
+                {teamIdentityLabel(selectedFleet.id, groupLabel)}
               </span>
             ) : null}
-            {onCancel ? (
-              <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
-                Fermer
-              </button>
-            ) : null}
+            <button type="button" onClick={onCancel} className="btn-secondary px-3 py-1.5 text-xs">
+              Fermer
+            </button>
           </div>
         ) : null}
       </div>
+
+      <MissionFleetSelect value={fleetId} onChange={setFleetId} groups={fleets} disabled={busy} />
+      {groupsQuery.isError ? (
+        <p className="text-xs text-amber-800">Impossible de charger les équipes — flotte Entreprise par défaut.</p>
+      ) : null}
 
       <div>
         <label htmlFor="mission-create-text" className="field-label">
@@ -197,6 +229,10 @@ export default function MissionCreatePanel({
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Limité aux membres de « {groupLabel} ». Orchestration : {selectedFleet?.lead_label || "lead"}.{" "}
+              {perimeter.isolated ? "Contexte global non injecté." : "Contexte global injecté."}
+            </p>
           </div>
           <label className="flex cursor-pointer items-start gap-2 text-xs">
             <input

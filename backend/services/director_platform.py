@@ -482,10 +482,10 @@ def _build_top_priorities(
             "id": str(
                 item.get("ticket_id")
                 or item.get("event_id")
-                or item.get("job_id")
                 or item.get("output_id")
                 or item.get("suggestion_id")
-                or len(out)
+                or item.get("job_id")
+                or f"{item.get('kind')}-{len(out)}"
             ),
             "label": _priority_label(item),
             "href": _priority_href(item),

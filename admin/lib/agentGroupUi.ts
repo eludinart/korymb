@@ -98,3 +98,63 @@ export function teamBadgeClass(groupId?: string | null): string {
 export function missionLeadLabel(groupId: string): string {
   return isEnterpriseAgentGroup(groupId) ? "CIO" : "lead";
 }
+
+export type FleetPerimeterKind = "global" | "inherited" | "team" | "none";
+
+export type FleetPerimeterInfo = {
+  kind: FleetPerimeterKind;
+  short: string;
+  detail: string;
+  isolated: boolean;
+};
+
+/** Périmètre mémoire / marque d'une flotte — aligné sur le backend (avec ou sans contexte global). */
+export function fleetPerimeterInfo(group: {
+  id?: string | null;
+  memory_scope?: string | null;
+  inherit_shared?: boolean | null;
+  sees_workspace_identity?: boolean | null;
+  policy?: { memory_scope?: string } | null;
+}): FleetPerimeterInfo {
+  const id = (group.id || "").trim();
+  const scope = String(group.memory_scope || group.policy?.memory_scope || "")
+    .trim()
+    .toLowerCase();
+  const inherit = Boolean(group.inherit_shared);
+  const sees =
+    typeof group.sees_workspace_identity === "boolean"
+      ? group.sees_workspace_identity
+      : isEnterpriseAgentGroup(id) || scope === "enterprise" || inherit;
+
+  if (scope === "none") {
+    return {
+      kind: "none",
+      short: "Sans mémoire",
+      detail: "Aucun contexte métier injecté — uniquement le prompt de rôle et la consigne.",
+      isolated: true,
+    };
+  }
+  if (scope === "group" && !sees) {
+    return {
+      kind: "team",
+      short: "Mémoire d'équipe seule",
+      detail:
+        "Périmètre isolé : la flotte n'utilise pas le contexte global (marque, mémoire partagée). Uniquement le brief d'équipe.",
+      isolated: true,
+    };
+  }
+  if (scope === "group" && inherit) {
+    return {
+      kind: "inherited",
+      short: "Équipe + contexte global",
+      detail: "Mémoire d'équipe, plus un extrait du contexte global du workspace.",
+      isolated: false,
+    };
+  }
+  return {
+    kind: "global",
+    short: "Contexte global",
+    detail: "Cette flotte utilise la marque et la mémoire partagée du workspace.",
+    isolated: false,
+  };
+}

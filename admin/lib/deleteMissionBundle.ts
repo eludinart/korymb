@@ -21,6 +21,7 @@ export function invalidateAfterMissionDelete(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: QK.jobsCards });
   void qc.invalidateQueries({ queryKey: QK.jobsLight });
   void qc.invalidateQueries({ queryKey: QK.jobsActive });
+  void qc.invalidateQueries({ queryKey: QK.operationalMap });
   void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
   void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
   void qc.invalidateQueries({ queryKey: QK.tokens });

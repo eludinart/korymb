@@ -736,6 +736,17 @@ export const businessApi = {
     );
     return data as BizProject;
   },
+  deleteProject: async (id: string) => {
+    const { res, data } = await requestJson(`/business/projects/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: agentHeaders(),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer ce dossier.");
+    }
+    return data as { deleted?: boolean };
+  },
   listQuotes: async () => {
     const { data } = await requestJson("/business/quotes", {
       headers: agentHeaders(),

@@ -83,6 +83,7 @@ function CommandPaletteInner() {
       : [];
     return [
       { id: "briefing", label: "Briefing du jour", href: "/briefing", group: "Navigation" },
+      { id: "carte", label: "Carte des projets", hint: "Équipes, missions, où j'en suis", href: "/carte", group: "Navigation" },
       ...espaceCommands,
       ...gestionNav,
       ...gestionActions,

@@ -37,6 +37,13 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
     exact: true,
   },
   {
+    href: "/carte",
+    label: "Carte",
+    hint: "Graphe équipes · missions · projets",
+    icon: "🗺️",
+    group: "equipes",
+  },
+  {
     href: "/gestion/studio",
     label: "Studio",
     hint: "Articles, PDF, podcasts, vidéo, réseaux",
