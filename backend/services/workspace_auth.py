@@ -431,6 +431,8 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     members = list_workspace_operators(workspace_id) if membership else []
     role = normalize_role(str((membership or {}).get("role") or "member"))
     ws = dict(workspace or {})
+    from workspace_db import normalize_ui_mode
+
     return {
         "user": user,
         "workspace": {
@@ -440,6 +442,7 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
             "public_enabled": workspace_public_enabled(ws),
             "tagline": ws.get("tagline") or "",
             "starter_pack_id": ws.get("starter_pack_id") or "",
+            "ui_mode": normalize_ui_mode(ws.get("ui_mode"), workspace_id=str(ws.get("id") or "")),
         },
         "workspaces": workspaces,
         "members": members,

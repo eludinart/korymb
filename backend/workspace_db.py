@@ -151,6 +151,7 @@ def _ensure_workspace_public_columns(conn) -> None:
         "logo_file_id": "TEXT NOT NULL DEFAULT ''",
         "cover_file_id": "TEXT NOT NULL DEFAULT ''",
         "starter_pack_id": "TEXT NOT NULL DEFAULT ''",
+        "ui_mode": "TEXT NOT NULL DEFAULT ''",
     }
     for name, ddl in alterations.items():
         if name not in cols:
@@ -161,6 +162,44 @@ def _ensure_workspace_public_columns(conn) -> None:
 
 
 PARTICIPANT_STATUSES = ("pending", "guest", "active", "disabled")
+
+UI_MODES = frozenset({"essential", "advanced"})
+
+
+def normalize_ui_mode(raw: Any, *, workspace_id: str = "") -> str:
+    """
+    essential = surface simplifiée (défaut des nouveaux espaces).
+    advanced = toutes les pages (défaut implicite des espaces legacy sans valeur).
+    """
+    value = str(raw or "").strip().lower()
+    if value in UI_MODES:
+        return value
+    wid = (workspace_id or "").strip()
+    if wid == "ws-default-legacy":
+        return "advanced"
+    # Colonne vide sur un espace préexistant → advanced pour ne pas surprendre.
+    if not value and wid:
+        return "advanced"
+    return "essential"
+
+
+def set_workspace_ui_mode(workspace_id: str, ui_mode: str) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    mode = normalize_ui_mode(ui_mode, workspace_id=wid)
+    if str(ui_mode or "").strip().lower() not in UI_MODES:
+        raise ValueError("Mode d'interface invalide (essential ou advanced).")
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET ui_mode = ? WHERE id = ?",
+            (mode, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
 
 
 def normalize_participant_status(raw: Any, *, role: str = "") -> str:
@@ -448,6 +487,10 @@ def create_workspace(
             (wid, owner_user_id, now),
         )
         conn.commit()
+    try:
+        set_workspace_ui_mode(wid, "essential")
+    except Exception:
+        pass
     seed_workspace_defaults(wid)
     from services.starter_packs import apply_starter_pack, normalize_pack_id
 

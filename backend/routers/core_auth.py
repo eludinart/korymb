@@ -54,6 +54,11 @@ class ApplyStarterPackBody(BaseModel):
     starter_pack_id: str = Field(min_length=1, max_length=64)
 
 
+class UiModeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ui_mode: str = Field(pattern="^(essential|advanced)$")
+
+
 class InviteMemberBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: EmailStr
@@ -177,6 +182,29 @@ def auth_apply_starter_pack(
         return apply_starter_pack(workspace_id, body.starter_pack_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/workspace/ui-mode")
+def auth_set_ui_mode(body: UiModeBody, auth: dict = Depends(auth_svc.require_admin)):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Préférence réservée aux utilisateurs connectés.")
+    workspace_id = str(auth.get("workspace_id") or "")
+    from workspace_db import normalize_ui_mode, set_workspace_ui_mode
+
+    try:
+        workspace = set_workspace_ui_mode(workspace_id, body.ui_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "workspace": {
+            "id": (workspace or {}).get("id"),
+            "name": (workspace or {}).get("name"),
+            "ui_mode": normalize_ui_mode(
+                (workspace or {}).get("ui_mode"),
+                workspace_id=workspace_id,
+            ),
+        }
+    }
 
 
 @router.get("/members")

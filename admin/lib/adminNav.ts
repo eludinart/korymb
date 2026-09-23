@@ -60,6 +60,28 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   },
 ] as const;
 
+/** Liens visibles en mode Essentiel (le reste reste accessible via URL / mode Avancé). */
+const ESSENTIAL_ADMIN_HREFS = new Set([
+  "/administration/memory",
+  "/administration/vitrine",
+  "/administration/modeles",
+  "/administration/integrations",
+  "/administration/equipes",
+]);
+
+export function filterAdminNavGroups(
+  groups: readonly AdminNavGroup[],
+  opts: { essential: boolean },
+): AdminNavGroup[] {
+  if (!opts.essential) return groups.map((g) => ({ ...g, links: [...g.links] }));
+  return groups
+    .map((g) => ({
+      ...g,
+      links: g.links.filter((l) => ESSENTIAL_ADMIN_HREFS.has(l.href)),
+    }))
+    .filter((g) => g.links.length > 0);
+}
+
 /** Pages du périmètre « gestion des agents » (sous-nav dédiée). */
 export function isAgentsAdminPath(pathname: string): boolean {
   return (

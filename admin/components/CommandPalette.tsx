@@ -6,9 +6,10 @@ import { useQuery } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../lib/api";
 import { QK } from "../lib/queryClient";
 import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
-import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS } from "../lib/gestionNav";
+import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS, filterGestionNavLinks } from "../lib/gestionNav";
 import type { Job } from "../lib/types";
 import type { AuthMeResponse } from "../lib/authSession";
+import { normalizeUiMode } from "../lib/uiMode";
 
 type Command = {
   id: string;
@@ -55,14 +56,19 @@ function CommandPaletteInner() {
   });
 
   const baseCommands: Command[] = useMemo(() => {
-    const gestionNav: Command[] = GESTION_NAV_LINKS.map((link) => ({
+    const essential = normalizeUiMode(me.data?.workspace?.ui_mode) === "essential";
+    const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential });
+    const gestionNav: Command[] = gestionLinks.map((link) => ({
       id: `gestion-${link.href}`,
       label: link.label,
       hint: link.hint,
       href: link.href,
       group: "Gestion entreprise",
     }));
-    const gestionActions: Command[] = GESTION_QUICK_ACTIONS.map((action) => ({
+    const gestionActions: Command[] = (essential
+      ? GESTION_QUICK_ACTIONS.filter((a) => ["new-contact", "new-event", "new-quote"].includes(a.id))
+      : GESTION_QUICK_ACTIONS
+    ).map((action) => ({
       id: action.id,
       label: action.label,
       hint: action.hint,
@@ -81,9 +87,20 @@ function CommandPaletteInner() {
           },
         ]
       : [];
+    const nav: Command[] = [
+      { id: "briefing", label: "Accueil du jour", href: "/briefing", group: "Navigation" },
+    ];
+    if (!essential) {
+      nav.push({
+        id: "carte",
+        label: "Carte des projets",
+        hint: "Équipes, missions, où j'en suis",
+        href: "/carte",
+        group: "Navigation",
+      });
+    }
     return [
-      { id: "briefing", label: "Briefing du jour", href: "/briefing", group: "Navigation" },
-      { id: "carte", label: "Carte des projets", hint: "Équipes, missions, où j'en suis", href: "/carte", group: "Navigation" },
+      ...nav,
       ...espaceCommands,
       ...gestionNav,
       ...gestionActions,
@@ -104,15 +121,19 @@ function CommandPaletteInner() {
       { id: "missions", label: "Missions", href: "/missions", group: "Navigation" },
       { id: "mission-new", label: "Lancer une mission", href: "/missions?create=1", group: "Actions IA" },
       { id: "chat", label: "Chat dirigeant", href: "/chat", group: "Navigation" },
-      { id: "dashboard", label: "Vue agents", href: "/dashboard", group: "Navigation" },
-      {
-        id: "budget",
-        label: "Budget & coûts IA",
-        href: "/administration/budget",
-        group: "Administration",
-      },
+      ...(essential
+        ? []
+        : [
+            { id: "dashboard", label: "Vue agents", href: "/dashboard", group: "Navigation" },
+            {
+              id: "budget",
+              label: "Budget & coûts IA",
+              href: "/administration/budget",
+              group: "Administration",
+            },
+          ]),
     ];
-  }, [me.data?.workspace?.slug]);
+  }, [me.data?.workspace?.slug, me.data?.workspace?.ui_mode]);
 
   const jobCommands: Command[] = useMemo(() => {
     const rows = (jobs.data || []).filter((j) => String(j.source || "") !== "chat").slice(0, 12);

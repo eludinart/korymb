@@ -28,6 +28,12 @@
 - Implementation: `backend/services/starter_packs.py`, column `korymb_workspaces.starter_pack_id` (audit only).
 - Details: `docs/STARTER-PACKS.md`.
 
+## UI mode (essential / advanced)
+
+- Workspace preference `ui_mode`: `essential` (default for new spaces) or `advanced` (legacy empty / Élude).
+- Essential: simplified Accueil briefing, filtered nav (no Carte/Studio by default), clearer Décisions copy.
+- Toggle: header « Passer en Avancé/Essentiel », Configuration → Mode d'interface, `PATCH /auth/workspace/ui-mode`.
+
 ## Reliability Principles
 
 - Validate every API payload at boundaries (Pydantic models).

@@ -98,11 +98,13 @@ export function StatCard({
 
 export function SectionCard({
   title,
+  description,
   children,
   tone = "default",
   action,
 }: {
   title: string;
+  description?: string;
   children: ReactNode;
   tone?: "default" | "budget" | "alert";
   action?: ReactNode;
@@ -110,7 +112,10 @@ export function SectionCard({
   return (
     <section className={`section-card section-card--${tone}`}>
       <div className="section-card-head">
-        <h2 className="section-title">{title}</h2>
+        <div className="min-w-0">
+          <h2 className="section-title">{title}</h2>
+          {description ? <p className="mt-0.5 text-xs font-medium text-slate-500">{description}</p> : null}
+        </div>
         {action}
       </div>
       <div className="section-card-body">{children}</div>

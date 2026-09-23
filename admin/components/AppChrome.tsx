@@ -13,9 +13,11 @@ import CommandPalette from "./CommandPalette";
 import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
 import { useExecutiveMode } from "../lib/executiveMode";
+import { useUiMode } from "../lib/uiMode";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const { executiveMode, showTechnical, technicalOptIn, isPilotage, toggleTechnical } = useExecutiveMode();
+  const { isEssential, setUiMode, busy: uiBusy } = useUiMode();
   const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname() || "";
   const isChat = pathname === "/chat";
@@ -58,16 +60,24 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                 isChat ? "hidden sm:block" : ""
               }`}
             >
-              Cockpit dirigeant
+              {isEssential ? "Mode essentiel" : "Cockpit dirigeant"}
             </p>
             <RuntimeHeader visible={showTechnical} />
             {!isPilotage ? (
               <p className="mt-0.5 hidden text-xs font-semibold text-slate-500 sm:block">
-                {executiveMode ? "Pilotage du jour · " : null}
+                <button
+                  type="button"
+                  disabled={uiBusy}
+                  onClick={() => void setUiMode(isEssential ? "advanced" : "essential")}
+                  className="font-bold text-violet-700 underline-offset-2 hover:underline disabled:opacity-60"
+                >
+                  {isEssential ? "Passer en Avancé" : "Passer en Essentiel"}
+                </button>
+                <span className="mx-1 text-slate-300">·</span>
                 <button
                   type="button"
                   onClick={toggleTechnical}
-                  className="font-bold text-violet-700 underline-offset-2 hover:underline"
+                  className="font-bold text-slate-600 underline-offset-2 hover:underline"
                 >
                   {technicalOptIn ? "Masquer le technique" : "Afficher le technique"}
                 </button>

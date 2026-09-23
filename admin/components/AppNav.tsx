@@ -5,33 +5,44 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
-import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
-import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
+import { ADMIN_NAV_GROUPS, filterAdminNavGroups, isAdminLinkActive } from "../lib/adminNav";
+import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
 import {
   GESTION_HUB_HREF,
   GESTION_NAV_LINKS,
   GESTION_QUICK_ACTIONS,
+  filterGestionNavLinks,
   groupedGestionNavLinks,
   gestionNavGroupCompactClass,
   gestionNavGroupHeadingClass,
   isGestionLinkActive,
   isGestionPath,
 } from "../lib/gestionNav";
+import { useUiMode } from "../lib/uiMode";
+import { UX_COPY } from "../lib/uxCopy";
 
-type NavPrimaryItem = { href: string; label: string; priority?: boolean; tone?: "amber" | "sky" };
+type NavPrimaryItem = { href: string; label: string; priority?: boolean; tone?: "amber" | "sky"; hint?: string };
 
-const NAV_BEFORE_GESTION: NavPrimaryItem[] = [
-  { href: "/briefing", label: "Briefing", priority: true, tone: "amber" },
+const NAV_BEFORE_GESTION_FULL: NavPrimaryItem[] = [
+  { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
   { href: "/carte", label: "Carte", priority: true, tone: "sky" },
 ];
 
-const NAV_AFTER_GESTION: NavPrimaryItem[] = [
-  { href: DIRECTOR_QUEUE_HREF, label: DIRECTOR_QUEUE_LABEL, priority: true, tone: "amber" },
-  { href: "/missions", label: "Missions", priority: true },
-  { href: "/chat", label: "Chat" },
+const NAV_BEFORE_GESTION_ESSENTIAL: NavPrimaryItem[] = [
+  { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
 ];
 
-const NAV_PRIMARY: NavPrimaryItem[] = [...NAV_BEFORE_GESTION, ...NAV_AFTER_GESTION];
+const NAV_AFTER_GESTION: NavPrimaryItem[] = [
+  {
+    href: DIRECTOR_QUEUE_HREF,
+    label: DIRECTOR_QUEUE_LABEL,
+    priority: true,
+    tone: "amber",
+    hint: DIRECTOR_QUEUE_HINT,
+  },
+  { href: "/missions", label: UX_COPY.missions.label, priority: true, hint: UX_COPY.missions.hint },
+  { href: "/chat", label: UX_COPY.chat.label, hint: UX_COPY.chat.hint },
+];
 
 const NAV_MORE = [
   { href: "/dashboard", label: "Vue agents" },
@@ -85,6 +96,7 @@ function adminHref(href: string) {
 
 export default function AppNav() {
   const pathname = usePathname() || "";
+  const { isEssential } = useUiMode();
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
   const gestionActive = isGestionPath(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -96,6 +108,17 @@ export default function AppNav() {
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
+
+  const navBefore = isEssential ? NAV_BEFORE_GESTION_ESSENTIAL : NAV_BEFORE_GESTION_FULL;
+  const navPrimary = [...navBefore, ...NAV_AFTER_GESTION];
+  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, { essential: isEssential });
+  const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential: isEssential });
+  const gestionGroups = groupedGestionNavLinks(isEssential);
+  const gestionQuick = isEssential
+    ? GESTION_QUICK_ACTIONS.filter((a) =>
+        ["new-contact", "new-event", "new-quote"].includes(a.id),
+      )
+    : GESTION_QUICK_ACTIONS;
 
   useEffect(() => setMounted(true), []);
 
@@ -175,7 +198,7 @@ export default function AppNav() {
 
   const gestionDropdown = (onNavigate: () => void, variant: "desktop" | "drawer") => (
     <>
-      {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
+      {gestionLinks.filter((item) => item.exact).map((item) => {
         const active = isGestionLinkActive(pathname, item);
         const cls =
           variant === "desktop"
@@ -197,7 +220,7 @@ export default function AppNav() {
           </Link>
         );
       })}
-      {groupedGestionNavLinks().map((group) => (
+      {gestionGroups.map((group) => (
         <div key={group.id} className={variant === "desktop" ? "mt-1 border-t border-emerald-50 pt-1" : "mt-2"}>
           <p
             className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}
@@ -231,7 +254,7 @@ export default function AppNav() {
       {variant === "desktop" ? (
         <div className="mt-2 border-t border-slate-100 pt-2">
           <p className="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Actions</p>
-          {GESTION_QUICK_ACTIONS.map((action) => (
+          {gestionQuick.map((action) => (
             <Link
               key={action.id}
               href={action.href}
@@ -278,7 +301,7 @@ export default function AppNav() {
 
   const adminSubLinks = adminActive ? (
     <div className="mt-3 space-y-3 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
-      {ADMIN_NAV_GROUPS.map((group) => (
+      {adminGroups.map((group) => (
         <div
           key={group.id}
           className={
@@ -311,12 +334,17 @@ export default function AppNav() {
           })}
         </div>
       ))}
+      {isEssential ? (
+        <p className="px-2 pt-1 text-[11px] font-medium text-slate-500">
+          Mode Essentiel — basculez en Avancé dans Configuration pour tout afficher.
+        </p>
+      ) : null}
     </div>
   ) : null;
 
   const navLinks = (
     <>
-      {NAV_PRIMARY.map((item) => {
+      {navPrimary.map((item) => {
         const active = isNavActive(pathname, item.href);
         return (
           <Link
@@ -324,6 +352,7 @@ export default function AppNav() {
             href={item.href}
             onClick={closeMenu}
             className={`${drawerLinkClass(active, item.priority)} inline-flex items-center`}
+            title={item.hint}
           >
             {item.label}
           </Link>
@@ -366,13 +395,14 @@ export default function AppNav() {
     <>
       <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 xl:flex">
         <nav className="flex flex-wrap items-center justify-end gap-2">
-          {NAV_BEFORE_GESTION.map((item) => {
+          {navBefore.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
+                title={item.hint}
               >
                 {item.label}
               </Link>
@@ -463,7 +493,7 @@ export default function AppNav() {
             aria-label="Sous-menu gestion"
           >
             <span className="self-center pe-1 font-bold text-emerald-600">Gestion:</span>
-            {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
+            {gestionLinks.filter((item) => item.exact).map((item) => {
               const active = isGestionLinkActive(pathname, item);
               return (
                 <Link
@@ -478,7 +508,7 @@ export default function AppNav() {
                 </Link>
               );
             })}
-            {groupedGestionNavLinks().map((group) => (
+            {gestionGroups.map((group) => (
               <div key={group.id} className="flex flex-wrap items-center gap-1">
                 <span className={`font-bold ${gestionNavGroupCompactClass(group.id)}`}>
                   {group.label}:
@@ -505,7 +535,7 @@ export default function AppNav() {
 
         {adminActive ? (
           <nav className="flex max-w-full flex-wrap justify-end gap-x-3 gap-y-1 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
-            {ADMIN_NAV_GROUPS.map((group) => (
+            {adminGroups.map((group) => (
               <div
                 key={group.id}
                 className={`flex flex-wrap items-center gap-1 ${

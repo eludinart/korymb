@@ -125,13 +125,46 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
 }
 
-export function groupedGestionNavLinks(): { id: GestionNavGroupId; label: string; links: GestionNavLink[] }[] {
-  const order: GestionNavGroupId[] = ["creation", "equipes", "activite"];
+/** Liens Gestion en mode Essentiel. */
+const ESSENTIAL_GESTION_HREFS = new Set([
+  GESTION_HUB_HREF,
+  "/gestion/playbooks",
+  "/gestion/livrables",
+  "/gestion/contacts",
+  "/gestion/courrier",
+  "/gestion/planning",
+  "/gestion/devis",
+]);
+
+const ESSENTIAL_LABEL_OVERRIDES: Record<string, string> = {
+  "/gestion/livrables": "Documents",
+};
+
+export function filterGestionNavLinks(
+  links: readonly GestionNavLink[],
+  opts: { essential: boolean },
+): GestionNavLink[] {
+  const base = opts.essential ? links.filter((l) => ESSENTIAL_GESTION_HREFS.has(l.href)) : [...links];
+  return base.map((l) => {
+    const override = opts.essential ? ESSENTIAL_LABEL_OVERRIDES[l.href] : undefined;
+    return override ? { ...l, label: override } : l;
+  });
+}
+
+export function groupedGestionNavLinks(essential = false): {
+  id: GestionNavGroupId;
+  label: string;
+  links: GestionNavLink[];
+}[] {
+  const filtered = filterGestionNavLinks(GESTION_NAV_LINKS, { essential });
+  const order: GestionNavGroupId[] = essential
+    ? ["creation", "activite"]
+    : ["creation", "equipes", "activite"];
   return order.map((id) => ({
     id,
     label: GESTION_NAV_GROUP_LABELS[id],
-    links: GESTION_NAV_LINKS.filter((link) => link.group === id && !link.exact) as GestionNavLink[],
-  }));
+    links: filtered.filter((link) => link.group === id && !link.exact) as GestionNavLink[],
+  })).filter((g) => g.links.length > 0);
 }
 
 export function gestionNavGroupHeadingClass(id: GestionNavGroupId): string {

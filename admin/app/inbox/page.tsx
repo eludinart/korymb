@@ -17,7 +17,7 @@ import {
 import { agentHeaders, requestJson } from "../../lib/api";
 import { filterSnoozedItems } from "../../lib/inboxSnooze";
 import { asInboxItems, fetchAdminInboxItems } from "../../lib/inboxQuery";
-import { DIRECTOR_QUEUE_EMPTY, DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL, DIRECTOR_QUEUE_TITLE } from "../../lib/directorQueue";
+import { DIRECTOR_QUEUE_EMPTY, DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL, DIRECTOR_QUEUE_SUBTITLE, DIRECTOR_QUEUE_TITLE } from "../../lib/directorQueue";
 import { closeInboxBulk } from "../../lib/missionActions";
 
 function InboxPageContent() {
@@ -63,13 +63,13 @@ function InboxPageContent() {
 
       <PageHeader
         accent="amber"
-        badge="Actions requises"
+        badge={DIRECTOR_QUEUE_SUBTITLE}
         title={DIRECTOR_QUEUE_TITLE}
-        description="HITL, questions CIO, clôtures et approbations — une file de décisions, distincte du courrier."
+        description="Validations, questions et clôtures à traiter — distinct du courrier (Gestion → Courrier)."
         actions={
           <>
             <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Mode triage</PageLink>
-            <PageLink href="/briefing">Briefing</PageLink>
+            <PageLink href="/briefing">Accueil</PageLink>
             <PageLink href="/missions" variant="secondary">
               Missions
             </PageLink>

@@ -16,6 +16,7 @@ export type AuthWorkspace = {
   public_enabled?: boolean;
   tagline?: string;
   starter_pack_id?: string;
+  ui_mode?: string;
 };
 
 export type AuthMeResponse = {

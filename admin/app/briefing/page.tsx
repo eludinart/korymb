@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
 import BriefingCommercialPanel from "../../components/director/BriefingCommercialPanel";
+import BriefingEssential from "../../components/director/BriefingEssential";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import GestionShortcuts from "../../components/gestion/GestionShortcuts";
 import {
@@ -25,7 +26,7 @@ import {
 import { agentHeaders, requestJson } from "../../lib/api";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
-import { starterPackLabel } from "../../lib/starterPacks";
+import { useUiMode } from "../../lib/uiMode";
 
 import type { Job } from "../../lib/types";
 
@@ -37,6 +38,8 @@ function BriefingPageContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const showWelcome = searchParams.get("welcome") === "1";
+  const packId = searchParams.get("pack");
+  const { isEssential, loading: uiLoading } = useUiMode();
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
 
@@ -45,7 +48,10 @@ function BriefingPageContent() {
     queryFn: async () => {
       const r = await fetch("/api/auth/me", { cache: "no-store" });
       if (!r.ok) return null;
-      return r.json() as Promise<{ user?: { name?: string; email?: string } }>;
+      return r.json() as Promise<{
+        user?: { name?: string; email?: string; display_name?: string };
+        workspace?: { ui_mode?: string };
+      }>;
     },
     staleTime: 300_000,
   });
@@ -66,11 +72,26 @@ function BriefingPageContent() {
       return ((data as { jobs?: Job[] })?.jobs || []) as Job[];
     },
     staleTime: 20_000,
+    enabled: !isEssential,
   });
 
-  const b = briefing.data;
+  const b = briefing.data as
+    | {
+        decisions_today?: Array<{ id?: string; kind?: string; title?: string; mission?: string; href?: string }>;
+        inbox_total?: number;
+        missions_running?: Array<{ job_id: string; mission?: string }>;
+        commercial?: unknown;
+        unconsulted_results?: Array<{
+          job_id: string;
+          mission?: string;
+          status?: string;
+          result_surface?: string | null;
+        }>;
+      }
+    | undefined;
   const jobRows = jobs.data || [];
-  const userName = me.data?.user?.name || me.data?.user?.email?.split("@")[0];
+  const userName =
+    me.data?.user?.display_name || me.data?.user?.name || me.data?.user?.email?.split("@")[0];
 
   const deleteMission = async (jobId: string, mission?: string) => {
     if (!confirmDeleteMission(jobId, mission)) return;
@@ -87,50 +108,50 @@ function BriefingPageContent() {
     }
   };
 
+  if (uiLoading) {
+    return (
+      <PageShell size="wide">
+        <LoadingLine />
+      </PageShell>
+    );
+  }
+
+  if (isEssential) {
+    return (
+      <PageShell size="wide">
+        {briefing.isLoading ? <LoadingLine /> : null}
+        {briefing.isError ? (
+          <AlertBox tone="error" title="Accueil indisponible">
+            {isMariaDbTunnelError(briefing.error?.message || "") ? (
+              <>
+                Le tunnel MariaDB est coupé (port 3307). Relancez{" "}
+                <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span>, puis rechargez.
+              </>
+            ) : (
+              <>Vérifiez que le backend tourne, puis réessayez.</>
+            )}
+          </AlertBox>
+        ) : null}
+        <BriefingEssential
+          userName={userName}
+          showWelcome={showWelcome}
+          packId={packId}
+          decisions={b?.decisions_today || []}
+          inboxTotal={Number(b?.inbox_total || 0)}
+          missionsRunning={b?.missions_running || []}
+        />
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell size="wide">
       {showWelcome ? (
         <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
           <p className="text-sm font-bold text-emerald-900">Bienvenue dans le cockpit dirigeant</p>
           <p className="mt-1 text-sm text-emerald-800">
-            Rituel du jour : briefing, décisions, missions, gestion. Ce n’est pas l’espace des participants. Utilisez{" "}
-            <kbd className="rounded bg-emerald-100 px-1 font-mono text-xs">Ctrl+K</kbd> pour naviguer vite.
+            Mode Avancé actif. Pour une interface plus simple : Configuration → Mode Essentiel.
           </p>
-          {searchParams.get("pack") && searchParams.get("pack") !== "blank" ? (
-            <p className="mt-3 text-sm text-emerald-900">
-              Le modèle{" "}
-              <strong>{starterPackLabel(searchParams.get("pack"))}</strong> a préparé des playbooks et une
-              mémoire de départ. Personnalisez ensuite :{" "}
-              <Link href="/gestion/playbooks" className="font-bold underline">
-                Playbooks
-              </Link>
-              {" · "}
-              <Link href="/administration/memory" className="font-bold underline">
-                Mémoire
-              </Link>
-              {" · "}
-              <Link href="/administration/vitrine" className="font-bold underline">
-                Vitrine
-              </Link>
-              .
-            </p>
-          ) : (
-            <p className="mt-3 text-sm text-emerald-900">
-              Espace démarré vide : enrichissez la{" "}
-              <Link href="/administration/memory" className="font-bold underline">
-                mémoire
-              </Link>{" "}
-              et les{" "}
-              <Link href="/gestion/playbooks" className="font-bold underline">
-                playbooks
-              </Link>
-              , ou appliquez un modèle dans{" "}
-              <Link href="/administration/modeles" className="font-bold underline">
-                Administration → Modèles
-              </Link>
-              .
-            </p>
-          )}
         </div>
       ) : null}
 
@@ -168,45 +189,37 @@ function BriefingPageContent() {
               <SectionCard title="Résultats à reprendre">
                 <p className="mb-3 text-sm text-slate-600">
                   Missions terminées (ou en attente de validation) dont vous n&apos;avez pas encore ouvert le
-                  résultat. Rouvrez-les pour reprendre là où vous les avez laissées.
+                  résultat.
                 </p>
                 <ul className="space-y-3">
-                  {(b.unconsulted_results || []).map(
-                    (m: {
-                      job_id: string;
-                      mission?: string;
-                      status?: string;
-                      result_surface?: string | null;
-                      updated_at?: string;
-                    }) => (
-                      <li
-                        key={m.job_id}
-                        className="flex flex-col gap-2 rounded-xl border-2 border-amber-200 bg-amber-50/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                  {(b.unconsulted_results || []).map((m) => (
+                    <li
+                      key={m.job_id}
+                      className="flex flex-col gap-2 rounded-xl border-2 border-amber-200 bg-amber-50/70 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-base font-bold text-slate-900">
+                          {missionTitleLabel(m.mission, 100) || m.job_id}
+                        </p>
+                        <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
+                          {String(m.status || "") === "awaiting_validation"
+                            ? "Validation en attente"
+                            : String(m.status || "").startsWith("error")
+                              ? "Échec — à consulter"
+                              : "Résultat non consulté"}
+                        </p>
+                        {m.result_surface ? (
+                          <p className="mt-1 line-clamp-2 text-sm text-slate-600">{m.result_surface}</p>
+                        ) : null}
+                      </div>
+                      <Link
+                        href={`/missions?job=${encodeURIComponent(m.job_id)}`}
+                        className="btn-link-primary shrink-0"
                       >
-                        <div className="min-w-0">
-                          <p className="text-base font-bold text-slate-900">
-                            {missionTitleLabel(m.mission, 100) || m.job_id}
-                          </p>
-                          <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                            {String(m.status || "") === "awaiting_validation"
-                              ? "Validation en attente"
-                              : String(m.status || "").startsWith("error")
-                                ? "Échec — à consulter"
-                                : "Résultat non consulté"}
-                          </p>
-                          {m.result_surface ? (
-                            <p className="mt-1 line-clamp-2 text-sm text-slate-600">{m.result_surface}</p>
-                          ) : null}
-                        </div>
-                        <Link
-                          href={`/missions?job=${encodeURIComponent(m.job_id)}`}
-                          className="btn-link-primary shrink-0"
-                        >
-                          Reprendre →
-                        </Link>
-                      </li>
-                    ),
-                  )}
+                        Reprendre →
+                      </Link>
+                    </li>
+                  ))}
                 </ul>
               </SectionCard>
             ) : null}
@@ -214,7 +227,7 @@ function BriefingPageContent() {
             {(b.missions_running || []).length > 0 ? (
               <SectionCard title="Missions en cours">
                 <ul className="space-y-3">
-                  {(b.missions_running || []).map((m: { job_id: string; mission?: string }) => (
+                  {(b.missions_running || []).map((m) => (
                     <li
                       key={m.job_id}
                       className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
