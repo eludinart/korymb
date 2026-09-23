@@ -6,7 +6,9 @@ import { useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
-import BriefingCommercialPanel from "../../components/director/BriefingCommercialPanel";
+import BriefingCommercialPanel, {
+  type CommercialMorningSnapshot,
+} from "../../components/director/BriefingCommercialPanel";
 import BriefingEssential from "../../components/director/BriefingEssential";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import GestionShortcuts from "../../components/gestion/GestionShortcuts";
@@ -80,7 +82,7 @@ function BriefingPageContent() {
         decisions_today?: Array<{ id?: string; kind?: string; title?: string; mission?: string; href?: string }>;
         inbox_total?: number;
         missions_running?: Array<{ job_id: string; mission?: string }>;
-        commercial?: unknown;
+        commercial?: CommercialMorningSnapshot | null;
         unconsulted_results?: Array<{
           job_id: string;
           mission?: string;
