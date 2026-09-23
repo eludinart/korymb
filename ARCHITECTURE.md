@@ -21,6 +21,13 @@
 - runtime settings are explicit overrides, updated via admin endpoints.
 - provider/model must always be treated as dynamic runtime values, not hardcoded defaults in feature logic.
 
+## Workspace bootstrap (starter packs)
+
+- Korymb stays **industry-agnostic**: no `vertical` flag in the engine.
+- Optional **starter packs** (`blank` | `accompagnement` | `contenu`) copy playbooks / mission templates / memory seed into a workspace at creation or later via Administration → Modèles.
+- Implementation: `backend/services/starter_packs.py`, column `korymb_workspaces.starter_pack_id` (audit only).
+- Details: `docs/STARTER-PACKS.md`.
+
 ## Reliability Principles
 
 - Validate every API payload at boundaries (Pydantic models).

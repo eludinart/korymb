@@ -58,6 +58,8 @@ Administration VPS (Korymb prod + Hermes Agent) : [docs/ADMINISTRATION.md](docs/
 
 Description métier complète pour Hermes : [docs/KORYMB-DESCRIPTION-HERMES.md](docs/KORYMB-DESCRIPTION-HERMES.md).
 
+Starter packs (amorçage optionnel, produit générique) : [docs/STARTER-PACKS.md](docs/STARTER-PACKS.md).
+
 Stop with:
 
 ```powershell

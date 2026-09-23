@@ -36,6 +36,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     label: "Présence & modèles",
     links: [
       { href: "/administration/vitrine", label: "Page publique" },
+      { href: "/administration/modeles", label: "Modèles de démarrage" },
       { href: "/administration/templates", label: "Templates missions" },
     ],
   },

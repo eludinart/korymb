@@ -94,7 +94,14 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Token invalide.") from exc
 
 
-def register_user(*, email: str, password: str, display_name: str = "", workspace_name: str = "") -> dict[str, Any]:
+def register_user(
+    *,
+    email: str,
+    password: str,
+    display_name: str = "",
+    workspace_name: str = "",
+    starter_pack_id: str = "blank",
+) -> dict[str, Any]:
     mail = email.strip().lower()
     if not mail or "@" not in mail:
         raise ValueError("E-mail invalide.")
@@ -102,7 +109,7 @@ def register_user(*, email: str, password: str, display_name: str = "", workspac
         raise ValueError("Un compte existe déjà avec cet e-mail.")
     user = create_user(mail, hash_password(password), display_name)
     ws_name = (workspace_name or display_name or mail.split("@")[0] or "Mon Korymb").strip()
-    workspace = create_workspace(ws_name, user["id"])
+    workspace = create_workspace(ws_name, user["id"], starter_pack_id=starter_pack_id)
     token = create_access_token(user_id=user["id"], workspace_id=workspace["id"], role="admin")
     return {
         "token": token,
@@ -432,6 +439,7 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
             "slug": ws.get("slug"),
             "public_enabled": workspace_public_enabled(ws),
             "tagline": ws.get("tagline") or "",
+            "starter_pack_id": ws.get("starter_pack_id") or "",
         },
         "workspaces": workspaces,
         "members": members,

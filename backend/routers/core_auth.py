@@ -15,6 +15,7 @@ class RegisterBody(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(default="", max_length=120)
     workspace_name: str = Field(default="", max_length=200)
+    starter_pack_id: str = Field(default="blank", max_length=64)
 
 
 class LoginBody(BaseModel):
@@ -45,6 +46,12 @@ class RedeemInviteBody(BaseModel):
 class CreateWorkspaceBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=200)
+    starter_pack_id: str = Field(default="blank", max_length=64)
+
+
+class ApplyStarterPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    starter_pack_id: str = Field(min_length=1, max_length=64)
 
 
 class InviteMemberBody(BaseModel):
@@ -69,9 +76,17 @@ def auth_register(body: RegisterBody):
             password=body.password,
             display_name=body.display_name,
             workspace_name=body.workspace_name,
+            starter_pack_id=body.starter_pack_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/starter-packs")
+def auth_list_starter_packs():
+    from services.starter_packs import list_starter_packs
+
+    return {"packs": list_starter_packs()}
 
 
 @router.post("/register-subscriber")
@@ -140,9 +155,28 @@ def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_s
     user_id = str(auth.get("user_id") or "")
     from workspace_db import create_workspace
 
-    workspace = create_workspace(body.name, user_id)
+    try:
+        workspace = create_workspace(body.name, user_id, starter_pack_id=body.starter_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     token = auth_svc.create_access_token(user_id=user_id, workspace_id=workspace["id"], role="admin")
     return {"workspace": workspace, "token": token, "role": "admin"}
+
+
+@router.post("/workspaces/apply-starter-pack")
+def auth_apply_starter_pack(
+    body: ApplyStarterPackBody,
+    auth: dict = Depends(auth_svc.require_admin),
+):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Application de modèle réservée aux utilisateurs connectés.")
+    workspace_id = str(auth.get("workspace_id") or "")
+    from services.starter_packs import apply_starter_pack
+
+    try:
+        return apply_starter_pack(workspace_id, body.starter_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.get("/members")

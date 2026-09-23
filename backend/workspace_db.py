@@ -150,6 +150,7 @@ def _ensure_workspace_public_columns(conn) -> None:
         "typeface": "TEXT NOT NULL DEFAULT 'sans'",
         "logo_file_id": "TEXT NOT NULL DEFAULT ''",
         "cover_file_id": "TEXT NOT NULL DEFAULT ''",
+        "starter_pack_id": "TEXT NOT NULL DEFAULT ''",
     }
     for name, ddl in alterations.items():
         if name not in cols:
@@ -408,13 +409,36 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return out
 
 
-def create_workspace(name: str, owner_user_id: str) -> dict[str, Any]:
+def set_workspace_starter_pack_id(workspace_id: str, pack_id: str) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    pid = (pack_id or "").strip()[:64]
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET starter_pack_id = ? WHERE id = ?",
+            (pid, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
+
+
+def create_workspace(
+    name: str,
+    owner_user_id: str,
+    *,
+    starter_pack_id: str = "blank",
+) -> dict[str, Any]:
     from database import get_conn
 
     wid = new_workspace_id()
     slug = slugify(name)
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
         conn.execute(
             "INSERT INTO korymb_workspaces (id, name, slug, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?)",
             (wid, name.strip()[:200] or "Mon Korymb", slug, owner_user_id, now),
@@ -425,6 +449,13 @@ def create_workspace(name: str, owner_user_id: str) -> dict[str, Any]:
         )
         conn.commit()
     seed_workspace_defaults(wid)
+    from services.starter_packs import apply_starter_pack, normalize_pack_id
+
+    try:
+        pack = normalize_pack_id(starter_pack_id)
+    except ValueError:
+        pack = "blank"
+    apply_starter_pack(wid, pack)
     return get_workspace_by_id(wid) or {"id": wid, "name": name}
 
 

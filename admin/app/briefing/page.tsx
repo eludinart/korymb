@@ -25,6 +25,7 @@ import {
 import { agentHeaders, requestJson } from "../../lib/api";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
+import { starterPackLabel } from "../../lib/starterPacks";
 
 import type { Job } from "../../lib/types";
 
@@ -95,6 +96,41 @@ function BriefingPageContent() {
             Rituel du jour : briefing, décisions, missions, gestion. Ce n’est pas l’espace des participants. Utilisez{" "}
             <kbd className="rounded bg-emerald-100 px-1 font-mono text-xs">Ctrl+K</kbd> pour naviguer vite.
           </p>
+          {searchParams.get("pack") && searchParams.get("pack") !== "blank" ? (
+            <p className="mt-3 text-sm text-emerald-900">
+              Le modèle{" "}
+              <strong>{starterPackLabel(searchParams.get("pack"))}</strong> a préparé des playbooks et une
+              mémoire de départ. Personnalisez ensuite :{" "}
+              <Link href="/gestion/playbooks" className="font-bold underline">
+                Playbooks
+              </Link>
+              {" · "}
+              <Link href="/administration/memory" className="font-bold underline">
+                Mémoire
+              </Link>
+              {" · "}
+              <Link href="/administration/vitrine" className="font-bold underline">
+                Vitrine
+              </Link>
+              .
+            </p>
+          ) : (
+            <p className="mt-3 text-sm text-emerald-900">
+              Espace démarré vide : enrichissez la{" "}
+              <Link href="/administration/memory" className="font-bold underline">
+                mémoire
+              </Link>{" "}
+              et les{" "}
+              <Link href="/gestion/playbooks" className="font-bold underline">
+                playbooks
+              </Link>
+              , ou appliquez un modèle dans{" "}
+              <Link href="/administration/modeles" className="font-bold underline">
+                Administration → Modèles
+              </Link>
+              .
+            </p>
+          )}
         </div>
       ) : null}
 

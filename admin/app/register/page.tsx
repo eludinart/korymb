@@ -2,8 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import StarterPackPicker from "../../components/StarterPackPicker";
 import { formatHttpApiErrorPayload } from "../../lib/api";
+import {
+  FALLBACK_STARTER_PACKS,
+  fetchStarterPacks,
+  type StarterPackSummary,
+} from "../../lib/starterPacks";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -11,8 +17,20 @@ export default function RegisterPage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [starterPackId, setStarterPackId] = useState("blank");
+  const [packs, setPacks] = useState<StarterPackSummary[]>(FALLBACK_STARTER_PACKS);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchStarterPacks().then((list) => {
+      if (!cancelled) setPacks(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -27,6 +45,7 @@ export default function RegisterPage() {
           password,
           display_name: displayName,
           workspace_name: workspaceName || displayName || "Mon Korymb",
+          starter_pack_id: starterPackId,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -34,7 +53,8 @@ export default function RegisterPage() {
         setError(formatHttpApiErrorPayload(data) || "Inscription impossible.");
         return;
       }
-      router.replace("/briefing?welcome=1");
+      const packQs = starterPackId && starterPackId !== "blank" ? `&pack=${encodeURIComponent(starterPackId)}` : "";
+      router.replace(`/briefing?welcome=1${packQs}`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau.");
@@ -44,7 +64,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 px-4">
+    <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 px-4 py-8">
       <div className="rounded-2xl border-2 border-violet-200 bg-white p-6 shadow-lg sm:p-8">
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Korymb</p>
         <h1 className="mt-2 text-2xl font-extrabold text-slate-900">Créer mon Korymb</h1>
@@ -95,6 +115,12 @@ export default function RegisterPage() {
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
             />
           </label>
+          <StarterPackPicker
+            packs={packs}
+            value={starterPackId}
+            onChange={setStarterPackId}
+            disabled={loading}
+          />
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
           <button
             type="submit"

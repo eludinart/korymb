@@ -1,14 +1,23 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import StarterPackPicker from "../../components/StarterPackPicker";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import type { AuthMeResponse } from "../../lib/authSession";
+import {
+  FALLBACK_STARTER_PACKS,
+  fetchStarterPacks,
+  starterPackLabel,
+  type StarterPackSummary,
+} from "../../lib/starterPacks";
 
 export default function EspacePage() {
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
   const [newWsName, setNewWsName] = useState("");
+  const [starterPackId, setStarterPackId] = useState("blank");
+  const [packs, setPacks] = useState<StarterPackSummary[]>(FALLBACK_STARTER_PACKS);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,6 +30,16 @@ export default function EspacePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchStarterPacks().then((list) => {
+      if (!cancelled) setPacks(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function onInvite(e: FormEvent) {
     e.preventDefault();
@@ -53,11 +72,15 @@ export default function EspacePage() {
       const { res, data } = await requestJson("/auth/workspaces", {
         method: "POST",
         headers: agentHeaders(),
-        body: JSON.stringify({ name: newWsName }),
+        body: JSON.stringify({ name: newWsName, starter_pack_id: starterPackId }),
       });
       if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || "Création échouée.");
-      setMessage(`Espace « ${newWsName} » créé. Rechargez la page pour basculer.`);
+      const packName = starterPackLabel(starterPackId);
+      setMessage(
+        `Espace « ${newWsName} » créé (modèle : ${packName}). Rechargez la page pour basculer.`,
+      );
       setNewWsName("");
+      setStarterPackId("blank");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur.");
@@ -81,6 +104,13 @@ export default function EspacePage() {
         <p className="mt-1 text-sm text-slate-600">
           Inviter des opérateurs et créer d’autres espaces Korymb. Espace actuel :{" "}
           <strong>{me?.workspace?.name || "—"}</strong>
+          {me?.workspace?.starter_pack_id ? (
+            <>
+              {" "}
+              · modèle{" "}
+              <strong>{starterPackLabel(me.workspace.starter_pack_id)}</strong>
+            </>
+          ) : null}
         </p>
       </header>
 
@@ -129,21 +159,28 @@ export default function EspacePage() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Créer un autre espace Korymb</h2>
         <p className="mt-1 text-sm text-slate-600">Chaque espace a ses propres missions, mémoire et configuration.</p>
-        <form className="mt-4 flex flex-col gap-3 sm:flex-row" onSubmit={onCreateWorkspace}>
+        <form className="mt-4 space-y-4" onSubmit={onCreateWorkspace}>
           <input
             type="text"
             required
             placeholder="Nom du nouvel espace"
             value={newWsName}
             onChange={(e) => setNewWsName(e.target.value)}
-            className="flex-1 rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+          />
+          <StarterPackPicker
+            packs={packs}
+            value={starterPackId}
+            onChange={setStarterPackId}
+            disabled={loading}
+            name="new_workspace_pack"
           />
           <button
             type="submit"
             disabled={loading}
             className="rounded-xl border-2 border-violet-700 px-4 py-2.5 text-sm font-bold text-violet-800 disabled:opacity-60"
           >
-            Créer
+            {loading ? "Création…" : "Créer l'espace"}
           </button>
         </form>
       </section>

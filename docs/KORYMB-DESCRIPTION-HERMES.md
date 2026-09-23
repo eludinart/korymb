@@ -15,7 +15,7 @@
 
 **Korymb** est un **quartier général IA multi-tenant** : une plateforme web où le dirigeant d’un workspace **cadre, lance, supervise et valide des missions** confiées à une **équipe d’agents IA spécialisés**, avec orchestration multi-étapes, livrables (fichiers dans l’espace Korymb), contrôle qualité, budget, et mémoire d’entreprise.
 
-Ce n’est **pas** un simple chatbot. C’est un **système d’exploitation métier** pour déléguer du travail structuré (commercial, réseaux sociaux, développement, compta, stratégie). Sur l’instance Élude, le workspace `ws-default-legacy` applique ce cadre à la marque Élude In Art ; d’autres workspaces ont leur propre identité.
+Ce n’est **pas** un simple chatbot. C’est un **système d’exploitation métier générique** pour déléguer du travail structuré. Le moteur **n’impose aucun secteur** : la spécialisation vient de la mémoire, des agents, des playbooks et, en option, d’un **starter pack** à la création (`blank`, `accompagnement`, `contenu` — voir `docs/STARTER-PACKS.md`). Sur l’instance Élude, le workspace `ws-default-legacy` applique ce cadre à la marque Élude In Art ; d’autres workspaces ont leur propre identité.
 
 ---
 
@@ -294,6 +294,7 @@ curl -s https://api-korymb.eludein.art/health
 | Fichier | Contenu |
 |---------|---------|
 | `ARCHITECTURE.md` | Architecture technique, LangGraph, HITL |
+| `docs/STARTER-PACKS.md` | Packs d'amorçage optionnels (produit générique) |
 | `COOLIFY_HARDENING.md` | Déploiement production |
 | `docs/DEMARRAGE.md` | Dev local Windows + tunnel MariaDB |
 | `docs/ADMINISTRATION.md` | Ops VPS Korymb + Hermes |

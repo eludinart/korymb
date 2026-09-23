@@ -14,6 +14,8 @@ export type AuthWorkspace = {
   slug?: string;
   role?: string;
   public_enabled?: boolean;
+  tagline?: string;
+  starter_pack_id?: string;
 };
 
 export type AuthMeResponse = {
