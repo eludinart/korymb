@@ -8,6 +8,7 @@ import ChatMessageDeliverables from "./ChatMessageDeliverables";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
+import { chatTextIsDegraded } from "../../lib/chatDegraded";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
 import { resourceFileUrl } from "../../lib/business";
 import type { DriveArtifact } from "../../lib/types";
@@ -39,6 +40,10 @@ export type ChatMsg = {
   pendingBlueprintId?: string;
   /** Résultat UI après confirm/reject (persiste dans le fil). */
   blueprintOutcome?: { status: "created" | "rejected"; label?: string };
+  /** Réponse locale : le modèle (crédit, quota ou délai) n'a pas répondu. */
+  degraded?: boolean;
+  /** Action proposée, en attente de confirmation. */
+  pendingAction?: { message: string };
 };
 
 type Props = {
@@ -66,6 +71,9 @@ type Props = {
   uploadBusy?: boolean;
   uploadError?: string;
   onTeamCreated?: (groupId: string) => void;
+  onConfirmAction?: (message: string) => void;
+  onDismissAction?: (messageId: string) => void;
+  onStopReply?: () => void;
 };
 
 function displayAgentKeys(msg: ChatMsg): string[] {
@@ -77,9 +85,11 @@ function displayAgentKeys(msg: ChatMsg): string[] {
 function ChatReplyPending({
   count,
   percent,
+  onStop,
 }: {
   count: number;
   percent?: number | null;
+  onStop?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -115,8 +125,19 @@ function ChatReplyPending({
           {label}
           <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
         </span>
-        <span className="ml-auto shrink-0 tabular-nums text-[11px] text-violet-700">
-          {known ? `${Math.round(percent)}%` : elapsed >= 1 ? `${elapsed} s` : ""}
+        <span className="ml-auto flex shrink-0 items-center gap-2">
+          {onStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              className="rounded-full border border-violet-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100"
+            >
+              Arrêter
+            </button>
+          ) : null}
+          <span className="tabular-nums text-[11px] text-violet-700">
+            {known ? `${Math.round(percent)}%` : elapsed >= 1 ? `${elapsed} s` : ""}
+          </span>
         </span>
       </div>
       <div className="relative h-0.5 w-full overflow-hidden bg-violet-100" aria-hidden>
@@ -165,6 +186,9 @@ export default function ChatShell({
   uploadBusy = false,
   uploadError = "",
   onTeamCreated,
+  onConfirmAction,
+  onDismissAction,
+  onStopReply,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -282,6 +306,7 @@ export default function ChatShell({
 
           {messages.map((m) => {
             const agents = localAgents[m.id] || displayAgentKeys(m);
+            const degraded = Boolean(m.degraded) || chatTextIsDegraded(m.content);
             return (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[min(100%,28rem)] sm:max-w-[85%] ${m.role === "user" ? "w-auto" : "w-full sm:w-auto"}`}>
@@ -298,7 +323,14 @@ export default function ChatShell({
                         <ChatMessageFiles files={m.attachments} />
                       </>
                     ) : (
-                      <AgentMessageMarkdown source={chatBubbleDisplayText(m.id, m.content)} />
+                      <>
+                        {degraded ? (
+                          <p className="mb-2 inline-flex items-center rounded-full bg-amber-200/80 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-950">
+                            Mode dégradé
+                          </p>
+                        ) : null}
+                        <AgentMessageMarkdown source={chatBubbleDisplayText(m.id, m.content)} />
+                      </>
                     )}
                   </div>
                   {m.role === "assistant" && agents.length > 0 ? (
@@ -309,6 +341,24 @@ export default function ChatShell({
                     </div>
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
+                  {m.role === "assistant" && m.pendingAction ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onConfirmAction?.(m.pendingAction?.message || "")}
+                        className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800"
+                      >
+                        Lancer l'action
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDismissAction?.(m.id)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Annuler
+                      </button>
+                    </div>
+                  ) : null}
                   {m.role === "assistant" && (m.pendingBlueprintId || m.blueprintOutcome) ? (
                     <TeamBlueprintCard
                       blueprintId={m.pendingBlueprintId || "resolved"}
@@ -331,6 +381,7 @@ export default function ChatShell({
             <ChatReplyPending
               count={Math.max(1, backgroundJobCount)}
               percent={backgroundProgress?.percent}
+              onStop={onStopReply}
             />
           ) : null}
           <div ref={bottomRef} className="h-1 shrink-0" aria-hidden />

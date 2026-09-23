@@ -190,7 +190,7 @@ export default function GestionProjetEditPage() {
         accent="emerald"
         badge="Projets"
         title={project.data.title}
-        description="Fiche projet : dates, étapes internes, séances, documents et devis rattachés."
+        description="Fiche projet : dates, étapes, rendez-vous, contenus et devis rattachés."
         actions={
           <Link href="/gestion/projets" className="btn-link-secondary">
             ← Retour à la liste
@@ -354,18 +354,18 @@ export default function GestionProjetEditPage() {
       </SectionCard>
 
       <SectionCard
-        title={`Séances (${sessions.length})`}
+        title={`Rendez-vous (${sessions.length})`}
         action={
           <Link href={planningHref(false)} className="btn-primary">
-            + Planifier une séance
+            + Planifier un rendez-vous
           </Link>
         }
       >
         {events.isLoading ? <LoadingLine /> : null}
-        {events.isError ? <AlertBox tone="error" title="Erreur">Impossible de charger le planning du projet.</AlertBox> : null}
+        {events.isError ? <AlertBox tone="error" title="Erreur">Impossible de charger le calendrier du projet.</AlertBox> : null}
         {!events.isLoading && sessions.length === 0 ? (
           <p className="text-sm text-slate-500">
-            Aucune séance rattachée. Les créneaux se créent dans le planning, liés à ce projet.
+            Aucun rendez-vous rattaché. Les créneaux se créent dans le calendrier, liés à ce projet.
           </p>
         ) : null}
         <ul className="divide-y divide-slate-100">

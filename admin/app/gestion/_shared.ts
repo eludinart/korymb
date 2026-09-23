@@ -90,12 +90,12 @@ export function isMatiereEvent(ev: { nature?: string; resource_type?: string; ev
 }
 
 export const PROJECT_TYPE_LABELS: Record<string, string> = {
-  seance: "Séance",
-  stage: "Stage",
-  module_pro: "Module Pro",
-  accompagnement: "Accompagnement",
-  /** DB key `sivana` kept for compat — display label is generic. */
-  sivana: "Écolieu / lieu",
+  seance: "Rendez-vous",
+  stage: "Session",
+  module_pro: "Parcours",
+  accompagnement: "Suivi",
+  /** Clé DB historique — libellé générique. */
+  sivana: "Lieu",
   autre: "Autre",
 };
 
@@ -116,19 +116,19 @@ export const QUOTE_STATUS_LABELS: Record<string, string> = {
 };
 
 export const EVENT_TYPE_LABELS: Record<string, string> = {
-  seance: "Séance",
-  stage: "Stage",
-  atelier: "Atelier",
-  visio: "Visio",
+  seance: "En personne",
+  stage: "Session",
+  atelier: "Rencontre",
+  visio: "À distance",
   jalon: "Date cible — étape sans rendez-vous",
-  ressource: "Document, vidéo ou podcast",
+  ressource: "Contenu",
   autre: "Autre",
 };
 
 /** Libellés longs (formulaires). */
 export const EVENT_NATURE_LABELS: Record<string, string> = {
-  presence: "Rendez-vous — séance, atelier ou visio",
-  matiere: "Contenu à ouvrir — document, vidéo ou podcast",
+  presence: "Rendez-vous",
+  matiere: "Contenu à ouvrir",
 };
 
 /** Libellés courts (calendrier, listes). */
@@ -138,10 +138,10 @@ export const EVENT_NATURE_SHORT_LABELS: Record<string, string> = {
 };
 
 export const EVENT_NATURE_HINT =
-  "Les rendez-vous apparaissent dans « Mes séances ». Les documents et vidéos apparaissent dans « Mes ressources ».";
+  "Les rendez-vous apparaissent dans « Calendrier ». Les contenus apparaissent dans « Mes ressources ».";
 
 export const EVENT_TYPE_HINT =
-  "Pour un fichier à partager, choisissez « Document, vidéo ou podcast ». Une date cible est un rappel au calendrier, sans séance.";
+  "Pour un fichier à partager, choisissez « Contenu ». Une date cible est un rappel au calendrier, sans rendez-vous.";
 
 const PRESENCE_EVENT_TYPES = ["seance", "stage", "atelier", "visio", "autre"];
 const MATIERE_EVENT_TYPES = ["ressource", "jalon", "autre"];
@@ -172,16 +172,16 @@ export type EventVisibility = "internal" | "selected" | "participants" | "public
 
 export const EVENT_VISIBILITY_LABELS: Record<EventVisibility, string> = {
   internal: "Interne",
-  selected: "Participants choisis",
+  selected: "Personnes choisies",
   participants: "Tous les inscrits",
   public: "Public (sans compte)",
 };
 
 export const EVENT_VISIBILITY_OPTIONS: { id: EventVisibility; label: string; hint: string }[] = [
-  { id: "internal", label: "Interne", hint: "Visible seulement dans le planning Korymb." },
-  { id: "selected", label: "Participants choisis", hint: "Uniquement les comptes participants cochés (pas les fiches CRM)." },
-  { id: "participants", label: "Tous les inscrits", hint: "Tous les participants actifs (inscription validée ou invitation acceptée)." },
-  { id: "public", label: "Public", hint: "Vitrine, même sans compte — non inscrits inclus." },
+  { id: "internal", label: "Interne", hint: "Visible seulement dans Korymb." },
+  { id: "selected", label: "Personnes choisies", hint: "Uniquement les personnes cochées." },
+  { id: "participants", label: "Tous les inscrits", hint: "Toutes les personnes dont l'inscription est validée." },
+  { id: "public", label: "Public", hint: "Page publique, même sans compte." },
 ];
 
 export function visibilityFromEvent(ev: { visibility?: string; is_public?: boolean } | null | undefined): EventVisibility {
@@ -197,7 +197,7 @@ export const INTERACTION_TYPE_LABELS: Record<string, string> = {
   meeting: "Rendez-vous",
   note: "Note",
   quote: "Devis",
-  mission: "Mission agent",
+  mission: "Travail",
   other: "Autre",
 };
 

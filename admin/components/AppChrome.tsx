@@ -60,7 +60,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                 isChat ? "hidden sm:block" : ""
               }`}
             >
-              {isEssential ? "Mode essentiel" : "Cockpit dirigeant"}
+              {isEssential ? "Essentiel" : "Activité"}
             </p>
             <RuntimeHeader visible={showTechnical} />
             {!isPilotage ? (

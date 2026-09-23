@@ -6,12 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactReachabilityBadge from "../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
 import { businessApi, type BizContact } from "../../../lib/business";
-import {
-  CONTACT_PROFILE_DEFS,
-  contactMatchesProfile,
-  contactProfileKeys,
-  extraProfileTags,
-} from "../../../lib/contactProfiles";
+import { CONTACT_PROFILE_DEFS, contactMatchesProfile, extraProfileTags } from "../../../lib/contactProfiles";
 import { getContactReachability } from "../../../lib/contactReachability";
 import { CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../_shared";
 
@@ -113,12 +108,12 @@ export default function GestionContactsPage() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Contacts"
-        title="Contacts & relations"
-        description="Base CRM de votre activité — filtrer par profil (coach, thérapeute, éditeur…) et par relation (prospect, client…). Les agents proposent des enrichissements à valider."
+        badge="Personnes"
+        title="Personnes"
+        description="Les personnes et organisations que vous suivez. Les mots de classement sont les vôtres. Les enrichissements restent à valider."
         actions={
           <Link href="/gestion/contacts/nouveau" className="btn-primary">
-            + Nouveau contact
+            + Nouvelle personne
           </Link>
         }
       />
@@ -128,27 +123,18 @@ export default function GestionContactsPage() {
       >
         <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-3 sm:grid-cols-2 lg:grid-cols-[repeat(3,minmax(0,1fr))_auto] lg:items-end">
           <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
-            Profil
+            Classement
             <select
               className="input-field w-full py-2.5 text-sm"
               value={profileFilter}
               onChange={(e) => setProfileFilter(e.target.value)}
             >
-              <option value="all">Tous les profils</option>
-              {CONTACT_PROFILE_DEFS.map((p) => (
-                <option key={p.key} value={p.key}>
-                  {p.label}
+              <option value="all">Tous</option>
+              {extraTags.map((tag) => (
+                <option key={tag} value={`tag:${tag}`}>
+                  {tag}
                 </option>
               ))}
-              {extraTags.length ? (
-                <optgroup label="Autres tags">
-                  {extraTags.map((tag) => (
-                    <option key={tag} value={`tag:${tag}`}>
-                      {tag}
-                    </option>
-                  ))}
-                </optgroup>
-              ) : null}
             </select>
           </label>
           <label className="flex min-w-0 flex-col gap-1 text-xs font-medium text-slate-600">
@@ -202,23 +188,22 @@ export default function GestionContactsPage() {
         ) : null}
         {!contacts.isLoading && (contacts.data || []).length === 0 ? (
           <p className="text-sm text-slate-500">
-            Aucun contact pour l&apos;instant.{" "}
+            Personne pour l&apos;instant.{" "}
             <Link href="/gestion/contacts/nouveau" className="font-medium text-emerald-800 underline">
-              Ajouter un contact
+              Ajouter quelqu&apos;un
             </Link>
           </p>
         ) : null}
         {!contacts.isLoading && (contacts.data || []).length > 0 && filtered.length === 0 ? (
           <p className="text-sm text-slate-500">
-            Aucun contact pour ces filtres
-            {profileFilter !== "all" ? ` (profil « ${profileLabel(profileFilter)} »)` : ""}.
-            Posez un profil via les tags sur la fiche contact.
+            Personne pour ces filtres
+            {profileFilter !== "all" ? ` (« ${profileLabel(profileFilter)} »)` : ""}.
           </p>
         ) : null}
         <ul className="divide-y divide-slate-100">
           {filtered.map((c: BizContact) => {
             const expanded = expandedId === c.id;
-            const profiles = contactProfileKeys(c);
+            const tagLine = (c.tags || []).filter(Boolean).join(", ");
             const preview = notesPreview(c.notes);
             const flagged = isFlaggedTestContact(c);
             return (
@@ -247,9 +232,7 @@ export default function GestionContactsPage() {
                     </div>
                     <p className="text-xs text-slate-500">
                       {CONTACT_TYPE_LABELS[c.contact_type] || c.contact_type}
-                      {profiles.length
-                        ? ` · ${profiles.map((k) => CONTACT_PROFILE_DEFS.find((p) => p.key === k)?.label || k).join(", ")}`
-                        : ""}
+                      {tagLine ? ` · ${tagLine}` : ""}
                       {c.email ? ` · ${c.email}` : ""}
                       {c.company ? ` · ${c.company}` : ""}
                       {c.website ? ` · ${c.website}` : ""}

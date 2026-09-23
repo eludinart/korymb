@@ -6,7 +6,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionTitleLabel } from "../../lib/missionLabel";
-import { ENTERPRISE_GROUP_ID, fleetPerimeterInfo, teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+import { ENTERPRISE_GROUP_ID, ENTERPRISE_ROLE_LABEL, fleetPerimeterInfo, teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
+import { interlocutorFromGroupId, rememberInterlocutor } from "../../lib/recentInterlocutors";
 import { QK } from "../../lib/queryClient";
 import MissionFleetSelect, {
   activeFleetGroups,
@@ -145,6 +146,10 @@ export default function MissionCreatePanel({
         timeoutMs: 20000,
       });
       const newId = String(data.job_id || "");
+      rememberInterlocutor(
+        interlocutorFromGroupId(gid),
+        gid === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : groupLabel,
+      );
       setMsg(newId ? `Mission lancée : « ${missionTitleLabel(mission, 80) || newId} »` : "Mission acceptée.");
       setMission("");
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
@@ -184,7 +189,19 @@ export default function MissionCreatePanel({
         ) : null}
       </div>
 
-      <MissionFleetSelect value={fleetId} onChange={setFleetId} groups={fleets} disabled={busy} />
+      <MissionFleetSelect
+        value={fleetId}
+        onChange={(id) => {
+          setFleetId(id);
+          const g = fleets.find((row) => row.id === id);
+          rememberInterlocutor(
+            interlocutorFromGroupId(id),
+            id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
+          );
+        }}
+        groups={fleets}
+        disabled={busy}
+      />
       {groupsQuery.isError ? (
         <p className="text-xs text-amber-800">Impossible de charger les équipes — flotte Entreprise par défaut.</p>
       ) : null}

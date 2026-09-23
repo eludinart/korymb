@@ -1,5 +1,39 @@
-"""Tests groupes d'agents + blueprints."""
-from __future__ import annotations
+def test_project_fleet_does_not_speak_as_cio():
+    from services.agent_groups import chat_speaker_constraint, chat_speaker_persona
+
+    rule = chat_speaker_constraint(
+        orchestrator_key="chef_projet_litteraire",
+        agent_group_id="grp-livre",
+        label="Chef de Projet Littéraire",
+    )
+    assert "pas le CIO" in rule
+    assert "Chef de Projet Littéraire" in rule
+
+    persona = chat_speaker_persona(
+        {
+            "label": "Chef de Projet Littéraire",
+            "system": "Tu es le CIO (DSI / orchestrateur) de l'activité.",
+        },
+        orchestrator_key="chef_projet_litteraire",
+        agent_group_id="grp-livre",
+    )
+    assert "pas au nom du CIO" in persona
+    assert "Tu es le CIO" not in persona
+
+    enterprise = chat_speaker_constraint(
+        orchestrator_key="coordinateur",
+        agent_group_id="entreprise",
+        label="CIO — Orchestrateur",
+    )
+    assert enterprise.startswith("Tu es le CIO")
+
+
+def test_identity_question_does_not_count_as_action():
+    from services.chat_intelligence import chat_message_needs_action
+
+    assert chat_message_needs_action("qui est tu ?") is False
+    assert chat_message_needs_action("qui es-tu ?") is False
+    assert chat_message_needs_action("cherche des sources sur ce chapitre") is True
 
 
 def test_normalize_and_confirm_blueprint(tmp_path, monkeypatch):
@@ -303,3 +337,62 @@ def test_delete_empty_group_ok(client):
     assert r.json()["ok"] is True
     assert ag.get_group(gid) is None
     assert "editeur_del_ok" not in agents_def()
+
+
+def test_delete_agent_blocked_while_in_fleet_or_active_job(client):
+    import database as db
+    from services import agent_groups as ag
+    from services.agents import refresh_agents_definitions_cache
+
+    ag.ensure_enterprise_group()
+    db.upsert_custom_agent(
+        "jetable_flotte",
+        label="Jetable flotte",
+        role="Test",
+        system_prompt="Tu testes.",
+        tools=["web"],
+    )
+    db.upsert_custom_agent(
+        "jetable_libre",
+        label="Jetable libre",
+        role="Test",
+        system_prompt="Tu testes.",
+        tools=["web"],
+    )
+    refresh_agents_definitions_cache()
+    gid = "grp_agent_del"
+    db.upsert_agent_group(
+        gid,
+        slug="agent_del",
+        label="Flotte agent",
+        description="",
+        status="active",
+        lead_agent_key="coordinateur",
+        member_keys=["jetable_flotte"],
+        policy=ag.default_group_policy(),
+        is_system=False,
+        template_key=None,
+    )
+    blocked = client.get("/admin/agents/custom/jetable_flotte/delete-preview")
+    assert blocked.status_code == 200
+    assert blocked.json()["can_delete"] is False
+    refused = client.delete("/admin/agents/custom/jetable_flotte")
+    assert refused.status_code == 409
+
+    db.save_job("job-agent-actif", "jetable_libre", "Mission en cours", source="mission")
+    busy = client.get("/admin/agents/custom/jetable_libre/delete-preview")
+    assert busy.status_code == 200
+    assert busy.json()["can_delete"] is False
+    assert busy.json()["jobs_count"] >= 1
+
+    db.update_job("job-agent-actif", "completed", result="fini")
+    free = client.get("/admin/agents/custom/jetable_libre/delete-preview")
+    assert free.status_code == 200
+    assert free.json()["can_delete"] is True
+    deleted = client.delete("/admin/agents/custom/jetable_libre")
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+    builtin = client.get("/admin/agents/custom/commercial/delete-preview")
+    assert builtin.status_code == 200
+    assert builtin.json()["can_delete"] is False

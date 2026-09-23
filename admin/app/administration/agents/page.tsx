@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
+import AgentDeleteDialog from "../../../components/admin/AgentDeleteDialog";
 import HealthDot from "../../../components/HealthDot";
 import { requestJson } from "../../../lib/api";
-import { BTN_DELETE } from "../../../lib/deleteMissionBundle";
 import { QK } from "../../../lib/queryClient";
 
 const visibleInterval = (ms: number) =>
@@ -21,42 +21,13 @@ type AgentListRow = {
 };
 
 export default function AdministrationAgentsPage() {
-  const qc = useQueryClient();
-  const [deleteBusyKey, setDeleteBusyKey] = useState<string | null>(null);
-  const [actionError, setActionError] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<AgentListRow | null>(null);
 
   const agents = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
     refetchInterval: () => visibleInterval(30000),
   });
-
-  const deleteCustom = useMutation({
-    mutationFn: async (agentKey: string) => {
-      const { data, res } = await requestJson(`/admin/agents/custom/${encodeURIComponent(agentKey)}`, {
-        method: "DELETE",
-        expectOk: false,
-      });
-      if (!res.ok) throw new Error(String(data?.detail || data?.error || `HTTP ${res.status}`));
-    },
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: QK.agents });
-      await qc.invalidateQueries({ queryKey: QK.adminAgents });
-    },
-    onError: (e: unknown) => {
-      setActionError(e instanceof Error ? e.message : String(e));
-    },
-    onSettled: () => {
-      setDeleteBusyKey(null);
-    },
-  });
-
-  const handleDelete = (a: AgentListRow) => {
-    if (typeof window !== "undefined" && !window.confirm(`Supprimer définitivement l'agent « ${a.label} » ?`)) return;
-    setActionError("");
-    setDeleteBusyKey(a.key);
-    deleteCustom.mutate(a.key);
-  };
 
   return (
     <div className="space-y-6">
@@ -78,9 +49,6 @@ export default function AdministrationAgentsPage() {
           + Nouvel agent
         </Link>
       </div>
-      {actionError ? (
-        <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>
-      ) : null}
       {agents.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {agents.isError ? <p className="text-sm text-red-700">Impossible de charger les agents.</p> : null}
       {agents.isSuccess ? (
@@ -126,17 +94,23 @@ export default function AdministrationAgentsPage() {
                 <div className="border-t border-slate-100 px-4 py-2.5">
                   <button
                     type="button"
-                    disabled={deleteBusyKey === a.key}
-                    onClick={() => handleDelete(a)}
-                    className={BTN_DELETE}
+                    onClick={() => setDeleteTarget(a)}
+                    className="min-h-[44px] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-800 hover:bg-red-100"
                   >
-                    {deleteBusyKey === a.key ? "Suppression…" : "Supprimer l'agent"}
+                    Supprimer l&apos;agent
                   </button>
                 </div>
               ) : null}
             </li>
           ))}
         </ul>
+      ) : null}
+      {deleteTarget ? (
+        <AgentDeleteDialog
+          agentKey={deleteTarget.key}
+          label={deleteTarget.label}
+          onClose={() => setDeleteTarget(null)}
+        />
       ) : null}
     </div>
   );

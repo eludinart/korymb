@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import RecentInterlocutorPicks from "../RecentInterlocutorPicks";
 import {
   ENTERPRISE_GROUP_ID,
   ENTERPRISE_ROLE_LABEL,
@@ -49,7 +50,7 @@ export function describeInterlocutor(value: string, groups: GroupOpt[]): Interlo
     return {
       title: "Assistant",
       mode: "Conversation libre",
-      who: "Copilote généraliste (pas le CIO)",
+      who: "Copilote pour clarifier et préparer",
       team: "Aucune — exploration & cadrage",
       context: "Répond à tes questions, brainstorm, plans. Propose une équipe seulement si tu le demandes.",
       kind,
@@ -62,13 +63,13 @@ export function describeInterlocutor(value: string, groups: GroupOpt[]): Interlo
       (ent?.member_keys || []).join(", ") ||
       "Commercial, CM, Dev, Comptable";
     return {
-      title: "CIO — Entreprise",
+      title: "Équipe",
       mode: ENTERPRISE_ROLE_LABEL,
-      who: ent?.lead_label || "CIO (orchestrateur)",
+      who: ent?.lead_label || "Coordination",
       team: members,
       context:
         ent?.description ||
-        "Flotte métier par défaut : prospection, contenus, tech, devis — avec validations HITL.",
+        "Prépare le travail. Vous validez avant qu'un envoi parte.",
       kind,
     };
   }
@@ -123,11 +124,7 @@ export function parseInterlocutor(value: string): {
 }
 
 /** Valeur de sélecteur à partir d'un id de groupe (flotte métier = CIO). */
-export function interlocutorFromGroupId(groupId: string): string {
-  const id = groupId.trim();
-  if (!id || id === ENTERPRISE_GROUP_ID) return "coordinateur";
-  return `group:${id}`;
-}
+export { interlocutorFromGroupId } from "../../lib/recentInterlocutors";
 
 function normalizeSelectValue(value: string): string {
   return value === `group:${ENTERPRISE_GROUP_ID}` ? "coordinateur" : value;
@@ -207,6 +204,15 @@ export default function ChatInterlocutorSelect({
               className={`absolute right-0 top-9 z-50 w-[min(100vw-1.5rem,18rem)] rounded-xl border bg-white p-3 shadow-lg ${IDENTITY_BORDER[info.kind]}`}
             >
               <ContextCard info={info} />
+              <RecentInterlocutorPicks
+                current={normalizeSelectValue(value)}
+                onPick={(next) => {
+                  onChange(next);
+                  setOpen(false);
+                }}
+                disabled={disabled}
+                className="mt-2"
+              />
             </div>
           </>
         ) : null}
@@ -214,10 +220,12 @@ export default function ChatInterlocutorSelect({
     );
   }
 
+  const selectValue = normalizeSelectValue(value);
   return (
     <div className={`flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 ${IDENTITY_SELECT[info.kind]} ${className}`}>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 space-y-1">
         <ContextCard info={info} dense />
+        <RecentInterlocutorPicks current={selectValue} onPick={onChange} disabled={disabled} />
       </div>
       <SelectControl
         value={value}

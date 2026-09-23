@@ -464,11 +464,13 @@ def _ensure_platform_tables(conn) -> None:
             title TEXT NOT NULL DEFAULT '',
             messages_json {msg_col} NOT NULL DEFAULT '[]',
             linked_parent_job_id TEXT,
+            interlocutor TEXT,
             workspace_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
     """)
+    _ensure_chat_conversations_columns(conn)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS inbox_dismissals (
             dismiss_key {text_pk} PRIMARY KEY,
@@ -484,6 +486,42 @@ def _ensure_platform_tables(conn) -> None:
             created_at TEXT NOT NULL
         )
     """)
+
+
+def _ensure_chat_conversations_columns(conn) -> None:
+    """Mémorise l'interlocuteur (assistant, CIO, flotte) de chaque conversation."""
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM chat_conversations")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(chat_conversations)")
+        cols = {row[1] for row in cur.fetchall()}
+    if "interlocutor" not in cols:
+        conn.execute("ALTER TABLE chat_conversations ADD COLUMN interlocutor TEXT")
+    conn.commit()
+
+
+def _clean_interlocutor(value: str | None) -> str | None:
+    raw = (value or "").strip()[:80]
+    if raw in ("assistant", "coordinateur"):
+        return raw
+    if raw.startswith("group:"):
+        gid = raw[6:].strip()
+        if gid and len(gid) <= 64 and all(c.isalnum() or c in "-_" for c in gid):
+            return "coordinateur" if gid == "entreprise" else f"group:{gid}"
+    return None
+
+
+def _chat_conversation_public(d: dict, messages: list) -> dict:
+    return {
+        "id": d.get("id"),
+        "title": d.get("title") or "",
+        "messages": messages,
+        "linked_parent_job_id": d.get("linked_parent_job_id"),
+        "interlocutor": _clean_interlocutor(str(d.get("interlocutor") or "")),
+        "created_at": d.get("created_at"),
+        "updated_at": d.get("updated_at"),
+    }
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -1599,8 +1637,9 @@ def upsert_chat_session_summary(session_id: str, summary: str, turn_count: int) 
 def list_chat_conversations(*, limit: int = 80) -> list[dict]:
     lim = max(1, min(int(limit), 200))
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         rows = conn.execute(
-            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "SELECT id, title, messages_json, linked_parent_job_id, interlocutor, created_at, updated_at "
             "FROM chat_conversations WHERE workspace_id=? ORDER BY updated_at DESC LIMIT ?",
             (_ws(), lim),
         ).fetchall()
@@ -1613,14 +1652,7 @@ def list_chat_conversations(*, limit: int = 80) -> list[dict]:
             msgs = []
         if not isinstance(msgs, list):
             msgs = []
-        out.append({
-            "id": d.get("id"),
-            "title": d.get("title") or "",
-            "messages": msgs,
-            "linked_parent_job_id": d.get("linked_parent_job_id"),
-            "created_at": d.get("created_at"),
-            "updated_at": d.get("updated_at"),
-        })
+        out.append(_chat_conversation_public(d, msgs))
     return out
 
 
@@ -1629,8 +1661,9 @@ def get_chat_conversation(conv_id: str) -> dict | None:
     if not cid:
         return None
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         row = conn.execute(
-            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "SELECT id, title, messages_json, linked_parent_job_id, interlocutor, created_at, updated_at "
             "FROM chat_conversations WHERE id=? AND workspace_id=?",
             (cid, _ws()),
         ).fetchone()
@@ -1643,14 +1676,7 @@ def get_chat_conversation(conv_id: str) -> dict | None:
         msgs = []
     if not isinstance(msgs, list):
         msgs = []
-    return {
-        "id": d.get("id"),
-        "title": d.get("title") or "",
-        "messages": msgs,
-        "linked_parent_job_id": d.get("linked_parent_job_id"),
-        "created_at": d.get("created_at"),
-        "updated_at": d.get("updated_at"),
-    }
+    return _chat_conversation_public(d, msgs)
 
 
 def upsert_chat_conversation(
@@ -1659,6 +1685,7 @@ def upsert_chat_conversation(
     title: str = "",
     messages: list | None = None,
     linked_parent_job_id: str | None = None,
+    interlocutor: str | None = None,
 ) -> dict:
     cid = (conv_id or "").strip()[:64]
     if not cid:
@@ -1671,28 +1698,40 @@ def upsert_chat_conversation(
     link = (linked_parent_job_id or "").strip()[:16] or None
     existing = get_chat_conversation(cid)
     created = existing.get("created_at") if existing else now
+    who = _clean_interlocutor(interlocutor)
+    if who is None and existing:
+        who = _clean_interlocutor(str(existing.get("interlocutor") or ""))
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         if _is_mariadb():
             conn.execute(
                 "INSERT INTO chat_conversations "
-                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(id, title, messages_json, linked_parent_job_id, interlocutor, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE title=VALUES(title), messages_json=VALUES(messages_json), "
-                "linked_parent_job_id=VALUES(linked_parent_job_id), updated_at=VALUES(updated_at)",
-                (cid, tit, msgs_json, link, _ws(), created, now),
+                "linked_parent_job_id=VALUES(linked_parent_job_id), interlocutor=VALUES(interlocutor), "
+                "updated_at=VALUES(updated_at)",
+                (cid, tit, msgs_json, link, who, _ws(), created, now),
             )
         else:
             conn.execute(
                 "INSERT INTO chat_conversations "
-                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(id, title, messages_json, linked_parent_job_id, interlocutor, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, "
-                "linked_parent_job_id=excluded.linked_parent_job_id, updated_at=excluded.updated_at",
-                (cid, tit, msgs_json, link, _ws(), created, now),
+                "linked_parent_job_id=excluded.linked_parent_job_id, interlocutor=excluded.interlocutor, "
+                "updated_at=excluded.updated_at",
+                (cid, tit, msgs_json, link, who, _ws(), created, now),
             )
         conn.commit()
     row = get_chat_conversation(cid)
-    return row or {"id": cid, "title": tit, "messages": messages or [], "updated_at": now}
+    return row or {
+        "id": cid,
+        "title": tit,
+        "messages": messages or [],
+        "interlocutor": who,
+        "updated_at": now,
+    }
 
 
 def delete_chat_conversation(conv_id: str) -> bool:
@@ -2098,6 +2137,76 @@ def list_job_refs_for_agent_group(group_id: str, *, limit: int = 400) -> list[di
             }
         )
     return out
+
+
+_ACTIVE_JOB_STATUSES = ("running", "pending", "awaiting_validation", "paused")
+
+
+def list_active_job_refs_for_agent(agent_key: str, *, limit: int = 40) -> list[dict[str, Any]]:
+    """Missions non terminées dont cet agent est le pilote ou une ligne d'équipe."""
+    key = (agent_key or "").strip()
+    if not key:
+        return []
+    lim = max(1, min(int(limit or 40), 100))
+    marks = ",".join("?" * len(_ACTIVE_JOB_STATUSES))
+    rows = None
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, status, mission, agent, team_trace FROM jobs "
+            f"WHERE workspace_id=? AND status IN ({marks}) AND (agent=? OR team_trace LIKE ?) "
+            "ORDER BY created_at DESC LIMIT ?",
+            (_ws(), *_ACTIVE_JOB_STATUSES, key, f"%{key}%", lim),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        touched = str(d.get("agent") or "").strip() == key
+        if not touched:
+            try:
+                team = json.loads(d.get("team_trace") or "[]")
+            except json.JSONDecodeError:
+                team = []
+            if isinstance(team, list):
+                touched = any(
+                    isinstance(item, dict) and str(item.get("key") or "").strip() == key for item in team
+                )
+        if not touched:
+            continue
+        out.append(
+            {
+                "id": str(d.get("id") or ""),
+                "status": str(d.get("status") or ""),
+                "mission": str(d.get("mission") or "")[:160],
+                "agent": str(d.get("agent") or ""),
+            }
+        )
+    return out
+
+
+def list_open_session_refs_for_agent(agent_key: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Cadrages encore ouverts (brouillon) dont cet agent est l'interlocuteur."""
+    key = (agent_key or "").strip()
+    if not key:
+        return []
+    lim = max(1, min(int(limit or 20), 50))
+    try:
+        with get_conn() as conn:
+            _ensure_mission_sessions_columns(conn)
+            rows = conn.execute(
+                "SELECT id, title, status, agent FROM mission_sessions "
+                "WHERE agent=? AND status='draft' ORDER BY updated_at DESC LIMIT ?",
+                (key, lim),
+            ).fetchall()
+    except Exception:
+        return []
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+        }
+        for r in (rows or [])
+    ]
 
 
 def list_mission_session_refs_for_group(group_id: str, *, limit: int = 50) -> list[dict[str, Any]]:

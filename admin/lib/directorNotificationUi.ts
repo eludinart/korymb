@@ -110,7 +110,7 @@ export function buildNotificationActions(n: DirectorNotification): NotificationA
       add("chat", "Conversation", chatHref);
       add("mission", "Mission liée", `/missions?job=${jobId}`);
     } else if (kind === "hitl" || kind === "learning_suggestion") {
-      add("inbox", "Décisions", `/inbox?job=${jobId}`);
+      add("inbox", "À valider", `/inbox?job=${jobId}`);
       add("mission", "Mission", `/missions?job=${jobId}`);
     } else if (!actionUrl.includes(`/missions?job=${jobId}`)) {
       add("mission", "Mission", `/missions?job=${jobId}`);

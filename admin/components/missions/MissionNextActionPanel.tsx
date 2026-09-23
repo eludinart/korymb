@@ -161,7 +161,7 @@ export default function MissionNextActionPanel({
               href={decisionsHrefForJob(jobId)}
               className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-100"
             >
-              File Décisions
+              À valider
             </Link>
           </div>
         </div>

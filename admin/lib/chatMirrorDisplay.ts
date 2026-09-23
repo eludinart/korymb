@@ -71,7 +71,7 @@ export function repairTruncatedChatBubble(text: string | undefined | null): stri
 
 /** Accusés miroir (`ack-*`) : réparer l'affichage si génération antérieure coupée. */
 export function chatBubbleDisplayText(messageId: string, content: string | undefined | null): string {
-  const raw = String(content ?? "");
+  const raw = String(content ?? "").split("[[korymb-degraded]]").join("").trim();
   if (messageId.startsWith("ack-")) {
     return repairTruncatedChatBubble(raw);
   }

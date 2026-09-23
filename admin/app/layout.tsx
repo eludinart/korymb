@@ -4,7 +4,7 @@ import Providers from "../components/Providers";
 import LayoutSwitch from "../components/LayoutSwitch";
 
 export const metadata: Metadata = {
-  title: "Korymb — Cockpit agentique",
+  title: "Korymb",
   description: "Pilotez votre activité avec missions IA, briefing et livrables.",
   manifest: "/manifest.json",
   appleWebApp: {

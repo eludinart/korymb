@@ -74,23 +74,23 @@ export default function BriefingCommercialPanel({ data }: Props) {
           Commercial du matin
         </h2>
         <p className="mt-1 text-sm text-teal-900/80">
-          Rien d&apos;urgent côté CRM — aucune relance due, devis sentinelle ni fiche injoignable.
+          Rien d&apos;urgent — aucune relance due, devis en attente ni fiche injoignable.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
           <Link href="/gestion/studio" className="btn-link-secondary text-sm">
             Studio
           </Link>
           <Link href="/gestion/courrier" className="btn-link-secondary text-sm">
-            Courrier
+            Messages
           </Link>
           <Link href="/inbox?triage=1" className="btn-link-secondary text-sm">
-            Décisions
+            À valider
           </Link>
           <Link href="/gestion/devis" className="btn-link-secondary text-sm">
             Devis
           </Link>
           <Link href="/gestion/planning" className="btn-link-secondary text-sm">
-            Planning
+            Calendrier
           </Link>
         </div>
       </section>
@@ -160,7 +160,7 @@ export default function BriefingCommercialPanel({ data }: Props) {
                       href={`/inbox?triage=1&focus=${encodeURIComponent(ev.id)}`}
                       className="btn-link-primary text-xs"
                     >
-                      Décisions
+                      À valider
                     </Link>
                   ) : null}
                   {ev.contact_id ? (
@@ -234,7 +234,7 @@ export default function BriefingCommercialPanel({ data }: Props) {
                   {t.subject || t.to_email || "Fil e-mail"}
                 </span>
                 <Link href="/gestion/courrier" className="btn-link-secondary text-xs">
-                  Courrier
+                  Messages
                 </Link>
               </li>
             ))}

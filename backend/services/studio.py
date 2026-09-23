@@ -79,7 +79,7 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "label": "Post LinkedIn",
         "group": "réseaux",
         "icon": "💼",
-        "description": "Thought leadership pour coachs, thérapeutes et facilitateurs.",
+        "description": "Texte plus développé, pour des pairs ou des clients.",
         "resource_type": "",
         "channels": ("linkedin",),
         "tools": ("post_linkedin",),
@@ -189,7 +189,7 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "label": "YouTube (fiche + visuel)",
         "group": "vidéo",
         "icon": "▶️",
-        "description": "Titre, description chapitrée, tags, miniature — complément d'une séance ou d'un podcast.",
+        "description": "Titre, description chapitrée, tags, miniature — complément d'une vidéo ou d'un podcast.",
         "resource_type": "video",
         "channels": ("youtube",),
         "tools": ("generate_image", "generate_video", "search_youtube"),
@@ -207,18 +207,26 @@ FORMAT_BY_ID = {str(item["id"]): item for item in STUDIO_FORMATS}
 TONES: tuple[dict[str, str], ...] = (
     {"id": "invite", "label": "Invitation", "hint": "Ouvre un espace, ne force pas."},
     {"id": "pedagogie", "label": "Pédagogie", "hint": "Clair, structuré, examples."},
-    {"id": "intime", "label": "Intime", "hint": "Voix de l'accompagnant, vécu."},
-    {"id": "pro", "label": "Professionnel", "hint": "Modules Pro, pairs, B2B."},
-    {"id": "saisonnier", "label": "Au fil des saisons", "hint": "Ancré dans l’année : solstice, fête, stage d’été, rentrée."},
+    {"id": "intime", "label": "Personnel", "hint": "Voix à la première personne, vécu."},
+    {"id": "pro", "label": "Professionnel", "hint": "Clair, pour des pairs ou des clients."},
+    {"id": "saisonnier", "label": "Au fil de l'année", "hint": "Ancré dans une date, une saison, une rentrée."},
 )
 
 AUDIENCES: tuple[dict[str, str], ...] = (
+    {"id": "clients", "label": "Clients"},
+    {"id": "prospects", "label": "Prospects"},
+    {"id": "equipe", "label": "Équipe"},
+    {"id": "partenaires", "label": "Partenaires"},
+    {"id": "grand_public", "label": "Grand public"},
+)
+
+# Identifiants historiques : encore résolus dans un brief déjà lancé, absents du catalogue.
+_LEGACY_AUDIENCES: tuple[dict[str, str], ...] = (
     {"id": "coachs", "label": "Coachs & facilitateurs"},
     {"id": "therapeutes", "label": "Thérapeutes"},
     {"id": "couples", "label": "Couples & proches"},
-    {"id": "participants", "label": "Participants / inscrits"},
-    {"id": "modules_pro", "label": "Modules Pro"},
-    {"id": "grand_public", "label": "Grand public conscient"},
+    {"id": "participants", "label": "Inscrits"},
+    {"id": "modules_pro", "label": "Parcours"},
 )
 
 DESTINATIONS: tuple[dict[str, str], ...] = (
@@ -466,7 +474,7 @@ def build_production_brief(
     prompt: str,
     formats: list[str],
     tone: str = "invite",
-    audience: str = "coachs",
+    audience: str = "clients",
     cta: str = "",
     destination: str = "mission",
     visibility: str = "internal",
@@ -475,7 +483,7 @@ def build_production_brief(
 ) -> str:
     brand = _brand_kit()
     tone_row = next((t for t in TONES if t["id"] == tone), TONES[0])
-    audience_row = next((a for a in AUDIENCES if a["id"] == audience), AUDIENCES[0])
+    audience_row = next((a for a in (*AUDIENCES, *_LEGACY_AUDIENCES) if a["id"] == audience), AUDIENCES[0])
     dest_row = next((d for d in DESTINATIONS if d["id"] == destination), DESTINATIONS[0])
     selected = [FORMAT_BY_ID[fid] for fid in formats if fid in FORMAT_BY_ID]
     if not selected:
@@ -584,7 +592,7 @@ def launch_generation(
     prompt: str,
     formats: list[str],
     tone: str = "invite",
-    audience: str = "coachs",
+    audience: str = "clients",
     cta: str = "",
     destination: str = "mission",
     visibility: str = "internal",
@@ -607,8 +615,9 @@ def launch_generation(
         visibility = "internal"
     if tone not in {t["id"] for t in TONES}:
         tone = "invite"
-    if audience not in {a["id"] for a in AUDIENCES}:
-        audience = "coachs"
+    known_audiences = {a["id"] for a in (*AUDIENCES, *_LEGACY_AUDIENCES)}
+    if audience not in known_audiences:
+        audience = "clients"
     try:
         from tools.media_engines import normalize_mode
 

@@ -64,8 +64,8 @@ export default function PlaybooksPage() {
       <PageHeader
         accent="violet"
         badge="Création"
-        title="Playbooks"
-        description="Scénarios prêts à lancer (studio, catalogue, lieu, ops…). Supervisé (Décisions) ou autonome."
+        title="Modèles"
+        description="Demandes prêtes à lancer. Le résultat revient à valider, ou part tout seul si vous l'avez choisi."
       />
       {playbooks.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {playbooks.isError ? (

@@ -23,7 +23,7 @@ export default function GestionProjetsPage() {
         accent="emerald"
         badge="Projets"
         title="Suivi de projets"
-        description="Séances, stages, modules pro — liés à vos contacts."
+        description="Dossiers liés aux personnes que vous suivez."
         actions={
           <Link href="/gestion/projets/nouveau" className="btn-primary">
             + Nouveau projet

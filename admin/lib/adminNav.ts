@@ -46,7 +46,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     links: [
       { href: "/administration/orchestration", label: "Prompts d’orchestration" },
       { href: "/administration/comportements", label: "Comportements" },
-      { href: "/administration/memory", label: "Mémoire partagée" },
+      { href: "/administration/memory", label: "Votre activité" },
     ],
   },
   {

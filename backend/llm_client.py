@@ -147,12 +147,15 @@ def openrouter_post_with_retries(
     url: str,
     headers: dict[str, str],
     json_body: dict[str, Any],
+    *,
+    max_retries: int | None = None,
 ) -> httpx.Response:
     """POST /chat/completions avec backoff sur 429 / 503 (plans gratuits, orchestration multi-appels)."""
+    limit = _OPENROUTER_MAX_RETRIES if max_retries is None else max(1, int(max_retries))
     wait = 0.0
-    for attempt in range(_OPENROUTER_MAX_RETRIES):
+    for attempt in range(limit):
         r = client.post(url, json=json_body, headers=headers)
-        if r.status_code not in _OPENROUTER_RETRY_STATUS:
+        if r.status_code not in _OPENROUTER_RETRY_STATUS or attempt + 1 >= limit:
             return r
         ra = r.headers.get("retry-after") or r.headers.get("Retry-After")
         if ra:
@@ -167,7 +170,7 @@ def openrouter_post_with_retries(
             r.status_code,
             wait,
             attempt + 1,
-            _OPENROUTER_MAX_RETRIES,
+            limit,
         )
         time.sleep(wait)
         wait = 0.0
@@ -215,6 +218,8 @@ def _chat_completions_chat(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
     temperature: float | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> tuple[str, int, int]:
     prov = normalize_llm_provider(None, cfg)
     cc = chat_completions_settings(cfg, prov)
@@ -234,8 +239,9 @@ def _chat_completions_chat(
     }
     if temperature is not None:
         body["temperature"] = float(temperature)
-    with httpx.Client(timeout=120.0) as client:
-        r = openrouter_post_with_retries(client, url, headers, body)
+    timeout = 120.0 if request_timeout is None else max(1.0, float(request_timeout))
+    with httpx.Client(timeout=timeout) as client:
+        r = openrouter_post_with_retries(client, url, headers, body, max_retries=max_retries)
     if r.status_code >= 400:
         hint = format_llm_provider_http_error(r)
         logger.warning("LLM HTTP %s — %s", r.status_code, r.text[:800])
@@ -273,6 +279,8 @@ def _openrouter_chat(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
     temperature: float | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> tuple[str, int, int]:
     """Alias historique — routage chat/completions selon le fournisseur actif."""
     return _chat_completions_chat(
@@ -283,6 +291,8 @@ def _openrouter_chat(
         usage_job_id=usage_job_id,
         usage_context=usage_context,
         temperature=temperature,
+        request_timeout=request_timeout,
+        max_retries=max_retries,
     )
 
 
@@ -295,6 +305,8 @@ def llm_turn(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
     temperature: float | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> tuple[str, int, int]:
     t0 = time.monotonic()
     cfg = merge_with_env()
@@ -312,13 +324,18 @@ def llm_turn(
             usage_job_id=usage_job_id,
             usage_context=usage_context,
             temperature=temperature,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
         )
 
     _assert_llm_ready(cfg)
     model = str(cfg.get("anthropic_model") or "claude-sonnet-4-6")
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
     pout = float(cfg.get("llm_price_output_per_million_usd") or 0)
-    client = anthropic.Anthropic(api_key=str(cfg["anthropic_api_key"]))
+    client_kwargs: dict[str, Any] = {"api_key": str(cfg["anthropic_api_key"])}
+    if request_timeout is not None:
+        client_kwargs["timeout"] = float(request_timeout)
+    client = anthropic.Anthropic(**client_kwargs)
     anthropic_kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,
@@ -354,6 +371,8 @@ def llm_chat(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
     temperature: float | None = None,
+    request_timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> tuple[str, int, int]:
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
@@ -376,13 +395,18 @@ def llm_chat(
             usage_job_id=usage_job_id,
             usage_context=usage_context,
             temperature=temperature,
+            request_timeout=request_timeout,
+            max_retries=max_retries,
         )
 
     _assert_llm_ready(cfg)
     model = str(cfg.get("anthropic_model") or "claude-sonnet-4-6")
     pin = float(cfg.get("llm_price_input_per_million_usd") or 0)
     pout = float(cfg.get("llm_price_output_per_million_usd") or 0)
-    client = anthropic.Anthropic(api_key=str(cfg["anthropic_api_key"]))
+    client_kwargs: dict[str, Any] = {"api_key": str(cfg["anthropic_api_key"])}
+    if request_timeout is not None:
+        client_kwargs["timeout"] = float(request_timeout)
+    client = anthropic.Anthropic(**client_kwargs)
     anthropic_chat_kwargs: dict[str, Any] = {
         "model": model,
         "max_tokens": max_tokens,

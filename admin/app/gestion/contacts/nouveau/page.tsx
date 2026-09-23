@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
-import ContactProfileChips from "../../../../components/gestion/ContactProfileChips";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_TYPE_LABELS } from "../../_shared";
 
@@ -22,7 +21,7 @@ export default function GestionContactNouveauPage() {
   const [city, setCity] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [contactType, setContactType] = useState("prospect");
-  const [profileTags, setProfileTags] = useState<string[]>([]);
+  const [tagsInput, setTagsInput] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState("");
 
@@ -39,7 +38,10 @@ export default function GestionContactNouveauPage() {
         city: city.trim(),
         postal_code: postalCode.trim(),
         contact_type: contactType,
-        tags: profileTags,
+        tags: tagsInput
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
         notes: notes.trim(),
       }),
     onSuccess: (created) => {
@@ -54,9 +56,9 @@ export default function GestionContactNouveauPage() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Contacts"
-        title="Nouveau contact"
-        description="Ajoutez un prospect, client ou partenaire à la base CRM."
+        badge="Personnes"
+        title="Nouvelle personne"
+        description="Ajoutez quelqu'un que vous suivez : prospect, client, partenaire."
         actions={
           <Link href="/gestion/contacts" className="btn-link-secondary">
             ← Retour à la liste
@@ -91,13 +93,15 @@ export default function GestionContactNouveauPage() {
             </select>
             <span className="mt-0.5 block text-xs text-slate-500">Prospect, client, partenaire…</span>
           </label>
-          <div className="sm:col-span-2">
-            <p className="text-sm font-medium text-slate-700">Profil</p>
-            <p className="mt-0.5 text-xs text-slate-500">Métier / cible — utilisé pour filtrer la liste.</p>
-            <div className="mt-1.5">
-              <ContactProfileChips tags={profileTags} onChange={setProfileTags} />
-            </div>
-          </div>
+          <label className="block text-sm sm:col-span-2">
+            <span className="font-medium text-slate-700">Mots libres</span>
+            <input
+              className="input-field mt-1 w-full"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              placeholder="séparés par des virgules"
+            />
+          </label>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Email</span>
             <input type="email" className="input-field mt-1 w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -136,7 +140,7 @@ export default function GestionContactNouveauPage() {
           </label>
           <div className="sm:col-span-2 flex flex-wrap items-center gap-3">
             <button type="submit" className="btn-primary" disabled={create.isPending}>
-              {create.isPending ? "Enregistrement…" : "Enregistrer le contact"}
+              {create.isPending ? "Enregistrement…" : "Enregistrer"}
             </button>
             <Link href="/gestion/contacts" className="btn-secondary">
               Annuler

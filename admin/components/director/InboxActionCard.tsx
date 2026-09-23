@@ -221,10 +221,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const [rejectReason, setRejectReason] = useState("");
 
   const kindLabel: Record<string, string> = {
-    hitl: "HITL",
+    hitl: "Validation",
     action_ticket: "Envoi",
     crm_follow_up: "Relance",
-    cio_question: "Question CIO",
+    cio_question: "Question",
     closure: "Clôture",
     mission_error: "Échec",
     scheduler_output: "Approbation",

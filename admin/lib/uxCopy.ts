@@ -1,38 +1,38 @@
-/** Libellés et sous-titres UX — routes inchangées, vocabulaire plus clair. */
+/** Libellés de coquille — routes inchangées, vocabulaire d'activité (pas un secteur). */
 
 export const UX_COPY = {
   briefing: {
-    label: "Accueil",
-    hint: "Priorités du jour",
+    label: "Aujourd'hui",
+    hint: "Ce qui a besoin de vous",
   },
   decisions: {
-    label: "Décisions",
-    subtitle: "À relire et valider",
-    hint: "Validations en attente — pas le courrier",
+    label: "À valider",
+    subtitle: "Rien ne part sans vous",
+    hint: "À relire avant envoi — pas les messages",
   },
   missions: {
-    label: "Missions",
-    subtitle: "Actions et dossiers en cours",
-    hint: "Travaux délégués aux agents",
+    label: "Travaux",
+    subtitle: "En cours",
+    hint: "Travaux lancés",
   },
   chat: {
-    label: "Chat",
-    hint: "Échanger avec l'assistant ou le CIO",
+    label: "Conversation",
+    hint: "Décrire une demande",
   },
   gestion: {
     label: "Gestion",
-    hint: "Contacts, planning, playbooks",
+    hint: "Personnes, calendrier, messages",
   },
   livrables: {
     label: "Documents",
-    hint: "Pièces produites par les missions",
+    hint: "Pièces produites",
   },
   contacts: {
-    label: "Contacts",
+    label: "Personnes",
     hint: "Personnes et organisations suivies",
   },
   playbooks: {
-    label: "Playbooks",
-    hint: "Scénarios prêts à lancer",
+    label: "Modèles",
+    hint: "Demandes prêtes à lancer",
   },
 } as const;

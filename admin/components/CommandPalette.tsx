@@ -80,15 +80,15 @@ function CommandPaletteInner() {
       ? [
           {
             id: "espace-participant",
-            label: "Espace participant",
-            hint: "Ce que voient les inscrits à la vitrine",
+            label: "Mon espace",
+            hint: "Ce que voient les inscrits",
             href: `/a/${encodeURIComponent(slug)}`,
             group: "Navigation",
           },
         ]
       : [];
     const nav: Command[] = [
-      { id: "briefing", label: "Accueil du jour", href: "/briefing", group: "Navigation" },
+      { id: "briefing", label: "Aujourd'hui", href: "/briefing", group: "Navigation" },
     ];
     if (!essential) {
       nav.push({
@@ -106,7 +106,7 @@ function CommandPaletteInner() {
       ...gestionActions,
       {
         id: "triage",
-        label: "Traiter les décisions (mode triage)",
+        label: "Traiter ce qui est à valider",
         hint: DIRECTOR_QUEUE_HINT,
         href: `${DIRECTOR_QUEUE_HREF}?triage=1`,
         group: "Actions IA",
@@ -118,9 +118,9 @@ function CommandPaletteInner() {
         href: DIRECTOR_QUEUE_HREF,
         group: "Navigation",
       },
-      { id: "missions", label: "Missions", href: "/missions", group: "Navigation" },
-      { id: "mission-new", label: "Lancer une mission", href: "/missions?create=1", group: "Actions IA" },
-      { id: "chat", label: "Chat dirigeant", href: "/chat", group: "Navigation" },
+      { id: "missions", label: "Travaux", href: "/missions", group: "Navigation" },
+      { id: "mission-new", label: "Nouveau travail", href: "/missions?create=1", group: "Actions IA" },
+      { id: "chat", label: "Conversation", href: "/chat", group: "Navigation" },
       ...(essential
         ? []
         : [

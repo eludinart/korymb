@@ -296,6 +296,26 @@ def test_chat_conversations_crud(client):
     get = client.get(f"/chat/conversations/{cid}")
     assert get.status_code == 200
     assert get.json()["messages"][0]["content"] == "Bonjour"
+    assert get.json().get("interlocutor") in (None, "")
+    kept = client.put(
+        f"/chat/conversations/{cid}",
+        json={
+            "title": "Test conv",
+            "messages": [{"id": "m1", "role": "user", "content": "Bonjour"}],
+            "interlocutor": "group:edition-livre",
+        },
+    )
+    assert kept.status_code == 200
+    assert kept.json()["interlocutor"] == "group:edition-livre"
+    preserved = client.put(
+        f"/chat/conversations/{cid}",
+        json={
+            "title": "Test conv",
+            "messages": [{"id": "m1", "role": "user", "content": "Bonjour"}],
+        },
+    )
+    assert preserved.status_code == 200
+    assert preserved.json()["interlocutor"] == "group:edition-livre"
     delete = client.delete(f"/chat/conversations/{cid}")
     assert delete.status_code == 200
     assert client.get(f"/chat/conversations/{cid}").status_code == 404

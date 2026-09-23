@@ -109,10 +109,31 @@ def admin_agent_history(agent_key: str, limit: int = 20):
     return {"history": list_agent_definition_history((agent_key or "").strip(), limit=limit)}
 
 
+@router.get("/admin/agents/custom/{agent_key}/delete-preview", dependencies=[Depends(require_admin)])
+def admin_agent_delete_preview(agent_key: str):
+    from services.agent_groups import agent_delete_preview
+
+    try:
+        return agent_delete_preview((agent_key or "").strip())
+    except ValueError as e:
+        code = 404 if "introuvable" in str(e) else 400
+        raise HTTPException(status_code=code, detail=str(e)) from e
+
+
 @router.delete("/admin/agents/custom/{agent_key}", dependencies=[Depends(require_admin)])
 def admin_delete_custom_agent(agent_key: str):
+    from services.agent_groups import agent_delete_preview
+
+    key = (agent_key or "").strip()
     try:
-        deleted = delete_custom_agent((agent_key or "").strip())
+        preview = agent_delete_preview(key)
+    except ValueError as e:
+        code = 404 if "introuvable" in str(e) else 400
+        raise HTTPException(status_code=code, detail=str(e)) from e
+    if not preview.get("can_delete"):
+        raise HTTPException(status_code=409, detail=str(preview.get("summary") or "agent encore utilisé"))
+    try:
+        deleted = delete_custom_agent(key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     refresh_agents_definitions_cache()

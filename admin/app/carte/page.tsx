@@ -25,6 +25,7 @@ import {
   type OperationalMapPayload,
 } from "../../lib/operationalMap";
 import { QK } from "../../lib/queryClient";
+import { interlocutorFromGroupId, rememberInterlocutor } from "../../lib/recentInterlocutors";
 
 type FilterId = "work" | "live" | "waiting" | "crm" | "knowledge";
 
@@ -171,6 +172,7 @@ export default function CartePage() {
         timeoutMs: 20_000,
       });
       const jobId = String((data as { job_id?: string })?.job_id || "");
+      rememberInterlocutor(interlocutorFromGroupId(groupId));
       void qc.invalidateQueries({ queryKey: QK.operationalMap });
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
       void qc.invalidateQueries({ queryKey: QK.tokens });

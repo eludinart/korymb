@@ -1,5 +1,6 @@
 "use client";
 
+import RecentInterlocutorPicks from "../RecentInterlocutorPicks";
 import {
   ENTERPRISE_GROUP_ID,
   ENTERPRISE_ROLE_LABEL,
@@ -9,6 +10,7 @@ import {
   teamIdentityLabel,
   type FleetPerimeterInfo,
 } from "../../lib/agentGroupUi";
+import { fleetIdFromInterlocutor, interlocutorFromGroupId } from "../../lib/recentInterlocutors";
 
 export type FleetGroupOption = {
   id: string;
@@ -87,6 +89,15 @@ export default function MissionFleetSelect({
           );
         })}
       </select>
+      <RecentInterlocutorPicks
+        current={interlocutorFromGroupId(selected?.id || value || ENTERPRISE_GROUP_ID)}
+        fleetsOnly
+        disabled={disabled}
+        onPick={(next) => {
+          const id = fleetIdFromInterlocutor(next);
+          if (id) onChange(id);
+        }}
+      />
       {selected ? (
         <div className={`rounded-xl border px-3 py-2 text-xs leading-relaxed ${PERIMETER_TONE[perimeter.kind]}`}>
           <p className="font-bold">

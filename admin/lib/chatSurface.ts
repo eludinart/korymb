@@ -2,6 +2,9 @@ import { buildCioDisplayModel } from "./cioResultDisplay";
 
 /** Payload visible dans le chat — masque rôles, annexes et questions CIO longues. */
 export function toChatSurface(raw: string): string {
+  if (String(raw || "").includes("[[korymb-degraded]]")) {
+    return String(raw).trim();
+  }
   const model = buildCioDisplayModel(raw);
   const parts: string[] = [];
 

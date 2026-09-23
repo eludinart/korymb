@@ -45,10 +45,10 @@ export const INBOX_SORT_OPTIONS: { value: InboxSortMode; label: string }[] = [
 
 export const INBOX_KIND_OPTIONS: { value: InboxKindFilter; label: string }[] = [
   { value: "all", label: "Tous les types" },
-  { value: "hitl", label: "HITL" },
+  { value: "hitl", label: "Validations" },
   { value: "action_ticket", label: "Envois à valider" },
-  { value: "crm_follow_up", label: "Relances CRM" },
-  { value: "cio_question", label: "Questions CIO" },
+  { value: "crm_follow_up", label: "Relances" },
+  { value: "cio_question", label: "Questions" },
   { value: "closure", label: "Clôtures" },
   { value: "mission_error", label: "Échecs" },
   { value: "quality", label: "Qualité" },

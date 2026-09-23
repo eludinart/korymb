@@ -13,6 +13,7 @@ from services.agents import FLEUR_CONTEXT
 from services.chat_surface import surface_chat_result
 from services.memory import compress_chat_session
 from services.mission import _add_daily as _add_daily_svc
+from services.llm_degraded import degraded_chat_reply, llm_outage_kind, llm_outage_reason
 from services.mission import _user_visible_job_failure_markdown
 from state import active_jobs
 from tenant_context import spawn_thread
@@ -172,18 +173,32 @@ def start_assistant_chat_job(
             except Exception:
                 logger.exception("emit_director_notification (assistant)")
         except Exception as e:
-            user_result = _user_visible_job_failure_markdown(e)
-            surface_err = surface_chat_result(user_result)
-            job_logs.append(f"[korymb] Erreur : {e}")
+            outage = llm_outage_kind(e)
+            if outage:
+                user_result = degraded_chat_reply(
+                    msg_snap,
+                    agent_label="Assistant",
+                    reason=llm_outage_reason(e),
+                )
+                surface_err = surface_chat_result(user_result)
+                job_status = "completed"
+                job_logs.append(f"[korymb] Mode dégradé ({outage}) : {e}")
+                logger.warning("chat assistant mode dégradé (%s) : %s", outage, e)
+            else:
+                user_result = _user_visible_job_failure_markdown(e)
+                surface_err = surface_chat_result(user_result)
+                job_status = f"error: {e}"
+                job_logs.append(f"[korymb] Erreur : {e}")
             if job_id in active_jobs:
                 active_jobs[job_id].update({
-                    "status": f"error: {e}",
+                    "status": job_status,
                     "result": user_result,
                     "result_surface": surface_err,
+                    "degraded": bool(outage),
                 })
             update_job(
                 job_id,
-                f"error: {e}",
+                job_status,
                 user_result,
                 job_logs,
                 0,
@@ -191,6 +206,21 @@ def start_assistant_chat_job(
                 source="chat",
                 result_surface=surface_err,
             )
+            if outage:
+                try:
+                    from services.director_platform import emit_director_notification
+
+                    emit_director_notification(
+                        kind="chat_result",
+                        title="Réponse en mode dégradé",
+                        body=(surface_err or "").replace("\n", " ").strip()[:180],
+                        job_id=job_id,
+                        action_url=(
+                            f"/chat?session={session_id}&job={job_id}" if session_id else f"/chat?job={job_id}"
+                        ),
+                    )
+                except Exception:
+                    logger.exception("emit_director_notification (assistant degraded)")
         finally:
             active_jobs.pop(job_id, None)
 

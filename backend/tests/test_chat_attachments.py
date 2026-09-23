@@ -63,7 +63,10 @@ def test_chat_accepts_attachment(client, tmp_path, monkeypatch):
         return "Lu le fichier.", 1, 1
 
     monkeypatch.setattr("routers.core_chat.orchestrate_coordinateur_mission", fake_orchestrate)
-    monkeypatch.setattr("routers.core_chat.generate_mirror_ack", lambda *a, **k: "ok")
+    monkeypatch.setattr(
+        "routers.core_chat.generate_mirror_ack_result",
+        lambda *a, **k: ("ok", None),
+    )
 
     res = client.post(
         "/chat",

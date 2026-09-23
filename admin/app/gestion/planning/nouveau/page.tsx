@@ -104,9 +104,9 @@ function GestionPlanningNouveauForm() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Planning"
-        title={asResource ? "Ajouter un document ou une vidéo" : "Planifier un rendez-vous"}
-        description="Un rendez-vous (séance, atelier, visio) ou un contenu à ouvrir (document, vidéo, podcast). Puis qui y a accès : interne, personnes nommées, tous les inscrits, ou public sans compte."
+        badge="Calendrier"
+        title={asResource ? "Ajouter un contenu" : "Planifier un rendez-vous"}
+        description="Un rendez-vous ou un contenu à ouvrir. Puis qui y a accès : interne, personnes nommées, inscrits, ou public sans compte."
         actions={
           <Link href={returnTo} className="btn-link-secondary">
             ← Retour
@@ -124,7 +124,7 @@ function GestionPlanningNouveauForm() {
               return;
             }
             if (visibility === "selected" && audienceIds.length === 0) {
-              setError("Cochez au moins un participant actif pour un accès nominatif.");
+              setError("Cochez au moins une personne pour un accès nominatif.");
               return;
             }
             create.mutate();

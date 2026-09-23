@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
 
@@ -11,6 +11,7 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  interlocutorLabel?: (conv: ChatConversation) => string | null;
   className?: string;
 };
 
@@ -34,12 +35,33 @@ export default function ChatSidebar({
   onSelect,
   onNew,
   onDelete,
+  interlocutorLabel,
   className = "",
 }: Props) {
+  const listRef = useRef<HTMLUListElement>(null);
+  const activeRef = useRef<HTMLLIElement>(null);
   const sorted = useMemo(
-    () => [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0)),
+    () =>
+      [...conversations].sort((a, b) => {
+        const byDate = Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+        if (byDate !== 0) return byDate;
+        return String(b.id).localeCompare(String(a.id));
+      }),
     [conversations],
   );
+
+  useEffect(() => {
+    const list = listRef.current;
+    const el = activeRef.current;
+    if (!list || !el) return;
+    const listRect = list.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    if (elRect.top < listRect.top) {
+      list.scrollTop -= listRect.top - elRect.top;
+    } else if (elRect.bottom > listRect.bottom) {
+      list.scrollTop += elRect.bottom - listRect.bottom;
+    }
+  }, [activeId, sorted]);
 
   const pendingByConv = new Map<string, PendingChatJob[]>();
   for (const j of pendingJobs) {
@@ -63,7 +85,7 @@ export default function ChatSidebar({
         </button>
       </div>
 
-      <ul className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+      <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
         {sorted.length === 0 ? (
           <li className="px-2 py-6 text-center text-xs text-slate-500">Aucune conversation pour l&apos;instant.</li>
         ) : (
@@ -73,11 +95,11 @@ export default function ChatSidebar({
             const working = pending.length > 0;
             const unread = Boolean(c.unread);
             return (
-              <li key={c.id}>
+              <li key={c.id} ref={active ? activeRef : undefined}>
                 <div
                   className={`group flex items-start gap-1 rounded-xl border transition-colors ${
                     active
-                      ? "border-violet-300 bg-white shadow-sm ring-1 ring-violet-100"
+                      ? "border-violet-400 bg-white shadow-sm ring-2 ring-violet-300"
                       : unread
                         ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-50"
                         : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
@@ -86,6 +108,7 @@ export default function ChatSidebar({
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
+                    aria-current={active ? "true" : undefined}
                     className="min-w-0 flex-1 px-3 py-2.5 text-left"
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -104,6 +127,9 @@ export default function ChatSidebar({
                         {formatDateTime(c.updatedAt)}
                       </time>
                     </div>
+                    {interlocutorLabel?.(c) ? (
+                      <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{interlocutorLabel(c)}</p>
+                    ) : null}
 
                     {working ? (
                       <div className="mt-1.5 space-y-0.5">

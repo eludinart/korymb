@@ -25,7 +25,13 @@ from database import (
 )
 from services.agents import agents_def, SUB_AGENT_COORDINATION_FR
 from services.chat_surface import surface_chat_result
-from services.chat_mirror import generate_mirror_ack
+from services.chat_mirror import generate_mirror_ack_result
+from services.llm_degraded import (
+    degraded_chat_reply,
+    llm_outage_is_hard,
+    llm_outage_kind,
+    llm_outage_reason,
+)
 from services.workspace_brand import workspace_identity_block
 from services.memory import compress_chat_session, maybe_refresh_mission_summary
 from services.mission import (
@@ -61,6 +67,7 @@ class ChatRequest(BaseModel):
     chat_session_id: str | None = None
     agent_group_id: str | None = None
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
+    confirm_action: bool = False
 
 
 def _build_chat_mission_txt(
@@ -74,7 +81,7 @@ def _build_chat_mission_txt(
     if not session_summary:
         for h in hist_snap:
             if h.get("role") in ("user", "assistant"):
-                role = "Utilisateur" if h["role"] == "user" else "CIO"
+                role = "Utilisateur" if h["role"] == "user" else "Interlocuteur"
                 c = h.get("content", "")
                 if isinstance(c, str):
                     hist_lines.append(f"{role}: {c[:800]}")
@@ -167,6 +174,19 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             msg_snap = msg_raw or (
                 "Fichiers joints : " + ", ".join(a.get("filename") or a.get("id") or "fichier" for a in att_snap)
             )
+            from services.chat_intelligence import chat_message_needs_action
+
+            if chat_message_needs_action(msg_snap) and not request.confirm_action:
+                label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+                return {
+                    "status": "needs_confirmation",
+                    "agent": run_agent,
+                    "agent_group_id": group_id,
+                    "proposal": (
+                        f"{label} peut lancer une action (recherche, livrable ou envoi). "
+                        "Rien n'est exécuté tant que vous ne confirmez pas."
+                    ),
+                }
             save_job(
                 job_id,
                 run_agent,
@@ -263,17 +283,29 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         linked_parent_id,
                         session_id,
                     )
-                    text, ti, to = orchestrate_coordinateur_mission(
-                        mission_txt,
-                        msg_snap,
-                        job_logs_ref,
-                        chat_mode=True,
-                        job_id=job_id,
-                        cio_questions_enabled=False,
-                        allowed_agents=allowed,
-                        orchestrator_key=run_agent,
-                        agent_group_id=group_id,
-                    )
+                    if request.confirm_action:
+                        text, ti, to = orchestrate_coordinateur_mission(
+                            mission_txt,
+                            msg_snap,
+                            job_logs_ref,
+                            chat_mode=True,
+                            job_id=job_id,
+                            cio_questions_enabled=False,
+                            allowed_agents=allowed,
+                            orchestrator_key=run_agent,
+                            agent_group_id=group_id,
+                        )
+                    else:
+                        from services.mission import answer_chat_turn_without_tools
+
+                        text, ti, to = answer_chat_turn_without_tools(
+                            mission_txt,
+                            msg_snap,
+                            job_logs_ref,
+                            job_id=job_id,
+                            orchestrator_key=run_agent,
+                            agent_group_id=group_id,
+                        )
                     surface = surface_chat_result(text)
                     _add_daily_svc(ti, to)
                     team_snap = active_jobs[job_id].get("team", [])
@@ -350,22 +382,37 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     except Exception:
                         logger.exception("emit_director_notification (chat completed)")
                 except Exception as e:
-                    user_result = _user_visible_job_failure_markdown(e)
-                    surface_err = surface_chat_result(user_result)
+                    outage = llm_outage_kind(e)
                     team_snap = active_jobs.get(job_id, {}).get("team", [])
                     pl = active_jobs.get(job_id, {}).get("plan") or {}
                     ev = active_jobs.get(job_id, {}).get("events") or []
-                    _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
-                    job_logs_ref.append(f"[korymb] Erreur : {e}")
+                    if outage:
+                        label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+                        user_result = degraded_chat_reply(
+                            msg_snap,
+                            agent_label=label,
+                            reason=llm_outage_reason(e),
+                        )
+                        surface_err = surface_chat_result(user_result)
+                        job_status = "completed"
+                        job_logs_ref.append(f"[korymb] Mode dégradé ({outage}) : {e}")
+                        logger.warning("chat CIO mode dégradé (%s) : %s", outage, e)
+                    else:
+                        user_result = _user_visible_job_failure_markdown(e)
+                        surface_err = surface_chat_result(user_result)
+                        job_status = f"error: {e}"
+                        _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
+                        job_logs_ref.append(f"[korymb] Erreur : {e}")
                     if job_id in active_jobs:
                         active_jobs[job_id].update({
-                            "status": f"error: {e}",
+                            "status": job_status,
                             "result": user_result,
                             "result_surface": surface_err,
+                            "degraded": bool(outage),
                         })
                     update_job(
                         job_id,
-                        f"error: {e}",
+                        job_status,
                         user_result,
                         job_logs_ref,
                         0,
@@ -384,32 +431,79 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                                 role="assistant",
                                 agent="coordinateur",
                                 content=(surface_err or user_result or ""),
-                                source="chat_suivi_mission_error",
+                                source="chat_suivi_mission" if outage else "chat_suivi_mission_error",
                             )
                         except Exception:
                             logger.exception("append_job_mission_thread (erreur CIO → parent)")
                     try:
                         from services.director_platform import emit_director_notification
 
-                        err_preview = (surface_err or user_result or "").replace("\n", " ").strip()[:160]
+                        preview = (surface_err or user_result or "").replace("\n", " ").strip()[:160]
                         action_url = (
                             f"/missions?job={lp}" if lp and lp != job_id
                             else f"/chat?session={session_id}&job={job_id}" if session_id
                             else f"/chat?job={job_id}"
                         )
-                        emit_director_notification(
-                            kind="chat_error",
-                            title="Échec de la demande chat",
-                            body=err_preview or "La mission chat s'est terminée en erreur.",
-                            job_id=job_id,
-                            action_url=action_url,
-                        )
+                        if outage:
+                            emit_director_notification(
+                                kind="chat_result",
+                                title="Réponse en mode dégradé",
+                                body=preview or "Le modèle est indisponible. Une réponse locale est prête.",
+                                job_id=job_id,
+                                action_url=action_url,
+                            )
+                        else:
+                            emit_director_notification(
+                                kind="chat_error",
+                                title="Échec de la demande chat",
+                                body=preview or "La mission chat s'est terminée en erreur.",
+                                job_id=job_id,
+                                action_url=action_url,
+                            )
                     except Exception:
                         logger.exception("emit_director_notification (chat error)")
                 finally:
                     active_jobs.pop(job_id, None)
 
-            mirror_ack = generate_mirror_ack(msg_snap, agent_group_id=group_id)
+            lead_label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+            if request.confirm_action:
+                mirror_ack, mirror_err = (
+                    f"{lead_label} lance l'action que vous avez confirmée.",
+                    None,
+                )
+            else:
+                mirror_ack, mirror_err = "", None
+            if llm_outage_is_hard(llm_outage_kind(mirror_err)):
+                label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+                reason = llm_outage_reason(mirror_err)
+                reply = degraded_chat_reply(msg_snap, agent_label=label, reason=reason)
+                surface = surface_chat_result(reply)
+                logger.warning("chat CIO refusé avant mission, mode dégradé : %s", mirror_err)
+                if job_id in active_jobs:
+                    active_jobs[job_id].update({
+                        "status": "completed",
+                        "result": reply,
+                        "result_surface": surface,
+                        "degraded": True,
+                    })
+                update_job(
+                    job_id,
+                    "completed",
+                    reply,
+                    job_logs_ref,
+                    0,
+                    0,
+                    source="chat",
+                    result_surface=surface,
+                )
+                active_jobs.pop(job_id, None)
+                return {
+                    "response": surface,
+                    "agent": run_agent,
+                    "degraded": True,
+                    "degraded_reason": reason,
+                    "agent_group_id": group_id,
+                }
             if linked_parent_id and linked_parent_id != job_id and mirror_ack:
                 try:
                     append_job_mission_thread(
@@ -484,14 +578,28 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         usage_kw: dict = {"usage_context": f"chat_sync:{request.agent}"}
         if link_th:
             usage_kw["usage_job_id"] = link_th
-        reply, ti, to = llm_chat_maybe_tools(
-            system_prompt,
-            messages,
-            agent_cfg.get("tools"),
-            job_logs=None,
-            max_tokens=2048,
-            **usage_kw,
-        )
+        try:
+            reply, ti, to = llm_chat_maybe_tools(
+                system_prompt,
+                messages,
+                agent_cfg.get("tools"),
+                job_logs=None,
+                max_tokens=2048,
+                **usage_kw,
+            )
+        except Exception as llm_exc:
+            if not llm_outage_kind(llm_exc):
+                raise
+            reason = llm_outage_reason(llm_exc)
+            label = str(agent_cfg.get("label") or request.agent)
+            reply = degraded_chat_reply(msg_raw or request.message or "", agent_label=label, reason=reason)
+            logger.warning("chat sync mode dégradé : %s", llm_exc)
+            return {
+                "response": surface_chat_result(reply),
+                "agent": request.agent,
+                "degraded": True,
+                "degraded_reason": reason,
+            }
         _add_daily_svc(ti, to)
         if link_th:
             try:
@@ -523,6 +631,7 @@ class ChatConversationBody(BaseModel):
     title: str = ""
     messages: list[dict] = []
     linked_parent_job_id: str | None = None
+    interlocutor: str | None = None
 
 
 class ChatConversationImportBody(BaseModel):
@@ -554,6 +663,7 @@ def chat_conversations_upsert(conv_id: str, body: ChatConversationBody):
         title=(body.title or "")[:200],
         messages=body.messages if isinstance(body.messages, list) else [],
         linked_parent_job_id=body.linked_parent_job_id,
+        interlocutor=body.interlocutor,
     )
     return row
 
@@ -584,6 +694,7 @@ def chat_conversations_import(body: ChatConversationImportBody):
             title=str(raw.get("title") or "")[:200],
             messages=raw.get("messages") if isinstance(raw.get("messages"), list) else [],
             linked_parent_job_id=str(raw.get("linkedParentJobId") or raw.get("linked_parent_job_id") or "")[:16] or None,
+            interlocutor=str(raw.get("interlocutor") or "") or None,
         )
         imported += 1
     return {"imported": imported, "conversations": list_chat_conversations()}

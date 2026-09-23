@@ -65,13 +65,13 @@ function InboxPageContent() {
         accent="amber"
         badge={DIRECTOR_QUEUE_SUBTITLE}
         title={DIRECTOR_QUEUE_TITLE}
-        description="Validations, questions et clôtures à traiter — distinct du courrier (Gestion → Courrier)."
+        description="À relire avant envoi, questions et clôtures — distinct des messages (Gestion → Messages)."
         actions={
           <>
-            <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Mode triage</PageLink>
-            <PageLink href="/briefing">Accueil</PageLink>
+            <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Traiter</PageLink>
+            <PageLink href="/briefing">Aujourd&apos;hui</PageLink>
             <PageLink href="/missions" variant="secondary">
-              Missions
+              Travaux
             </PageLink>
           </>
         }
@@ -95,7 +95,7 @@ function InboxPageContent() {
                   if (
                     typeof window !== "undefined" &&
                     !window.confirm(
-                      `Clôturer ${closableCount} mission(s) terminée(s) ou en échec ?\n\nLes questions CIO et validations HITL restent intactes.`,
+                      `Clôturer ${closableCount} travail(x) terminé(s) ou en échec ?\n\nLes questions et validations en attente restent intactes.`,
                     )
                   ) {
                     return;

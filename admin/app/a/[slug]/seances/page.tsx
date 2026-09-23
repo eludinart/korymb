@@ -19,8 +19,8 @@ export default function SubscriberSeancesPage() {
     <div className="space-y-6">
       <header>
         <p className="practice-kicker">Chez {home.data.name}</p>
-        <h1 className="practice-heading mt-2 text-3xl font-extrabold">Mes séances</h1>
-        <p className="mt-2 text-slate-600">Ateliers, visios et dates ouvertes qui vous concernent.</p>
+        <h1 className="practice-heading mt-2 text-3xl font-extrabold">Calendrier</h1>
+        <p className="mt-2 text-slate-600">Rendez-vous et dates qui vous concernent.</p>
       </header>
       <section className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
         <SessionList events={home.data.events || []} />

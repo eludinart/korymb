@@ -32,16 +32,29 @@ const NAV_BEFORE_GESTION_ESSENTIAL: NavPrimaryItem[] = [
   { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
 ];
 
-const NAV_AFTER_GESTION: NavPrimaryItem[] = [
-  {
-    href: DIRECTOR_QUEUE_HREF,
-    label: DIRECTOR_QUEUE_LABEL,
-    priority: true,
-    tone: "amber",
-    hint: DIRECTOR_QUEUE_HINT,
-  },
+const NAV_QUEUE: NavPrimaryItem = {
+  href: DIRECTOR_QUEUE_HREF,
+  label: DIRECTOR_QUEUE_LABEL,
+  priority: true,
+  tone: "amber",
+  hint: DIRECTOR_QUEUE_HINT,
+};
+
+const NAV_CHAT: NavPrimaryItem = {
+  href: "/chat",
+  label: UX_COPY.chat.label,
+  hint: UX_COPY.chat.hint,
+};
+
+const NAV_AFTER_GESTION_FULL: NavPrimaryItem[] = [
+  NAV_QUEUE,
   { href: "/missions", label: UX_COPY.missions.label, priority: true, hint: UX_COPY.missions.hint },
-  { href: "/chat", label: UX_COPY.chat.label, hint: UX_COPY.chat.hint },
+  NAV_CHAT,
+];
+
+const NAV_AFTER_GESTION_ESSENTIAL: NavPrimaryItem[] = [
+  NAV_QUEUE,
+  { ...NAV_CHAT, priority: true },
 ];
 
 const NAV_MORE = [
@@ -110,7 +123,8 @@ export default function AppNav() {
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
 
   const navBefore = isEssential ? NAV_BEFORE_GESTION_ESSENTIAL : NAV_BEFORE_GESTION_FULL;
-  const navPrimary = [...navBefore, ...NAV_AFTER_GESTION];
+  const navAfter = isEssential ? NAV_AFTER_GESTION_ESSENTIAL : NAV_AFTER_GESTION_FULL;
+  const navPrimary = [...navBefore, ...navAfter];
   const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, { essential: isEssential });
   const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential: isEssential });
   const gestionGroups = groupedGestionNavLinks(isEssential);
@@ -432,7 +446,7 @@ export default function AppNav() {
             ) : null}
           </div>
 
-          {NAV_AFTER_GESTION.map((item) => {
+          {navAfter.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
               <Link

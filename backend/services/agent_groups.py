@@ -367,6 +367,40 @@ def group_orchestrator_key(group_id: str | None) -> str:
     return lead if lead in agents_def() else "coordinateur"
 
 
+def chat_speaker_is_enterprise_cio(orchestrator_key: str | None, agent_group_id: str | None) -> bool:
+    """Le CIO ne parle que pour la flotte Entreprise. Une équipe projet a son propre lead."""
+    key = (orchestrator_key or "coordinateur").strip() or "coordinateur"
+    gid = (agent_group_id or "").strip()
+    return key == "coordinateur" and (not gid or gid == ENTERPRISE_GROUP_ID)
+
+
+def chat_speaker_constraint(*, orchestrator_key: str, agent_group_id: str | None, label: str) -> str:
+    """Consigne d'identité pour le chat : ne pas répondre « je suis le CIO » au nom d'une autre flotte."""
+    if chat_speaker_is_enterprise_cio(orchestrator_key, agent_group_id):
+        return (
+            "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
+            "Par défaut, assume seul."
+        )
+    who = (label or orchestrator_key or "lead").strip()
+    return (
+        f"Tu es {who}, lead de l'équipe sélectionnée. "
+        "Tu n'es pas le CIO, pas le DSI, pas l'orchestrateur de la flotte Entreprise. "
+        "Si l'on te demande qui tu es, nomme ce rôle et cette équipe, jamais le CIO. "
+        "Ne mobilise un membre que si son livrable est indispensable. Par défaut, assume seul."
+    )
+
+
+def chat_speaker_persona(agent_cfg: dict, *, orchestrator_key: str, agent_group_id: str | None) -> str:
+    """Prompt de rôle du locuteur. Une équipe projet ne reprend pas le manifeste du CIO."""
+    label = str((agent_cfg or {}).get("label") or orchestrator_key or "lead")
+    raw = str((agent_cfg or {}).get("system") or "").strip()
+    if chat_speaker_is_enterprise_cio(orchestrator_key, agent_group_id):
+        return raw
+    if re.search(r"\bcio\b|chief information officer|orchestrateur strat[eé]gique", raw, re.I):
+        raw = ""
+    return f"Tu es {label}. Tu parles au nom de ton équipe, pas au nom du CIO.\n{raw}".strip()
+
+
 def _slugify(label: str) -> str:
     s = (label or "").strip().lower()
     s = unicodedata_fold(s)
@@ -717,6 +751,103 @@ def _exclusive_custom_agents(row: dict[str, Any]) -> list[dict[str, str]]:
         cfg = ad.get(k) or {}
         out.append({"key": k, "label": str(cfg.get("label") or k)})
     return out
+
+
+def _live_job_refs_for_agent(agent_key: str) -> list[dict[str, Any]]:
+    key = (agent_key or "").strip()
+    if not key:
+        return []
+    try:
+        from state import active_jobs
+    except Exception:
+        return []
+    out: list[dict[str, Any]] = []
+    for jid, job in (active_jobs or {}).items():
+        if not isinstance(job, dict):
+            continue
+        status = str(job.get("status") or "running").strip().lower()
+        if status not in ("running", "pending", "awaiting_validation", "paused"):
+            continue
+        if str(job.get("agent") or "").strip() == key:
+            hit = True
+        else:
+            team = job.get("team")
+            hit = isinstance(team, list) and any(
+                isinstance(row, dict) and str(row.get("key") or "").strip() == key for row in team
+            )
+        if not hit:
+            continue
+        out.append(
+            {
+                "id": str(jid),
+                "status": status,
+                "mission": str(job.get("mission") or "")[:160],
+                "agent": str(job.get("agent") or ""),
+            }
+        )
+    return out
+
+
+def agent_delete_preview(agent_key: str) -> dict[str, Any]:
+    """Suppression d'une fiche custom : refusée si flotte, mission active ou cadrage ouvert."""
+    from database import list_active_job_refs_for_agent, list_open_session_refs_for_agent
+
+    key = (agent_key or "").strip()
+    ad = agents_def()
+    cfg = ad.get(key)
+    if not cfg:
+        raise ValueError("agent introuvable")
+    builtin = key in BUILTIN_AGENT_DEFINITIONS or bool(cfg.get("is_manager"))
+    fleets: list[dict[str, str]] = []
+    for group in list_groups(include_archived=False):
+        lead = str(group.get("lead_agent_key") or "").strip()
+        members = [str(k).strip() for k in (group.get("member_keys") or [])]
+        if key != lead and key not in members:
+            continue
+        fleets.append(
+            {
+                "id": str(group.get("id") or ""),
+                "label": str(group.get("label") or group.get("id") or ""),
+                "role": "lead" if key == lead else "membre",
+            }
+        )
+    jobs = list_active_job_refs_for_agent(key)
+    seen = {j["id"] for j in jobs}
+    for item in _live_job_refs_for_agent(key):
+        if item["id"] not in seen:
+            jobs.append(item)
+            seen.add(item["id"])
+    sessions = list_open_session_refs_for_agent(key)
+
+    parts: list[str] = []
+    if builtin:
+        parts.append("agent intégré, non supprimable")
+    if fleets:
+        n = len(fleets)
+        parts.append(f"rattaché à {n} flotte{'s' if n != 1 else ''}")
+    if jobs:
+        n = len(jobs)
+        parts.append(f"{n} mission{'s' if n != 1 else ''} active{'s' if n != 1 else ''}")
+    if sessions:
+        n = len(sessions)
+        parts.append(f"{n} cadrage{'s' if n != 1 else ''} ouvert{'s' if n != 1 else ''}")
+    can_delete = not parts
+    if can_delete:
+        summary = "Aucune flotte ni activité en cours : l'agent peut être supprimé."
+    else:
+        summary = "Impossible de supprimer : " + ", ".join(parts) + "."
+    return {
+        "agent_key": key,
+        "label": str(cfg.get("label") or key),
+        "builtin": key in BUILTIN_AGENT_DEFINITIONS,
+        "can_delete": can_delete,
+        "summary": summary,
+        "fleets": fleets,
+        "jobs": jobs[:25],
+        "jobs_count": len(jobs),
+        "sessions": sessions[:25],
+        "sessions_count": len(sessions),
+    }
 
 
 def group_delete_preview(group_id: str) -> dict[str, Any]:

@@ -12,7 +12,8 @@ import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
-import { ENTERPRISE_GROUP_ID } from "../../lib/agentGroupUi";
+import { ENTERPRISE_GROUP_ID, ENTERPRISE_ROLE_LABEL } from "../../lib/agentGroupUi";
+import { interlocutorFromGroupId, rememberInterlocutor } from "../../lib/recentInterlocutors";
 import MissionFleetSelect, {
   activeFleetGroups,
   type FleetGroupOption,
@@ -168,6 +169,10 @@ function MissionGuidedPanelInner() {
       });
       setShowNewSessionForm(false);
       setSessionId(data.id);
+      rememberInterlocutor(
+        interlocutorFromGroupId(gid),
+        gid === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : selectedFleet?.label || "Équipe",
+      );
       setTrackingJobId("");
       setTitle("");
       qc.invalidateQueries({ queryKey: QK.missionSessions });
@@ -529,6 +534,10 @@ function MissionGuidedPanelInner() {
                 setFleetId(id);
                 const g = fleets.find((x) => x.id === id);
                 if (g?.lead_agent_key) setAgent(g.lead_agent_key);
+                rememberInterlocutor(
+                  interlocutorFromGroupId(id),
+                  id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
+                );
               }} groups={fleets} disabled={busy} id="guided-fleet" />
               <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Titre optionnel" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
               <button disabled={busy} className="bg-slate-900 text-white px-4 py-2 rounded-lg text-sm disabled:opacity-40">

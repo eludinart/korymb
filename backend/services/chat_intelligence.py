@@ -96,6 +96,30 @@ def classify_chat_intent(text: str) -> str:
     return INTENT_CHAT
 
 
+def chat_message_needs_action(text: str) -> bool:
+    """Vrai seulement si le message demande d'exécuter quelque chose (recherche, envoi, livrable)."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    folded = _fold(raw)
+    if re.search(
+        r"\b(qui es[- ]tu|qui est[- ]tu|tu es qui|qui etes[- ]vous|presente[- ]toi|c'est qui)\b",
+        folded,
+    ):
+        return False
+    intent = classify_chat_intent(raw)
+    if intent in {INTENT_MISSION, INTENT_PLATFORM}:
+        return True
+    if _ACTION_RE.search(folded):
+        return True
+    return bool(
+        re.search(
+            r"\b(cherche|chercher|recherche|rechercher|envoie|envoyer|lance|lancer|publie|publier|genere|generer|cree|creer|redige|ecris)\b",
+            folded,
+        )
+    )
+
+
 def extract_search_query(text: str) -> str:
     t = re.sub(r"^(est[- ]ce que|peux[- ]tu|peux tu|tu peux|dis[- ]moi)\s+", "", (text or "").strip(), flags=re.I)
     t = re.sub(r"[?!.]+$", "", t).strip()

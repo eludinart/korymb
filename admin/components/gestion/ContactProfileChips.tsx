@@ -12,8 +12,9 @@ type Props = {
   disabled?: boolean;
 };
 
-/** Cases à cocher pour poser un profil métier (écrit dans les tags). */
+/** Cases à cocher pour un catalogue de tags. Rien si le catalogue est vide. */
 export default function ContactProfileChips({ tags, onChange, disabled }: Props) {
+  if (CONTACT_PROFILE_DEFS.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1.5">
       {CONTACT_PROFILE_DEFS.map((p) => {

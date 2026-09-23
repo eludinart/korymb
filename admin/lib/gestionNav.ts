@@ -52,15 +52,15 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   },
   {
     href: "/gestion/playbooks",
-    label: "Playbooks",
-    hint: "Scénarios prêts à lancer",
+    label: "Modèles",
+    hint: "Demandes prêtes à lancer",
     icon: "📋",
     group: "creation",
   },
   {
     href: "/gestion/livrables",
-    label: "Livrables",
-    hint: "Bibliothèque des pièces produites",
+    label: "Documents",
+    hint: "Pièces produites",
     icon: "📦",
     group: "creation",
   },
@@ -73,14 +73,14 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   },
   {
     href: "/gestion/contacts",
-    label: "Contacts",
-    hint: "Prospects, clients, partenaires",
+    label: "Personnes",
+    hint: "Personnes et organisations",
     icon: "👤",
     group: "activite",
   },
   {
     href: "/gestion/courrier",
-    label: "Courrier",
+    label: "Messages",
     hint: "Réponses, en attente, brouillons",
     icon: "✉️",
     group: "activite",
@@ -88,14 +88,14 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   {
     href: "/gestion/projets",
     label: "Projets",
-    hint: "Séances, stages, modules pro",
+    hint: "Dossiers liés à votre activité",
     icon: "📁",
     group: "activite",
   },
   {
     href: "/gestion/planning",
-    label: "Planning",
-    hint: "Rendez-vous et documents à partager",
+    label: "Calendrier",
+    hint: "Rendez-vous et contenus à partager",
     icon: "📅",
     group: "activite",
   },
@@ -111,7 +111,7 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
 export const GESTION_QUICK_ACTIONS: readonly GestionQuickAction[] = [
   { id: "studio", href: "/gestion/studio", label: "Produire un contenu", hint: "Ouvrir le studio" },
   { id: "new-resource", href: "/gestion/planning/nouveau?resource=1", label: "Ajouter un document", hint: "PDF, vidéo, podcast" },
-  { id: "new-contact", href: "/gestion/contacts/nouveau", label: "Nouveau contact", hint: "Créer un contact" },
+  { id: "new-contact", href: "/gestion/contacts/nouveau", label: "Nouvelle personne", hint: "Ajouter quelqu'un" },
   { id: "new-event", href: "/gestion/planning/nouveau", label: "Planifier un rendez-vous", hint: "Ajouter au planning" },
   { id: "new-quote", href: "/gestion/devis/nouveau", label: "Nouveau devis", hint: "Créer un devis" },
 ] as const;
@@ -125,30 +125,21 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
 }
 
-/** Liens Gestion en mode Essentiel. */
+/** Liens Gestion en mode Essentiel : le quotidien, sans modèles ni documents (résultat d'un travail). */
 const ESSENTIAL_GESTION_HREFS = new Set([
   GESTION_HUB_HREF,
-  "/gestion/playbooks",
-  "/gestion/livrables",
   "/gestion/contacts",
   "/gestion/courrier",
   "/gestion/planning",
   "/gestion/devis",
 ]);
 
-const ESSENTIAL_LABEL_OVERRIDES: Record<string, string> = {
-  "/gestion/livrables": "Documents",
-};
-
 export function filterGestionNavLinks(
   links: readonly GestionNavLink[],
   opts: { essential: boolean },
 ): GestionNavLink[] {
-  const base = opts.essential ? links.filter((l) => ESSENTIAL_GESTION_HREFS.has(l.href)) : [...links];
-  return base.map((l) => {
-    const override = opts.essential ? ESSENTIAL_LABEL_OVERRIDES[l.href] : undefined;
-    return override ? { ...l, label: override } : l;
-  });
+  if (!opts.essential) return [...links];
+  return links.filter((l) => ESSENTIAL_GESTION_HREFS.has(l.href));
 }
 
 export function groupedGestionNavLinks(essential = false): {

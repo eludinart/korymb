@@ -303,7 +303,7 @@ export default function MapInspector({
         ) : null}
         {showPlanHitl && openHref && onOpen ? (
           <button type="button" className="btn-secondary flex w-full justify-center text-sm" onClick={() => onOpen(node)}>
-            Voir dans Décisions
+            À valider
           </button>
         ) : null}
         <div className="flex gap-2">

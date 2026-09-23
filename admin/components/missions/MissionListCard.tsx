@@ -238,7 +238,7 @@ export default function MissionListCard({
                   className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
                   onClick={() => setMenuOpen(false)}
                 >
-                  Voir dans Décisions
+                  À valider
                 </Link>
                 {origin.id === "studio" ? (
                   <Link

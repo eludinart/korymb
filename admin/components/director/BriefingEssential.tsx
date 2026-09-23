@@ -32,24 +32,24 @@ type Props = {
 const ONBOARDING_STEPS = [
   {
     n: 1,
-    title: "Présenter votre activité",
-    hint: "Quelques lignes dans la mémoire partagée guident les agents.",
+    title: "Décrire votre activité",
+    hint: "Quelques phrases suffisent. L'assistant s'en sert ensuite.",
     href: "/administration/memory",
-    cta: "Ouvrir la mémoire",
+    cta: "Écrire",
   },
   {
     n: 2,
-    title: "Lancer un playbook",
-    hint: "Scénario prêt à l’emploi — résultat à valider ensuite.",
-    href: "/gestion/playbooks",
-    cta: "Voir les playbooks",
+    title: "Ajouter un rendez-vous",
+    hint: "La prochaine date, au calendrier.",
+    href: "/gestion/planning/nouveau",
+    cta: "Planifier",
   },
   {
     n: 3,
-    title: "Configurer la page publique",
-    hint: "Vitrine /p/… pour vos participants.",
-    href: "/administration/vitrine",
-    cta: "Ouvrir la vitrine",
+    title: "Faire une demande",
+    hint: "Décrivez ce dont vous avez besoin, en français.",
+    href: "/chat",
+    cta: "Demander",
   },
 ] as const;
 
@@ -67,12 +67,9 @@ export default function BriefingEssential({
   return (
     <div className="space-y-6">
       <header className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white px-4 py-5 sm:px-6">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Accueil</p>
+        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Aujourd&apos;hui</p>
         <h1 className="mt-1 text-2xl font-extrabold text-slate-900">{greet}</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          Quatre priorités : valider, suivre, lancer, personnaliser. Mode Essentiel — basculez en Avancé dans
-          Configuration si besoin.
-        </p>
+        <p className="mt-1 text-sm text-slate-600">À valider, le calendrier, une demande.</p>
       </header>
 
       {showWelcome ? (
@@ -81,11 +78,11 @@ export default function BriefingEssential({
           <p className="mt-1 text-sm text-emerald-800">
             {packId && packId !== "blank" ? (
               <>
-                Le modèle <strong>{starterPackLabel(packId)}</strong> a préparé des playbooks. Enchaînez ces 3
-                étapes :
+                Le modèle <strong>{starterPackLabel(packId)}</strong> a préparé des points de départ. Trois gestes
+                pour les adapter à votre activité :
               </>
             ) : (
-              <>Espace prêt. Enchaînez ces 3 étapes pour le spécialiser :</>
+              <>Espace prêt. Trois gestes pour commencer :</>
             )}
           </p>
           <ol className="mt-4 space-y-3">
@@ -125,7 +122,7 @@ export default function BriefingEssential({
                 >
                   <span className="min-w-0">
                     <span className="block text-sm font-bold text-slate-900">
-                      {item.title || item.mission || "Décision"}
+                      {item.title || item.mission || "À valider"}
                     </span>
                     {item.mission && item.title ? (
                       <span className="mt-0.5 block text-xs text-slate-600">
@@ -148,7 +145,7 @@ export default function BriefingEssential({
         ) : (
           <p className="mt-3 text-sm">
             <Link href={DIRECTOR_QUEUE_HREF} className="font-semibold text-violet-700 hover:underline">
-              Ouvrir Décisions →
+              Tout voir →
             </Link>
           </p>
         )}
@@ -181,25 +178,16 @@ export default function BriefingEssential({
         </p>
       </SectionCard>
 
-      <SectionCard title="Démarrer" description="Playbooks et actions rapides">
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/gestion/playbooks"
-            className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800"
-          >
-            Lancer un playbook
-          </Link>
-          <Link
-            href="/mission/nouvelle"
-            className="rounded-xl border-2 border-violet-700 px-4 py-2.5 text-sm font-bold text-violet-800"
-          >
-            Nouvelle mission
-          </Link>
+      <SectionCard title="Demander" description="Décrivez ce dont vous avez besoin. Le résultat revient ici, à valider.">
+        <div className="flex flex-wrap items-center gap-3">
           <Link
             href="/chat"
-            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 hover:bg-slate-50"
+            className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800"
           >
-            Ouvrir le chat
+            Faire une demande
+          </Link>
+          <Link href="/gestion/playbooks" className="text-sm font-semibold text-violet-700 hover:underline">
+            Partir d&apos;un modèle
           </Link>
         </div>
       </SectionCard>

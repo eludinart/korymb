@@ -39,16 +39,9 @@ function displayContactName(raw: string): string {
 export function defaultProspectSubject(contact: BizContact): string {
   const name = displayContactName(contact.name || "");
   const company = (contact.company || "").trim();
-  const tags = (contact.tags || []).map((t) => t.toLowerCase());
-  const isCoachLike = tags.some((t) =>
-    ["coach", "thérapeute", "therapeute", "bien-être", "bien-etre"].includes(t),
-  );
-  if (isCoachLike || company) {
-    const angle = company || name || "votre pratique";
-    return `Proposition de collaboration — enrichir ${angle}`.slice(0, 160);
-  }
-  if (name) return `Votre activité — échange avec ${name}`.slice(0, 160);
-  return "Proposition de collaboration";
+  if (company) return `Échange — ${company}`.slice(0, 160);
+  if (name) return `Échange avec ${name}`.slice(0, 160);
+  return "Proposition";
 }
 
 function replySubject(subject: string): string {
@@ -409,8 +402,8 @@ export default function ContactEmailPanel({ contact, focusThreadId }: Props) {
               onChange={(e) => setGuidance(e.target.value)}
               placeholder={
                 isReply
-                  ? "Ex. : proposer un appel mardi matin, remercier pour l’atelier, ne pas parler de tarif."
-                  : "Ex. : se présenter brièvement, proposer un module ou un atelier, rester court."
+                  ? "Ex. : proposer un appel mardi matin, rester court."
+                  : "Ex. : se présenter brièvement, dire l'objet, rester court."
               }
             />
             <span className="mt-1 block text-xs text-slate-500">

@@ -1,7 +1,10 @@
 """Effet miroir immédiat pour le chat (réponse lite avant orchestration)."""
 from __future__ import annotations
 
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 from services.agents import agents_def
 
@@ -108,22 +111,49 @@ def finalize_mirror_ack(text: str) -> str:
     return t.strip()
 
 
-def generate_mirror_ack(message: str, agent_group_id: str | None = None) -> str:
-    """Accusé de réception immédiat : reformule le besoin et annonce le travail en arrière-plan."""
+def _mirror_fallback(msg: str) -> str:
+    preview = msg[:200] + ("…" if len(msg) > 200 else "")
+    return finalize_mirror_ack(
+        f"Je prends en compte votre demande : *{preview}*\n\n{_MIRROR_FALLBACK_CLOSING}"
+    )
+
+
+def generate_mirror_ack_result(
+    message: str,
+    agent_group_id: str | None = None,
+) -> tuple[str, BaseException | None]:
+    """Accusé de réception. Le second élément est l'erreur LLM si le texte est le repli local.
+
+    L'appel modèle est borné (8 s, un seul essai) pour que POST /chat réponde avant
+    le délai du navigateur. Un simple délai ne bloque pas la mission lancée ensuite.
+    """
     msg = (message or "").strip()
     if not msg:
-        return ""
+        return "", None
     try:
         from llm_client import llm_turn
+        from services.agent_groups import (
+            ENTERPRISE_GROUP_ID,
+            chat_speaker_constraint,
+            chat_speaker_persona,
+            group_orchestrator_key,
+        )
         from services.workspace_brand import workspace_identity_block
 
-        agent_cfg = agents_def()["coordinateur"]
-        ident = workspace_identity_block(agent_group_id)
+        gid = (agent_group_id or "").strip() or None
+        orch = group_orchestrator_key(gid) if gid else "coordinateur"
+        agent_cfg = agents_def().get(orch) or agents_def()["coordinateur"]
+        label = str(agent_cfg.get("label") or orch)
+        ident = workspace_identity_block(gid if gid and gid != ENTERPRISE_GROUP_ID else agent_group_id)
+        persona = chat_speaker_persona(agent_cfg, orchestrator_key=orch, agent_group_id=gid)
         system = (
-            agent_cfg["system"][:900]
+            chat_speaker_constraint(orchestrator_key=orch, agent_group_id=gid, label=label)
+            + "\n"
+            + persona[:900]
             + ident[:500]
             + "\n\nMode « accusé de réception » (avant mission en arrière-plan).\n"
             "Réponse **courte** (80 à 120 mots max), en français :\n"
+            "- Si l'on te demande qui tu es : une phrase, ton rôle ci-dessus, pas le CIO sauf si tu es le CIO.\n"
             "- 1 phrase : reformulation du besoin.\n"
             "- 2 ou 3 puces « - » : ce que tu lances (pas plus).\n"
             "- 1 phrase finale complète : travail en arrière-plan + notification chat et cloche "
@@ -141,10 +171,16 @@ def generate_mirror_ack(message: str, agent_group_id: str | None = None) -> str:
             or_profile="lite",
             usage_context="chat:mirror_ack",
             temperature=0.35,
+            request_timeout=8.0,
+            max_retries=1,
         )
-        return finalize_mirror_ack((text or "").strip())
-    except Exception:
-        preview = msg[:200] + ("…" if len(msg) > 200 else "")
-        return finalize_mirror_ack(
-            f"Je prends en compte votre demande : *{preview}*\n\n{_MIRROR_FALLBACK_CLOSING}"
-        )
+        return finalize_mirror_ack((text or "").strip()), None
+    except Exception as exc:
+        logger.warning("mirror ack repli local : %s", exc)
+        return _mirror_fallback(msg), exc
+
+
+def generate_mirror_ack(message: str, agent_group_id: str | None = None) -> str:
+    """Accusé de réception immédiat : reformule le besoin et annonce le travail en arrière-plan."""
+    text, _err = generate_mirror_ack_result(message, agent_group_id=agent_group_id)
+    return text

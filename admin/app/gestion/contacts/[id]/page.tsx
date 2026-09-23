@@ -7,19 +7,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactEnrichmentPanel from "../../../../components/gestion/ContactEnrichmentPanel";
 import ContactEmailPanel from "../../../../components/gestion/ContactEmailPanel";
 import ContactOutreachSuggestionsField from "../../../../components/gestion/ContactOutreachSuggestionsField";
-import ContactProfileChips from "../../../../components/gestion/ContactProfileChips";
 import ContactProfileView from "../../../../components/gestion/ContactProfileView";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../../_shared";
-
-function parseTagsInput(raw: string): string[] {
-  return raw
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-}
 
 export default function GestionContactEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -139,7 +131,7 @@ export default function GestionContactEditPage() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Contacts"
+        badge="Personnes"
         title={contact.data.name}
         description={`Créé le ${formatDateTime(contact.data.created_at)}`}
         actions={
@@ -213,16 +205,6 @@ export default function GestionContactEditPage() {
               ))}
             </select>
           </label>
-          <div className="sm:col-span-2">
-            <p className="text-sm font-medium text-slate-700">Profil</p>
-            <p className="mt-0.5 text-xs text-slate-500">Métier / cible — coach, thérapeute, éditeur, écolieu…</p>
-            <div className="mt-1.5">
-              <ContactProfileChips
-                tags={parseTagsInput(tags)}
-                onChange={(next) => setTags(next.join(", "))}
-              />
-            </div>
-          </div>
           <label className="block text-sm">
             <span className="font-medium text-slate-700">Email</span>
             <input type="email" className="input-field mt-1 w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -252,7 +234,7 @@ export default function GestionContactEditPage() {
             <input className="input-field mt-1 w-full" value={facebook} onChange={(e) => setFacebook(e.target.value)} placeholder="https://facebook.com/…" />
           </label>
           <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Resalib / fiche métier</span>
+            <span className="font-medium text-slate-700">Fiche en ligne</span>
             <input className="input-field mt-1 w-full" value={resalib} onChange={(e) => setResalib(e.target.value)} placeholder="https://www.resalib.fr/…" />
           </label>
           <label className="block text-sm sm:col-span-2">
@@ -269,7 +251,7 @@ export default function GestionContactEditPage() {
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Tags libres (séparés par des virgules)</span>
-            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="région, atelier, partenaire…" />
+            <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="mots libres, séparés par des virgules" />
           </label>
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Notes sur le contact</span>

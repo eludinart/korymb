@@ -100,7 +100,7 @@ function coverOf(ev: StorefrontEvent) {
 export function SessionList({ events, hideEmpty }: { events: StorefrontEvent[]; hideEmpty?: boolean }) {
   if (events.length === 0) {
     if (hideEmpty) return null;
-    return <p className="mt-3 text-sm text-slate-600">Aucune séance, atelier ou visio n’est encore ouvert.</p>;
+    return <p className="mt-3 text-sm text-slate-600">Aucun rendez-vous n’est encore ouvert.</p>;
   }
   return (
     <ul className="mt-4 grid gap-4 sm:grid-cols-2">

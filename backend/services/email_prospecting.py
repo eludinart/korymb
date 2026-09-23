@@ -821,19 +821,15 @@ def prepare_contact_email_ticket(
     name_clean = re.sub(r"^\s*\[TEST\]\s*", "", name, flags=re.IGNORECASE).strip() or name
     outreach = str(contact.get("outreach_suggestions") or "").strip()
     company = str(contact.get("company") or "").strip()
-    tags = contact.get("tags") if isinstance(contact.get("tags"), list) else []
-    tags_l = [str(t).strip().lower() for t in tags]
-    coach_like = any(
-        t in tags_l for t in ("coach", "thérapeute", "therapeute", "bien-être", "bien-etre")
-    )
     brand = _workspace_brand_label()
     if (subject or "").strip():
         subj = subject.strip()
-    elif coach_like or company:
-        angle = company or name_clean or "votre pratique"
-        subj = f"Proposition — enrichir {angle}"[:160]
-    else:
+    elif company:
+        subj = f"Échange — {company}"[:160]
+    elif name_clean:
         subj = f"{brand} — échange avec {name_clean}"[:160]
+    else:
+        subj = f"{brand} — échange"[:160]
     if (body or "").strip():
         mail_body = body.strip()
     elif outreach and not send_now:

@@ -1538,8 +1538,11 @@ def _cio_attempt_direct_answer(
     job_logs: list | None,
     chat_mode: bool,
     agent_group_id: str | None = None,
+    orchestrator_key: str = "coordinateur",
+    allow_tools: bool = True,
 ) -> tuple[str | None, int, int]:
-    """Phase 0 : le CIO tente de répondre seul (mémoire + outils) avant plan JSON."""
+    """Phase 0 : le lead (CIO ou chef d'équipe) tente de répondre seul avant plan JSON."""
+    from services.agent_groups import chat_speaker_constraint, chat_speaker_persona
     from services.chat_intelligence import (
         build_chat_grounding_block,
         chat_brief_mandate,
@@ -1548,23 +1551,34 @@ def _cio_attempt_direct_answer(
         logs_satisfy_grounding,
     )
 
-    agent_cfg = agents_def()["coordinateur"]
+    orch_key = (orchestrator_key or "coordinateur").strip() or "coordinateur"
+    if orch_key not in agents_def():
+        orch_key = "coordinateur"
+    agent_cfg = agents_def()[orch_key]
+    label = str(agent_cfg.get("label") or orch_key)
     intent = classify_chat_intent(root_mission_label or mission_txt) if chat_mode else "chat"
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     system = (
-        agent_cfg["system"]
+        chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
+        + "\n\n"
+        + chat_speaker_persona(agent_cfg, orchestrator_key=orch_key, agent_group_id=agent_group_id)
         + _identity_block(agent_group_id)
         + _cio_prompt_memory(
-            "coordinateur",
+            orch_key,
             exclude_job_id=job_id,
             chat_mode=chat_mode,
             user_text=root_mission_label or mission_txt,
             agent_group_id=agent_group_id,
         )
         + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
-        "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
-        "Par défaut, assume seul. Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
-        "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
+        + chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
+        + (
+            " Aucun outil, aucune recherche, aucun envoi. Réponds seulement en texte. "
+            "N'annonce pas une exploration ni un travail en arrière-plan.\n"
+            if not allow_tools
+            else " Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
+        )
+        + "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
         "sans l'avoir produit via un outil (upload_google_drive / recherche web) dans ce tour."
         + (chat_tool_mandate(intent) if chat_mode else "")
         + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
@@ -1579,13 +1593,21 @@ def _cio_attempt_direct_answer(
     reply, ti, to = llm_chat_maybe_tools(
         system,
         messages,
-        agent_cfg.get("tools"),
+        None if not allow_tools else agent_cfg.get("tools"),
         job_logs=job_logs,
         max_tokens=2048 if chat_mode else 3072,
         usage_job_id=job_id,
         usage_context="cio_direct_attempt",
     )
     text = (reply or "").strip()
+    if not allow_tools:
+        if not text or "[[DELEGATE]]" in text.upper():
+            return (
+                "Je peux répondre sans lancer d'action. Si vous voulez une recherche, un livrable ou un envoi, confirmez-le d'abord.",
+                ti,
+                to,
+            )
+        return text, ti, to
     if not text or text.upper().startswith("[[DELEGATE]]"):
         return None, ti, to
     if "[[DELEGATE]]" in text:
@@ -1603,6 +1625,35 @@ def _cio_attempt_direct_answer(
             )
         return None, ti, to
     return text, ti, to
+
+
+def answer_chat_turn_without_tools(
+    mission_txt: str,
+    root_mission_label: str,
+    job_logs: list | None,
+    *,
+    job_id: str | None = None,
+    orchestrator_key: str = "coordinateur",
+    agent_group_id: str | None = None,
+) -> tuple[str, int, int]:
+    """Réponse de chat sans outil ni délégation. Une action reste derrière une confirmation."""
+    text, ti, to = _cio_attempt_direct_answer(
+        mission_txt,
+        root_mission_label,
+        job_id,
+        job_logs,
+        True,
+        agent_group_id=agent_group_id,
+        orchestrator_key=orchestrator_key,
+        allow_tools=False,
+    )
+    cleaned = (text or "").strip()
+    if not cleaned:
+        cleaned = (
+            "Je réponds sans lancer d'action. "
+            "Confirmez si vous voulez une recherche, un livrable ou un envoi."
+        )
+    return cleaned, ti, to
 
 
 def orchestrate_coordinateur_mission(
@@ -1722,6 +1773,7 @@ def orchestrate_coordinateur_mission(
             job_logs,
             chat_mode,
             agent_group_id=agent_group_id,
+            orchestrator_key=orch_key,
         )
         t_in += ti0
         t_out += to0
@@ -1742,16 +1794,16 @@ def orchestrate_coordinateur_mission(
             )
             if job_id:
                 for row in team_rows:
-                    if row.get("key") == "coordinateur":
+                    if row.get("key") == orch_key:
                         row["status"] = "done"
                         row["phase"] = "synth"
-                        row["detail"] = "Réponse directe CIO"
+                        row["detail"] = "Réponse directe"
                         break
                 pub_team()
                 _emit_job_event(
                     job_id,
                     "synthesis_done",
-                    "coordinateur",
+                    orch_key,
                     {"mode": "direct", "chars": len(direct)},
                 )
             return direct, t_in, t_out

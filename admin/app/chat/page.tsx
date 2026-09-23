@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
 import ChatInterlocutorSelect, {
+  describeInterlocutor,
   interlocutorFromGroupId,
   parseInterlocutor,
   type GroupOpt,
@@ -32,6 +33,7 @@ import {
   type ChatConversation,
 } from "../../lib/chatSessions";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { chatTextIsDegraded, isChatTransportFailure, localDegradedChatReply } from "../../lib/chatDegraded";
 import { toChatSurface } from "../../lib/chatSurface";
 import { fetchJobAgentKeys, type ChatJobDelivery } from "../../lib/chatJobAgents";
 import { buildMissionBriefFromChat } from "../../lib/chatMissionConvert";
@@ -41,7 +43,9 @@ import {
 } from "../../lib/deleteChatConversation";
 import { invalidateAfterMissionDelete } from "../../lib/deleteMissionBundle";
 import { JOB_ID_MAX_LEN } from "../../lib/missionBossView";
+import { cancelActiveJob } from "../../lib/jobControl";
 import { QK } from "../../lib/queryClient";
+import { rememberInterlocutor } from "../../lib/recentInterlocutors";
 
 function stripMarkdownPreview(text: string, max = 120): string {
   return text.replace(/[#*_`]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -102,7 +106,9 @@ function ChatPageInner() {
     urlGroupId ? interlocutorFromGroupId(urlGroupId) : "assistant",
   );
   const pollingRef = useRef<Set<string>>(new Set());
+  const stoppedReplyRef = useRef<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
+  const interlocutorRef = useRef(interlocutor);
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -110,8 +116,15 @@ function ChatPageInner() {
   }, [activeId]);
 
   useEffect(() => {
+    interlocutorRef.current = interlocutor;
+  }, [interlocutor]);
+
+  useEffect(() => {
     if (!urlGroupId) return;
-    setInterlocutor(interlocutorFromGroupId(urlGroupId));
+    const value = interlocutorFromGroupId(urlGroupId);
+    interlocutorRef.current = value;
+    setInterlocutor(value);
+    rememberInterlocutor(value);
   }, [urlGroupId]);
 
   const refreshConversations = useCallback(() => {
@@ -124,12 +137,17 @@ function ChatPageInner() {
       const id = activeIdRef.current;
       if (!id) return;
       const existing = loadConversations().find((c) => c.id === id);
+      const previous = existing?.messages || [];
+      const messagesChanged =
+        previous.length !== nextMessages.length ||
+        previous.some((m, i) => m.id !== nextMessages[i]?.id || m.content !== nextMessages[i]?.content);
       const conv: ChatConversation = {
         id,
         title: conversationTitleFromMessages(nextMessages),
         messages: nextMessages,
-        updatedAt: Date.now(),
+        updatedAt: messagesChanged ? Date.now() : existing?.updatedAt || Date.now(),
         linkedParentJobId: existing?.linkedParentJobId || linkedParentJobId || undefined,
+        interlocutor: extra?.interlocutor ?? interlocutorRef.current ?? existing?.interlocutor,
         unread: extra?.unread ?? false,
         unreadPreview: extra?.unreadPreview,
         ...extra,
@@ -176,6 +194,10 @@ function ChatPageInner() {
       setActiveId(current.id);
       setActiveConversationId(current.id);
       setMessages(current.messages);
+      if (!urlGroupId && current.interlocutor) {
+        interlocutorRef.current = current.interlocutor;
+        setInterlocutor(current.interlocutor);
+      }
       setBackgroundJobs(loadPendingChatJobs());
       setHydrated(true);
       void requestBrowserNotificationPermission();
@@ -195,6 +217,9 @@ function ChatPageInner() {
       if (!conv) return;
       const cleared = { ...conv, unread: false, unreadPreview: undefined };
       upsertConversation(cleared);
+      const nextInterlocutor = conv.interlocutor || "assistant";
+      interlocutorRef.current = nextInterlocutor;
+      setInterlocutor(nextInterlocutor);
       setActiveId(id);
       setActiveConversationId(id);
       setMessages(conv.messages);
@@ -210,7 +235,10 @@ function ChatPageInner() {
 
   const newConversation = useCallback(() => {
     if (activeId) persistActiveConversation(messages);
+    interlocutorRef.current = "assistant";
+    setInterlocutor("assistant");
     const conv = createConversation();
+    conv.interlocutor = "assistant";
     upsertConversation(conv);
     setActiveId(conv.id);
     setActiveConversationId(conv.id);
@@ -267,9 +295,18 @@ function ChatPageInner() {
         retries: 1,
       });
       const status = String(data.status || "");
-      if (status === "completed") {
+      if (status === "cancelled") {
         return {
-          surface: toChatSurface(String(data.result_surface || data.result || "")),
+          surface: "Réponse arrêtée.",
+          degraded: false,
+          jobId,
+        };
+      }
+      if (status === "completed") {
+        const raw = String(data.result_surface || data.result || "");
+        return {
+          surface: toChatSurface(raw),
+          degraded: Boolean(data.degraded) || chatTextIsDegraded(raw),
           jobId,
           driveArtifacts: (data.drive_artifacts || []) as ChatJobDelivery["driveArtifacts"],
           deliverablesMarkdown: String(data.result || ""),
@@ -284,8 +321,13 @@ function ChatPageInner() {
   }, []);
 
   const deliverJobResult = useCallback(
-    async (job: PendingChatJob, delivery: { surface: string; driveArtifacts?: unknown[]; deliverablesMarkdown?: string } | string, isError = false) => {
-      const surface = typeof delivery === "string" ? delivery : delivery.surface;
+    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string } | string, isError = false) => {
+      const surface = stoppedReplyRef.current.has(job.jobId)
+        ? "Réponse arrêtée."
+        : typeof delivery === "string"
+          ? delivery
+          : delivery.surface;
+      const degraded = typeof delivery === "string" ? chatTextIsDegraded(delivery) : Boolean(delivery.degraded) || chatTextIsDegraded(delivery.surface);
       const driveArtifacts = typeof delivery === "string" ? undefined : delivery.driveArtifacts;
       const deliverablesMarkdown = typeof delivery === "string" ? undefined : delivery.deliverablesMarkdown;
       const assistantId = isError ? `e-${job.jobId}` : `a-${job.jobId}`;
@@ -331,6 +373,7 @@ function ChatPageInner() {
           ...(deliverablesMarkdown ? { deliverablesMarkdown } : {}),
           ...(agentKeys ? { agentKeys } : {}),
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
+          ...(degraded ? { degraded: true } : {}),
         },
       ];
       const preview = stripMarkdownPreview(surface);
@@ -384,6 +427,47 @@ function ChatPageInner() {
     [pollJob, deliverJobResult],
   );
 
+  const stopActiveReply = useCallback(async () => {
+    if (!window.confirm("Arrêter la réponse en cours ?")) return;
+    const convId = activeIdRef.current;
+    if (!convId) return;
+    const jobs = pendingJobsForConversation(convId);
+    const ids = jobs.map((job) => job.jobId);
+    for (const id of ids) {
+      stoppedReplyRef.current.add(id);
+      removePendingChatJob(id);
+    }
+    setBackgroundJobs(loadPendingChatJobs());
+    if (ids.length) {
+      setMessages((prev) => {
+        const next = [...prev];
+        for (const id of ids) {
+          if (!next.some((m) => m.id === `a-${id}` || m.id === `e-${id}`)) {
+            next.push({ id: `a-${id}`, role: "assistant", content: "Réponse arrêtée." });
+          }
+        }
+        return next;
+      });
+    }
+    for (const id of ids) {
+      try {
+        await cancelActiveJob(id);
+      } catch {
+        /* le fil s'arrête au prochain jalon */
+      }
+    }
+  }, []);
+
+  const dismissPendingAction = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, pendingAction: undefined, content: "Action annulée. Rien n'a été lancé." }
+          : m,
+      ),
+    );
+  }, []);
+
   useEffect(() => {
     if (!hydrated) return;
     for (const job of backgroundJobs) {
@@ -433,9 +517,9 @@ function ChatPageInner() {
     }
   }, [pendingFiles.length]);
 
-  const send = useCallback(async () => {
-    const text = draft.trim();
-    const files = pendingFiles.slice(0, CHAT_FILE_MAX);
+  const send = useCallback(async (opts?: { confirmAction?: boolean; text?: string }) => {
+    const text = (opts?.text ?? draft).trim();
+    const files = opts?.confirmAction ? [] : pendingFiles.slice(0, CHAT_FILE_MAX);
     if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return;
 
     const userMsg: ChatMsg = {
@@ -444,11 +528,17 @@ function ChatPageInner() {
       content: text,
       ...(files.length ? { attachments: files } : {}),
     };
-    const history = [...messages, userMsg];
-    setMessages(history);
-    setDraft("");
-    setPendingFiles([]);
-    setUploadError("");
+    const history = opts?.confirmAction
+      ? messages.map((m) => (m.pendingAction ? { ...m, pendingAction: undefined } : m))
+      : [...messages, userMsg];
+    if (!opts?.confirmAction) {
+      setMessages(history);
+      setDraft("");
+      setPendingFiles([]);
+      setUploadError("");
+    } else {
+      setMessages(history);
+    }
     setPending(true);
 
     const conv = loadConversations().find((c) => c.id === activeId);
@@ -462,6 +552,7 @@ function ChatPageInner() {
 
     try {
       const { agent, agentGroupId } = parseInterlocutor(interlocutor);
+      rememberInterlocutor(interlocutor);
       const { data } = await requestJson("/chat", {
         method: "POST",
         headers: agentHeaders(),
@@ -474,10 +565,23 @@ function ChatPageInner() {
           ...(parentId ? { linked_job_id: parentId } : {}),
           ...(agentGroupId ? { agent_group_id: agentGroupId } : {}),
           ...(files.length ? { attachments: files } : {}),
+          ...(opts?.confirmAction ? { confirm_action: true } : {}),
         }),
       });
 
-      if (data?.status === "accepted" && data?.job_id) {
+      if (data?.status === "needs_confirmation") {
+        const askAgent = agent === "assistant" ? "assistant" : String(data.agent || agent || "coordinateur");
+        setMessages([
+          ...history,
+          {
+            id: `hitl-${Date.now()}`,
+            role: "assistant",
+            content: String(data.proposal || "Confirmer avant de lancer l'action."),
+            agentKeys: [askAgent],
+            pendingAction: { message: text },
+          },
+        ]);
+      } else if (data?.status === "accepted" && data?.job_id) {
         const jobId = String(data.job_id);
         const mirror = String(data.mirror_ack || "").trim();
         const ackAgent = agent === "assistant" ? "assistant" : String(data.agent || agent || "coordinateur");
@@ -500,6 +604,7 @@ function ChatPageInner() {
         watchJobInBackground(pendingJob);
       } else {
         const surface = toChatSurface(String(data?.response || ""));
+        const degraded = Boolean(data?.degraded) || chatTextIsDegraded(surface);
         setMessages([
           ...history,
           {
@@ -507,16 +612,22 @@ function ChatPageInner() {
             role: "assistant",
             content: surface,
             agentKeys: [agent],
+            ...(degraded ? { degraded: true } : {}),
           },
         ]);
       }
     } catch (err) {
+      const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
+      const degraded = isChatTransportFailure(err);
+      const { agent: failAgent } = parseInterlocutor(interlocutor);
       setMessages([
         ...history,
         {
           id: `e-${Date.now()}`,
           role: "assistant",
-          content: err instanceof Error ? err.message : "Une erreur est survenue.",
+          content: degraded ? localDegradedChatReply(text, failAgent === "coordinateur" ? "CIO" : failAgent) : raw,
+          agentKeys: [failAgent],
+          ...(degraded ? { degraded: true } : {}),
         },
       ]);
     } finally {
@@ -569,6 +680,7 @@ function ChatPageInner() {
     setConvertBusy(true);
     try {
       const { agent, agentGroupId } = parseInterlocutor(interlocutor);
+      rememberInterlocutor(interlocutor);
       const runAgent = agent === "assistant" ? "coordinateur" : agent;
       const { data } = await requestJson("/run", {
         method: "POST",
@@ -598,6 +710,25 @@ function ChatPageInner() {
     queryKey: ["agent-groups"],
     queryFn: async () => (await requestJson("/agent-groups", { retries: 1 })).data.groups || [],
   });
+
+  const chooseInterlocutor = useCallback(
+    (value: string) => {
+      interlocutorRef.current = value;
+      setInterlocutor(value);
+      const groups = (groupsList || []) as GroupOpt[];
+      rememberInterlocutor(value, describeInterlocutor(value, groups).title);
+      if (activeIdRef.current) {
+        persistActiveConversation(messages, { interlocutor: value });
+      }
+    },
+    [groupsList, messages, persistActiveConversation],
+  );
+
+  useEffect(() => {
+    const groups = (groupsList || []) as GroupOpt[];
+    if (interlocutor.startsWith("group:") && !groups.length) return;
+    rememberInterlocutor(interlocutor, describeInterlocutor(interlocutor, groups).title);
+  }, [interlocutor, groupsList]);
 
   if (!hydrated || !activeId) {
     return <div className="p-6 text-center text-slate-500">Chargement…</div>;
@@ -629,7 +760,7 @@ function ChatPageInner() {
         </p>
         <ChatInterlocutorSelect
           value={interlocutor}
-          onChange={setInterlocutor}
+          onChange={chooseInterlocutor}
           groups={groupsList as GroupOpt[]}
           disabled={pending}
           variant="compact"
@@ -663,6 +794,10 @@ function ChatPageInner() {
           onSelect={selectConversation}
           onNew={newConversation}
           onDelete={removeConversation}
+          interlocutorLabel={(conv) => {
+            if (!conv.interlocutor || conv.interlocutor === "assistant") return null;
+            return describeInterlocutor(conv.interlocutor, groupsList as GroupOpt[]).title;
+          }}
           className={`absolute inset-y-0 left-0 z-20 shadow-xl lg:relative lg:shadow-none ${
             sidebarOpen ? "flex" : "hidden lg:flex"
           }`}
@@ -672,7 +807,7 @@ function ChatPageInner() {
           <div className="hidden shrink-0 items-center gap-3 border-b border-slate-100 px-3 py-2 lg:flex">
             <ChatInterlocutorSelect
               value={interlocutor}
-              onChange={setInterlocutor}
+              onChange={chooseInterlocutor}
               groups={groupsList as GroupOpt[]}
               disabled={pending}
               variant="full"
@@ -690,6 +825,9 @@ function ChatPageInner() {
             onSend={() => void send()}
             pending={pending}
             backgroundJobCount={activePendingCount}
+            onStopReply={activePendingCount > 0 ? () => void stopActiveReply() : undefined}
+            onConfirmAction={(message) => void send({ confirmAction: true, text: message })}
+            onDismissAction={dismissPendingAction}
             className="h-full max-w-none"
             agentLabels={agentLabels}
             onPatchMessage={patchMessage}
@@ -706,7 +844,7 @@ function ChatPageInner() {
             uploadBusy={uploadBusy}
             uploadError={uploadError}
             onTeamCreated={(groupId) => {
-              setInterlocutor(interlocutorFromGroupId(groupId));
+              chooseInterlocutor(interlocutorFromGroupId(groupId));
               void qc.invalidateQueries({ queryKey: ["agent-groups"] });
               void qc.invalidateQueries({ queryKey: QK.agents });
             }}

@@ -1,6 +1,6 @@
 import type { BizContact } from "./business";
 
-/** Profil métier (tags) — distinct de la relation CRM (prospect / client / …). */
+/** Tags libres posés par l'espace — pas un catalogue de métiers. */
 export type ContactProfileDef = {
   key: string;
   label: string;
@@ -8,39 +8,8 @@ export type ContactProfileDef = {
   aliases: string[];
 };
 
-export const CONTACT_PROFILE_DEFS: ContactProfileDef[] = [
-  { key: "coach", label: "Coach", aliases: ["coach", "coachs", "coaching"] },
-  {
-    key: "therapeute",
-    label: "Thérapeute",
-    aliases: ["therapeute", "therapeutes", "therapist", "therapists"],
-  },
-  {
-    key: "editeur",
-    label: "Éditeur",
-    aliases: ["editeur", "editeurs", "edition", "maison dedition", "maison d edition"],
-  },
-  {
-    key: "ecolieu",
-    label: "Écolieu",
-    aliases: ["ecolieu", "ecolieux", "sivana", "ecosysteme"],
-  },
-  {
-    key: "facilitateur",
-    label: "Facilitateur",
-    aliases: ["facilitateur", "facilitateurs", "facilitation"],
-  },
-  {
-    key: "artiste",
-    label: "Artiste",
-    aliases: ["artiste", "artistes", "createur", "creatrice"],
-  },
-  {
-    key: "partenaire-terrain",
-    label: "Partenaire terrain",
-    aliases: ["partenaire terrain", "lieu", "lieu hebergement", "salle"],
-  },
-];
+/** Vide : les mots de métier vivent dans les tags de chaque espace, pas dans le produit. */
+export const CONTACT_PROFILE_DEFS: ContactProfileDef[] = [];
 
 export function foldContactToken(raw: string): string {
   return (raw || "")

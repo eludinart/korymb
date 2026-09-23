@@ -637,10 +637,10 @@ export default function MemoryConsolePage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Mémoire partagée</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Votre activité</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Socle workspace (marque, offres, règles) injecté aux équipes en scope « entreprise ». Les équipes en scope
-          « groupe » auront bientôt leur propre mémoire — gérez-les depuis{" "}
+          Quelques phrases sur ce que vous faites, pour qui, avec quels mots. L&apos;assistant s&apos;en sert pour
+          préparer le travail. Le détail par rôle est plus bas. Les équipes se gèrent depuis{" "}
           <Link href="/administration/equipes" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
             Équipes
           </Link>

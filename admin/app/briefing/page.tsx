@@ -150,7 +150,7 @@ function BriefingPageContent() {
         <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
           <p className="text-sm font-bold text-emerald-900">Bienvenue dans le cockpit dirigeant</p>
           <p className="mt-1 text-sm text-emerald-800">
-            Mode Avancé actif. Pour une interface plus simple : Configuration → Mode Essentiel.
+            Mode Avancé actif. Pour une interface plus simple : Configuration → Essentiel.
           </p>
         </div>
       ) : null}

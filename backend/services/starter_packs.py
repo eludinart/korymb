@@ -18,8 +18,8 @@ STARTER_PACKS: dict[str, dict[str, Any]] = {
         "id": BLANK_PACK_ID,
         "label": "Commencer vide",
         "description": (
-            "Espace générique avec les playbooks de démarrage Korymb uniquement. "
-            "À spécialiser au fil de l'usage (mémoire, agents, playbooks)."
+            "Espace générique. "
+            "À spécialiser au fil de l'usage (mémoire, équipes, demandes)."
         ),
         "memory_seed": "",
         "playbooks": [],

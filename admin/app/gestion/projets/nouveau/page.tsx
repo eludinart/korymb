@@ -49,7 +49,7 @@ export default function GestionProjetNouveauPage() {
         accent="emerald"
         badge="Projets"
         title="Nouveau projet"
-        description="Séance, stage, module pro ou accompagnement."
+        description="Un dossier pour regrouper dates, contenus et devis."
         actions={
           <Link href="/gestion/projets" className="btn-link-secondary">
             ← Retour à la liste

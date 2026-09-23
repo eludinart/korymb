@@ -12,6 +12,8 @@ export type ChatConversation = {
   messages: ChatMsg[];
   updatedAt: number;
   linkedParentJobId?: string;
+  /** "assistant" | "coordinateur" | `group:${id}` — interlocuteur de cette conversation. */
+  interlocutor?: string;
   unread?: boolean;
   unreadPreview?: string;
 };
@@ -115,8 +117,13 @@ export async function hydrateConversationsFromServer(): Promise<ChatConversation
       server = await fetchChatConversationsFromServer();
     }
     if (server.length) {
-      saveConversations(server);
-      return server;
+      const localById = new Map(local.map((c) => [c.id, c]));
+      const merged = server.map((row) => ({
+        ...row,
+        interlocutor: row.interlocutor || localById.get(row.id)?.interlocutor,
+      }));
+      saveConversations(merged);
+      return merged;
     }
     return local;
   } catch {

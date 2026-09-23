@@ -94,7 +94,7 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
         <Field label="YouTube" empty={!youtube}>
           {youtube ? <ExternalLink href={youtube}>{socials.youtube}</ExternalLink> : "—"}
         </Field>
-        <Field label="Resalib / fiche métier" empty={!resalib}>
+        <Field label="Fiche en ligne" empty={!resalib}>
           {resalib ? <ExternalLink href={resalib}>{socials.resalib}</ExternalLink> : "—"}
         </Field>
         <Field label="Adresse" empty={!contact.address && !contact.city}>

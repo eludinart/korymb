@@ -108,7 +108,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
         <PracticePoweredBy />
       ) : (
         <footer className="border-t bg-white/60 py-8 text-center text-xs text-slate-500">
-          Korymb — outil de gestion pour accompagner et livrer
+          Korymb — outil de gestion pour votre activité
         </footer>
       )}
     </div>

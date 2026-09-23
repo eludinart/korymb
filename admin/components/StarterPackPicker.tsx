@@ -15,7 +15,7 @@ export default function StarterPackPicker({ packs, value, onChange, disabled, na
     <fieldset className="space-y-2" disabled={disabled}>
       <legend className="text-sm font-semibold text-slate-700">Modèle de démarrage</legend>
       <p className="text-xs text-slate-500">
-        Optionnel. Un modèle prépare des playbooks et une mémoire de base — vous pourrez tout modifier ensuite.
+        Optionnel. Un modèle prépare des demandes types et quelques phrases sur l&apos;activité — vous pourrez tout modifier ensuite.
       </p>
       <div className="space-y-2">
         {packs.map((pack) => {

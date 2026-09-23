@@ -43,9 +43,9 @@ export default function GestionPlanningPage() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Planning"
+        badge="Calendrier"
         title="Calendrier d’activité"
-        description="Rendez-vous (séances, ateliers, visio) et documents à ouvrir (PDF, vidéo, podcast) sur le même calendrier. Chaque entrée a un accès : interne, nominatif, inscrits, ou public."
+        description="Rendez-vous et contenus à ouvrir, sur le même calendrier. Chaque entrée a un accès : interne, nommé, inscrits, ou public."
         actions={
           <Link href="/gestion/planning/nouveau" className="btn-primary">
             + Planifier

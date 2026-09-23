@@ -14,7 +14,7 @@ export const FALLBACK_STARTER_PACKS: StarterPackSummary[] = [
     id: "blank",
     label: "Commencer vide",
     description:
-      "Espace générique avec les playbooks de démarrage Korymb uniquement. À spécialiser au fil de l'usage.",
+      "Espace générique. À spécialiser au fil de l'usage : mémoire, équipes, demandes.",
     playbook_count: 0,
     mission_template_count: 0,
     has_memory_seed: false,

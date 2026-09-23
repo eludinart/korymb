@@ -87,7 +87,7 @@ export default function AdministrationModelesPage() {
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Administration</p>
         <h1 className="mt-1 text-2xl font-extrabold text-slate-900">Modèles de démarrage</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Korymb reste un outil générique. Un modèle copie des playbooks et une mémoire de base dans{" "}
+          Korymb reste un outil générique. Un modèle copie des demandes types et une base d&apos;activité dans{" "}
           <strong>{me?.workspace?.name || "cet espace"}</strong> — vous pouvez tout modifier ensuite. Ce n’est pas
           un secteur figé dans le moteur.
         </p>
@@ -115,7 +115,7 @@ export default function AdministrationModelesPage() {
                 <h2 className="text-lg font-bold text-slate-900">{pack.label}</h2>
                 <p className="mt-1 text-sm text-slate-600">{pack.description}</p>
                 <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-violet-700">
-                  {pack.playbook_count} playbook{pack.playbook_count !== 1 ? "s" : ""}
+                  {pack.playbook_count} modèle{pack.playbook_count !== 1 ? "s" : ""}
                   {pack.mission_template_count
                     ? ` · ${pack.mission_template_count} template${pack.mission_template_count > 1 ? "s" : ""}`
                     : ""}
@@ -144,11 +144,11 @@ export default function AdministrationModelesPage() {
       <p className="text-sm text-slate-600">
         Après application :{" "}
         <Link href="/gestion/playbooks" className="font-semibold text-violet-700 hover:underline">
-          Playbooks
+          Modèles
         </Link>
         {" · "}
         <Link href="/administration/templates" className="font-semibold text-violet-700 hover:underline">
-          Templates missions
+          Travaux types
         </Link>
         {" · "}
         <Link href="/administration/memory" className="font-semibold text-violet-700 hover:underline">

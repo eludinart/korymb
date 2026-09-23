@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import FleetDeleteDialog from "./FleetDeleteDialog";
 import TeamAgentDrawer from "./TeamAgentDrawer";
 import CreateTeamAgentModal from "./CreateTeamAgentModal";
 import TeamMemoryPanel from "./TeamMemoryPanel";
@@ -58,20 +59,6 @@ type TemplateRow = {
   label: string;
   description: string;
   member_count: number;
-};
-
-type DeletePreview = {
-  group_id: string;
-  label: string;
-  is_system: boolean;
-  can_delete: boolean;
-  summary: string;
-  jobs: { id: string; status: string; mission: string }[];
-  jobs_count: number;
-  sessions: { id: string; title: string; status: string }[];
-  sessions_count: number;
-  blueprints: { id: string; title: string; status: string }[];
-  exclusive_agents: { key: string; label: string }[];
 };
 
 const POLICY_TOOL_OPTIONS = [
@@ -238,45 +225,6 @@ export default function AgentTeamsHub() {
       await qc.invalidateQueries({ queryKey: ["agent-groups"] });
     },
     onError: (e: unknown) => setError(e instanceof Error ? e.message : String(e)),
-  });
-
-  const deletePreview = useQuery({
-    queryKey: ["agent-group-delete-preview", selectedId],
-    queryFn: async () => {
-      const { data, res } = await requestJson(
-        `/admin/agent-groups/${encodeURIComponent(selectedId)}/delete-preview`,
-        { expectOk: false, retries: 0 },
-      );
-      if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
-      return data as DeletePreview;
-    },
-    enabled: showDelete && !!selectedId,
-  });
-
-  const removeGroup = useMutation({
-    mutationFn: async (id: string) => {
-      const { data, res } = await requestJson(`/admin/agent-groups/${encodeURIComponent(id)}`, {
-        method: "DELETE",
-        expectOk: false,
-      });
-      if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
-      return data as { deleted_id?: string; deleted_agents?: { key: string; label: string }[] };
-    },
-    onSuccess: async (data) => {
-      const extra = data?.deleted_agents?.length
-        ? ` Agents exclusifs retirés : ${data.deleted_agents.map((a) => a.label).join(", ")}.`
-        : "";
-      setOkMsg(`Flotte supprimée.${extra}`);
-      setShowDelete(false);
-      setError("");
-      setSelectedId(ENTERPRISE_GROUP_ID);
-      await qc.invalidateQueries({ queryKey: ["agent-groups"] });
-      await qc.invalidateQueries({ queryKey: QK.agents });
-    },
-    onError: (e: unknown) => {
-      setError(e instanceof Error ? e.message : String(e));
-      setOkMsg("");
-    },
   });
 
   const saveIdentity = (e: FormEvent) => {
@@ -906,120 +854,17 @@ export default function AgentTeamsHub() {
       </div>
 
       {showDelete && selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-xl">
-            <h3 className="text-lg font-bold text-slate-900">Supprimer « {selected.label} »</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              La suppression est définitive. Elle n’est possible que s’il ne reste aucune mission, cadrage
-              ou proposition d’équipe liée.
-            </p>
-            {deletePreview.isLoading ? (
-              <p className="mt-4 text-sm text-slate-500">Vérification des usages…</p>
-            ) : null}
-            {deletePreview.isError ? (
-              <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-                {deletePreview.error instanceof Error ? deletePreview.error.message : "Vérification impossible."}
-              </p>
-            ) : null}
-            {deletePreview.data ? (
-              <div className="mt-4 space-y-3">
-                <p
-                  className={`rounded-xl px-3 py-2 text-sm ${
-                    deletePreview.data.can_delete
-                      ? "border border-emerald-200 bg-emerald-50 text-emerald-900"
-                      : "border border-amber-200 bg-amber-50 text-amber-950"
-                  }`}
-                >
-                  {deletePreview.data.summary}
-                </p>
-                {deletePreview.data.jobs_count > 0 ? (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Missions ({deletePreview.data.jobs_count})
-                    </p>
-                    <ul className="mt-1 max-h-32 space-y-1 overflow-y-auto text-sm">
-                      {deletePreview.data.jobs.map((j) => (
-                        <li key={j.id}>
-                          <Link
-                            href={`/missions?job=${encodeURIComponent(j.id)}`}
-                            className="text-violet-800 hover:underline"
-                            onClick={() => setShowDelete(false)}
-                          >
-                            {j.mission || j.id}
-                          </Link>
-                          <span className="ml-2 text-[11px] text-slate-400">{j.status}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    <Link
-                      href={`/missions?team=${encodeURIComponent(selected.id)}`}
-                      className="mt-1 inline-block text-xs font-semibold text-violet-800 hover:underline"
-                      onClick={() => setShowDelete(false)}
-                    >
-                      Voir les missions de cette flotte
-                    </Link>
-                  </div>
-                ) : null}
-                {deletePreview.data.sessions_count > 0 ? (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Cadrages ({deletePreview.data.sessions_count})
-                    </p>
-                    <ul className="mt-1 max-h-28 space-y-1 overflow-y-auto text-sm">
-                      {deletePreview.data.sessions.map((s) => (
-                        <li key={s.id}>
-                          <Link
-                            href={`/missions?mode=guided&session=${encodeURIComponent(s.id)}`}
-                            className="text-violet-800 hover:underline"
-                            onClick={() => setShowDelete(false)}
-                          >
-                            {s.title || s.id}
-                          </Link>
-                          <span className="ml-2 text-[11px] text-slate-400">{s.status}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {deletePreview.data.blueprints.length > 0 ? (
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-                      Propositions en attente
-                    </p>
-                    <ul className="mt-1 space-y-1 text-sm text-slate-700">
-                      {deletePreview.data.blueprints.map((b) => (
-                        <li key={b.id}>{b.title || b.id}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {deletePreview.data.can_delete && deletePreview.data.exclusive_agents.length > 0 ? (
-                  <p className="text-xs text-slate-500">
-                    Agents exclusifs qui seront aussi supprimés :{" "}
-                    {deletePreview.data.exclusive_agents.map((a) => a.label).join(", ")}.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-            <div className="mt-5 flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                onClick={() => setShowDelete(false)}
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                disabled={!deletePreview.data?.can_delete || removeGroup.isPending}
-                className="rounded-xl bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => removeGroup.mutate(selected.id)}
-              >
-                {removeGroup.isPending ? "Suppression…" : "Supprimer définitivement"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <FleetDeleteDialog
+          groupId={selected.id}
+          label={selected.label}
+          onClose={() => setShowDelete(false)}
+          onDeleted={({ deletedAgents }) => {
+            const extra = deletedAgents.length ? ` Agents exclusifs retirés : ${deletedAgents.join(", ")}.` : "";
+            setOkMsg(`Flotte supprimée.${extra}`);
+            setError("");
+            setSelectedId(ENTERPRISE_GROUP_ID);
+          }}
+        />
       ) : null}
 
       {drawerKey && selected ? (

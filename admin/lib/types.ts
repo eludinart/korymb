@@ -239,6 +239,8 @@ export type AgentCard = {
   key: string;
   label: string;
   role?: string;
+  builtin?: boolean;
+  is_manager?: boolean;
 };
 
 // ── Knowledge Graph (entités KORYMB) ─────────────────────────────────────────

@@ -141,9 +141,9 @@ export default function GestionPlanningEditPage() {
     <PageShell size="wide" className="space-y-6">
       <PageHeader
         accent="emerald"
-        badge="Planning"
+        badge="Calendrier"
         title={`Modifier — ${event.data.title}`}
-        description="Rendez-vous (séance, atelier, visio) ou contenu à ouvrir (document, vidéo, podcast)."
+        description="Rendez-vous ou contenu à ouvrir."
         actions={
           <Link href="/gestion/planning" className="btn-link-secondary">
             ← Retour à l&apos;agenda

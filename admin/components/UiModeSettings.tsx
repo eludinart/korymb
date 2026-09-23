@@ -28,7 +28,7 @@ export default function UiModeSettings({ compact = false }: { compact?: boolean 
     >
       <h2 className="text-sm font-extrabold text-slate-900">Mode d&apos;interface</h2>
       <p className="mt-1 text-xs text-slate-600">
-        Essentiel simplifie navigation et accueil. Avancé montre tout le cockpit (Carte, Studio, audit…).
+        Essentiel : aujourd&apos;hui, à valider, une demande. Avancé ajoute la carte, le studio et le détail.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button

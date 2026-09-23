@@ -71,15 +71,13 @@ export function AccountLoginForm({
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 px-4">
       <div className="rounded-2xl border-2 border-violet-200 bg-white p-6 shadow-lg sm:p-8">
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">
-          {isOperator ? "Korymb" : "Compte participant"}
+          {isOperator ? "Korymb" : "Mon espace"}
         </p>
-        <h1 className="mt-2 text-2xl font-extrabold text-slate-900">
-          {isOperator ? "Connexion Korymb" : "Connexion participant"}
-        </h1>
+        <h1 className="mt-2 text-2xl font-extrabold text-slate-900">Connexion</h1>
         <p className="mt-2 text-sm text-slate-600">
           {isOperator
-            ? "Ouvrez l’outil de gestion : briefing, missions, planning, CRM."
-            : "Accédez à vos séances et ressources. Ce n’est pas l’outil Korymb."}
+            ? "Aujourd’hui, personnes, calendrier et messages."
+            : "Rendez-vous et ressources qui vous sont destinés."}
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <label className="block text-sm font-semibold text-slate-700">
