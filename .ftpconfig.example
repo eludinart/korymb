@@ -1,0 +1,8 @@
+{
+  "host": "eludein.art",
+  "user": "u945541167",
+  "password": "REMPLIR_DEPUIS_HPANEL_FTP",
+  "protocol": "sftp",
+  "port": 65002,
+  "remotePath": "/home/u945541167/domains/eludein.art/public_html/wp-content/themes/eludein-child"
+}
