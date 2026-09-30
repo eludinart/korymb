@@ -16,8 +16,24 @@ const PUBLIC_PREFIXES = [
   "/p",
 ];
 
+/** Assets PWA / icônes : publics (sinon Chrome reçoit du HTML login → « Manifest syntax error »). */
+const PUBLIC_EXACT = new Set([
+  "/manifest.json",
+  "/sw.js",
+  "/favicon.ico",
+  "/icon.svg",
+  "/apple-touch-icon.png",
+  "/icon-16.png",
+  "/icon-32.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-192-maskable.png",
+  "/icon-512-maskable.png",
+]);
+
 function isPublicRoute(pathname: string) {
   if (pathname === "/") return true;
+  if (PUBLIC_EXACT.has(pathname)) return true;
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
@@ -43,5 +59,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon\\.svg|apple-touch-icon\\.png|icon-.*\\.png).*)",
+  ],
 };
