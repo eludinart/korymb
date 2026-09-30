@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef } from "react";
 import type { ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
@@ -104,6 +105,12 @@ export default function ChatSidebar({
         {inbox ? (
           <div className="mb-3 flex items-center justify-between gap-2">
             <h1 className="text-xl font-bold tracking-tight text-slate-950">Conversation</h1>
+            <Link
+              href="/briefing"
+              className="rounded-full px-3 py-1.5 text-xs font-bold text-violet-800 active:bg-violet-50"
+            >
+              Accueil
+            </Link>
           </div>
         ) : null}
         <button

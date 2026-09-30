@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import ChoiceQuestionnaire from "../ChoiceQuestionnaire";
 import ChatAgentMacaron from "./ChatAgentMacaron";
 import ChatMessageDeliverables from "./ChatMessageDeliverables";
 import ChatMessageFiles from "./ChatMessageFiles";
@@ -10,7 +11,13 @@ import TeamBlueprintCard from "./TeamBlueprintCard";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
 import { chatTextIsDegraded } from "../../lib/chatDegraded";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
+import {
+  formatChoiceAnswersAsMessage,
+  parseChoiceQuestionnaireFromText,
+  stripChoiceQuestionnaireFences,
+} from "../../lib/choiceQuestionnaire";
 import { resourceFileUrl } from "../../lib/business";
+import ThinkingModePicker from "../director/ThinkingModePicker";
 import type { DriveArtifact } from "../../lib/types";
 import {
   CHAT_ACCEPT_CAMERA,
@@ -44,6 +51,8 @@ export type ChatMsg = {
   degraded?: boolean;
   /** Action proposée, en attente de confirmation. */
   pendingAction?: { message: string };
+  /** QCM déjà répondu (résumé affiché à la place du formulaire). */
+  choiceAnsweredSummary?: string;
 };
 
 type Props = {
@@ -74,6 +83,8 @@ type Props = {
   onConfirmAction?: (message: string) => void;
   onDismissAction?: (messageId: string) => void;
   onStopReply?: () => void;
+  /** Envoie une réponse QCM comme message utilisateur. */
+  onSubmitChoiceAnswers?: (messageId: string, text: string) => void;
 };
 
 function displayAgentKeys(msg: ChatMsg): string[] {
@@ -189,8 +200,10 @@ export default function ChatShell({
   onConfirmAction,
   onDismissAction,
   onStopReply,
+  onSubmitChoiceAnswers,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrolledAssistantIdRef = useRef<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -207,17 +220,56 @@ export default function ChatShell({
   const showPendingBar = pending || backgroundJobCount > 0;
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pending, backgroundJobCount, backgroundProgress?.percent]);
+    // Pendant l'attente : garder la barre de progression visible.
+    if (pending || backgroundJobCount > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      return;
+    }
+    // Réponse prête : positionner au début de la dernière réponse assistant (pas à la fin).
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+    if (scrolledAssistantIdRef.current === lastAssistant.id) return;
+    scrolledAssistantIdRef.current = lastAssistant.id;
+    const el = document.getElementById(`chat-msg-${lastAssistant.id}`);
+    requestAnimationFrame(() => {
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [messages, pending, backgroundJobCount]);
 
   useEffect(() => setPortalReady(true), []);
+
+  useEffect(() => {
+    const scrollComposerVisible = () => {
+      bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const t = e.target;
+      if (!(t instanceof HTMLTextAreaElement) && !(t instanceof HTMLInputElement)) return;
+      if (!t.closest("form")) return;
+      window.setTimeout(scrollComposerVisible, 50);
+      window.setTimeout(scrollComposerVisible, 280);
+    };
+    const onVv = () => {
+      if (document.documentElement.dataset.keyboardOpen === "1") scrollComposerVisible();
+    };
+    document.addEventListener("focusin", onFocusIn);
+    window.visualViewport?.addEventListener("resize", onVv);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn);
+      window.visualViewport?.removeEventListener("resize", onVv);
+    };
+  }, []);
 
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
     const compact = 36;
-    const min = composing ? 108 : compact;
-    const max = composing ? Math.min(Math.round(window.innerHeight * 0.42), 340) : compact;
+    const vvH = window.visualViewport?.height ?? window.innerHeight;
+    const keyboardLikely = vvH < window.innerHeight - 120;
+    const min = composing && !keyboardLikely ? 108 : compact;
+    const max = composing
+      ? Math.min(Math.round(vvH * (keyboardLikely ? 0.22 : 0.42)), keyboardLikely ? 120 : 340)
+      : compact;
     el.style.height = "0px";
     const next = composing ? Math.min(Math.max(el.scrollHeight, min), max) : compact;
     el.style.height = `${next}px`;
@@ -309,8 +361,20 @@ export default function ChatShell({
           {messages.map((m) => {
             const agents = localAgents[m.id] || displayAgentKeys(m);
             const degraded = Boolean(m.degraded) || chatTextIsDegraded(m.content);
+            const qcm =
+              m.role === "assistant" && !m.choiceAnsweredSummary
+                ? parseChoiceQuestionnaireFromText(m.content)
+                : null;
+            const displaySource =
+              m.role === "assistant"
+                ? stripChoiceQuestionnaireFences(chatBubbleDisplayText(m.id, m.content))
+                : m.content;
             return (
-              <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              <div
+                key={m.id}
+                id={`chat-msg-${m.id}`}
+                className={`flex scroll-mt-12 lg:scroll-mt-4 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+              >
                 <div
                   className={
                     m.role === "user"
@@ -326,11 +390,12 @@ export default function ChatShell({
                     </div>
                   ) : null}
                   <div
-                    className={`overflow-hidden text-[15px] leading-snug sm:leading-relaxed ${
+                    className={`chat-bubble-text overflow-hidden leading-snug sm:leading-relaxed ${
                       m.role === "user"
                         ? "rounded-[1.15rem] rounded-br-md bg-slate-900 px-3.5 py-2 text-white sm:rounded-3xl sm:px-5 sm:py-3"
                         : "rounded-none bg-transparent px-0.5 py-0.5 text-slate-800 sm:rounded-[1.15rem] sm:rounded-bl-md sm:bg-slate-100 sm:px-5 sm:py-3"
                     }`}
+                    style={{ fontSize: "var(--chat-text-size, 1rem)" }}
                   >
                     {m.role === "user" ? (
                       <>
@@ -344,7 +409,7 @@ export default function ChatShell({
                             Mode dégradé
                           </p>
                         ) : null}
-                        <AgentMessageMarkdown source={chatBubbleDisplayText(m.id, m.content)} />
+                        {displaySource.trim() ? <AgentMessageMarkdown source={displaySource} /> : null}
                       </>
                     )}
                   </div>
@@ -353,6 +418,26 @@ export default function ChatShell({
                       {agents.map((key) => (
                         <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
                       ))}
+                    </div>
+                  ) : null}
+                  {m.role === "assistant" && (qcm || m.choiceAnsweredSummary) ? (
+                    <div className="mt-2">
+                      <ChoiceQuestionnaire
+                        payload={
+                          qcm || {
+                            questions: [],
+                            submitLabel: "Valider et envoyer",
+                          }
+                        }
+                        answeredSummary={m.choiceAnsweredSummary || null}
+                        busy={pending}
+                        disabled={pending || Boolean(m.choiceAnsweredSummary)}
+                        onSubmit={async (answers) => {
+                          if (!qcm || !onSubmitChoiceAnswers) return;
+                          const text = formatChoiceAnswersAsMessage(qcm, answers);
+                          onSubmitChoiceAnswers(m.id, text);
+                        }}
+                      />
                     </div>
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
@@ -454,7 +539,7 @@ export default function ChatShell({
           setDragging(false);
           takeFiles(filesFromDataTransfer(e.dataTransfer));
         }}
-        className="relative px-2 pt-1.5 sm:px-4 sm:pt-3"
+        className="chat-composer-shell relative px-2 pt-1.5 sm:px-4 sm:pt-3"
         style={{ paddingBottom: "max(0.4rem, env(safe-area-inset-bottom, 0px))" }}
       >
         {dragging ? (
@@ -526,6 +611,9 @@ export default function ChatShell({
           </div>
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
+        <div className="chat-thinking-picker mx-auto mb-1.5 max-w-3xl">
+          <ThinkingModePicker persist compact />
+        </div>
         <div className="mx-auto flex max-w-3xl items-end gap-1.5 sm:gap-2">
           {onAddFiles ? (
             <button
@@ -548,8 +636,8 @@ export default function ChatShell({
               onClick={onConvertToMission}
               disabled={convertBusy}
               className="mb-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40 lg:flex"
-              aria-label="Préparer une mission"
-              title="Préparer une mission"
+              aria-label="Préparer un travail"
+              title="Préparer un travail"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 4v16M5 5h12l-2 4 2 4H5" />
@@ -594,7 +682,7 @@ export default function ChatShell({
       {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
         <div className="absolute inset-0 z-30 flex flex-col bg-white">
           <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3">
-            <p className="text-sm font-semibold text-slate-900">Brief mission</p>
+            <p className="text-sm font-semibold text-slate-900">Ce que vous voulez accomplir</p>
             {onCancelConvert ? (
               <button
                 type="button"

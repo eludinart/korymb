@@ -40,6 +40,7 @@ import { chatTextIsDegraded, isChatTransportFailure, localDegradedChatReply } fr
 import { toChatSurface } from "../../lib/chatSurface";
 import { fetchJobAgentKeys, type ChatJobDelivery } from "../../lib/chatJobAgents";
 import { buildMissionBriefFromChat } from "../../lib/chatMissionConvert";
+import { loadThinkingMode } from "../../lib/thinkingMode";
 import {
   confirmDeleteChatConversation,
   deleteChatConversationJobs,
@@ -49,6 +50,7 @@ import { JOB_ID_MAX_LEN } from "../../lib/missionBossView";
 import { cancelActiveJob } from "../../lib/jobControl";
 import { QK } from "../../lib/queryClient";
 import { rememberInterlocutor } from "../../lib/recentInterlocutors";
+import { useChatTextScale } from "../../lib/chatTextScale";
 
 function stripMarkdownPreview(text: string, max = 120): string {
   return text.replace(/[#*_`]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -92,6 +94,7 @@ function ChatPageInner() {
   const highlightJobId = (searchParams.get("job") || "").trim().slice(0, JOB_ID_MAX_LEN);
   const urlGroupId = (searchParams.get("group") || "").trim();
 
+  const { scale: textScale, setScale: setTextScale, cycleScale: cycleTextScale } = useChatTextScale();
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -531,11 +534,16 @@ function ChatPageInner() {
     }
   }, [pendingFiles.length]);
 
-  const send = useCallback(async (opts?: { confirmAction?: boolean; text?: string }) => {
+  const send = useCallback(async (opts?: {
+    confirmAction?: boolean;
+    text?: string;
+    messagesOverride?: ChatMsg[];
+  }) => {
     const text = (opts?.text ?? draft).trim();
     const files = opts?.confirmAction ? [] : pendingFiles.slice(0, CHAT_FILE_MAX);
     if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return;
 
+    const baseMessages = opts?.messagesOverride ?? messages;
     const userMsg: ChatMsg = {
       id: `u-${Date.now()}`,
       role: "user",
@@ -543,8 +551,8 @@ function ChatPageInner() {
       ...(files.length ? { attachments: files } : {}),
     };
     const history = opts?.confirmAction
-      ? messages.map((m) => (m.pendingAction ? { ...m, pendingAction: undefined } : m))
-      : [...messages, userMsg];
+      ? baseMessages.map((m) => (m.pendingAction ? { ...m, pendingAction: undefined } : m))
+      : [...baseMessages, userMsg];
     if (!opts?.confirmAction) {
       setMessages(history);
       setDraft("");
@@ -557,7 +565,7 @@ function ChatPageInner() {
 
     const conv = loadConversations().find((c) => c.id === activeId);
     const parentId = conv?.linkedParentJobId || linkedParentJobId || undefined;
-    const historyPayload = messages.map(({ role, content, attachments }) => ({
+    const historyPayload = baseMessages.map(({ role, content, attachments }) => ({
       role,
       content: attachments?.length
         ? `${content}\n[Fichiers: ${attachments.map((a) => a.filename).join(", ")}]`.trim()
@@ -580,6 +588,7 @@ function ChatPageInner() {
           ...(agentGroupId ? { agent_group_id: agentGroupId } : {}),
           ...(files.length ? { attachments: files } : {}),
           ...(opts?.confirmAction ? { confirm_action: true } : {}),
+          thinking_mode: loadThinkingMode(),
         }),
       });
 
@@ -660,6 +669,16 @@ function ChatPageInner() {
     refreshConversations,
   ]);
 
+  const submitChoiceAnswers = useCallback(
+    (messageId: string, text: string) => {
+      const next = messages.map((m) =>
+        m.id === messageId ? { ...m, choiceAnsweredSummary: text } : m,
+      );
+      void send({ text, messagesOverride: next });
+    },
+    [messages, send],
+  );
+
   const { data: agentsList = [] } = useQuery({
     queryKey: QK.agents,
     queryFn: async () => (await requestJson("/agents", { retries: 1 })).data.agents || [],
@@ -706,6 +725,7 @@ function ChatPageInner() {
             agent_group_id: agentGroupId || (agent === "coordinateur" ? "entreprise" : null),
             require_user_validation: true,
             cio_plan_hitl_enabled: true,
+            thinking_mode: loadThinkingMode(),
           },
         }),
       });
@@ -806,6 +826,8 @@ function ChatPageInner() {
             onOpenFleet={() => setFleetSheetOpen(true)}
             onOpenMore={() => setMoreSheetOpen(true)}
             pending={pending}
+            textScale={textScale}
+            onCycleTextScale={cycleTextScale}
           />
           <div className="hidden shrink-0 items-center gap-3 border-b border-slate-100 px-3 py-2 lg:flex">
             <ChatInterlocutorSelect
@@ -831,6 +853,7 @@ function ChatPageInner() {
             onStopReply={activePendingCount > 0 ? () => void stopActiveReply() : undefined}
             onConfirmAction={(message) => void send({ confirmAction: true, text: message })}
             onDismissAction={dismissPendingAction}
+            onSubmitChoiceAnswers={submitChoiceAnswers}
             className="h-full max-w-none min-h-0 flex-1"
             agentLabels={agentLabels}
             onPatchMessage={patchMessage}
@@ -876,6 +899,8 @@ function ChatPageInner() {
             ? () => router.push(`/missions?job=${encodeURIComponent(linkedParentJobId)}`)
             : undefined
         }
+        textScale={textScale}
+        onTextScaleChange={setTextScale}
       />
     </div>
   );

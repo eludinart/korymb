@@ -17,6 +17,9 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
   --app-header-offset: 0px;
+  --app-visual-height: 100dvh;
+  --app-visual-offset-top: 0px;
+  --chat-text-size: 1rem;
 }
 
 html {
@@ -71,26 +74,43 @@ body {
   }
 
   .app-chat-main {
-    /* Hauteur réelle viewport − header mesuré (pas de marge fantôme 10rem). */
-    height: calc(100dvh - var(--app-header-offset, 3rem));
-    max-height: calc(100dvh - var(--app-header-offset, 3rem));
+    /* visualViewport : se réduit quand le clavier mobile s'ouvre (100dvh souvent pas). */
+    height: calc(var(--app-visual-height, 100dvh) - var(--app-header-offset, 3rem));
+    max-height: calc(var(--app-visual-height, 100dvh) - var(--app-header-offset, 3rem));
   }
 
   @media (max-width: 1023px) {
+    html.chat-immersion,
+    html.chat-immersion body {
+      overflow: hidden;
+      height: var(--app-visual-height, 100dvh);
+      max-height: var(--app-visual-height, 100dvh);
+    }
+
+    /* Chat mobile : pas de bandeau Korymb — Accueil est dans la barre conversation */
+    html.chat-immersion .app-header-bar--chat {
+      display: none;
+    }
+
+    html.chat-immersion .app-chat-main {
+      height: var(--app-visual-height, 100dvh);
+      max-height: var(--app-visual-height, 100dvh);
+    }
+
+    html.chat-immersion[data-keyboard-open="1"] .chat-composer-shell {
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+    }
+
+    html.chat-immersion[data-keyboard-open="1"] .chat-thinking-picker {
+      display: none;
+    }
+
     .app-carte-main {
       height: auto;
       max-height: none;
       overflow: visible;
       min-height: calc(100dvh - var(--app-header-offset, 7rem));
-    }
-
-    html.chat-immersion .app-header-bar--chat {
-      box-shadow: none;
-    }
-
-    html.chat-immersion .app-brand {
-      font-size: 1rem;
-      line-height: 1.2;
     }
   }
 

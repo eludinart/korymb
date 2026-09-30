@@ -14,6 +14,7 @@ import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
 import { useExecutiveMode } from "../lib/executiveMode";
 import { useUiMode } from "../lib/uiMode";
+import { useSyncVisualViewportHeight } from "../lib/visualViewport";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const { executiveMode, showTechnical, technicalOptIn, isPilotage, toggleTechnical } = useExecutiveMode();
@@ -24,6 +25,8 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
   const isCarte = pathname === "/carte";
   const isFlushPage = isChat || isCarte;
   const [statusOpen, setStatusOpen] = useState(false);
+
+  useSyncVisualViewportHeight(isChat);
 
   useEffect(() => {
     const el = headerRef.current;
@@ -36,9 +39,11 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     const ro = new ResizeObserver(sync);
     ro.observe(el);
     window.addEventListener("resize", sync);
+    window.visualViewport?.addEventListener("resize", sync);
     return () => {
       ro.disconnect();
       window.removeEventListener("resize", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
     };
   }, [executiveMode, showTechnical, isChat, isFlushPage, statusOpen]);
 
@@ -67,9 +72,9 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
             >
               {isEssential ? "Essentiel" : "Activité"}
             </p>
-            <RuntimeHeader visible={showTechnical} />
+            <RuntimeHeader visible={showTechnical && !isChat} />
             {!isPilotage ? (
-              <p className={`mt-0.5 text-xs font-semibold text-slate-500 ${isChat ? "hidden lg:block" : "hidden sm:block"}`}>
+              <p className={`mt-0.5 text-xs font-semibold text-slate-500 ${isChat ? "hidden" : "hidden sm:block"}`}>
                 <button
                   type="button"
                   disabled={uiBusy}
