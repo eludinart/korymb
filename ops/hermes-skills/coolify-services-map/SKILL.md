@@ -45,3 +45,7 @@ cd /docker/hermes-agent-aoxw && docker compose ps
 ## Réseau
 
 Hermes agent est sur **`coolify`** + `default`. Labels Traefik : entrypoint `https`, `traefik.docker.network=coolify`.
+
+## Mandala SQL
+Utiliser `mandala-sql.sh` (conteneur `p11nw75ijqbg4lfzmwbw2m3m`).
+

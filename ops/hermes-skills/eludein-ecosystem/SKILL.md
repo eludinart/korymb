@@ -15,7 +15,7 @@ Constitution : activer aussi `eludein-ops-rules`. Boucle Cursor×Hermes×Korymb 
 |-------------|-----|------|----------------------|
 | **Korymb** | https://korymb.eludein.art · API https://api-korymb.eludein.art | QG IA — missions, HITL, mémoire | `korymb-sql.sh` + `korymb-api.sh` + `korymb-analytics` |
 | **Fleur d'ÅmÔurs** | https://app-fleurdamours.eludein.art | App tarot — users, questionnaires, coach | `fleur-sql.sh` + `fleur-analytics` |
-| **Mandala** | https://mandala.eludein.art | Lieux & communautés | MariaDB Mandala `p11nw75ijqbg4lfzmwbw2m3m` — **ne pas** utiliser les scripts Fleur/Korymb |
+| **Mandala** | https://mandala.eludein.art | Lieux & communautés | `mandala-sql.sh` + `mandala-analytics` (conteneur `p11nw75ijqbg4lfzmwbw2m3m`) |
 | **Hermes** | https://hermes.eludein.art · WebUI https://hermeswebui.eludein.art | Agent ops 24/7 | `/opt/data` |
 | **Cursor** | Desktop / Cloud Agents | Code, PR, refacto | Repos GitHub `eludinart/*` + banque skills (tronc) |
 | **OpenPlotter** | RPi5 LAN | Bateau Ti Spoun | Pas d'accès depuis VPS |
@@ -35,9 +35,10 @@ Constitution : activer aussi `eludein-ops-rules`. Boucle Cursor×Hermes×Korymb 
 |-------|------------|
 | missions, jobs, HITL, inbox, tokens LLM | `korymb-analytics` + `korymb-sql.sh` / API |
 | utilisateurs tarot, questionnaires, coach | `fleur-analytics` + `fleur-sql.sh` |
-| lieux Mandala, carte communautés | **ne pas** `fleur-sql` / `korymb-sql` — signaler limite ou skill Mandala si ajoutée |
+| lieux Mandala, carte communautés | `mandala-analytics` + `mandala-sql.sh` — **jamais** fleur/korymb-sql |
 | VPS, Docker, Coolify, down | `hermes-vps-health` + `coolify-services-map` |
-| post-déploiement | `hermes-deploy-check` |
+| post-déploiement | `hermes-deploy-check` + `coolify-deploy-checklist` |
+| backups / dumps | `eludein-backup-checklist` |
 | lancer / cadrer travail de fond | skill `eludein-second-cerveau` → Korymb HITL → Cursor |
 | code / PR | **Cursor** (pas Hermes) |
 
@@ -47,9 +48,10 @@ Constitution : activer aussi `eludein-ops-rules`. Boucle Cursor×Hermes×Korymb 
 /opt/data/scripts/eludein-db-check.sh
 /opt/data/scripts/korymb-sql.sh "SELECT ... LIMIT N"
 /opt/data/scripts/fleur-sql.sh "SELECT ... LIMIT N"
+/opt/data/scripts/mandala-sql.sh "SELECT ... LIMIT N"
 ```
 
-**Interdit :** docker exec root MariaDB, Python DB maison, scripts inventés, écritures SQL, confondre conteneur Mandala.
+**Interdit :** docker exec root MariaDB, Python DB maison, scripts inventés, écritures SQL, confondre conteneurs Mandala vs Korymb/Fleur.
 
 ## Second cerveau (résumé)
 
