@@ -39,10 +39,10 @@ import { QK } from "../lib/queryClient";
 const COLLAPSED_LS = "korymb_activity_bar_collapsed";
 
 const SOURCE_STYLES: Record<ReturnType<typeof activeJobSourceTone>, string> = {
-  chat: "bg-violet-100 text-violet-900 ring-violet-200",
-  mission: "bg-sky-100 text-sky-900 ring-sky-200",
-  hitl: "bg-amber-100 text-amber-950 ring-amber-200",
-  auto: "bg-emerald-100 text-emerald-900 ring-emerald-200",
+  chat: "bg-violet-100 text-violet-900 ring-violet-200 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-700",
+  mission: "bg-sky-100 text-sky-900 ring-sky-200 dark:bg-sky-900 dark:text-sky-100 dark:ring-sky-700",
+  hitl: "bg-amber-100 text-amber-950 ring-amber-200 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-700",
+  auto: "bg-emerald-100 text-emerald-900 ring-emerald-200 dark:bg-emerald-900 dark:text-emerald-100 dark:ring-emerald-700",
 };
 
 function readCollapsedPreference(): boolean | null {

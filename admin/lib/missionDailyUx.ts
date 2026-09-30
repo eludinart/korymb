@@ -76,32 +76,32 @@ export function missionPhase(
 export function phaseBadgeClass(phase: MissionPhaseId): string {
   switch (phase) {
     case "running":
-      return "bg-amber-100 text-amber-950 ring-1 ring-amber-200";
+      return "bg-amber-100 text-amber-950 ring-1 ring-amber-200 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-700";
     case "decide":
-      return "bg-violet-200 text-violet-950 ring-1 ring-violet-300";
+      return "bg-violet-200 text-violet-950 ring-1 ring-violet-300 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-700";
     case "act":
-      return "bg-emerald-100 text-emerald-950 ring-1 ring-emerald-300";
+      return "bg-emerald-100 text-emerald-950 ring-1 ring-emerald-300 dark:bg-emerald-900 dark:text-emerald-100 dark:ring-emerald-700";
     case "ready":
-      return "bg-slate-100 text-slate-800 ring-1 ring-slate-200";
+      return "bg-slate-100 text-slate-800 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600";
     case "done":
-      return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
+      return "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-100 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-800";
     case "error":
-      return "bg-red-100 text-red-950 ring-1 ring-red-200";
+      return "bg-red-100 text-red-950 ring-1 ring-red-200 dark:bg-red-900 dark:text-red-100 dark:ring-red-700";
     default:
-      return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+      return "bg-slate-100 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-600";
   }
 }
 
 export function originBadgeClass(origin: MissionOriginId): string {
   switch (origin) {
     case "studio":
-      return "bg-fuchsia-50 text-fuchsia-900 ring-1 ring-fuchsia-200";
+      return "bg-fuchsia-50 text-fuchsia-900 ring-1 ring-fuchsia-200 dark:bg-fuchsia-950 dark:text-fuchsia-100 dark:ring-fuchsia-800";
     case "playbook":
-      return "bg-sky-50 text-sky-900 ring-1 ring-sky-200";
+      return "bg-sky-50 text-sky-900 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-100 dark:ring-sky-800";
     case "chat":
-      return "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200";
+      return "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-100 dark:ring-indigo-800";
     default:
-      return "bg-slate-50 text-slate-600 ring-1 ring-slate-200";
+      return "bg-slate-50 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600";
   }
 }
 

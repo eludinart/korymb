@@ -13,12 +13,12 @@ const ROLE_CHIP: Record<string, string> = {
 };
 
 const ROLE_SOFT: Record<string, string> = {
-  assistant: "bg-violet-100 text-violet-800",
-  coordinateur: "bg-amber-100 text-amber-950",
-  commercial: "bg-blue-100 text-blue-900",
-  community_manager: "bg-pink-100 text-pink-900",
-  developpeur: "bg-emerald-100 text-emerald-900",
-  comptable: "bg-teal-100 text-teal-900",
+  assistant: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  coordinateur: "bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100",
+  commercial: "bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100",
+  community_manager: "bg-pink-100 text-pink-900 dark:bg-pink-900 dark:text-pink-100",
+  developpeur: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
+  comptable: "bg-teal-100 text-teal-900 dark:bg-teal-900 dark:text-teal-100",
 };
 
 export function agentRoleChipClass(agentKey: string): string {

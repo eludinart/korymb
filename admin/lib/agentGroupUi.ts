@@ -33,9 +33,9 @@ export function identityFromInterlocutor(value: string): IdentityKind {
 
 /** Pastille : or = chef d'orchestre, ciel = équipe projet, violet = assistant. */
 export const IDENTITY_BADGE: Record<IdentityKind, string> = {
-  assistant: "bg-violet-50 text-violet-800 ring-1 ring-violet-200",
-  orchestra: "bg-amber-100 text-amber-950 ring-1 ring-amber-300",
-  project: "bg-sky-50 text-sky-800 ring-1 ring-sky-100",
+  assistant: "bg-violet-50 text-violet-900 ring-1 ring-violet-200 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-700",
+  orchestra: "bg-amber-100 text-amber-950 ring-1 ring-amber-300 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-600",
+  project: "bg-sky-50 text-sky-900 ring-1 ring-sky-100 dark:bg-sky-900 dark:text-sky-100 dark:ring-sky-700",
 };
 
 export const IDENTITY_SELECT: Record<IdentityKind, string> = {

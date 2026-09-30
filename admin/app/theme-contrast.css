@@ -428,6 +428,78 @@ html.dark .bg-teal-50\/40 {
   color: #ccfbf1 !important;
 }
 
+/* Pastels *-100 / *-200 : pastilles & boutons secondaires (sinon texte clair sur fond clair) */
+html[data-color-scheme="dark"] .bg-violet-100,
+html[data-color-scheme="dark"] .bg-violet-200,
+html[data-color-scheme="dark"] .bg-emerald-100,
+html[data-color-scheme="dark"] .bg-emerald-200,
+html[data-color-scheme="dark"] .bg-amber-100,
+html[data-color-scheme="dark"] .bg-amber-200,
+html[data-color-scheme="dark"] .bg-sky-100,
+html[data-color-scheme="dark"] .bg-sky-200,
+html[data-color-scheme="dark"] .bg-blue-100,
+html[data-color-scheme="dark"] .bg-indigo-100,
+html[data-color-scheme="dark"] .bg-rose-100,
+html[data-color-scheme="dark"] .bg-red-100,
+html[data-color-scheme="dark"] .bg-orange-100,
+html[data-color-scheme="dark"] .bg-green-100,
+html[data-color-scheme="dark"] .bg-green-200,
+html[data-color-scheme="dark"] .bg-teal-200,
+html[data-color-scheme="dark"] .bg-fuchsia-100,
+html[data-color-scheme="dark"] .bg-purple-100,
+html[data-color-scheme="dark"] .bg-cyan-100,
+html[data-color-scheme="dark"] .bg-slate-200,
+html[data-color-scheme="dark"] .bg-slate-200\/90,
+html[data-color-scheme="dark"] .bg-slate-200\/80,
+html.dark .bg-violet-100,
+html.dark .bg-violet-200,
+html.dark .bg-emerald-100,
+html.dark .bg-emerald-200,
+html.dark .bg-amber-100,
+html.dark .bg-amber-200,
+html.dark .bg-sky-100,
+html.dark .bg-sky-200,
+html.dark .bg-blue-100,
+html.dark .bg-indigo-100,
+html.dark .bg-rose-100,
+html.dark .bg-red-100,
+html.dark .bg-orange-100,
+html.dark .bg-green-100,
+html.dark .bg-green-200,
+html.dark .bg-teal-200,
+html.dark .bg-fuchsia-100,
+html.dark .bg-purple-100,
+html.dark .bg-cyan-100,
+html.dark .bg-slate-200,
+html.dark .bg-slate-200\/90,
+html.dark .bg-slate-200\/80 {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
+html[data-color-scheme="dark"] .hover\:bg-violet-200:hover,
+html[data-color-scheme="dark"] .hover\:bg-violet-100:hover,
+html[data-color-scheme="dark"] .hover\:bg-emerald-100:hover,
+html[data-color-scheme="dark"] .hover\:bg-green-200:hover,
+html[data-color-scheme="dark"] .hover\:bg-amber-100:hover,
+html[data-color-scheme="dark"] .hover\:bg-slate-200:hover,
+html.dark .hover\:bg-violet-200:hover,
+html.dark .hover\:bg-violet-100:hover,
+html.dark .hover\:bg-emerald-100:hover,
+html.dark .hover\:bg-green-200:hover,
+html.dark .hover\:bg-amber-100:hover,
+html.dark .hover\:bg-slate-200:hover {
+  background-color: #334155 !important;
+}
+
+html[data-color-scheme="dark"] .bg-pink-100,
+html[data-color-scheme="dark"] .bg-pink-200,
+html.dark .bg-pink-100,
+html.dark .bg-pink-200 {
+  background-color: #1e293b !important;
+  color: #f1f5f9 !important;
+}
+
 html[data-color-scheme="dark"] .bg-violet-50\/50,
 html.dark .bg-violet-50\/50 {
   background-color: #020617 !important;

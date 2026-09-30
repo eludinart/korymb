@@ -33,14 +33,14 @@ const KIND_LABELS: Record<string, string> = {
 };
 
 const KIND_STYLES: Record<string, string> = {
-  chat_result: "bg-violet-100 text-violet-900",
-  chat_error: "bg-red-100 text-red-900",
-  hitl: "bg-amber-100 text-amber-950",
-  studio_stale: "bg-violet-100 text-violet-950",
-  scheduler_output: "bg-sky-100 text-sky-950",
-  learning_suggestion: "bg-emerald-100 text-emerald-950",
-  email_reply: "bg-teal-100 text-teal-950",
-  info: "bg-slate-100 text-slate-800",
+  chat_result: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  chat_error: "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100",
+  hitl: "bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100",
+  studio_stale: "bg-violet-100 text-violet-950 dark:bg-violet-900 dark:text-violet-100",
+  scheduler_output: "bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100",
+  learning_suggestion: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
+  email_reply: "bg-teal-100 text-teal-950 dark:bg-teal-900 dark:text-teal-100",
+  info: "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
 };
 
 export function notificationKindLabel(kind: string): string {
