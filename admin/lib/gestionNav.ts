@@ -125,9 +125,10 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
 }
 
-/** Liens Gestion en mode Essentiel : le quotidien, sans modèles ni documents (résultat d'un travail). */
+/** Liens Gestion en mode Essentiel : quotidien + modèles prêts à lancer. */
 const ESSENTIAL_GESTION_HREFS = new Set([
   GESTION_HUB_HREF,
+  "/gestion/playbooks",
   "/gestion/contacts",
   "/gestion/courrier",
   "/gestion/planning",

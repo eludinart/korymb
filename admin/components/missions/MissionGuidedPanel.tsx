@@ -9,6 +9,7 @@ import LiveAgentInteractionStrip from "../LiveAgentInteractionStrip";
 import MissionMetricsRow from "../MissionMetricsRow";
 import SessionCadrageTimeline from "../SessionCadrageTimeline";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
+import { useActionToast } from "../../lib/actionToast";
 import { clampRefinementRounds, DEFAULT_REFINEMENT_ROUNDS, MAX_REFINEMENT_ROUNDS } from "../../lib/missionRefinement";
 import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
@@ -47,6 +48,7 @@ export default function MissionGuidedPanel() {
 function MissionGuidedPanelInner() {
   const searchParams = useSearchParams();
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
   const [sessionId, setSessionId] = useState<string | null>(null);
   /** Job renvoyé par validate (avant que `linked_job_id` soit reflété dans le détail session). */
   const [trackingJobId, setTrackingJobId] = useState("");
@@ -333,13 +335,19 @@ function MissionGuidedPanelInner() {
       const jobId = String(data?.job_id || "");
       if (jobId) setTrackingJobId(jobId);
       const label = missionTitleLabel(lastUserCadrage || message, 80) || jobId;
+      const okMsg = jobId
+        ? `Mission « ${label} » validée et lancée.`
+        : "Mission validée et lancée.";
       setOk(
         jobId
           ? `Mission « ${label} » validée et lancée. Le déroulé des agents s’affiche ci-dessous.`
           : "Mission validée et lancée.",
       );
+      pushToast(okMsg);
     } catch (error) {
-      setErr(error instanceof Error ? error.message : String(error));
+      const errMsg = error instanceof Error ? error.message : String(error);
+      setErr(errMsg);
+      pushToast(errMsg, "error");
     } finally {
       setBusy(false);
     }

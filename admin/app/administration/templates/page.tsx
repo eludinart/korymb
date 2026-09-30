@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { requestJson, agentHeaders } from "../../../lib/api";
+import { useActionToast } from "../../../lib/actionToast";
 import SimpleAccordion from "../../../components/SimpleAccordion";
 import { agentRoleSoftClass } from "../../../lib/agentRoleUi";
 
@@ -351,15 +352,14 @@ function LaunchModal({
 export default function TemplatesPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MissionTemplate | null>(null);
   const [launchTarget, setLaunchTarget] = useState<MissionTemplate | null>(null);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const showToast = (msg: string, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
+    pushToast(msg, ok ? "ok" : "error");
   };
 
   const templates = useQuery({
@@ -406,7 +406,7 @@ export default function TemplatesPage() {
       qc.invalidateQueries({ queryKey: ["templates"] });
       setDrawerOpen(false);
       setEditTarget(null);
-      showToast("Template sauvegardé.");
+      showToast("Template enregistré.");
     },
     onError: (e: Error) => showToast(e.message || "Erreur sauvegarde", false),
   });
@@ -433,7 +433,7 @@ export default function TemplatesPage() {
     },
     onSuccess: (data) => {
       setLaunchTarget(null);
-      showToast(`Mission lancée — job ${data.job_id}`);
+      showToast(`Mission lancée — ${data.job_id}`);
       setTimeout(() => router.push("/missions"), 1200);
     },
     onError: (e: Error) => showToast(e.message || "Erreur lancement", false),
@@ -538,17 +538,6 @@ export default function TemplatesPage() {
           onLaunch={(vars) => launchMutation.mutate({ id: launchTarget.id, variables: vars })}
           launching={launchMutation.isPending}
         />
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed bottom-[max(1rem,var(--safe-bottom))] right-4 z-50 min-h-[44px] max-w-[calc(100vw-2rem)] rounded-xl px-5 py-3 text-sm font-medium text-white shadow-lg ${
-            toast.ok ? "bg-emerald-600" : "bg-red-600"
-          }`}
-        >
-          {toast.msg}
-        </div>
       )}
     </div>
   );

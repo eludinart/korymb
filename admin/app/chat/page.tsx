@@ -38,6 +38,7 @@ import {
 import { agentHeaders, requestJson } from "../../lib/api";
 import { chatTextIsDegraded, isChatTransportFailure, localDegradedChatReply } from "../../lib/chatDegraded";
 import { toChatSurface } from "../../lib/chatSurface";
+import { useActionToast } from "../../lib/actionToast";
 import { fetchJobAgentKeys, type ChatJobDelivery } from "../../lib/chatJobAgents";
 import { buildMissionBriefFromChat } from "../../lib/chatMissionConvert";
 import { loadThinkingMode } from "../../lib/thinkingMode";
@@ -88,6 +89,7 @@ export default function ChatPage() {
 function ChatPageInner() {
   const qc = useQueryClient();
   const router = useRouter();
+  const { pushToast } = useActionToast();
   const searchParams = useSearchParams();
   const linkedParentJobId = (searchParams.get("parent") || "").trim().slice(0, JOB_ID_MAX_LEN);
   const urlSessionId = (searchParams.get("session") || "").trim();
@@ -674,9 +676,10 @@ function ChatPageInner() {
       const next = messages.map((m) =>
         m.id === messageId ? { ...m, choiceAnsweredSummary: text } : m,
       );
+      pushToast("Réponses du questionnaire envoyées.");
       void send({ text, messagesOverride: next });
     },
-    [messages, send],
+    [messages, send, pushToast],
   );
 
   const { data: agentsList = [] } = useQuery({

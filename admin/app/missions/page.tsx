@@ -64,7 +64,7 @@ function MissionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);
-  const { busyId, feedback, error, setError, setFeedback, onCloseMission } = useMissionActions();
+  const { busyId, feedback, error, setError, setFeedback, onCloseMission, onShelveMission } = useMissionActions();
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
@@ -904,7 +904,15 @@ function MissionsContent() {
                         onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
                       >
-                        {busyId === selected ? "…" : "Terminer la mission"}
+                        {busyId === selected ? "…" : "Clôturer la mission"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busyId === selected}
+                        onClick={() => void onShelveMission(String(selected), detail.data?.mission)}
+                        className="mt-2 w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+                      >
+                        Mettre de côté
                       </button>
                       <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
                         Close le dossier — la poursuite CIO sera désactivée.
@@ -1018,7 +1026,7 @@ function MissionsContent() {
                       onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
                     >
-                      {busyId === selected ? "…" : "Terminer la mission"}
+                      {busyId === selected ? "…" : "Clôturer la mission"}
                     </button>
                   ) : null}
                 </form>
@@ -1172,7 +1180,7 @@ function MissionsContent() {
                         canValidateMission={canCloseMission}
                         validateBusy={busyId === selected}
                         onValidateMission={() => void onCloseMission(selected)}
-                        validateLabel="Terminer la mission"
+                        validateLabel="Clôturer la mission"
                         onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
                       />
                     ) : null}
@@ -1257,10 +1265,15 @@ function MissionsContent() {
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Journal d&apos;exécution</p>
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
-                      {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
-                    </pre>
+                    <details className="group">
+                      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-slate-400 marker:content-none [&::-webkit-details-marker]:hidden">
+                        Journal d&apos;exécution{" "}
+                        <span className="font-normal normal-case text-slate-400 group-open:hidden">(ouvrir)</span>
+                      </summary>
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                        {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
+                      </pre>
+                    </details>
                   </div>
                 </div>
               </CollapsibleMissionSection>

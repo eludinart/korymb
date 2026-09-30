@@ -15,6 +15,7 @@ import MissionFleetSelect, {
 } from "./MissionFleetSelect";
 import ThinkingModePicker from "../director/ThinkingModePicker";
 import { loadThinkingMode, type ThinkingModeId } from "../../lib/thinkingMode";
+import { useActionToast } from "../../lib/actionToast";
 
 type Props = {
   onCreated: (jobId: string) => void;
@@ -39,6 +40,7 @@ export default function MissionCreatePanel({
   agentGroupLabel = "",
 }: Props) {
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
   const [mission, setMission] = useState("");
   const [fleetId, setFleetId] = useState(() => (initialAgentGroupId || "").trim() || ENTERPRISE_GROUP_ID);
   const [agent, setAgent] = useState("coordinateur");
@@ -158,13 +160,19 @@ export default function MissionCreatePanel({
         interlocutorFromGroupId(gid),
         gid === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : groupLabel,
       );
-      setMsg(newId ? `Mission lancée : « ${missionTitleLabel(mission, 80) || newId} »` : "Mission acceptée.");
+      const okMsg = newId
+        ? `Mission lancée : « ${missionTitleLabel(mission, 80) || newId} »`
+        : "Mission acceptée.";
+      setMsg(okMsg);
+      pushToast(okMsg);
       setMission("");
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
       void qc.invalidateQueries({ queryKey: QK.tokens });
       if (newId) onCreated(newId);
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err));
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setMsg(errMsg);
+      pushToast(errMsg, "error");
     } finally {
       setBusy(false);
     }

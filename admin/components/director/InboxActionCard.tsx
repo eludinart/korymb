@@ -325,11 +325,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const doneLabel =
     item.kind === "mission_error"
       ? closeMut.isPending
-        ? "Clôture…"
-        : "Marquer comme terminé"
+        ? "Mise de côté…"
+        : "Mettre de côté"
       : validateMut.isPending
-        ? "Validation…"
-        : "Marquer comme terminé";
+        ? "Clôture…"
+        : "Clôturer";
 
   const markFollowUpDone = () => {
     if (!item.event_id) return;
@@ -351,8 +351,14 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
         onClick={onDismiss}
         disabled={busy}
         className="absolute right-3 top-3 z-10 touch-target flex items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-        aria-label={isClosureKind ? "Marquer comme terminé" : "Supprimer cette décision"}
-        title={isClosureKind ? "Marquer comme terminé — ne plus afficher" : "Supprimer — ne plus afficher"}
+        aria-label={isClosureKind ? (item.kind === "mission_error" ? "Mettre de côté" : "Clôturer") : "Mettre de côté"}
+        title={
+          isClosureKind
+            ? item.kind === "mission_error"
+              ? "Mettre de côté — retirer des décisions"
+              : "Clôturer — ne plus afficher"
+            : "Mettre de côté — ne plus afficher"
+        }
       >
         ×
       </button>
@@ -514,7 +520,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
               title="Retirer cette décision de votre briefing et de Décisions"
             >
-              {dismissMut.isPending ? "Suppression…" : "Supprimer"}
+              {dismissMut.isPending ? "…" : "Mettre de côté"}
             </button>
           ) : null}
         </div>
@@ -680,7 +686,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           {item.kind === "closure" && jobId ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-600">
-                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer des décisions.
+                La mission est terminée côté agents. Clôturez-la pour la retirer des décisions.
               </p>
               <button type="button" disabled={busy} onClick={markClosureDone} className="btn-success">
                 {doneLabel}
@@ -695,7 +701,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                 disabled={busy}
                 onClick={markClosureDone}
                 className="btn-success"
-                title="Clôturer cette mission en échec (archivage dirigeant)"
+                title="Mettre de côté cette mission en échec"
               >
                 {doneLabel}
               </button>

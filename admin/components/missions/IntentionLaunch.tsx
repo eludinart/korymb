@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { useActionToast } from "../../lib/actionToast";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { loadThinkingMode, type ThinkingModeId } from "../../lib/thinkingMode";
 import ThinkingModePicker from "../director/ThinkingModePicker";
@@ -20,6 +21,7 @@ export default function IntentionLaunch({
   showThinkingMode = true,
 }: Props) {
   const router = useRouter();
+  const { pushToast } = useActionToast();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -54,16 +56,18 @@ export default function IntentionLaunch({
       });
       const jobId = String((data as { job_id?: string })?.job_id || "");
       setText("");
-      setMsg(
-        jobId
-          ? `Lancé : « ${missionTitleLabel(intention, 60) || jobId} »`
-          : "Demande acceptée.",
-      );
+      const okMsg = jobId
+        ? `Mission lancée : « ${missionTitleLabel(intention, 60) || jobId} »`
+        : "Demande acceptée.";
+      setMsg(okMsg);
+      pushToast(okMsg);
       if (jobId) {
         router.push(`/missions?job=${encodeURIComponent(jobId)}`);
       }
     } catch (ex) {
-      setErr(ex instanceof Error ? ex.message : String(ex));
+      const errMsg = ex instanceof Error ? ex.message : String(ex);
+      setErr(errMsg);
+      pushToast(errMsg, "error");
     } finally {
       setBusy(false);
     }

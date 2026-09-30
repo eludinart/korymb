@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useActionToast } from "./actionToast";
 import { closeMission, validateMission } from "./missionActions";
 import { missionActionLabel } from "./missionLabel";
 import { QK } from "./queryClient";
@@ -14,6 +15,7 @@ const FEEDBACK_TTL_MS = 4_500;
  */
 export function useMissionActions() {
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
@@ -31,8 +33,11 @@ export function useMissionActions() {
     try {
       await action(jobId);
       setFeedback(successMessage);
+      pushToast(successMessage);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      pushToast(msg, "error");
     } finally {
       setBusyId(null);
       void qc.invalidateQueries({ queryKey: QK.jobsCards });
@@ -42,15 +47,24 @@ export function useMissionActions() {
   };
 
   const onValidate = (jobId: string, mission?: string | null) =>
-    runAction(jobId, validateMission, `« ${missionActionLabel(jobId, mission)} » validée.`);
+    runAction(jobId, validateMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
 
   const onCloseMission = (jobId: string, mission?: string | null) => {
     const ok = window.confirm(
-      "Terminer cette mission ?\n\nVous la considérez close : la poursuite CIO sera désactivée. Les livrables restent consultables.",
+      "Clôturer cette mission ?\n\nElle sort du suivi actif : la poursuite CIO sera désactivée. Les livrables restent consultables.\n\nPour seulement la retirer de Décisions sans la clôturer, utilisez « Mettre de côté ».",
     );
     if (!ok) return Promise.resolve();
-    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » terminée.`);
+    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
   };
 
-  return { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission };
+  /** Alias lisible : archive douce (même API que close). */
+  const onShelveMission = (jobId: string, mission?: string | null) => {
+    const ok = window.confirm(
+      "Mettre de côté cette mission ?\n\nElle ne sera plus proposée dans le suivi actif. Les livrables restent consultables.",
+    );
+    if (!ok) return Promise.resolve();
+    return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » mise de côté.`);
+  };
+
+  return { busyId, feedback, error, setError, setFeedback, onValidate, onCloseMission, onShelveMission };
 }

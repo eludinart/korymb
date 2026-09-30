@@ -120,7 +120,7 @@ export default function MissionNextActionPanel({
               onClick={onFinish}
               className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
             >
-              {finishBusy ? "…" : "Terminer la mission"}
+              {finishBusy ? "…" : "Clôturer la mission"}
             </button>
           ) : null}
 
@@ -140,7 +140,7 @@ export default function MissionNextActionPanel({
                 onClick={onFinish}
                 className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
               >
-                Terminer
+                Clôturer
               </button>
             ) : null}
             {origin.id === "studio" ? (

@@ -114,8 +114,16 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
   });
 
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const [search, setSearch] = useState("");
 
   const contexts = draft ?? memory.data?.contexts ?? {};
+  const q = search.trim().toLowerCase();
+  const visibleKeys = MEMORY_CONTEXT_KEYS.filter((key) => {
+    if (!q) return true;
+    const title = String(MEMORY_CONTEXT_TITLES[key] || key).toLowerCase();
+    const body = String(contexts[key] || "").toLowerCase();
+    return title.includes(q) || body.includes(q) || key.toLowerCase().includes(q);
+  });
 
   const saveMutation = useMutation({
     mutationFn: async (ctx: Record<string, string>) => {
@@ -232,9 +240,24 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
         <p className="mt-1 text-violet-800">{CIO_MEMORY_NOTE}</p>
       </div>
 
+      <label className="block">
+        <span className="sr-only">Rechercher dans la mémoire</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher dans vos volets (titre ou texte)…"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+        />
+      </label>
+
       {memory.isLoading && <p className="text-sm text-slate-400">Chargement…</p>}
 
-      {MEMORY_CONTEXT_KEYS.map((key) => (
+      {!memory.isLoading && q && visibleKeys.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun volet ne correspond à « {search.trim()} ».</p>
+      ) : null}
+
+      {visibleKeys.map((key) => (
         <div key={key}>
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <label className="block text-sm font-semibold text-slate-700">
@@ -287,6 +310,7 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
 
 function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; showToast: (m: string, ok?: boolean) => void }) {
   const [loadedSnap, setLoadedSnap] = useState<MemorySnapshot | null>(null);
+  const [search, setSearch] = useState("");
 
   const history = useQuery({
     queryKey: ["memory-history"],
@@ -302,6 +326,13 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
       const { data } = await requestJson("/memory", { headers: agentHeaders() });
       return data as MemoryState;
     },
+  });
+
+  const q = search.trim().toLowerCase();
+  const filteredHistory = (history.data ?? []).filter((snap) => {
+    if (!q) return true;
+    const hay = `${snap.id} ${snap.comment || ""} ${snap.preview || ""}`.toLowerCase();
+    return hay.includes(q);
   });
 
   const loadSnapMutation = useMutation({
@@ -330,6 +361,16 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
 
   return (
     <div className="space-y-4">
+      <label className="block">
+        <span className="sr-only">Rechercher dans l&apos;historique</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un snapshot (commentaire, aperçu)…"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+        />
+      </label>
       {history.isLoading && <p className="text-sm text-slate-400">Chargement…</p>}
       {history.isError && <p className="text-sm text-red-600">Erreur chargement historique.</p>}
 
@@ -375,9 +416,12 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
       {history.isSuccess && history.data.length === 0 && (
         <p className="text-sm text-slate-400">Aucun snapshot encore. Modifiez et sauvegardez la mémoire pour créer le premier.</p>
       )}
+      {history.isSuccess && history.data.length > 0 && filteredHistory.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun snapshot ne correspond à « {search.trim()} ».</p>
+      ) : null}
 
       <ul className="space-y-2">
-        {(history.data ?? []).map((snap) => (
+        {filteredHistory.map((snap) => (
           <li
             key={snap.id}
             className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
