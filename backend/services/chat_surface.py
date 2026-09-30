@@ -6,7 +6,14 @@ import re
 from services.mission_labels import resolve_mission_id_refs_in_text
 
 _CHAT_DROP_SECTIONS = re.compile(
-    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES).*$"
+    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES|Questions\s+pour\s+la\s+suite).*$"
+)
+_CHAT_DROP_QUESTIONS_INLINE = re.compile(
+    r"(?ms)^(?:#{1,3}\s*)?Questions\s+pour\s+la\s+suite\s*\n(?:\s*\d+\.\s+.+\n?)+"
+)
+_KORYMB_QCM_FENCE = re.compile(r"(?ms)```korymb-qcm\s*\n.*?```")
+_CLARIFYING_JSON_HINT = re.compile(
+    r'(?is)"clarifying_questions"\s*:\s*\[[^\]]*\]',
 )
 _LIVRABLE_ANNEX = re.compile(r"(?ms)\n####\s+LIVRABLE.*$")
 _MEMOIRE_ENTREPRISE = re.compile(
@@ -28,12 +35,16 @@ _CONSULT_HIST_LINE = re.compile(
 )
 
 
-def surface_chat_result(raw: str | None) -> str:
+def surface_chat_result(raw: str | None, *, keep_questionnaire: bool = False) -> str:
     """Payload visible dans le chat — synthèse actionnable sans détail orchestration."""
     if not raw or not str(raw).strip():
         return (raw or "").strip()
     text = str(raw).strip()
     text = _CHAT_DROP_SECTIONS.sub("", text).strip()
+    text = _CHAT_DROP_QUESTIONS_INLINE.sub("", text).strip()
+    if not keep_questionnaire:
+        text = _KORYMB_QCM_FENCE.sub("", text).strip()
+        text = _CLARIFYING_JSON_HINT.sub('"clarifying_questions": []', text)
     text = _LIVRABLE_ANNEX.sub("", text).strip()
     text = _MEMOIRE_ENTREPRISE.sub("", text).strip()
     text = _HISTORIQUE_MISSIONS.sub("", text).strip()

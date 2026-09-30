@@ -1,0 +1,17 @@
+"""Heuristiques chat : QCM sur demande, conclusion forcée."""
+from __future__ import annotations
+
+from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+
+
+def test_user_wants_choice_questionnaire():
+    assert user_wants_choice_questionnaire("Fais-moi un QCM pour choisir")
+    assert user_wants_choice_questionnaire("questionnaire avec cases à cocher")
+    assert not user_wants_choice_questionnaire("Que faire aujourd'hui pour Korymb ?")
+
+
+def test_user_forces_direct_answer():
+    assert user_forces_direct_answer("et alors ?")
+    assert user_forces_direct_answer("réponds sans questions")
+    assert user_forces_direct_answer("go")
+    assert not user_forces_direct_answer("quelles options as-tu ?")

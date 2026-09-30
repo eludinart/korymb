@@ -55,6 +55,22 @@ _ACTION_RE = re.compile(
     r"\b(prepare|redige|trouve|produis|liste de|enquete|prospection)\b",
     re.I,
 )
+_QCM_REQUEST_RE = re.compile(
+    r"\b("
+    r"qcm|questionnaire|cases? a cocher|cases? à cocher|"
+    r"choix multiples|arbitre entre|options a cocher|options à cocher|"
+    r"fais[- ]moi (un |des )?choix|propose des options a valider"
+    r")\b",
+    re.I,
+)
+_FORCE_ANSWER_RE = re.compile(
+    r"\b("
+    r"et alors|sans questions?|arrete de (me )?questionner|arrête de (me )?questionner|"
+    r"stop (les )?questions?|reponds|réponds|donne (la |une )?reponse|donne (la |une )?réponse|"
+    r"conclu|conclude|decide|décide|go\b|vas[- ]y|fais (le |la )?synthese|fais (le |la )?synthèse"
+    r")\b",
+    re.I,
+)
 
 _STATUS_TOOLS = frozenset({"korymb_overview", "get_fleet_status"})
 _CRM_TOOLS = frozenset({
@@ -118,6 +134,16 @@ def chat_message_needs_action(text: str) -> bool:
             folded,
         )
     )
+
+
+def user_wants_choice_questionnaire(text: str) -> bool:
+    """QCM / cases à cocher seulement sur demande explicite."""
+    return bool(_QCM_REQUEST_RE.search(_fold(text)))
+
+
+def user_forces_direct_answer(text: str) -> bool:
+    """L'utilisateur coupe les questions et exige une conclusion."""
+    return bool(_FORCE_ANSWER_RE.search(_fold(text)))
 
 
 def extract_search_query(text: str) -> str:

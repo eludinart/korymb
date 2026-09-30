@@ -86,12 +86,11 @@ def clarifying_payload_for_event(items: list[dict[str, Any]]) -> dict[str, Any]:
     return {"questions": prompts, "question_specs": specs}
 
 
-# Bloc à coller dans les system prompts (Assistant / CIO).
+# Bloc à coller dans les system prompts (Assistant / CIO) — uniquement si demandé.
 QCM_INSTRUCTION = (
-    "### Questionnaires à cocher (QCM)\n"
-    "Quand tu proposes des améliorations, des choix de config, ou que tu as besoin d'arbitrages "
-    "clairs (plusieurs options), **n'écris pas seulement une liste ouverte** : "
-    "ajoute un bloc JSON dans une fence `korymb-qcm` pour que le dirigeant coche et valide dans l'UI.\n"
+    "### Questionnaires à cocher (QCM) — demandé explicitement\n"
+    "Le dirigeant a demandé un questionnaire / des cases à cocher. "
+    "Ajoute un bloc JSON dans une fence `korymb-qcm` pour qu'il coche et valide dans l'UI.\n"
     "Exemple :\n"
     "```korymb-qcm\n"
     "{\n"
@@ -115,6 +114,17 @@ QCM_INSTRUCTION = (
     "Pour une question multi facultative (ex. « Autres actions »), mets `\"required\": false`. "
     "L'UI ajoute toujours une case « Ne rien faire » (exclusive des autres cases en multi). "
     "Le dirigeant peut toujours ajouter un commentaire libre avant Valider.\n"
-    "En plan mission JSON, tu peux aussi mettre des objets dans `clarifying_questions` "
-    "avec `prompt` + `options` (+ `selection`) au lieu de simples strings.\n"
+)
+
+# Comportement par défaut en chat : répondre, ne pas interroger.
+QCM_INSTRUCTION_DEFAULT = (
+    "### Questionnaires — règle chat\n"
+    "N'émets **pas** de bloc `korymb-qcm`, ni de section « Questions pour la suite », "
+    "ni de JSON avec `clarifying_questions` / `questions` stratégiques.\n"
+    "Réponds d'abord avec des recommandations **concrètes et actionnables** "
+    "(listes à puces, prochaines étapes). "
+    "Une seule question de clarification max, et seulement si tu es vraiment bloqué "
+    "(sinon choisis une hypothèse raisonnable et avance).\n"
+    "Si le dirigeant dit « et alors », « go », « réponds », « sans questions », "
+    "« arrête de me questionner » : **conclue** sans nouveau questionnaire.\n"
 )

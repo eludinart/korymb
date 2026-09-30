@@ -353,8 +353,36 @@ export default function ChatShell({
                 Qu&apos;est-ce qui vous préoccupe ?
               </h1>
               <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-base">
-                Texte, image, PDF ou vidéo — le trombone joint un fichier.
+                Réponse directe d&apos;abord — questionnaire seulement si vous le demandez.
               </p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {[
+                  {
+                    label: "Priorités du jour",
+                    text: "Donne-moi 5 priorités concrètes pour aujourd'hui sur Korymb, sans questionnaire.",
+                  },
+                  {
+                    label: "État de la plateforme",
+                    text: "Fais un point court sur l'état de Korymb (ce qui marche / ce qui bloque) et 3 actions.",
+                  },
+                  {
+                    label: "Décider sans QCM",
+                    text: "Réponds et décide avec moi : hypothèses raisonnables, pas de questions ouvertes.",
+                  },
+                ].map((chip) => (
+                  <button
+                    key={chip.label}
+                    type="button"
+                    disabled={pending || uploadBusy}
+                    onClick={() => {
+                      onDraftChange(chip.text);
+                      window.setTimeout(() => textareaRef.current?.focus(), 0);
+                    }}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-violet-300 hover:text-violet-800 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-violet-500"
+                  >
+                    {chip.label}
+                  </button>
+                ))}              </div>
             </div>
           ) : null}
 

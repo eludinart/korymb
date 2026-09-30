@@ -95,15 +95,28 @@ def start_assistant_chat_job(
                 update_job(job_id, "completed", text, job_logs, 0, 0, source="chat", result_surface=surface)
                 return
 
-            from services.choice_questionnaire import QCM_INSTRUCTION
+            from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+            from services.choice_questionnaire import QCM_INSTRUCTION, QCM_INSTRUCTION_DEFAULT
 
+            qcm_block = (
+                QCM_INSTRUCTION
+                if user_wants_choice_questionnaire(msg_snap) and not user_forces_direct_answer(msg_snap)
+                else QCM_INSTRUCTION_DEFAULT
+            )
+            force = (
+                "\nLe dirigeant exige une **conclusion opérationnelle** maintenant "
+                "(pas de nouveau questionnaire).\n"
+                if user_forces_direct_answer(msg_snap)
+                else ""
+            )
             system_prompt = (
                 ASSISTANT_SYSTEM
                 + FLEUR_CONTEXT
                 + "\nSois conversationnel et utile. "
                 "Ne propose une équipe que si c'est clairement demandé ou nécessaire. "
                 "Pour « qui es-tu ? » : courte présentation d'Assistant Korymb (chatbot), sans te dire CIO.\n"
-                + QCM_INSTRUCTION
+                + qcm_block
+                + force
             )
             messages = []
             for h in history[-12:]:
@@ -121,7 +134,8 @@ def start_assistant_chat_job(
                 usage_job_id=job_id,
             )
             pending_bp = _extract_blueprint_id(reply, "\n".join(str(x) for x in job_logs[-50:]))
-            surface = surface_chat_result(reply)
+            keep_q = user_wants_choice_questionnaire(msg_snap) and not user_forces_direct_answer(msg_snap)
+            surface = surface_chat_result(reply, keep_questionnaire=keep_q)
             if pending_bp:
                 surface = (
                     f"{surface}\n\n---\n"

@@ -1530,6 +1530,22 @@ def _cio_attempt_direct_answer(
     label = str(agent_cfg.get("label") or orch_key)
     intent = classify_chat_intent(root_mission_label or mission_txt) if chat_mode else "chat"
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
+    chat_ops = ""
+    if chat_mode:
+        from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+
+        label_txt = root_mission_label or mission_txt
+        if user_forces_direct_answer(label_txt):
+            chat_ops = (
+                "\nLe dirigeant exige une conclusion opérationnelle **maintenant** "
+                "(pas de questionnaire, pas de « Questions pour la suite »).\n"
+            )
+        elif not user_wants_choice_questionnaire(label_txt):
+            chat_ops = (
+                "\nEn chat : réponds de façon utile et décisive. "
+                "Interdit de terminer par une grille de questions méta. "
+                "Propose des priorités concrètes si le sujet est large.\n"
+            )
     system = (
         chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
         + "\n\n"
@@ -1553,6 +1569,7 @@ def _cio_attempt_direct_answer(
         + "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
         "sans l'avoir produit via un outil (upload vers l'espace Korymb / recherche web) dans ce tour. "
         "Ne crée un fichier séparé que si le dirigeant l'a demandé."
+        + chat_ops
         + (chat_tool_mandate(intent) if chat_mode else "")
         + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
     )
