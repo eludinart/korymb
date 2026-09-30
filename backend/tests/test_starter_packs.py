@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from database import get_enterprise_memory, list_mission_templates, list_playbooks
 from services.starter_packs import STARTER_PACKS, apply_starter_pack, list_starter_packs
-from tenant_context import set_tenant_context
-
+from tenant_context import clear_tenant_context, set_tenant_context
 
 def test_list_starter_packs_catalog():
     packs = list_starter_packs()
@@ -40,9 +39,12 @@ def test_register_blank_has_no_metier_playbooks(client):
     assert (body["workspace"].get("starter_pack_id") or "blank") in ("", "blank")
 
     set_tenant_context(workspace_id=wid)
-    pbs = list_playbooks()
-    assert not any(str(p.get("id") or "").startswith("pack-accompagnement-") for p in pbs)
-    assert not any(str(p.get("category") or "") == "accompagnement" for p in pbs)
+    try:
+        pbs = list_playbooks()
+        assert not any(str(p.get("id") or "").startswith("pack-accompagnement-") for p in pbs)
+        assert not any(str(p.get("category") or "") == "accompagnement" for p in pbs)
+    finally:
+        clear_tenant_context()
 
     me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert me.status_code == 200
@@ -66,18 +68,21 @@ def test_register_accompagnement_creates_playbooks_and_memory(client):
     assert body["workspace"].get("starter_pack_id") == "accompagnement"
 
     set_tenant_context(workspace_id=wid)
-    pbs = list_playbooks()
-    pack_pbs = [p for p in pbs if str(p.get("id") or "").startswith("pack-accompagnement-")]
-    assert len(pack_pbs) == len(STARTER_PACKS["accompagnement"]["playbooks"])
-    names = {p["name"] for p in pack_pbs}
-    assert "Notes de séance → fiche de suivi" in names
+    try:
+        pbs = list_playbooks()
+        pack_pbs = [p for p in pbs if str(p.get("id") or "").startswith("pack-accompagnement-")]
+        assert len(pack_pbs) == len(STARTER_PACKS["accompagnement"]["playbooks"])
+        names = {p["name"] for p in pack_pbs}
+        assert "Notes de séance → fiche de suivi" in names
 
-    tpls = list_mission_templates()
-    assert any(str(t.get("id") or "").startswith("pack-accompagnement-") for t in tpls)
+        tpls = list_mission_templates()
+        assert any(str(t.get("id") or "").startswith("pack-accompagnement-") for t in tpls)
 
-    mem = get_enterprise_memory()
-    global_ctx = str((mem.get("contexts") or {}).get("global") or "")
-    assert "accompagnement" in global_ctx.lower() or "confidentialité" in global_ctx.lower()
+        mem = get_enterprise_memory()
+        global_ctx = str((mem.get("contexts") or {}).get("global") or "")
+        assert "accompagnement" in global_ctx.lower() or "confidentialité" in global_ctx.lower()
+    finally:
+        clear_tenant_context()
 
     me = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert me.json()["workspace"]["starter_pack_id"] == "accompagnement"
@@ -117,10 +122,13 @@ def test_apply_starter_pack_idempotent(client):
     assert second.json()["skipped_playbooks"] == len(STARTER_PACKS["contenu"]["playbooks"])
 
     set_tenant_context(workspace_id=wid)
-    pack_pbs = [
-        p for p in list_playbooks() if str(p.get("id") or "").startswith("pack-contenu-")
-    ]
-    assert len(pack_pbs) == len(STARTER_PACKS["contenu"]["playbooks"])
+    try:
+        pack_pbs = [
+            p for p in list_playbooks() if str(p.get("id") or "").startswith("pack-contenu-")
+        ]
+        assert len(pack_pbs) == len(STARTER_PACKS["contenu"]["playbooks"])
+    finally:
+        clear_tenant_context()
 
 
 def test_apply_unknown_pack_rejected(client):
@@ -160,4 +168,7 @@ def test_create_workspace_with_pack(client):
     ws = created.json()["workspace"]
     assert ws.get("starter_pack_id") == "contenu"
     set_tenant_context(workspace_id=ws["id"])
-    assert any(str(p.get("id") or "").startswith("pack-contenu-") for p in list_playbooks())
+    try:
+        assert any(str(p.get("id") or "").startswith("pack-contenu-") for p in list_playbooks())
+    finally:
+        clear_tenant_context()

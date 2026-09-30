@@ -2223,7 +2223,8 @@ def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | No
 def list_jobs(limit: int = 50) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?", (_ws(), limit)
+            "SELECT * FROM jobs WHERE workspace_id=? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (_ws(), limit),
         ).fetchall()
     return [_hydrate_job_row(dict(row)) for row in rows]
 

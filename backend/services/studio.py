@@ -723,7 +723,8 @@ def list_studio_runs(*, limit: int = 20) -> list[dict[str, Any]]:
 
     _maybe_notify_stale_studio_pieces()
     out: list[dict[str, Any]] = []
-    for job in list_jobs(limit=max(limit * 6, 80)):
+    # Scan large : les jobs studio sont rares parmi le flux chat/missions.
+    for job in list_jobs(limit=max(limit * 20, 400)):
         source = str(job.get("source") or "")
         if not source.startswith("studio:"):
             continue

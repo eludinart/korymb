@@ -154,9 +154,11 @@ def _seed_studio_job(job_id: str, *, result: str = "#### LIVRABLE — Fiche Agap
 
 
 def test_studio_runs_exposes_copyable_body(client):
-    _seed_studio_job("studiocopy01", result="#### LIVRABLE — Fiche Agapé\n\nTexte copiable assez long.")
-    listed = client.get("/studio/runs").json()["runs"]
-    run = next(r for r in listed if r["job_id"] == "studiocopy01")
+    jid = "studiocopy01"
+    _seed_studio_job(jid, result="#### LIVRABLE — Fiche Agapé\n\nTexte copiable assez long.")
+    listed = client.get("/studio/runs?limit=50").json()["runs"]
+    run = next((r for r in listed if r["job_id"] == jid), None)
+    assert run is not None, f"job {jid} absent de /studio/runs ({len(listed)} runs)"
     assert run["pieces"]
     assert "assez long" in (run["pieces"][0].get("body") or "")
 
@@ -172,16 +174,17 @@ def test_studio_dismiss_requires_confirm_word(client):
 
 
 def test_studio_dismiss_hides_from_queue(client):
-    _seed_studio_job("studiorm02")
-    listed = client.get("/studio/runs").json()["runs"]
-    assert any(r["job_id"] == "studiorm02" for r in listed)
+    jid = "studiorm02"
+    _seed_studio_job(jid)
+    listed = client.get("/studio/runs?limit=50").json()["runs"]
+    assert any(r["job_id"] == jid for r in listed)
     r = client.post(
         "/studio/dismiss",
-        json={"job_id": "studiorm02", "format_id": "document_pdf", "confirm": "SUPPRIMER"},
+        json={"job_id": jid, "format_id": "document_pdf", "confirm": "SUPPRIMER"},
     )
     assert r.status_code == 200, r.text
-    listed = client.get("/studio/runs").json()["runs"]
-    assert all(r["job_id"] != "studiorm02" for r in listed)
+    listed = client.get("/studio/runs?limit=50").json()["runs"]
+    assert all(r["job_id"] != jid for r in listed)
 
 
 def test_published_piece_leaves_studio_queue(client):

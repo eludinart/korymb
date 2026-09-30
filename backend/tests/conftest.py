@@ -52,6 +52,16 @@ def client(app, test_secret: str):
 
 
 @pytest.fixture(autouse=True)
+def _reset_tenant_context():
+    """Évite qu’un test laisse un workspace ContextVar polluer le suivant."""
+    from tenant_context import clear_tenant_context
+
+    clear_tenant_context()
+    yield
+    clear_tenant_context()
+
+
+@pytest.fixture(autouse=True)
 def _stub_chat_mirror_ack(monkeypatch):
     """Évite les appels LLM réels pour l’accusé de réception (clé test invalide)."""
     monkeypatch.setattr(
