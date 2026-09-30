@@ -119,7 +119,8 @@ def test_reject_executable_resource(client, tmp_path, monkeypatch):
     assert uploaded.status_code == 422
 
 
-def test_load_file_falls_back_to_default_workspace(tmp_path, monkeypatch):
+def test_load_file_does_not_cross_tenant_to_legacy(tmp_path, monkeypatch):
+    """Isolation : un autre workspace ne lit plus les fichiers du legacy."""
     monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
     from tenant_context import clear_tenant_context, set_tenant_context
     from services.resource_files import load_local_file, save_upload
@@ -129,9 +130,7 @@ def test_load_file_falls_back_to_default_workspace(tmp_path, monkeypatch):
     assert saved.get("success")
     fid = saved["file"]["id"]
     set_tenant_context(workspace_id="ws-other-space")
-    item = load_local_file(fid)
-    assert item is not None
-    assert item["filename"] == "prospects.csv"
+    assert load_local_file(fid) is None
     clear_tenant_context()
 
 

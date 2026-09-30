@@ -21,7 +21,8 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         "label": "Moteur orchestration mission",
         "description": (
             "legacy = pipeline historique (moteur opérationnel). "
-            "langgraph / shadow = gelés, ne pas activer en production."
+            "langgraph / shadow = gelés en production ; nécessitent KORYMB_ALLOW_LANGGRAPH=1 "
+            "(checkpointer SQLite local, nœuds encore wrappers du legacy)."
         ),
         "value": "legacy",
     },
@@ -113,12 +114,12 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
     "orchestration.cio.hitl_wait_max_seconds": {
         "category": "orchestration",
         "type": "int",
-        "label": "Itérations max en attente validation plan CIO",
+        "label": "Délai max attente validation plan CIO (secondes)",
         "description": (
-            "Nombre maximum de tours de la boucle d’attente quand le plan CIO est en validation dirigeant (HITL). "
-            "À chaque tour le moteur relit le job puis attend `hitl_poll_interval_seconds`. "
-            "Durée approximative avant « délai dépassé » ≈ ce nombre × l’intervalle (ex. 7200 × 0,28 s ≈ 33 min). "
-            "Le nom de la clé contient encore « seconds » pour compatibilité ; la valeur est bien un compte d’itérations."
+            "Durée maximale d’attente wall-clock quand le plan CIO est en validation dirigeant (HITL). "
+            "Le waiter utilise un Event in-process (réveil immédiat à la résolution) et un poll DB "
+            "espacé (`hitl_poll_interval_seconds`) en repli multi-worker. "
+            "Valeurs historiques > 86400 sont interprétées comme d’anciens comptes d’itérations."
         ),
         "value": 7200,
     },
@@ -127,11 +128,11 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         "type": "float",
         "label": "Intervalle polling validation plan CIO (secondes)",
         "description": (
-            "Pause entre deux lectures du statut du job pendant l’attente HITL. Plus petit = réactivité "
-            "un peu meilleure mais plus de requêtes base ; plus grand = moins de charge mais sensation "
-            "de latence après validation."
+            "Pause max entre deux lectures DB pendant l’attente HITL (repli si Event non notifié, "
+            "ex. autre worker). Plus petit = un peu plus réactif hors-process ; plus grand = moins de charge. "
+            "La validation dans le même process réveille immédiatement via Event."
         ),
-        "value": 0.28,
+        "value": 2.0,
     },
     "orchestration.cio.refinement_max_rounds_cap": {
         "category": "orchestration",

@@ -1352,38 +1352,10 @@ def _human_dialogue_cio_wrapup(agent_keys: list[str]) -> str:
 
 
 def _wait_for_cio_plan_hitl_resolution_legacy_poll(job_id: str, job_logs: list | None) -> dict:
-    """
-    Bloque jusqu'à résolution HITL (approve / reject / amend) pour le plan CIO.
-    Retourne {"decision": "approve"} ou {"decision": "amend", "amended_plan": {...}}.
-    Lève KorymbJobCancelled si le job est annulé ou rejeté.
-    """
-    max_wait = _behavior_int("orchestration.cio.hitl_wait_max_seconds", 7200)
-    poll_interval = _behavior_float("orchestration.cio.hitl_poll_interval_seconds", 0.28)
-    if poll_interval <= 0:
-        poll_interval = 0.28
-    for i in range(max_wait):
-        _raise_if_job_cancelled(job_id)
-        row = db_get_job(job_id)
-        if not row:
-            time.sleep(poll_interval)
-            continue
-        st = str(row.get("status") or "")
-        if st == "awaiting_validation":
-            time.sleep(poll_interval)
-            continue
-        if st == "cancelled":
-            if job_logs is not None:
-                job_logs.append("[korymb] Plan CIO — rejet ou annulation dirigeant (HITL).")
-            raise KorymbJobCancelled()
-        if st == "running":
-            res = row.get("hitl_resolution")
-            if isinstance(res, dict) and res.get("decision") == "amend" and isinstance(res.get("amended_plan"), dict):
-                return res
-            return {"decision": "approve"}
-        time.sleep(poll_interval)
-        if i > 0 and i % 200 == 0 and job_logs is not None:
-            job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
-    raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+    """Compat : délègue au wait Event + poll espacé."""
+    from services.hitl_wait import wait_for_cio_plan_hitl_resolution
+
+    return wait_for_cio_plan_hitl_resolution(job_id, job_logs)
 
 
 def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> dict:

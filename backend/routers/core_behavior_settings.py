@@ -60,6 +60,19 @@ def behavior_settings_put(setting_key: str, body: BehaviorPutBody):
     key = (setting_key or "").strip()
     if key not in BEHAVIOR_DEFAULTS:
         raise HTTPException(status_code=404, detail="Unknown behavior setting key")
+    if key == "orchestration.engine":
+        engine = str(body.value or "").strip().lower()
+        if engine in {"langgraph", "shadow"}:
+            from graph.engine import langgraph_allowed
+
+            if not langgraph_allowed():
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Moteur langgraph/shadow gelé. "
+                        "Définir KORYMB_ALLOW_LANGGRAPH=1 sur l'API pour autoriser (staging uniquement)."
+                    ),
+                )
     return upsert_behavior_setting(key, body.value)
 
 

@@ -114,3 +114,13 @@ Toute page `app/**/page.tsx` qui utilise `useSearchParams` doit encapsuler son c
 - Backend et frontend tournent en **processus détachés** (pas en jobs PowerShell) : les jobs PS coupent uvicorn sous charge, et Next quitte après la première compilation s'il reste attaché au terminal parent.
 - Le script exige PowerShell 5.1+ et fonctionne dans le terminal intégré de Cursor.
 - Cible SSH du tunnel : `root@187.124.42.135` par défaut, surchargée par la variable d'environnement `KORYMB_VPS_SSH`.
+
+## Backend — fiabilité (réf. courte)
+
+| Variable | Effet |
+|---|---|
+| `KORYMB_DB_POOL_SIZE` | Taille du pool MariaDB (défaut `8`) |
+| `KORYMB_DB_MIGRATE=alembic` | Au boot : `alembic upgrade head` puis `init_db()` / `_ensure_*` |
+| `KORYMB_ALLOW_LANGGRAPH=1` | Autorise `orchestration.engine` = `langgraph` / `shadow` (sinon forcé `legacy`) |
+
+Auth agent (`X-Agent-Secret`) : propager `X-Workspace-Id` pour cibler un espace ; sans header → `ws-default-legacy` (Hermes).

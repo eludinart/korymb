@@ -106,6 +106,19 @@ def _run_studio_stale_queue() -> None:
 # ── App FastAPI ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Migrations optionnelles (sinon init_db + _ensure_* restent le filet).
+    if str(os.getenv("KORYMB_DB_MIGRATE") or "").strip().lower() == "alembic":
+        try:
+            from pathlib import Path
+            from alembic.config import Config
+            from alembic import command
+
+            ini = Path(__file__).resolve().parent / "alembic.ini"
+            cfg = Config(str(ini))
+            command.upgrade(cfg, "head")
+            logger.info("Alembic upgrade head OK")
+        except Exception:
+            logger.exception("Alembic migrate échec — poursuite avec init_db()")
     init_db()
     try:
         from routers.core_jobs import cleanup_orphan_active_jobs

@@ -2,10 +2,16 @@
 from __future__ import annotations
 
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 _ENGINES = frozenset({"legacy", "langgraph", "shadow"})
+
+
+def langgraph_allowed() -> bool:
+    """Prod : langgraph/shadow bloqués sauf KORYMB_ALLOW_LANGGRAPH=1."""
+    return str(os.getenv("KORYMB_ALLOW_LANGGRAPH") or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_orchestration_engine() -> str:
@@ -18,6 +24,12 @@ def get_orchestration_engine() -> str:
             raw = behavior_default_value("orchestration.engine")
         engine = str(raw or "legacy").strip().lower()
         if engine not in _ENGINES:
+            return "legacy"
+        if engine in {"langgraph", "shadow"} and not langgraph_allowed():
+            logger.warning(
+                "orchestration.engine=%s ignoré (gelé) — définir KORYMB_ALLOW_LANGGRAPH=1 pour activer",
+                engine,
+            )
             return "legacy"
         return engine
     except Exception:

@@ -394,9 +394,17 @@ async def resolve_tenant(
     if raw_token:
         token_payload = decode_access_token(raw_token)
     elif secret and secret == settings.agent_api_secret:
+        # Secret agent : X-Workspace-Id s'il pointe vers un espace existant ;
+        # sinon défaut legacy (compat Hermes / scripts sans header).
+        header_ws = (request.headers.get("X-Workspace-Id") or "").strip()
+        ws_id = _DEFAULT_WORKSPACE_ID
+        if header_ws:
+            if not get_workspace_by_id(header_ws):
+                raise HTTPException(status_code=404, detail="Espace Korymb introuvable.")
+            ws_id = header_ws
         clear_tenant_context()
-        set_tenant_context(workspace_id=_DEFAULT_WORKSPACE_ID)
-        return {"mode": "agent_secret", "workspace_id": _DEFAULT_WORKSPACE_ID}
+        set_tenant_context(workspace_id=ws_id)
+        return {"mode": "agent_secret", "workspace_id": ws_id}
     else:
         raise HTTPException(status_code=401, detail="Authentification requise.")
 

@@ -256,16 +256,25 @@ def _use_mysql_upsert() -> bool:
 
 
 def _load_from_db(fid: str, wid: str) -> dict[str, Any] | None:
+    """Charge un fichier scoppé au workspace courant uniquement (pas de repli legacy)."""
     try:
         from database import get_conn
 
         with get_conn() as conn:
-            row = conn.execute(
-                "SELECT id, workspace_id, filename, mime, size, content FROM workspace_resource_files "
-                "WHERE id=? AND workspace_id IN (?, ?, ?) "
-                "ORDER BY CASE workspace_id WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END LIMIT 1",
-                (fid, wid, _DEFAULT_WORKSPACE_ID, "", wid, _DEFAULT_WORKSPACE_ID),
-            ).fetchone()
+            # Anciens blobs sans workspace_id : uniquement si on est déjà sur le legacy.
+            if wid == _DEFAULT_WORKSPACE_ID:
+                row = conn.execute(
+                    "SELECT id, workspace_id, filename, mime, size, content FROM workspace_resource_files "
+                    "WHERE id=? AND workspace_id IN (?, ?) "
+                    "ORDER BY CASE workspace_id WHEN ? THEN 0 ELSE 1 END LIMIT 1",
+                    (fid, wid, "", wid),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT id, workspace_id, filename, mime, size, content FROM workspace_resource_files "
+                    "WHERE id=? AND workspace_id=? LIMIT 1",
+                    (fid, wid),
+                ).fetchone()
     except Exception:
         return None
     if not row:
@@ -294,19 +303,11 @@ def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[st
     if not fid.startswith("rfil-") or ".." in fid or "/" in fid or "\\" in fid:
         return None
     wid = (workspace_id or _ws() or "").strip()
-    accepted = {wid, _DEFAULT_WORKSPACE_ID, ""}
+    # Isolation : pas de lecture cross-tenant vers ws-default-legacy.
+    accepted = {wid, ""} if wid == _DEFAULT_WORKSPACE_ID else {wid}
     item = _load_blob(files_dir(workspace_id=wid), fid, accept_workspace_ids=accepted)
     if item:
         return item
-    # Jobs lancés dans un thread sans tenant écrivaient dans l'espace legacy.
-    if wid != _DEFAULT_WORKSPACE_ID:
-        item = _load_blob(
-            files_dir(workspace_id=_DEFAULT_WORKSPACE_ID),
-            fid,
-            accept_workspace_ids=accepted,
-        )
-        if item:
-            return item
     return _load_from_db(fid, wid)
 
 

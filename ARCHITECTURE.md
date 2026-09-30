@@ -57,11 +57,15 @@ Every feature touching LLM execution must verify:
 
 ## Orchestration (LangGraph)
 
-- Missions can run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
-- Checkpoints: `backend/graph/` + SQLite checkpointer (`backend/data/langgraph_checkpoints.db`).
+- Missions run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
+- **Operational default: `legacy`.** `langgraph` / `shadow` are frozen unless `KORYMB_ALLOW_LANGGRAPH=1` on the API process (staging only). Nodes still wrap the legacy CIO/triad pipeline; checkpoints remain SQLite-local (`backend/data/langgraph_checkpoints.db`) — not multi-instance safe.
+- HITL wait (legacy): in-process `threading.Event` + spaced DB poll (`services/hitl_wait.py`); resolve notifies waiters via `notify_hitl_resolved`.
 - HITL canonique: `GET /jobs/{id}/hitl`, `POST /jobs/{id}/hitl/resolve`.
 - Clôture dirigeant post-mission: `POST /jobs/{id}/validate-mission` (distinct du HITL).
 - Décisions (file dirigeant, pas le courrier) : `GET /admin/inbox` — agrège HITL, clôtures, questions CIO, scheduler, qualité, apprentissage. UI : `/inbox` libellé **Décisions**.
+- Agent secret auth: honors `X-Workspace-Id` when the workspace exists; otherwise defaults to `ws-default-legacy` (Hermes compat).
+- MariaDB: connection pool (`KORYMB_DB_POOL_SIZE`, default 8). Optional Alembic: `KORYMB_DB_MIGRATE=alembic` runs `upgrade head` before `init_db()`; `_ensure_*` remains the safety net.
+- Mission events: dual-write to `mission_events` table alongside `jobs.events_json`.
 - Courrier prospection: `/gestion/courrier` · `GET /business/emails` · `POST /business/emails/sync` — sync Gmail auto (`gmail_prospect_sync`, 15 min).
 - Briefing: `GET /admin/briefing` — décisions du jour, missions actives, budget, analytics 24h.
 - Notifications in-app: table `director_notifications`, SSE `director_notification`, `GET/PATCH /admin/notifications`.
@@ -75,5 +79,5 @@ Every feature touching LLM execution must verify:
 - Audit/replay: `GET /jobs/{id}/audit-bundle`, `GET /jobs/{id}/traces`, `POST /jobs/{id}/clone`.
 - Garde-fou qualité: `quality_verdicts`, behavior `quality.min_score_to_complete`, `POST /jobs/{id}/quality-override`.
 - Notifications externes (phase 5): `notification.email_to`, `notification.webhook_url` via `services/notifications.py`.
-- Routes `/run/*` deprecated (header `Deprecation: true`) — préférer `/jobs/*`.
+- Routes `/run/*` deprecated (header `Deprecation: true`) — préférer `/jobs/*` (admin garde des fallbacks compat).
 - Vitrine publique : `GET /public/storefront/{slug}` (sans auth) + fichier public `GET /public/storefront/{slug}/events/{id}/file` + identité `GET /public/storefront/{slug}/brand/{logo|cover}`. Réglages : logo, couverture, lieu, contact, accent/papier/typo nommés. Inscription participant : `POST /auth/register-subscriber` (statut `pending` jusqu’à validation). Invitation : `POST /storefront/participants/invite` puis `POST /auth/redeem-invite`. Connexion : `/login` (opérateur) vs `/p/{slug}/connexion` (participant). Espace participant : `GET /subscriber/home` (filtre visibilité + participants actifs). UI : `/a/{slug}`, `/p/{slug}`, `/p/{slug}/inscription`, `/p/{slug}/invitation`, `/p/{slug}/connexion`. Un créneau porte `visibility` (`internal` | `selected` | `participants` | `public`) et `audience_user_ids` (participants choisis, distincts du CRM). `audience_contact_ids` reste un repli. `is_public` reste dérivé des visibilités `participants`/`public`. Téléchargement participant : `GET /subscriber/events/{id}/file`. Profil : `PATCH /auth/profile` (nom, mot de passe).

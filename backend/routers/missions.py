@@ -24,7 +24,7 @@ class PeerReviewPlanRequest(BaseModel):
 
 class HitlGateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    job_id: str = Field(min_length=4, max_length=16)
+    job_id: str = Field(min_length=4, max_length=64)
     mission: str = Field(min_length=3, max_length=6000)
     result_preview: str = Field(min_length=3, max_length=12000)
     reviewer: str = Field(default="human_operator", min_length=3, max_length=120)

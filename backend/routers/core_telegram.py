@@ -59,7 +59,13 @@ async def telegram_webhook(
         answer_callback(callback_id, "Ticket introuvable")
         return {"ok": False, "error": "not_found"}
 
-    set_tenant_context(workspace_id=str(ticket.get("workspace_id") or "ws-default-legacy"))
+    ticket_ws = str(ticket.get("workspace_id") or "").strip()
+    if not ticket_ws:
+        logger.error("Telegram HITL ticket %s sans workspace_id — refus (pas de repli legacy)", ticket_id)
+        answer_callback(callback_id, "Ticket sans espace")
+        return {"ok": False, "error": "missing_workspace"}
+
+    set_tenant_context(workspace_id=ticket_ws)
     result = resolve_action(ticket_id, decision=decision, source="telegram")
     if result.get("success"):
         msg = "Exécuté." if decision == "approve" else "Rejeté."

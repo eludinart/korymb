@@ -27,6 +27,12 @@ def resolve_hitl(
         amended_plan=amended_plan,
         feedback=feedback,
     )
+    try:
+        from services.hitl_wait import notify_hitl_resolved
+
+        notify_hitl_resolved(job_id)
+    except Exception as exc:
+        logger.debug("HITL wait notify skipped for %s: %s", job_id, exc)
     if not result.get("success") or not langgraph_resume:
         return _attach_cio_chain(result)
     try:

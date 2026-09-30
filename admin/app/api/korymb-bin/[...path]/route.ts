@@ -17,10 +17,10 @@ function withAuthHeaders(request: NextRequest, joinedPath: string, secret: strin
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
-    if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   } else if (!isProxyUnprotected(joinedPath) && secret) {
     headers.set("X-Agent-Secret", secret);
   }
+  if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   return headers;
 }
 

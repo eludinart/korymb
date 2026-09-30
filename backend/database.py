@@ -145,8 +145,10 @@ class _MariaCursorAdapter:
 
 
 class _MariaConnAdapter:
-    def __init__(self, conn):
+    def __init__(self, conn, *, pooled: bool = False, pool: "_MariaPool | None" = None):
         self._conn = conn
+        self._pooled = pooled
+        self._pool = pool
 
     def execute(self, sql: str, params: tuple | list | None = None):
         sql_use = _qmark_to_percent(sql)
@@ -170,7 +172,77 @@ class _MariaConnAdapter:
             if exc is not None:
                 self._conn.rollback()
         finally:
-            self._conn.close()
+            if self._pooled and self._pool is not None:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    with self._pool._lock:
+                        self._pool._created = max(0, self._pool._created - 1)
+                    return
+                self._pool.release(self._conn)
+            else:
+                self._conn.close()
+
+
+class _MariaPool:
+    """Petit pool thread-safe de connexions PyMySQL (évite connect/close à chaque requête)."""
+
+    def __init__(self, size: int = 8):
+        import queue
+        import threading
+
+        self._size = max(1, min(int(size), 32))
+        self._q: queue.Queue = queue.Queue(maxsize=self._size)
+        self._lock = threading.Lock()
+        self._created = 0
+
+    def _new_conn(self):
+        return pymysql.connect(**_maria_cfg())
+
+    def acquire(self):
+        try:
+            return self._q.get_nowait()
+        except Exception:
+            pass
+        with self._lock:
+            if self._created < self._size:
+                self._created += 1
+                return self._new_conn()
+        return self._q.get(timeout=8)
+
+    def release(self, conn) -> None:
+        try:
+            if not getattr(conn, "open", True):
+                with self._lock:
+                    self._created = max(0, self._created - 1)
+                return
+            self._q.put_nowait(conn)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
+
+
+_maria_pool: _MariaPool | None = None
+_maria_pool_lock = __import__("threading").Lock()
+
+
+def _get_maria_pool() -> _MariaPool:
+    global _maria_pool
+    if _maria_pool is not None:
+        return _maria_pool
+    with _maria_pool_lock:
+        if _maria_pool is None:
+            size = int(os.getenv("KORYMB_DB_POOL_SIZE") or "8")
+            _maria_pool = _MariaPool(size=size)
+        return _maria_pool
 
 
 def probe_database_connection() -> dict[str, Any]:
@@ -184,15 +256,83 @@ def probe_database_connection() -> dict[str, Any]:
 
 
 def get_conn():
-    # MariaDB : connexion par bloc `with` (pas de pool PyMySQL intégré ici ; à ajouter si charge élevée).
+    # MariaDB : pool réutilisable (KORYMB_DB_POOL_SIZE, défaut 8). SQLite : connexion locale.
     if _is_mariadb():
         if not _PYMYSQL_OK:
             raise RuntimeError("KORYMB_DB_ENGINE=mariadb mais pymysql n'est pas installé.")
-        return _MariaConnAdapter(pymysql.connect(**_maria_cfg()))
+        pool = _get_maria_pool()
+        return _MariaConnAdapter(pool.acquire(), pooled=True, pool=pool)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _ensure_mission_events_table(conn) -> None:
+    """Table events requêteable (dual-write avec jobs.events_json)."""
+    text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    auto_pk = "BIGINT PRIMARY KEY AUTO_INCREMENT" if _is_mariadb() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS mission_events (
+            id            {auto_pk},
+            job_id        {text_pk} NOT NULL,
+            workspace_id  {text_pk} NOT NULL,
+            kind          TEXT NOT NULL DEFAULT '',
+            agent         TEXT NOT NULL DEFAULT '',
+            payload_json  TEXT NOT NULL DEFAULT '{{}}',
+            created_at    TEXT NOT NULL
+        )
+        """
+    )
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mission_events_job ON mission_events (workspace_id, job_id, id)"
+        )
+    except Exception:
+        # MariaDB < 10.5 may not support IF NOT EXISTS on indexes
+        try:
+            conn.execute("CREATE INDEX idx_mission_events_job ON mission_events (workspace_id, job_id, id)")
+        except Exception:
+            pass
+
+
+def append_mission_events_rows(job_id: str, events: list, *, workspace_id: str | None = None) -> None:
+    """Dual-write : insert les événements manquants dans mission_events (best-effort)."""
+    if not job_id or not isinstance(events, list) or not events:
+        return
+    wid = (workspace_id or _ws() or "").strip()
+    jid = _norm_job_id(job_id)
+    if not jid or not wid:
+        return
+    try:
+        with get_conn() as conn:
+            existing = conn.execute(
+                "SELECT COUNT(*) AS c FROM mission_events WHERE job_id=? AND workspace_id=?",
+                (jid, wid),
+            ).fetchone()
+            already = 0
+            if existing is not None:
+                already = int(dict(existing).get("c") if isinstance(existing, dict) else existing[0] or 0)
+            # N'insère que les nouveaux événements en fin de liste (append-only).
+            to_add = events[already:] if already < len(events) else []
+            for ev in to_add:
+                if not isinstance(ev, dict):
+                    continue
+                kind = str(ev.get("type") or ev.get("kind") or "")[:64]
+                agent = str(ev.get("agent") or "")[:64]
+                payload = ev.get("payload") if isinstance(ev.get("payload"), dict) else (
+                    ev.get("data") if isinstance(ev.get("data"), dict) else {}
+                )
+                created = str(ev.get("ts") or ev.get("created_at") or datetime.utcnow().isoformat())
+                conn.execute(
+                    "INSERT INTO mission_events (job_id, workspace_id, kind, agent, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (jid, wid, kind, agent, json.dumps(payload, ensure_ascii=False), created),
+                )
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _ensure_jobs_columns(conn) -> None:
@@ -725,6 +865,7 @@ def init_db():
 
         ensure_saas_tables(conn)
         ensure_workspace_columns(conn)
+        _ensure_mission_events_table(conn)
         conn.commit()
     init_enterprise_memory_row()
     _init_autonomous_tables()
@@ -1566,6 +1707,8 @@ def update_job(
     with get_conn() as conn:
         conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=? AND workspace_id=?", vals)
         conn.commit()
+    if events is not None:
+        append_mission_events_rows(job_id, events)
 
 
 def set_job_status_quick(job_id: str, status: str) -> None:
