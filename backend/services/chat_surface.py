@@ -42,7 +42,13 @@ _CONSULT_HIST_LINE = re.compile(
 )
 
 
-def surface_chat_result(raw: str | None, *, keep_questionnaire: bool = False) -> str:
+def surface_chat_result(
+    raw: str | None,
+    *,
+    keep_questionnaire: bool = False,
+    user_text: str | None = None,
+    agent_group_id: str | None = None,
+) -> str:
     """Payload visible dans le chat — synthèse actionnable sans détail orchestration."""
     if not raw or not str(raw).strip():
         return (raw or "").strip()
@@ -68,4 +74,14 @@ def surface_chat_result(raw: str | None, *, keep_questionnaire: bool = False) ->
     text = _CONSULT_HIST_LINE.sub("", text).strip()
     text = resolve_mission_id_refs_in_text(text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    try:
+        from services.chat_topic_guard import guard_chat_reply
+
+        text, _drifted = guard_chat_reply(
+            text,
+            user_text=user_text or "",
+            agent_group_id=agent_group_id,
+        )
+    except Exception:
+        pass
     return text or str(raw).strip()

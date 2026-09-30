@@ -253,7 +253,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             text = (
                                 f"**À retirer** dans `{key}` : {directive.get('detail', '')}\n\n{pending}"
                             )
-                        surface = surface_chat_result(text)
+                        surface = surface_chat_result(text, user_text=msg_snap, agent_group_id=group_id)
                         _add_daily_svc(0, 0)
                         if job_id in active_jobs:
                             active_jobs[job_id].update({
@@ -311,7 +311,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             orchestrator_key=run_agent,
                             agent_group_id=group_id,
                         )
-                    surface = surface_chat_result(text)
+                    surface = surface_chat_result(text, user_text=msg_snap, agent_group_id=group_id)
                     _add_daily_svc(ti, to)
                     team_snap = active_jobs[job_id].get("team", [])
                     pl = active_jobs[job_id].get("plan") or {}
@@ -398,13 +398,17 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             agent_label=label,
                             reason=llm_outage_reason(e),
                         )
-                        surface_err = surface_chat_result(user_result)
+                        surface_err = surface_chat_result(
+                            user_result, user_text=msg_snap, agent_group_id=group_id
+                        )
                         job_status = "completed"
                         job_logs_ref.append(f"[korymb] Mode dégradé ({outage}) : {e}")
                         logger.warning("chat CIO mode dégradé (%s) : %s", outage, e)
                     else:
                         user_result = _user_visible_job_failure_markdown(e)
-                        surface_err = surface_chat_result(user_result)
+                        surface_err = surface_chat_result(
+                            user_result, user_text=msg_snap, agent_group_id=group_id
+                        )
                         job_status = f"error: {e}"
                         _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
                         job_logs_ref.append(f"[korymb] Erreur : {e}")
@@ -485,7 +489,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
                 reason = llm_outage_reason(mirror_err)
                 reply = degraded_chat_reply(msg_snap, agent_label=label, reason=reason)
-                surface = surface_chat_result(reply)
+                surface = surface_chat_result(reply, user_text=msg_snap, agent_group_id=group_id)
                 logger.warning("chat CIO refusé avant mission, mode dégradé : %s", mirror_err)
                 if job_id in active_jobs:
                     active_jobs[job_id].update({

@@ -1596,10 +1596,22 @@ def _cio_attempt_direct_answer(
             "Réponds au dirigeant à partir de ces faits. N'invente pas un état contraire."
         )
     messages = [{"role": "user", "content": user_content}]
+    tool_tags = None if not allow_tools else list(agent_cfg.get("tools") or [])
+    if allow_tools and tool_tags:
+        try:
+            from services.chat_topic_guard import crm_tools_allowed_for_chat
+
+            if not crm_tools_allowed_for_chat(
+                user_text=root_mission_label or mission_txt,
+                agent_group_id=agent_group_id,
+            ):
+                tool_tags = [t for t in tool_tags if not str(t).startswith("gestion")]
+        except Exception:
+            pass
     reply, ti, to = llm_chat_maybe_tools(
         system,
         messages,
-        None if not allow_tools else agent_cfg.get("tools"),
+        tool_tags,
         job_logs=job_logs,
         max_tokens=2048 if chat_mode else 3072,
         usage_job_id=job_id,
@@ -1630,6 +1642,25 @@ def _cio_attempt_direct_answer(
                 "[korymb] Réponse directe CIO rejetée (livrable ou lien fictif) — bascule vers délégation."
             )
         return None, ti, to
+    if chat_mode:
+        try:
+            from services.chat_topic_guard import reply_is_crm_drift, guard_chat_reply
+
+            if reply_is_crm_drift(text, user_text=root_mission_label or mission_txt):
+                if job_logs is not None:
+                    job_logs.append(
+                        "[korymb] Réponse directe rejetée (dérive CRM hors sujet)."
+                    )
+                if allow_tools:
+                    return None, ti, to
+                safe, _ = guard_chat_reply(
+                    text,
+                    user_text=root_mission_label or mission_txt,
+                    agent_group_id=agent_group_id,
+                )
+                return safe, ti, to
+        except Exception:
+            pass
     return text, ti, to
 
 
@@ -1659,6 +1690,18 @@ def answer_chat_turn_without_tools(
             "Je réponds sans lancer d'action. "
             "Confirmez si vous voulez une recherche, un livrable ou un envoi."
         )
+    try:
+        from services.chat_topic_guard import guard_chat_reply
+
+        cleaned, drifted = guard_chat_reply(
+            cleaned,
+            user_text=root_mission_label or mission_txt,
+            agent_group_id=agent_group_id,
+        )
+        if drifted and job_logs is not None:
+            job_logs.append("[korymb] Garde-fou chat : dérive CRM neutralisée.")
+    except Exception:
+        pass
     return cleaned, ti, to
 
 
