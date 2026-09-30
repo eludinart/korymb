@@ -5,6 +5,24 @@ export type ChoiceOption = {
   label: string;
 };
 
+/** Case système : valider sans autre choix (multi / single). */
+export const CHOICE_NONE_OPTION_ID = "__none__";
+export const CHOICE_NONE_OPTION_LABEL = "Ne rien faire";
+
+export function isNoneChoiceOption(opt: Pick<ChoiceOption, "id" | "label">): boolean {
+  if (opt.id === CHOICE_NONE_OPTION_ID) return true;
+  return /^(ne rien faire|aucun|aucune|rien|aucune de ces (propositions|options))$/i.test(
+    String(opt.label || "").trim(),
+  );
+}
+
+/** Ajoute « Ne rien faire » en bas si l’agent ne l’a pas déjà fourni. */
+export function withNoneChoiceOption(options: ChoiceOption[]): ChoiceOption[] {
+  if (!options.length) return options;
+  if (options.some(isNoneChoiceOption)) return options;
+  return [...options, { id: CHOICE_NONE_OPTION_ID, label: CHOICE_NONE_OPTION_LABEL }];
+}
+
 export type ChoiceQuestion = {
   id: string;
   prompt: string;
