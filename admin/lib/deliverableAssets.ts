@@ -34,67 +34,78 @@ const CHANNEL_META: Record<
   drive_sheet: {
     label: "Google Sheet",
     actionLabel: "Ouvrir le tableau",
-    style: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
+    style:
+      "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-100 dark:hover:bg-emerald-900",
     external: true,
   },
   drive_doc: {
     label: "Google Doc",
     actionLabel: "Ouvrir le document",
-    style: "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100",
+    style:
+      "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-100 dark:hover:bg-blue-900",
     external: true,
   },
   drive_file: {
     label: "Google Drive",
     actionLabel: "Ouvrir sur Drive",
-    style: "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100",
+    style:
+      "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
     external: true,
   },
   local_sheet: {
     label: "Tableau",
     actionLabel: "Voir le tableau",
-    style: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
+    style:
+      "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-100 dark:hover:bg-emerald-900",
     external: false,
   },
   local_doc: {
     label: "Document",
     actionLabel: "Voir le document",
-    style: "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100",
+    style:
+      "border-blue-200 bg-blue-50 text-blue-950 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-950 dark:text-blue-100 dark:hover:bg-blue-900",
     external: false,
   },
   local_file: {
     label: "Fichier",
     actionLabel: "Voir le contenu",
-    style: "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100",
+    style:
+      "border-slate-200 bg-slate-50 text-slate-900 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700",
     external: false,
   },
   in_app: {
     label: "Dans Korymb",
     actionLabel: "Voir le contenu",
-    style: "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100",
+    style:
+      "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-100 dark:hover:bg-violet-900",
     external: false,
   },
   email_draft: {
     label: "Email",
     actionLabel: "Brouillon email",
-    style: "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100",
+    style:
+      "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900",
     external: false,
   },
   linkedin: {
     label: "LinkedIn",
     actionLabel: "Publier (bientôt)",
-    style: "border-sky-200 bg-sky-50 text-sky-900 opacity-60",
+    style:
+      "border-sky-200 bg-sky-50 text-sky-900 opacity-60 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-200",
     external: false,
   },
   facebook: {
     label: "Facebook",
     actionLabel: "Publier (bientôt)",
-    style: "border-indigo-200 bg-indigo-50 text-indigo-900 opacity-60",
+    style:
+      "border-indigo-200 bg-indigo-50 text-indigo-900 opacity-60 dark:border-indigo-800 dark:bg-indigo-950 dark:text-indigo-200",
     external: false,
   },
   telegram: {
     label: "Telegram",
     actionLabel: "Publier (bientôt)",
-    style: "border-cyan-200 bg-cyan-50 text-cyan-900 opacity-60",
+    style:
+      "border-cyan-200 bg-cyan-50 text-cyan-900 opacity-60 dark:border-cyan-800 dark:bg-cyan-950 dark:text-cyan-200",
     external: false,
   },
 };

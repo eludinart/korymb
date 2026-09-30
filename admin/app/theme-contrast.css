@@ -420,19 +420,33 @@ html.dark .bg-amber-50\/60 {
   color: #fde68a !important;
 }
 
-html[data-color-scheme="dark"] .bg-emerald-100,
-html[data-color-scheme="dark"] .bg-violet-100,
-html[data-color-scheme="dark"] .bg-amber-100,
-html[data-color-scheme="dark"] .bg-sky-100,
-html[data-color-scheme="dark"] .bg-rose-100,
-html[data-color-scheme="dark"] .bg-red-100,
-html.dark .bg-emerald-100,
-html.dark .bg-violet-100,
-html.dark .bg-amber-100,
-html.dark .bg-sky-100,
-html.dark .bg-rose-100,
-html.dark .bg-red-100 {
-  background-color: rgba(30, 41, 59, 0.95) !important;
+html[data-color-scheme="dark"] .bg-teal-100,
+html[data-color-scheme="dark"] .bg-teal-50\/40,
+html.dark .bg-teal-100,
+html.dark .bg-teal-50\/40 {
+  background-color: rgba(19, 78, 74, 0.55) !important;
+  color: #ccfbf1 !important;
+}
+
+html[data-color-scheme="dark"] .bg-violet-50\/50,
+html.dark .bg-violet-50\/50 {
+  background-color: #020617 !important;
+  color: #e2e8f0 !important;
+}
+
+html[data-color-scheme="dark"] .bg-sky-50\/80,
+html[data-color-scheme="dark"] .bg-violet-50\/80,
+html[data-color-scheme="dark"] .bg-amber-50\/80,
+html[data-color-scheme="dark"] .bg-teal-50\/80,
+html[data-color-scheme="dark"] .bg-indigo-50\/80,
+html[data-color-scheme="dark"] .bg-emerald-50\/80,
+html.dark .bg-sky-50\/80,
+html.dark .bg-violet-50\/80,
+html.dark .bg-amber-50\/80,
+html.dark .bg-teal-50\/80,
+html.dark .bg-indigo-50\/80,
+html.dark .bg-emerald-50\/80 {
+  background-color: #0f172a !important;
   color: #e2e8f0 !important;
 }
 

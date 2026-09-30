@@ -70,29 +70,31 @@ export default function MissionQuickLaunch({ compact = false, className = "" }: 
   }
 
   return (
-    <section className={`rounded-2xl border border-violet-100 bg-white p-4 shadow-sm ${className}`}>
+    <section
+      className={`rounded-2xl border border-violet-100 bg-white p-4 shadow-sm dark:border-violet-800 dark:bg-slate-900 ${className}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-extrabold text-slate-900">Lancer en un clic</h3>
+        <h3 className="text-sm font-extrabold text-slate-900 dark:text-slate-50">Lancer en un clic</h3>
         {!compact ? (
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={() => router.push("/gestion/playbooks")}
-              className="text-xs font-bold text-violet-700 hover:underline"
+              className="text-xs font-bold text-violet-700 hover:underline dark:text-violet-300"
             >
               Tous les playbooks →
             </button>
             <button
               type="button"
               onClick={() => router.push("/missions?create=1")}
-              className="text-xs font-bold text-violet-700 hover:underline"
+              className="text-xs font-bold text-violet-700 hover:underline dark:text-violet-300"
             >
               Mission personnalisée →
             </button>
           </div>
         ) : null}
       </div>
-      {error ? <p className="mt-2 text-sm font-semibold text-red-700">{error}</p> : null}
+      {error ? <p className="mt-2 text-sm font-semibold text-red-700 dark:text-red-300">{error}</p> : null}
       <ul className={`mt-3 gap-2 ${compact ? "grid sm:grid-cols-2" : "grid sm:grid-cols-2 lg:grid-cols-4"}`}>
         {list.map((pb) => {
           const title = pb.title || pb.name || pb.category || "Playbook";
@@ -103,11 +105,13 @@ export default function MissionQuickLaunch({ compact = false, className = "" }: 
                 type="button"
                 disabled={busyId === pb.id}
                 onClick={() => void launch(pb)}
-                className="flex h-full w-full flex-col rounded-xl border-2 border-violet-100 bg-violet-50/50 p-3 text-left transition hover:border-violet-300 hover:bg-violet-50 disabled:opacity-60"
+                className="flex h-full w-full flex-col rounded-xl border-2 border-violet-100 bg-violet-50/50 p-3 text-left transition hover:border-violet-300 hover:bg-violet-50 disabled:opacity-60 dark:border-violet-700 dark:bg-slate-950 dark:hover:border-violet-500 dark:hover:bg-slate-900"
               >
-                <span className="text-sm font-bold text-slate-900">{title}</span>
-                {desc ? <span className="mt-1 line-clamp-2 text-xs text-slate-600">{desc}</span> : null}
-                <span className="mt-2 text-xs font-bold text-violet-700">
+                <span className="text-sm font-bold text-slate-900 dark:text-slate-50">{title}</span>
+                {desc ? (
+                  <span className="mt-1 line-clamp-2 text-xs text-slate-700 dark:text-slate-300">{desc}</span>
+                ) : null}
+                <span className="mt-2 text-xs font-bold text-violet-700 dark:text-violet-300">
                   {busyId === pb.id ? "Lancement…" : "Lancer →"}
                 </span>
               </button>

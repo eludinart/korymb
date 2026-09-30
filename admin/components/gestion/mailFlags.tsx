@@ -4,20 +4,20 @@ export type MailBucket = "needs_reply" | "awaiting" | "drafts" | "closed" | "all
 export type SuggestTone = "chaleureux" | "concret" | "prudent" | "other";
 
 const FLAG: Record<string, string> = {
-  reply: "bg-teal-100 text-teal-950 ring-teal-300",
-  wait: "bg-amber-100 text-amber-950 ring-amber-300",
-  draft: "bg-violet-100 text-violet-950 ring-violet-300",
-  closed: "bg-slate-200 text-slate-800 ring-slate-300",
-  gen: "bg-violet-200 text-violet-950 ring-violet-400",
-  ready: "bg-emerald-100 text-emerald-950 ring-emerald-300",
+  reply: "bg-teal-100 text-teal-950 ring-teal-300 dark:bg-teal-900 dark:text-teal-100 dark:ring-teal-500",
+  wait: "bg-amber-100 text-amber-950 ring-amber-300 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-500",
+  draft: "bg-violet-100 text-violet-950 ring-violet-300 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-500",
+  closed: "bg-slate-200 text-slate-800 ring-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-500",
+  gen: "bg-violet-200 text-violet-950 ring-violet-400 dark:bg-violet-800 dark:text-violet-100 dark:ring-violet-400",
+  ready: "bg-emerald-100 text-emerald-950 ring-emerald-300 dark:bg-emerald-900 dark:text-emerald-100 dark:ring-emerald-500",
   chosen: "bg-violet-700 text-white ring-violet-800",
-  inbox: "bg-orange-100 text-orange-950 ring-orange-300",
-  fallback: "bg-amber-100 text-amber-950 ring-amber-400",
-  llm: "bg-emerald-100 text-emerald-950 ring-emerald-400",
-  new: "bg-slate-100 text-slate-800 ring-slate-300",
-  chaleureux: "bg-rose-100 text-rose-950 ring-rose-300",
-  concret: "bg-sky-100 text-sky-950 ring-sky-300",
-  prudent: "bg-amber-100 text-amber-950 ring-amber-300",
+  inbox: "bg-orange-100 text-orange-950 ring-orange-300 dark:bg-orange-900 dark:text-orange-100 dark:ring-orange-500",
+  fallback: "bg-amber-100 text-amber-950 ring-amber-400 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-500",
+  llm: "bg-emerald-100 text-emerald-950 ring-emerald-400 dark:bg-emerald-900 dark:text-emerald-100 dark:ring-emerald-500",
+  new: "bg-slate-100 text-slate-800 ring-slate-300 dark:bg-slate-700 dark:text-slate-100 dark:ring-slate-500",
+  chaleureux: "bg-rose-100 text-rose-950 ring-rose-300 dark:bg-rose-900 dark:text-rose-100 dark:ring-rose-500",
+  concret: "bg-sky-100 text-sky-950 ring-sky-300 dark:bg-sky-900 dark:text-sky-100 dark:ring-sky-500",
+  prudent: "bg-amber-100 text-amber-950 ring-amber-300 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-500",
 };
 
 export function MailFlag({

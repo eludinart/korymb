@@ -139,12 +139,14 @@ export default function DeliverableAccessHub({
   return (
     <>
       <section
-        className={`rounded-2xl border-2 border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white shadow-sm ${className}`}
+        className={`rounded-2xl border-2 border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white shadow-sm dark:border-emerald-800 dark:from-slate-900 dark:to-slate-950 ${className}`}
         aria-label="Accès aux livrables"
       >
-        <header className="border-b border-emerald-100 px-4 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Livrables — accès rapide</p>
-          <p className="mt-1 text-xs leading-relaxed text-emerald-900/75">
+        <header className="border-b border-emerald-100 px-4 py-3 dark:border-emerald-900">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+            Livrables — accès rapide
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-800 dark:text-slate-300">
             {fileCount > 0
               ? `${fileCount} fichier${fileCount > 1 ? "s" : ""} dans votre espace`
               : "Aucun fichier enregistré pour l'instant"}
@@ -158,15 +160,15 @@ export default function DeliverableAccessHub({
             return (
               <li
                 key={asset.id}
-                className="flex min-w-0 flex-col justify-between gap-2 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm"
+                className="flex min-w-0 flex-col justify-between gap-2 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950"
               >
                 <div className="min-w-0">
-                  <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                  <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {meta.label}
                   </span>
-                  <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-900">{asset.title}</p>
+                  <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">{asset.title}</p>
                   {asset.agentKey ? (
-                    <p className="mt-0.5 text-[10px] font-medium text-slate-500">Agent : {asset.agentKey}</p>
+                    <p className="mt-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">Agent : {asset.agentKey}</p>
                   ) : null}
                 </div>
                 <button
@@ -180,7 +182,7 @@ export default function DeliverableAccessHub({
             );
           })}
         </ul>
-        <p className="border-t border-emerald-100 px-4 py-2 text-[10px] text-slate-500">
+        <p className="border-t border-emerald-100 px-4 py-2 text-[10px] text-slate-500 dark:border-emerald-900 dark:text-slate-400">
           Publication LinkedIn, Facebook, Telegram et envoi email automatisé : prochaines étapes de la plateforme.
         </p>
       </section>
