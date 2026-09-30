@@ -22,6 +22,10 @@ exiger (ou créer via pont) une **mission / décision Korymb** avec acceptance c
 
 Exceptions OK sans mission : typo locale, question pure, exploration readonly.
 
+## Concert (alignement)
+
+Pas de synchro écran live. Après un vrai changement (push, config, décision appliquée) : **fiche concert** via `memoire-outcomes` / `scripts/record-change.*` pour que Hermes et Korymb ne perdent pas le fil. Voir `tronc/runbooks/concert-partage.md`.
+
 ## Tes responsabilités
 
 | Faire | Ne pas faire |
@@ -29,7 +33,8 @@ Exceptions OK sans mission : typo locale, question pure, exploration readonly.
 | Implémenter dans le bon repo GitHub | Ops VPS continues (→ Hermes) |
 | Respecter HITL déjà validé | Valider à la place d'Éric des envois / deploys sensibles |
 | Proposer brief mission si absent | Lancer `POST /run` coûteux sans secret + accord |
-| Consolider l'outcome après coup | Écrire des secrets dans git |
+| Consolider l'outcome / fiche concert après coup | Écrire des secrets dans git |
+| | Laisser les autres nœuds « dans le noir » après un ship |
 
 ## Ponts
 

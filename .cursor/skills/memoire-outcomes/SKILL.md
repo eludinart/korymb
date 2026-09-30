@@ -15,11 +15,22 @@ Après merge/deploy, abandon de mission, ou incident résolu.
 
 ## Comment
 
-1. Remplir `tronc/templates/outcome-log.md` (ou `tronc/outcomes/YYYY-MM-DD-<slug>.md`).
-2. Proposer à Éric :
-   - Append dans Hermes `decisions-eric.md` section Outcomes (via sync ou collage WebUI)
-   - Si décision durable : aussi dans mémoire Korymb workspace
-3. Si le dépôt banque-skills est ouvert : commit l'outcome sous `tronc/outcomes/` (sans secrets).
+1. **Préférer** le script concert (écrit local + option Hermes + Korymb d’un coup) :
+
+```bash
+./scripts/record-change.sh --title "…" --summary "…" --source cursor \
+  --repo <repo> --commit <sha> --hermes --korymb
+```
+
+```powershell
+.\scripts\record-change.ps1 -Title "…" -Summary "…" -Source cursor -Hermes -Korymb
+```
+
+2. Sinon remplir `tronc/templates/outcome-log.md` → `tronc/outcomes/YYYY-MM-DD-<slug>.md`.
+3. Append Hermes `decisions-eric.md` (script ou collage) ; décision durable → aussi mémoire Korymb.
+4. Commit l’outcome sous `tronc/outcomes/` si le dépôt tronc est ouvert (sans secrets).
+
+Règle : **sans fiche, les autres nœuds ne voient pas le changement.**
 
 ## Contenu obligatoire
 

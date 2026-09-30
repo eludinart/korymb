@@ -34,7 +34,15 @@ Toi (Hermes) : preuve + brief
    - Actions API autorisées sans accord : lecture briefing/inbox ; `POST /actions` ticket si utile.
    - **Interdit** sans accord explicite : `POST /run` mission multi-agents coûteuse, approve envois.
 4. Après deploy (si tu as l'info) : skill `hermes-deploy-check` / scripts smoke.
-5. **Outcome** : ajouter 5–10 lignes dans `/opt/data/memories/decisions-eric.md` section « Outcomes » **seulement** si Éric confirme ou si smoke automatisé documenté — sinon proposer le texte à coller.
+5. **Concert / outcome** : après un vrai changement ops ou smoke documenté, enregistrer une fiche pour que Cursor et Korymb ne perdent pas le fil :
+
+```bash
+/opt/data/scripts/eludein-concert-record.sh "titre" "corps markdown" --korymb
+# ou au minimum :
+/opt/data/scripts/eludein-outcome-append.sh "titre" "corps"
+```
+
+Sinon proposer le texte à coller. Pas de synchro clavier live — le journal est le pont.
 
 ## Ce que tu renvoies à Éric
 

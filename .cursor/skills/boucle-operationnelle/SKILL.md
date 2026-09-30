@@ -36,12 +36,14 @@ Pour work-in-progress local : OK.
 ### 4. Ship
 
 - Push → Coolify (selon guide du repo)
+- Runbook : `tronc/runbooks/coolify-deploy.md`
 - Signaler à Éric de vérifier Hermes smoke / cron post-deploy
 
-### 5. Fermer
+### 5. Fermer (concert)
 
-- Remplir `tronc/templates/outcome-log.md`
-- Skill `memoire-outcomes` : indiquer où coller (Hermes memories / Korymb mémoire)
+- Écrire la fiche : `scripts/record-change.*` **ou** `tronc/templates/outcome-log.md`
+- Idéalement `--hermes --korymb` pour que les deux autres nœuds voient le changement
+- Voir `tronc/runbooks/concert-partage.md` + `closed-loop.md` + skill `memoire-outcomes`
 
 ## Si tu es invoqué mid-flight
 
