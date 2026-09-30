@@ -232,6 +232,17 @@ export async function resolveLearningSuggestion(suggestionId: string, decision: 
   return data;
 }
 
+export async function resolveLearningBulk(decision: "approve" | "reject", limit = 40) {
+  const { res, data } = await requestJson("/admin/learning-suggestions/resolve-bulk", {
+    method: "POST",
+    headers: agentHeaders(),
+    body: JSON.stringify({ decision, limit }),
+    expectOk: false,
+  });
+  if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || `HTTP ${res.status}`);
+  return data as { resolved_count?: number; error_count?: number; decision?: string };
+}
+
 export async function resolveConfigSuggestion(
   suggestionId: string,
   decision: "apply" | "acknowledge" | "dismiss",

@@ -11,6 +11,8 @@ import BriefingCommercialPanel, {
 } from "../../components/director/BriefingCommercialPanel";
 import BriefingEssential from "../../components/director/BriefingEssential";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import WorkSurfaceSwitcher from "../../components/director/WorkSurfaceSwitcher";
+import ScenarioSimulator from "../../components/director/ScenarioSimulator";
 import GestionShortcuts from "../../components/gestion/GestionShortcuts";
 import {
   AlertBox,
@@ -79,10 +81,17 @@ function BriefingPageContent() {
 
   const b = briefing.data as
     | {
-        decisions_today?: Array<{ id?: string; kind?: string; title?: string; mission?: string; href?: string }>;
+        decisions_today?: Array<{ id?: string; kind?: string; title?: string; mission?: string; href?: string; severity?: string }>;
         inbox_total?: number;
         missions_running?: Array<{ job_id: string; mission?: string }>;
         commercial?: CommercialMorningSnapshot | null;
+        memory_digest?: { lines?: string[]; pending_count?: number; href?: string } | null;
+        day_anticipation?: {
+          lines?: string[];
+          events?: Array<{ id?: string; title?: string; when_label?: string; href?: string }>;
+          href?: string;
+        } | null;
+        inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
         unconsulted_results?: Array<{
           job_id: string;
           mission?: string;
@@ -141,6 +150,9 @@ function BriefingPageContent() {
           decisions={b?.decisions_today || []}
           inboxTotal={Number(b?.inbox_total || 0)}
           missionsRunning={b?.missions_running || []}
+          memoryDigest={b?.memory_digest || null}
+          dayAnticipation={b?.day_anticipation || null}
+          inboxSeverity={b?.inbox_severity || null}
         />
       </PageShell>
     );
@@ -183,9 +195,16 @@ function BriefingPageContent() {
         {b ? (
           <>
             <ExecutiveBriefHero data={b} userName={userName} />
+            <WorkSurfaceSwitcher
+              runningCount={(b.missions_running || []).length}
+              inboxCritical={
+                Number(b.inbox_severity?.critical || 0) + Number(b.inbox_severity?.high || 0)
+              }
+            />
             <BriefingCommercialPanel data={b.commercial} />
             <GestionShortcuts />
             <MissionQuickLaunch compact />
+            <ScenarioSimulator />
 
             {(b.unconsulted_results || []).length > 0 ? (
               <SectionCard title="Résultats à reprendre">

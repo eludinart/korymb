@@ -1,6 +1,11 @@
 import type { Config } from "tailwindcss";
 
-export default {
+/**
+ * dark: lié à data-color-scheme (vérité produit), pas à l’OS.
+ * Évite le piège prefers-color-scheme qui peignait des blocs noirs en mode Clair.
+ */
+const config: Config = {
+  darkMode: ["selector", '[data-color-scheme="dark"]'],
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -16,4 +21,6 @@ export default {
     },
   },
   plugins: [],
-} satisfies Config;
+};
+
+export default config;

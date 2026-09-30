@@ -28,6 +28,7 @@ import MissionsArchivesList from "../../components/missions/MissionsArchivesList
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import MissionKanbanBoard from "../../components/missions/MissionKanbanBoard";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
@@ -167,7 +168,9 @@ function MissionsContent() {
       ? "guided"
       : searchParams.get("view") === "archives"
         ? "archives"
-        : "active";
+        : searchParams.get("view") === "kanban"
+          ? "kanban"
+          : "active";
 
   useEffect(() => {
     const c = searchParams.get("create");
@@ -187,6 +190,7 @@ function MissionsContent() {
     p.delete("create");
     if (view === "archives") p.set("view", "archives");
     else if (view === "guided") p.set("mode", "guided");
+    else if (view === "kanban") p.set("view", "kanban");
     p.delete("job");
     router.replace(p.toString() ? `/missions?${p.toString()}` : "/missions");
     setSelected(null);
@@ -615,9 +619,9 @@ function MissionsContent() {
         <MissionsHubToolbar
           view={hubView}
           onViewChange={setHubView}
-          showCreate={showCreatePanel && hubView === "active"}
+          showCreate={showCreatePanel && (hubView === "active" || hubView === "kanban")}
           onToggleCreate={() => {
-            if (hubView !== "active") {
+            if (hubView !== "active" && hubView !== "kanban") {
               setHubView("active");
               setShowCreatePanel(true);
               return;
@@ -634,9 +638,31 @@ function MissionsContent() {
           teamFilter={teamFilter}
           onTeamFilterChange={setTeamFilter}
         />
-        {!selected && hubView === "active" ? <MissionQuickLaunch /> : null}
+        {!selected && (hubView === "active" || hubView === "kanban") ? <MissionQuickLaunch /> : null}
         {hubView === "guided" ? (
           <MissionGuidedPanel />
+        ) : hubView === "kanban" ? (
+          <div className="space-y-4">
+            {showCreatePanel ? (
+              <MissionCreatePanel
+                initialAgentGroupId={urlTeam || (teamFilter !== "all" ? teamFilter : null)}
+                agentGroupLabel={
+                  urlTeam || (teamFilter !== "all" ? teamFilter : "")
+                    ? teamBadgeLabel(urlTeam || teamFilter, groupsById)
+                    : ""
+                }
+                onCreated={onMissionCreated}
+                onCancel={() => setShowCreatePanel(false)}
+              />
+            ) : null}
+            {jobs.isPending ? <p className="text-sm text-slate-500">Chargement…</p> : null}
+            <MissionKanbanBoard jobs={sortedRows} onSelect={openMission} />
+            <p className="text-sm">
+              <Link href="/carte" className="font-semibold text-violet-700 hover:underline">
+                Vue carte spatiale →
+              </Link>
+            </p>
+          </div>
         ) : (
         <>
         {showCreatePanel && hubView === "active" ? (

@@ -149,7 +149,7 @@ export default function DeliverableAccessHub({
               ? `${fileCount} fichier${fileCount > 1 ? "s" : ""} dans votre espace`
               : "Aucun fichier enregistré pour l'instant"}
             {inAppCount > 0 ? ` · ${inAppCount} pièce${inAppCount > 1 ? "s" : ""} lisible${inAppCount > 1 ? "s" : ""} dans Korymb` : ""}
-            . Lecture dans Korymb ; Google Drive s’ouvre à part.
+            . Lecture dans Korymb.
           </p>
         </header>
         <ul className="grid gap-2 p-3 sm:grid-cols-2">

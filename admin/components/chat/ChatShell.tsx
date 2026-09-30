@@ -209,8 +209,8 @@ export default function ChatShell({
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const hydratingRef = useRef<Set<string>>(new Set());
+  const userMinHeightRef = useRef(0);
   const [localAgents, setLocalAgents] = useState<Record<string, string[]>>({});
-  const [composing, setComposing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
@@ -263,17 +263,17 @@ export default function ChatShell({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    const compact = 36;
-    const vvH = window.visualViewport?.height ?? window.innerHeight;
-    const keyboardLikely = vvH < window.innerHeight - 120;
-    const min = composing && !keyboardLikely ? 108 : compact;
-    const max = composing
-      ? Math.min(Math.round(vvH * (keyboardLikely ? 0.22 : 0.42)), keyboardLikely ? 120 : 340)
-      : compact;
+    // Style WhatsApp : 1 ligne au repos, croissance auto plafonnée (~5 lignes mobile / plus haut desktop).
+    const minH = Math.max(40, userMinHeightRef.current);
+    const desktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+    const maxH = desktop ? 280 : 120;
     el.style.height = "0px";
-    const next = composing ? Math.min(Math.max(el.scrollHeight, min), max) : compact;
+    const needed = Math.max(el.scrollHeight, 40);
+    const next = Math.min(Math.max(needed, minH), maxH);
     el.style.height = `${next}px`;
-  }, [draft, composing]);
+    el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
+    if (!draft.trim()) userMinHeightRef.current = 0;
+  }, [draft]);
 
   useEffect(() => {
     for (const m of messages) {
@@ -344,15 +344,15 @@ export default function ChatShell({
     "pointer-events-none absolute left-0 top-0 h-px w-px overflow-hidden opacity-0";
 
   return (
-    <div className={`relative mx-auto flex min-h-0 w-full flex-col bg-white ${className || "h-full"}`}>
+    <div className={`chat-root relative mx-auto flex min-h-0 w-full flex-col ${className || "h-full"}`}>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 py-2 sm:px-4 sm:py-4">
         <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
           {isFirstTurn ? (
             <div className="px-2 pt-6 text-center sm:pt-10">
-              <h1 className="text-lg font-semibold tracking-tight text-slate-900 sm:text-3xl">
+              <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
                 Qu&apos;est-ce qui vous préoccupe ?
               </h1>
-              <p className="mt-1.5 text-sm text-slate-500 sm:mt-3 sm:text-base">
+              <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-base">
                 Texte, image, PDF ou vidéo — le trombone joint un fichier.
               </p>
             </div>
@@ -392,8 +392,8 @@ export default function ChatShell({
                   <div
                     className={`chat-bubble-text overflow-hidden leading-snug sm:leading-relaxed ${
                       m.role === "user"
-                        ? "rounded-[1.15rem] rounded-br-md bg-slate-900 px-3.5 py-2 text-white sm:rounded-3xl sm:px-5 sm:py-3"
-                        : "rounded-none bg-transparent px-0.5 py-0.5 text-slate-800 sm:rounded-[1.15rem] sm:rounded-bl-md sm:bg-slate-100 sm:px-5 sm:py-3"
+                        ? "chat-bubble-user rounded-[1.15rem] rounded-br-md px-3.5 py-2 sm:rounded-3xl sm:px-5 sm:py-3"
+                        : "chat-bubble-assistant rounded-[1.15rem] rounded-bl-md px-3.5 py-2.5 sm:px-5 sm:py-3"
                     }`}
                     style={{ fontSize: "var(--chat-text-size, 1rem)" }}
                   >
@@ -491,7 +491,7 @@ export default function ChatShell({
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-slate-200 bg-white">
+      <div className="shrink-0 border-t border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
         {showPendingBar ? (
           <div className="border-b border-violet-100 px-2 py-1.5 lg:hidden">
             <ChatReplyPending
@@ -539,8 +539,8 @@ export default function ChatShell({
           setDragging(false);
           takeFiles(filesFromDataTransfer(e.dataTransfer));
         }}
-        className="chat-composer-shell relative px-2 pt-1.5 sm:px-4 sm:pt-3"
-        style={{ paddingBottom: "max(0.4rem, env(safe-area-inset-bottom, 0px))" }}
+        className="chat-composer-shell relative px-2 pt-1 sm:px-4 sm:pt-3"
+        style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))" }}
       >
         {dragging ? (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-t-xl border-2 border-dashed border-violet-400 bg-violet-50/90 text-sm font-semibold text-violet-800">
@@ -611,16 +611,13 @@ export default function ChatShell({
           </div>
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
-        <div className="chat-thinking-picker mx-auto mb-1.5 max-w-3xl">
-          <ThinkingModePicker persist compact />
-        </div>
-        <div className="mx-auto flex max-w-3xl items-end gap-1.5 sm:gap-2">
+        <div className="mx-auto flex max-w-3xl items-end gap-1">
           {onAddFiles ? (
             <button
               type="button"
               onClick={openAttachMenu}
               disabled={pending || uploadBusy || attachments.length >= CHAT_FILE_MAX}
-              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 disabled:opacity-40 sm:h-8 sm:w-8"
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-600 active:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:active:bg-slate-800"
               aria-label="Joindre une photo ou un fichier"
               title="Joindre"
               aria-expanded={attachOpen}
@@ -630,12 +627,13 @@ export default function ChatShell({
               </svg>
             </button>
           ) : null}
+          <ThinkingModePicker persist icon className="mb-0.5" />
           {canConvertToMission && onConvertToMission && convertBrief == null ? (
             <button
               type="button"
               onClick={onConvertToMission}
               disabled={convertBusy}
-              className="mb-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40 lg:flex"
+              className="mb-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40 lg:flex"
               aria-label="Préparer un travail"
               title="Préparer un travail"
             >
@@ -644,33 +642,38 @@ export default function ChatShell({
               </svg>
             </button>
           ) : null}
-          <textarea
-            ref={textareaRef}
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            onKeyDown={onKeyDown}
-            onPaste={(e) => {
-              const files = filesFromClipboard(e.nativeEvent);
-              if (!files.length) return;
-              e.preventDefault();
-              takeFiles(files);
-            }}
-            onFocus={() => setComposing(true)}
-            onBlur={() => setComposing(false)}
-            disabled={pending}
-            rows={1}
-            placeholder="Message ou fichier…"
-            className={`flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 text-[16px] leading-snug text-slate-900 outline-none transition-[height] duration-200 ease-out focus:border-violet-300 focus:bg-white focus:ring-2 focus:ring-violet-100 disabled:opacity-60 ${
-              composing ? "overflow-y-auto py-2.5" : "overflow-hidden py-1.5"
-            }`}
-            enterKeyHint="send"
-            autoComplete="off"
-            autoCorrect="on"
-          />
+          <div className="chat-input-pill flex min-h-9 min-w-0 flex-1 items-end rounded-[1.35rem]">
+            <textarea
+              ref={textareaRef}
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              onKeyDown={onKeyDown}
+              onPaste={(e) => {
+                const files = filesFromClipboard(e.nativeEvent);
+                if (!files.length) return;
+                e.preventDefault();
+                takeFiles(files);
+              }}
+              onPointerUp={() => {
+                const el = textareaRef.current;
+                if (!el) return;
+                // Conserve une hauteur tirée à la main (poignée resize desktop).
+                if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
+              }}
+              disabled={pending}
+              rows={1}
+              placeholder="Message"
+              className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
+              style={{ height: 40 }}
+              enterKeyHint="send"
+              autoComplete="off"
+              autoCorrect="on"
+            />
+          </div>
           <button
             type="submit"
             disabled={pending || uploadBusy || (!draft.trim() && attachments.length === 0)}
-            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-700 text-white transition-colors hover:bg-violet-800 disabled:bg-slate-300 disabled:text-white sm:h-9 sm:w-9"
+            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-700 text-white transition-colors active:bg-violet-800 disabled:bg-slate-300 disabled:text-white"
             aria-label="Envoyer"
           >
             <SendIcon />
@@ -680,9 +683,9 @@ export default function ChatShell({
       </div>
 
       {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
-        <div className="absolute inset-0 z-30 flex flex-col bg-white">
-          <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3">
-            <p className="text-sm font-semibold text-slate-900">Ce que vous voulez accomplir</p>
+        <div className="absolute inset-0 z-30 flex flex-col bg-white dark:bg-slate-950">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-slate-200 px-3 dark:border-slate-800">
+            <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">Ce que vous voulez accomplir</p>
             {onCancelConvert ? (
               <button
                 type="button"
@@ -697,7 +700,7 @@ export default function ChatShell({
           <textarea
             value={convertBrief}
             onChange={(e) => onConvertBriefChange(e.target.value)}
-            className="min-h-0 flex-1 resize-none px-3 py-2 text-[16px] leading-snug text-slate-800 outline-none"
+            className="min-h-0 flex-1 resize-none px-3 py-2 text-[16px] leading-snug text-slate-800 outline-none dark:bg-slate-950 dark:text-slate-100"
           />
           <div
             className="flex gap-2 border-t border-slate-200 px-3 pt-2"

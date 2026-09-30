@@ -9,6 +9,8 @@ import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
+import type { QuestionSpecMap } from "../../lib/choiceQuestionnaire";
+import { specsFromQuestionItems } from "../../lib/choiceQuestionnaire";
 import {
   useCioAnswersAndResume,
   useHitlResolve,
@@ -44,10 +46,14 @@ export type InboxActionItem = {
   days_overdue?: number;
   sla_days?: number;
   urgency?: "ok" | "warning" | "critical";
+  /** Coût d'erreur : critical | high | medium | low */
+  severity?: "critical" | "high" | "medium" | "low" | string;
   progress_label?: string;
   priority_score?: number;
   priority_rank?: number;
   questions?: string[];
+  /** Options QCM par libellé de question (CIO). */
+  question_specs?: Record<string, { selection?: string; options?: Array<{ id?: string; label?: string } | string> }>;
   hitl_kind?: string;
   action_kind?: string;
   primary_cta?: string;
@@ -248,6 +254,19 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const cioQuestions =
     item.kind === "cio_question" ? (item.questions || []).map((q) => String(q).trim()).filter(Boolean) : [];
+  const cioQuestionSpecs = useMemo((): QuestionSpecMap => {
+    if (item.kind !== "cio_question") return {};
+    if (item.question_specs && typeof item.question_specs === "object") {
+      const { specs } = specsFromQuestionItems(
+        Object.entries(item.question_specs).map(([prompt, spec]) => ({
+          prompt,
+          ...(typeof spec === "object" && spec ? spec : {}),
+        })),
+      );
+      return specs;
+    }
+    return {};
+  }, [item.kind, item.question_specs]);
   const missionContext =
     item.mission ||
     (item.kind === "cio_question" &&
@@ -641,6 +660,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             <div className="space-y-3">
               <CioArbitrageQuestionnaire
                 questions={cioQuestions}
+                questionSpecs={cioQuestionSpecs}
                 savedAnswers={questionAnswers}
                 busy={cioAnswerMut.isPending}
                 onValidateAndLaunch={onCioValidate}

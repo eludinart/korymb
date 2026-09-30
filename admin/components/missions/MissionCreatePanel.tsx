@@ -13,6 +13,8 @@ import MissionFleetSelect, {
   activeFleetGroups,
   type FleetGroupOption,
 } from "./MissionFleetSelect";
+import ThinkingModePicker from "../director/ThinkingModePicker";
+import { loadThinkingMode, type ThinkingModeId } from "../../lib/thinkingMode";
 
 type Props = {
   onCreated: (jobId: string) => void;
@@ -43,6 +45,7 @@ export default function MissionCreatePanel({
   const [refinementEnabled, setRefinementEnabled] = useState(false);
   const [refinementRounds, setRefinementRounds] = useState(DEFAULT_REFINEMENT_ROUNDS);
   const [skipPlanHitl, setSkipPlanHitl] = useState(false);
+  const [thinkingMode, setThinkingMode] = useState<ThinkingModeId>("auto");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [costEst, setCostEst] = useState<{ estimated_cost_usd?: number; tier?: string; warnings?: string[] } | null>(
@@ -84,6 +87,10 @@ export default function MissionCreatePanel({
     const filtered = all.filter((a) => allow.has(a.key));
     return filtered.length ? filtered : all;
   }, [agents.data, selectedFleet]);
+
+  useEffect(() => {
+    setThinkingMode(loadThinkingMode());
+  }, []);
 
   useEffect(() => {
     const fromUrl = (initialAgentGroupId || "").trim();
@@ -136,6 +143,7 @@ export default function MissionCreatePanel({
           cio_plan_hitl_enabled: skipPlanHitl ? false : undefined,
           agent_group_id: gid,
           orchestrator_key: orch,
+          thinking_mode: thinkingMode,
         },
       };
 
@@ -165,14 +173,13 @@ export default function MissionCreatePanel({
   return (
     <form
       onSubmit={onSubmit}
-      className={`space-y-4 rounded-2xl border-2 border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white p-5 shadow-sm ${className}`}
+      className={`space-y-4 rounded-2xl border-2 border-emerald-200 bg-gradient-to-b from-emerald-50/80 to-white p-5 shadow-sm dark:border-emerald-800 dark:from-emerald-950/50 dark:to-slate-950 ${className}`}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-bold text-slate-900">Nouvelle mission</p>
           <p className="mt-0.5 text-xs text-slate-600">
-            Choisissez la flotte, puis décrivez l&apos;objectif. Le périmètre (contexte global ou mémoire d&apos;équipe) est
-            celui de l&apos;équipe.
+            Une phrase suffit. Options avancées (équipe, agent, plan) si besoin.
           </p>
         </div>
         {onCancel ? (
@@ -189,27 +196,17 @@ export default function MissionCreatePanel({
         ) : null}
       </div>
 
-      <MissionFleetSelect
-        value={fleetId}
-        onChange={(id) => {
-          setFleetId(id);
-          const g = fleets.find((row) => row.id === id);
-          rememberInterlocutor(
-            interlocutorFromGroupId(id),
-            id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
-          );
-        }}
-        groups={fleets}
-        disabled={busy}
-      />
-      {groupsQuery.isError ? (
-        <p className="text-xs text-amber-800">Impossible de charger les équipes — flotte Entreprise par défaut.</p>
-      ) : null}
-
       <div>
         <label htmlFor="mission-create-text" className="field-label">
           Que voulez-vous accomplir ?
         </label>
+        <ThinkingModePicker
+          value={thinkingMode}
+          onChange={setThinkingMode}
+          persist
+          className="mb-2"
+          compact
+        />
         <textarea
           id="mission-create-text"
           rows={4}
@@ -217,19 +214,38 @@ export default function MissionCreatePanel({
           onChange={(e) => setMission(e.target.value)}
           className="field-input leading-relaxed"
           placeholder="Ex. : analyser les prospects PACA et préparer un kit de contact…"
+          autoFocus
         />
       </div>
 
       {costEst ? (
-        <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950">
+        <div className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-sm text-violet-950 dark:border-violet-800 dark:bg-violet-950/50 dark:text-violet-100">
           Estimation ~ <strong>${Number(costEst.estimated_cost_usd || 0).toFixed(3)}</strong>
           {costEst.tier ? ` · ${costEst.tier}` : ""}
         </div>
       ) : null}
 
-      <details className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800">
-        <summary className="cursor-pointer text-xs font-semibold text-slate-700">Options (agent, affinage, plan)</summary>
+      <details className="rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300">
+          Options (équipe, agent, affinage, plan)
+        </summary>
         <div className="mt-3 space-y-3">
+          <MissionFleetSelect
+            value={fleetId}
+            onChange={(id) => {
+              setFleetId(id);
+              const g = fleets.find((row) => row.id === id);
+              rememberInterlocutor(
+                interlocutorFromGroupId(id),
+                id === ENTERPRISE_GROUP_ID ? ENTERPRISE_ROLE_LABEL : g?.label || "Équipe",
+              );
+            }}
+            groups={fleets}
+            disabled={busy}
+          />
+          {groupsQuery.isError ? (
+            <p className="text-xs text-amber-800">Impossible de charger les équipes — flotte Entreprise par défaut.</p>
+          ) : null}
           <div>
             <label htmlFor="mission-create-agent" className="field-label">
               Agent pilote
@@ -288,7 +304,7 @@ export default function MissionCreatePanel({
       </details>
 
       <button type="submit" disabled={busy || !mission.trim()} className="btn-primary w-full sm:w-auto">
-        {busy ? "Lancement…" : "Lancer la mission"}
+        {busy ? "Lancement…" : "Lancer"}
       </button>
       {msg ? (
         <p className="text-sm text-slate-700" role="status">

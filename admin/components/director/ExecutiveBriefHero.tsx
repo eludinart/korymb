@@ -17,10 +17,25 @@ export type MemoryHighlight = {
   snippet: string;
 };
 
+export type MemoryDigest = {
+  lines?: string[];
+  pending_count?: number;
+  href?: string;
+};
+
+export type DayAnticipation = {
+  lines?: string[];
+  events?: Array<{ id?: string; title?: string; when_label?: string; href?: string }>;
+  href?: string;
+};
+
 type BriefingRitual = {
   executive_summary?: string;
   top_priorities?: ExecutivePriority[];
   memory_highlights?: MemoryHighlight[];
+  memory_digest?: MemoryDigest;
+  day_anticipation?: DayAnticipation;
+  inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number };
   ritual_status?: "clear" | "decisions_needed" | "budget_alert" | "config_blocked" | string;
   llm_readiness?: {
     ready?: boolean;
@@ -58,14 +73,20 @@ function formatDateFr() {
 }
 
 function urgencyRing(urgency?: string) {
-  if (urgency === "critical") return "ring-red-400 bg-red-50";
-  if (urgency === "warning") return "ring-amber-400 bg-amber-50";
-  return "ring-violet-200 bg-white";
+  if (urgency === "critical") return "ring-red-400 bg-red-50 dark:bg-red-950 dark:ring-red-500";
+  if (urgency === "warning") return "ring-amber-400 bg-amber-50 dark:bg-amber-950 dark:ring-amber-500";
+  return "ring-violet-200 bg-white dark:bg-slate-900 dark:ring-violet-700";
 }
 
 export default function ExecutiveBriefHero({ data, userName }: Props) {
   const priorities = data.top_priorities || [];
   const memory = data.memory_highlights || [];
+  const digest = data.memory_digest;
+  const digestLines = digest?.lines || [];
+  const day = data.day_anticipation;
+  const dayLines = day?.lines || [];
+  const severity = data.inbox_severity || {};
+  const criticalHigh = Number(severity.critical || 0) + Number(severity.high || 0);
   const inboxTotal = Number(data.inbox_total ?? 0);
   const running = data.missions_running || [];
   const unconsultedCount = Number(data.unconsulted_results_count ?? 0);
@@ -76,25 +97,25 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
 
   const statusBanner =
     status === "config_blocked"
-      ? "border-rose-300 bg-rose-50 text-rose-950"
+      ? "border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-100"
       : status === "budget_alert"
-        ? "border-amber-300 bg-amber-50 text-amber-950"
+        ? "border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100"
         : status === "decisions_needed"
-          ? "border-violet-300 bg-violet-50 text-violet-950"
-          : "border-emerald-200 bg-emerald-50/80 text-emerald-950";
+          ? "border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-100"
+          : "border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-100";
 
   const name = greetingName(userName);
 
   return (
-    <section className="overflow-hidden rounded-3xl border-2 border-violet-200 bg-gradient-to-br from-white via-violet-50/40 to-white shadow-lg">
-      <div className="border-b border-violet-100/80 px-5 py-5 sm:px-8 sm:py-6">
+    <section className="overflow-hidden rounded-3xl border-2 border-violet-200 bg-gradient-to-br from-white via-violet-50/40 to-white shadow-lg dark:border-violet-800 dark:from-slate-900 dark:via-violet-950/40 dark:to-slate-900">
+      <div className="border-b border-violet-100/80 px-5 py-5 dark:border-violet-900/60 sm:px-8 sm:py-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-extrabold uppercase tracking-widest text-violet-600">Rituel du jour</p>
-            <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-violet-600 dark:text-violet-300">Mode Cerveau</p>
+            <h2 className="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
               {name ? `Bonjour, ${name}` : "Bonjour"}
             </h2>
-            <p className="mt-1 text-sm capitalize text-slate-500">{formatDateFr()}</p>
+            <p className="mt-1 text-sm capitalize text-slate-500 dark:text-slate-400">{formatDateFr()}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {llm.ready === false ? (
@@ -107,21 +128,23 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
             ) : null}
             {inboxTotal > 0 ? (
               <Link
-                href="/inbox?triage=1"
+                href={criticalHigh > 0 ? "/inbox?severity=critical" : "/inbox?triage=1"}
                 className="inline-flex items-center rounded-2xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-violet-800"
               >
-                Traiter les décisions ({inboxTotal}) — ~2 min
+                {criticalHigh > 0
+                  ? `Traiter les urgentes (${criticalHigh})`
+                  : `Traiter les décisions (${inboxTotal})`}
               </Link>
             ) : (
-              <span className="inline-flex items-center rounded-2xl border-2 border-emerald-300 bg-emerald-100 px-4 py-2.5 text-sm font-bold text-emerald-900">
+              <span className="inline-flex items-center rounded-2xl border-2 border-emerald-300 bg-emerald-100 px-4 py-2.5 text-sm font-bold text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200">
                 Aucune décision en attente ✓
               </span>
             )}
             <Link
               href="/missions?create=1"
-              className="inline-flex items-center rounded-2xl border-2 border-violet-300 bg-white px-4 py-2.5 text-sm font-bold text-violet-900 hover:bg-violet-50"
+              className="inline-flex items-center rounded-2xl border-2 border-violet-300 bg-white px-4 py-2.5 text-sm font-bold text-violet-900 hover:bg-violet-50 dark:border-violet-600 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-950"
             >
-              Lancer une mission
+              Une intention
             </Link>
           </div>
         </div>
@@ -184,7 +207,46 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
         </div>
       ) : null}
 
-      {memory.length > 0 ? (
+      {dayLines.length > 0 ? (
+        <div className="border-t border-violet-100 px-5 py-4 sm:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-500">Bientôt</h3>
+            <Link href={day?.href || "/gestion/planning"} className="text-xs font-bold text-violet-700 hover:underline">
+              Planning →
+            </Link>
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {dayLines.slice(0, 3).map((line, i) => (
+              <li key={`${i}-${line.slice(0, 20)}`} className="text-sm text-slate-700">
+                • {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {digestLines.length > 0 ? (
+        <div className="border-t border-violet-100 px-5 py-4 sm:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-500">
+              Mémoire du jour
+            </h3>
+            <Link
+              href={digest?.href || "/administration/memory"}
+              className="text-xs font-bold text-violet-700 hover:underline"
+            >
+              {Number(digest?.pending_count || 0) > 0 ? "Traiter →" : "Modifier →"}
+            </Link>
+          </div>
+          <ul className="mt-2 space-y-1.5">
+            {digestLines.slice(0, 3).map((line, i) => (
+              <li key={`${i}-${line.slice(0, 20)}`} className="text-sm text-slate-700">
+                • {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : memory.length > 0 ? (
         <div className="border-t border-violet-100 px-5 py-4 sm:px-8">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-xs font-extrabold uppercase tracking-widest text-slate-500">

@@ -144,7 +144,16 @@ function strList(obj: Record<string, unknown>, ...keys: string[]): string[] {
   for (const k of keys) {
     const v = obj[k];
     if (!Array.isArray(v)) continue;
-    return v.map((x) => String(x).trim()).filter(Boolean);
+    return v
+      .map((x) => {
+        if (typeof x === "string") return x.trim();
+        if (x && typeof x === "object") {
+          const o = x as Record<string, unknown>;
+          return String(o.prompt || o.question || o.title || "").trim();
+        }
+        return String(x || "").trim();
+      })
+      .filter(Boolean);
   }
   return [];
 }

@@ -23,8 +23,8 @@ export default function AdministrationLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
-      <aside className="shrink-0 rounded-2xl border-2 border-violet-200 bg-white p-3 shadow-md sm:p-4 lg:sticky lg:top-28 lg:w-64">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800">Administration</p>
+      <aside className="shrink-0 rounded-2xl border-2 border-violet-200 bg-white p-3 shadow-md dark:border-violet-800 dark:bg-slate-900 sm:p-4 lg:sticky lg:top-28 lg:w-64">
+        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800 dark:text-violet-300">Administration</p>
         <nav className="-mx-1 mt-3 space-y-4 lg:mx-0">
           {ADMIN_NAV_GROUPS.map((group) => {
             const agentsBlock = group.emphasis === "agents";
@@ -33,19 +33,19 @@ export default function AdministrationLayout({ children }: { children: React.Rea
                 key={group.id}
                 className={
                   agentsBlock
-                    ? "rounded-xl border-2 border-violet-300 bg-violet-50/80 p-2 ring-1 ring-violet-100"
+                    ? "rounded-xl border-2 border-violet-300 bg-violet-50/80 p-2 ring-1 ring-violet-100 dark:border-violet-700 dark:bg-violet-950/50 dark:ring-violet-900"
                     : undefined
                 }
               >
                 <p
                   className={`px-2 text-[10px] font-extrabold uppercase tracking-wider ${
-                    agentsBlock ? "text-violet-800" : "text-slate-500"
+                    agentsBlock ? "text-violet-800 dark:text-violet-300" : "text-slate-500 dark:text-slate-400"
                   }`}
                 >
                   {group.label}
                 </p>
                 {group.id === "moteur" ? (
-                  <p className="px-2 pb-0.5 text-[10px] leading-snug text-slate-400">Réglages experts du moteur</p>
+                  <p className="px-2 pb-0.5 text-[10px] leading-snug text-slate-400 dark:text-slate-500">Réglages experts du moteur</p>
                 ) : null}
                 <div className="h-scroll-nav mt-1 lg:flex-col lg:overflow-visible lg:pb-0">
                   {group.links.map((l) => {

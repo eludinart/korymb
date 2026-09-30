@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import InboxActionCard, { type InboxActionItem } from "./InboxActionCard";
 import InboxDisplayToolbar from "./InboxDisplayToolbar";
 import { EmptyState } from "../ui/PageChrome";
 import {
+  countInboxBySeverity,
   countInboxByTab,
+  filterInboxBySeverity,
   filterInboxByTab,
   filterInboxItems,
   inboxItemKey,
@@ -14,6 +16,7 @@ import {
   saveInboxDisplayPrefs,
   sortInboxItems,
   type InboxDisplayPrefs,
+  type InboxSeverityFilter,
 } from "../../lib/inboxDisplay";
 
 type Props = {
@@ -22,6 +25,8 @@ type Props = {
   emptyHint?: string;
   compactToolbar?: boolean;
   limit?: number;
+  /** Filtre sévérité forcé (ex. URL ?severity=critical). */
+  initialSeverity?: InboxSeverityFilter | null;
 };
 
 export default function DirectorInboxList({
@@ -30,9 +35,23 @@ export default function DirectorInboxList({
   emptyHint,
   compactToolbar = false,
   limit,
+  initialSeverity = null,
 }: Props) {
   const qc = useQueryClient();
-  const [prefs, setPrefs] = useState<InboxDisplayPrefs>(() => loadInboxDisplayPrefs());
+  const [prefs, setPrefs] = useState<InboxDisplayPrefs>(() => {
+    const base = loadInboxDisplayPrefs();
+    if (initialSeverity && initialSeverity !== "all") {
+      return { ...base, severity: initialSeverity, sort: "severity_desc" };
+    }
+    return base;
+  });
+
+  useEffect(() => {
+    if (!initialSeverity || initialSeverity === "all") return;
+    setPrefs((prev) =>
+      prev.severity === initialSeverity ? prev : { ...prev, severity: initialSeverity, sort: "severity_desc" },
+    );
+  }, [initialSeverity]);
 
   const onPrefsChange = (next: InboxDisplayPrefs) => {
     setPrefs(next);
@@ -45,10 +64,12 @@ export default function DirectorInboxList({
   };
 
   const tabCounts = useMemo(() => countInboxByTab(items), [items]);
+  const severityCounts = useMemo(() => countInboxBySeverity(items), [items]);
 
   const { visible, total } = useMemo(() => {
     const byTab = filterInboxByTab(items, prefs.tab);
-    const filtered = filterInboxItems(byTab, prefs.kindFilter);
+    const bySeverity = filterInboxBySeverity(byTab, prefs.severity);
+    const filtered = filterInboxItems(bySeverity, prefs.kindFilter);
     const sorted = sortInboxItems(filtered, prefs.sort);
     const totalCount = sorted.length;
     const sliced = limit != null ? sorted.slice(0, limit) : sorted;
@@ -67,10 +88,11 @@ export default function DirectorInboxList({
         total={items.length}
         visible={visible.length}
         tabCounts={tabCounts}
+        severityCounts={severityCounts}
         compact={compactToolbar}
       />
       {visible.length === 0 ? (
-        <EmptyState title="Aucune décision pour ce filtre">Changez le type ou l&apos;ordre d&apos;affichage.</EmptyState>
+        <EmptyState title="Aucune décision pour ce filtre">Changez le type, la sévérité ou l&apos;ordre d&apos;affichage.</EmptyState>
       ) : (
         <ul className="space-y-3">
           {visible.map((item, idx) => (

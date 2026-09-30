@@ -2,35 +2,37 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type ChatTextScale = "sm" | "md" | "lg";
+export type ChatTextScale = "xs" | "sm" | "md" | "lg";
 
 const STORAGE_KEY = "korymb-chat-text-scale-v1";
 
 const SCALE_REM: Record<ChatTextScale, string> = {
-  sm: "0.875rem",
-  md: "1rem",
-  lg: "1.125rem",
+  xs: "0.6875rem",
+  sm: "0.8125rem",
+  md: "0.9375rem",
+  lg: "1.0625rem",
 };
 
 export const CHAT_TEXT_SCALE_LABELS: Record<ChatTextScale, string> = {
+  xs: "Très petit",
   sm: "Petit",
   md: "Normal",
   lg: "Grand",
 };
 
-export const CHAT_TEXT_SCALE_ORDER: ChatTextScale[] = ["sm", "md", "lg"];
+export const CHAT_TEXT_SCALE_ORDER: ChatTextScale[] = ["xs", "sm", "md", "lg"];
 
 export function normalizeChatTextScale(raw: string | null | undefined): ChatTextScale {
-  if (raw === "sm" || raw === "lg" || raw === "md") return raw;
-  return "md";
+  if (raw === "xs" || raw === "sm" || raw === "lg" || raw === "md") return raw;
+  return "sm";
 }
 
 export function loadChatTextScale(): ChatTextScale {
-  if (typeof window === "undefined") return "md";
+  if (typeof window === "undefined") return "sm";
   try {
     return normalizeChatTextScale(localStorage.getItem(STORAGE_KEY));
   } catch {
-    return "md";
+    return "sm";
   }
 }
 
@@ -45,7 +47,7 @@ export function useChatTextScale(): {
   setScale: (scale: ChatTextScale) => void;
   cycleScale: () => void;
 } {
-  const [scale, setScaleState] = useState<ChatTextScale>("md");
+  const [scale, setScaleState] = useState<ChatTextScale>("sm");
 
   useEffect(() => {
     const next = loadChatTextScale();
@@ -66,7 +68,7 @@ export function useChatTextScale(): {
   const cycleScale = useCallback(() => {
     setScaleState((prev) => {
       const i = CHAT_TEXT_SCALE_ORDER.indexOf(prev);
-      const next = CHAT_TEXT_SCALE_ORDER[(i + 1) % CHAT_TEXT_SCALE_ORDER.length] || "md";
+      const next = CHAT_TEXT_SCALE_ORDER[(i + 1) % CHAT_TEXT_SCALE_ORDER.length] || "sm";
       applyChatTextScale(next);
       try {
         localStorage.setItem(STORAGE_KEY, next);

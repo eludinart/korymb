@@ -1579,10 +1579,17 @@ def _cio_attempt_direct_answer(
             else " Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
         )
         + "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
-        "sans l'avoir produit via un outil (upload_google_drive / recherche web) dans ce tour."
+        "sans l'avoir produit via un outil (upload vers l'espace Korymb / recherche web) dans ce tour. "
+        "Ne crée un fichier séparé que si le dirigeant l'a demandé."
         + (chat_tool_mandate(intent) if chat_mode else "")
         + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
     )
+    try:
+        from services.thinking_modes import inject_thinking_mode, thinking_mode_from_job
+
+        system = inject_thinking_mode(system, thinking_mode_from_job(job_id))
+    except Exception:
+        pass
     user_content = mission_txt
     if grounding:
         user_content = (
@@ -1703,6 +1710,12 @@ def orchestrate_coordinateur_mission(
         except Exception:
             group_ctx = ""
     system_prompt = agent_cfg["system"] + _identity_block(agent_group_id) + memory_brain + group_ctx
+    try:
+        from services.thinking_modes import inject_thinking_mode, thinking_mode_from_job
+
+        system_prompt = inject_thinking_mode(system_prompt, thinking_mode_from_job(job_id))
+    except Exception:
+        pass
     allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
     deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
@@ -1813,8 +1826,10 @@ def orchestrate_coordinateur_mission(
         if cio_questions_enabled else ""
     )
     cq_rule = (
-        "- clarifying_questions : tableau de 1 à 3 questions courtes si la mission est ambigue sur des points clés "
-        "(budget, cible, priorité entre options). La mission s'exécute EN PARALLÈLE — ces questions ne bloquent rien. "
+        "- clarifying_questions : tableau de 1 à 3 questions si la mission est ambiguë sur des points clés "
+        "(budget, cible, priorité entre options). Chaque entrée = string OU "
+        '{ "prompt": "...", "selection": "multi"|"single", "options": ["A","B"] }. '
+        "La mission s'exécute EN PARALLÈLE — ces questions ne bloquent rien. "
         "Laisse vide [] si la mission est suffisamment claire.\n"
         if cio_questions_enabled else ""
     )
@@ -1904,16 +1919,22 @@ def orchestrate_coordinateur_mission(
     # ── Questions du CIO pour le dirigeant (non-bloquant, si activé) ──────────
     raw_cq = plan.get("clarifying_questions")
     if cio_questions_enabled and isinstance(raw_cq, list) and raw_cq:
-        cq_valid = [str(q).strip() for q in raw_cq if str(q).strip()][:4]
-        if cq_valid:
-            log(f"[korymb] CIO : {len(cq_valid)} question(s) posée(s) au dirigeant (mission continue en parallèle).")
+        from services.choice_questionnaire import clarifying_payload_for_event, normalize_clarifying_questions
+
+        cq_items = normalize_clarifying_questions(raw_cq, limit=4)
+        if cq_items:
+            cq_payload = clarifying_payload_for_event(cq_items)
+            log(
+                f"[korymb] CIO : {len(cq_payload['questions'])} question(s) posée(s) au dirigeant "
+                "(mission continue en parallèle)."
+            )
             if job_id:
                 _emit_job_event(
                     job_id,
                     "cio_question",
                     "coordinateur",
                     {
-                        "questions": cq_valid,
+                        **cq_payload,
                         "mission_preview": (root_mission_label or mission_txt or "")[:200],
                         "answered": False,
                     },
@@ -2801,6 +2822,8 @@ class MissionRunConfig(BaseModel):
     agent_group_id: str | None = None
     allowed_agents: list[str] | None = None
     orchestrator_key: str | None = None
+    # Mode de pensée (scientifique / artiste / …) — injecté dans le prompt
+    thinking_mode: str = "auto"
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -2868,15 +2891,23 @@ def _session_planning_llm_turn(session: dict) -> tuple[str, int, int]:
 
 def _mission_config_from_payload(raw: MissionRunConfig | dict | None) -> dict:
     if raw is None:
-        return MissionRunConfig().model_dump()
-    if isinstance(raw, MissionRunConfig):
-        return raw.model_dump()
-    if isinstance(raw, dict):
+        cfg = MissionRunConfig().model_dump()
+    elif isinstance(raw, MissionRunConfig):
+        cfg = raw.model_dump()
+    elif isinstance(raw, dict):
         try:
-            return MissionRunConfig(**raw).model_dump()
+            cfg = MissionRunConfig(**raw).model_dump()
         except Exception:
-            return MissionRunConfig().model_dump()
-    return MissionRunConfig().model_dump()
+            cfg = MissionRunConfig().model_dump()
+    else:
+        cfg = MissionRunConfig().model_dump()
+    try:
+        from services.thinking_modes import normalize_thinking_mode
+
+        cfg["thinking_mode"] = normalize_thinking_mode(cfg.get("thinking_mode"))
+    except Exception:
+        cfg["thinking_mode"] = "auto"
+    return cfg
 
 def _cio_refinement_round_mission(
     job_id: str,

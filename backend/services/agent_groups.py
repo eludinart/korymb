@@ -520,7 +520,7 @@ def propose_blueprint_from_template(template_key: str, *, intent: str = "") -> d
                 f"Avec cette équipe, le premier livrable serait cadré par {tpl['lead']['label']}, "
                 f"puis délégué aux rôles spécialisés du template « {tpl['label']} »."
             ),
-            "risks": ["Vérifier que les outils Drive/studio sont configurés si besoin de fichiers."],
+            "risks": ["Vérifier les outils studio / fichiers Korymb si besoin d'un export fichier."],
         },
         intent=intent,
     )

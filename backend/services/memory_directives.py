@@ -51,16 +51,23 @@ def _propose(
         "memory_directive": {"action": action, "key": key, "detail": detail[:800]},
         **(extra or {}),
     }
+    # « Mémorise » : auto-apply selon learning.auto_apply_mode. Oublis : toujours HITL.
     sug = propose_memory_suggestion(
         title=title,
         learnings=[detail[:240] or action],
         suggested_memory_keys=memory_keys,
         source="chat_directive",
         notify=True,
-        allow_auto_apply=False,
+        allow_auto_apply=(action == "remember"),
         extra_payload=extra_payload,
     )
-    out: dict[str, Any] = {"action": action, "key": key, "detail": detail[:300], "pending": True}
+    auto_applied = bool(sug and str(sug.get("status") or "") == "auto_applied")
+    out: dict[str, Any] = {
+        "action": action,
+        "key": key,
+        "detail": detail[:300],
+        "pending": not auto_applied,
+    }
     if sug:
         out["suggestion_id"] = sug.get("id")
     if extra:
@@ -71,7 +78,7 @@ def _propose(
 def apply_user_memory_directive(message: str, *, context_key: str = "global") -> dict[str, Any] | None:
     """
     Détecte une demande explicite de mémorisation ou de suppression.
-    Crée une proposition Décisions (pas d'écriture immédiate).
+    « Mémorise » s'applique selon learning.auto_apply_mode ; les oublis restent en Décisions.
     """
     msg = (message or "").strip()
     if not msg or len(msg) > 4000:

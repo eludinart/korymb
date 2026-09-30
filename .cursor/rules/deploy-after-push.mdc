@@ -1,0 +1,19 @@
+---
+description: Après commit/push, préciser front vs back à redéployer
+alwaysApply: true
+---
+
+# Redéploiement après push
+
+Après chaque **commit + push** (ou quand l’utilisateur demande ce qu’il faut déployer), indiquer clairement :
+
+1. **Front** (admin Next / image Coolify front) — si le diff touche `admin/`, `Dockerfile` front, assets Next, `package*.json` admin, etc.
+2. **Back** (FastAPI / image API) — si le diff touche `backend/`, deps Python, migrations, scripts runtime API.
+3. **Les deux** — si front et back sont touchés, ou si un changement d’API casse le contrat front↔back.
+4. **Aucun** — docs, skills, ops/hermes, scripts hors runtime prod (sauf si le déploiement Coolify les embarque vraiment).
+
+Format court en fin de réponse, par exemple :
+
+> **À redéployer :** front seulement · back seulement · front + back · rien
+
+Ne pas oublier les cas mixtes (ex. nouveau champ API + UI) → **front + back**.

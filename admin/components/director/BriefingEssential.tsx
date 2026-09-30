@@ -5,6 +5,9 @@ import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_SUBTITLE } from "../../lib/director
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { starterPackLabel } from "../../lib/starterPacks";
 import { SectionCard } from "../ui/PageChrome";
+import IntentionLaunch from "../missions/IntentionLaunch";
+import WorkSurfaceSwitcher from "./WorkSurfaceSwitcher";
+import ScenarioSimulator from "./ScenarioSimulator";
 
 type DecisionItem = {
   id?: string;
@@ -12,11 +15,24 @@ type DecisionItem = {
   title?: string;
   mission?: string;
   href?: string;
+  severity?: string;
 };
 
 type RunningMission = {
   job_id: string;
   mission?: string;
+};
+
+type MemoryDigest = {
+  lines?: string[];
+  pending_count?: number;
+  href?: string;
+};
+
+type DayAnticipation = {
+  lines?: string[];
+  events?: Array<{ id?: string; title?: string; when_label?: string; href?: string }>;
+  href?: string;
 };
 
 type Props = {
@@ -26,6 +42,9 @@ type Props = {
   decisions: DecisionItem[];
   inboxTotal: number;
   missionsRunning: RunningMission[];
+  memoryDigest?: MemoryDigest | null;
+  dayAnticipation?: DayAnticipation | null;
+  inboxSeverity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
   onDismissWelcome?: () => void;
 };
 
@@ -60,22 +79,32 @@ export default function BriefingEssential({
   decisions,
   inboxTotal,
   missionsRunning,
+  memoryDigest,
+  dayAnticipation,
+  inboxSeverity,
 }: Props) {
   const greet = userName ? `Bonjour ${userName}` : "Bonjour";
   const topDecisions = decisions.slice(0, 5);
+  const digestLines = memoryDigest?.lines || [];
+  const dayLines = dayAnticipation?.lines || [];
+  const criticalCount = Number(inboxSeverity?.critical || 0) + Number(inboxSeverity?.high || 0);
 
   return (
     <div className="space-y-6">
-      <header className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white px-4 py-5 sm:px-6">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">Aujourd&apos;hui</p>
-        <h1 className="mt-1 text-2xl font-extrabold text-slate-900">{greet}</h1>
-        <p className="mt-1 text-sm text-slate-600">À valider, le calendrier, une demande.</p>
+      <header className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-white px-4 py-5 dark:border-violet-800 dark:from-violet-950 dark:to-slate-900 sm:px-6">
+        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700 dark:text-violet-300">Mode Cerveau</p>
+        <h1 className="mt-1 text-2xl font-extrabold text-slate-900 dark:text-slate-50">{greet}</h1>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+          Une surface : anticiper, décider, demander — sans menus imbriqués.
+        </p>
       </header>
 
+      <WorkSurfaceSwitcher runningCount={missionsRunning.length} inboxCritical={criticalCount} />
+
       {showWelcome ? (
-        <section className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
-          <p className="text-sm font-bold text-emerald-900">Premiers pas</p>
-          <p className="mt-1 text-sm text-emerald-800">
+        <section className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 dark:border-emerald-800 dark:bg-emerald-950 sm:px-6">
+          <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">Premiers pas</p>
+          <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
             {packId && packId !== "blank" ? (
               <>
                 Le modèle <strong>{starterPackLabel(packId)}</strong> a préparé des points de départ. Trois gestes
@@ -109,7 +138,59 @@ export default function BriefingEssential({
         </section>
       ) : null}
 
+      {dayLines.length > 0 ? (
+        <SectionCard title="Bientôt" description="Planning et relances — 48 h.">
+          <ul className="space-y-2">
+            {dayLines.slice(0, 3).map((line, i) => (
+              <li key={`${i}-${line.slice(0, 24)}`} className="text-sm text-slate-700">
+                • {line}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm">
+            <Link
+              href={dayAnticipation?.href || "/gestion/planning"}
+              className="font-semibold text-violet-700 hover:underline"
+            >
+              Ouvrir le planning →
+            </Link>
+          </p>
+        </SectionCard>
+      ) : null}
+
+      {digestLines.length > 0 ? (
+        <SectionCard
+          title="Mémoire du jour"
+          description="Ce que Korymb retient — 3 lignes max, à corriger seulement si besoin."
+        >
+          <ul className="space-y-2">
+            {digestLines.slice(0, 3).map((line, i) => (
+              <li key={`${i}-${line.slice(0, 24)}`} className="text-sm text-slate-700">
+                • {line}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-3 text-sm">
+            <Link
+              href={memoryDigest?.href || "/administration/memory"}
+              className="font-semibold text-violet-700 hover:underline"
+            >
+              {Number(memoryDigest?.pending_count || 0) > 0 ? "Traiter la mémoire →" : "Voir la mémoire →"}
+            </Link>
+          </p>
+        </SectionCard>
+      ) : null}
+
       <SectionCard title="À relire et valider" description={DIRECTOR_QUEUE_SUBTITLE}>
+        {criticalCount > 0 ? (
+          <p className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-950">
+            <span className="font-bold">{criticalCount}</span> décision
+            {criticalCount > 1 ? "s" : ""} à fort coût d&apos;erreur (envois, validations).{" "}
+            <Link href={`${DIRECTOR_QUEUE_HREF}?severity=critical`} className="font-bold underline">
+              Traiter d&apos;abord →
+            </Link>
+          </p>
+        ) : null}
         {topDecisions.length === 0 ? (
           <p className="text-sm text-slate-600">Rien en attente. Vous êtes à jour.</p>
         ) : (
@@ -178,19 +259,20 @@ export default function BriefingEssential({
         </p>
       </SectionCard>
 
-      <SectionCard title="Demander" description="Décrivez ce dont vous avez besoin. Le résultat revient ici, à valider.">
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            href="/chat"
-            className="rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-violet-800"
-          >
-            Faire une demande
+      <SectionCard title="Demander" description="Une phrase suffit. Le résultat revient ici, à valider si besoin.">
+        <IntentionLaunch compact />
+        <p className="mt-3 text-sm">
+          <Link href="/chat" className="font-semibold text-violet-700 hover:underline">
+            Ou continuer en conversation →
           </Link>
-          <Link href="/gestion/playbooks" className="text-sm font-semibold text-violet-700 hover:underline">
+          {" · "}
+          <Link href="/gestion/playbooks" className="font-semibold text-violet-700 hover:underline">
             Partir d&apos;un modèle
           </Link>
-        </div>
+        </p>
       </SectionCard>
+
+      <ScenarioSimulator />
     </div>
   );
 }

@@ -41,27 +41,26 @@ def test_summarize_uses_dedicated_timestamp_not_row_updated_at(monkeypatch):
     assert "auto_summary_updated_at" in calls[0]
 
 
-def test_memory_directive_remember_and_forget():
+def test_memory_directive_remember_and_forget(monkeypatch):
     from database import merge_enterprise_contexts, get_enterprise_memory, list_learning_suggestions
     from services.memory_directives import apply_user_memory_directive
     from services.learning import apply_learning_payload_to_memory
+    from services import learning as learn
 
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
     merge_enterprise_contexts({"global": ""})
     applied = apply_user_memory_directive("Mémorise : client Acme préfère le ton formel")
     assert applied and applied["action"] == "remember"
-    assert applied.get("pending") is True
-    mem = get_enterprise_memory()
-    assert "Acme" not in str(mem.get("contexts", {}).get("global") or "")
-
-    pending = list_learning_suggestions(status="pending", limit=20)
-    assert any("Acme" in str(s.get("payload") or "") for s in pending)
-    sug = next(s for s in pending if "Acme" in str(s.get("payload") or ""))
-    apply_learning_payload_to_memory(sug["payload"], snapshot_comment="test apply")
+    assert applied.get("pending") is False
     mem_ok = get_enterprise_memory()
     assert "Acme" in mem_ok["contexts"]["global"]
 
     applied2 = apply_user_memory_directive("Oublie de la mémoire : Acme")
     assert applied2 and applied2["action"] == "forget_phrase"
+    assert applied2.get("pending") is True
+    pending = list_learning_suggestions(status="pending", limit=20)
+    assert any("Acme" in str(s.get("payload") or "") for s in pending)
+    sug = next(s for s in pending if "Acme" in str(s.get("payload") or ""))
     apply_learning_payload_to_memory(
         {
             "memory_directive": {"action": "forget_phrase", "key": "global", "detail": "Acme"},
@@ -70,6 +69,7 @@ def test_memory_directive_remember_and_forget():
     )
     mem2 = get_enterprise_memory()
     assert "Acme" not in mem2["contexts"]["global"]
+    assert sug.get("id")
 
 
 def test_delete_enterprise_context_keys(monkeypatch):
@@ -111,7 +111,9 @@ def test_learning_auto_apply_safe(monkeypatch):
         "suggested_memory_keys": {"global": "x"},
         "suggested_prompt_tweaks": ["change prompt"],
     }
-    assert learn.try_auto_apply_learning("s2", payload_tweaks) is False
+    # Les tweaks de prompts n'empêchent plus l'écriture mémoire automatique.
+    assert learn.try_auto_apply_learning("s2", payload_tweaks) is True
+    assert len(applied) == 2
 
 
 def test_storefront_sync_auto_applies_in_safe_mode(monkeypatch):
@@ -206,3 +208,45 @@ def test_config_suggestions_dedup(monkeypatch):
     out = cs.scan_config_suggestions()
     assert len(out) >= 1
     assert calls
+
+
+def test_learning_resolve_bulk_approve(client, monkeypatch):
+    from database import insert_learning_suggestion, list_learning_suggestions, merge_enterprise_contexts
+    from services import learning as learn
+
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "off")
+    merge_enterprise_contexts({"global": ""})
+    insert_learning_suggestion(
+        "",
+        {
+            "title": "Bulk A",
+            "learnings": ["a"],
+            "suggested_memory_keys": {"global": "- fait A pour bulk"},
+            "source": "manual",
+        },
+    )
+    insert_learning_suggestion(
+        "",
+        {
+            "title": "Bulk B",
+            "learnings": ["b"],
+            "suggested_memory_keys": {"global": "- fait B pour bulk"},
+            "source": "manual",
+        },
+    )
+    pending_before = list_learning_suggestions(status="pending", limit=20)
+    assert len(pending_before) >= 2
+
+    r = client.post("/admin/learning-suggestions/resolve-bulk", json={"decision": "approve", "limit": 40})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert int(body.get("resolved_count") or 0) >= 2
+
+    pending_after = list_learning_suggestions(status="pending", limit=20)
+    assert not any("fait A pour bulk" in str(s.get("payload") or "") for s in pending_after)
+    from database import get_enterprise_memory
+
+    mem = get_enterprise_memory()
+    assert "fait A" in str(mem.get("contexts", {}).get("global") or "")
+    assert "fait B" in str(mem.get("contexts", {}).get("global") or "")

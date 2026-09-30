@@ -28,13 +28,13 @@ export default function DirectorToast({ notification, onDismiss, onNavigate, onM
   }, [onDismiss, notification.ephemeral]);
 
   return (
-    <div className="fixed bottom-[max(1rem,var(--safe-bottom))] left-3 right-3 z-50 mx-auto max-w-sm rounded-2xl border-2 border-violet-300 bg-white p-4 shadow-2xl sm:left-auto sm:right-4">
-      <p className="text-[10px] font-bold uppercase tracking-wide text-violet-800">
+    <div className="fixed bottom-[max(1rem,var(--safe-bottom))] left-3 right-3 z-50 mx-auto max-w-sm rounded-2xl border-2 border-violet-300 bg-white p-4 shadow-2xl dark:border-violet-700 dark:bg-slate-900 sm:left-auto sm:right-4">
+      <p className="text-[10px] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-300">
         {notificationKindLabel(notification.kind)}
       </p>
-      <p className="mt-1 text-base font-extrabold text-slate-950">{notification.title}</p>
+      <p className="mt-1 text-base font-extrabold text-slate-950 dark:text-slate-50">{notification.title}</p>
       {preview ? (
-        <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-700">{preview}</p>
+        <p className="mt-1 line-clamp-2 text-sm font-semibold text-slate-700 dark:text-slate-300">{preview}</p>
       ) : null}
       <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         {primary && onNavigate ? (

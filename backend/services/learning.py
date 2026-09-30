@@ -79,21 +79,28 @@ def can_auto_apply_learning(payload: dict, *, mode: str | None = None) -> tuple[
     if apply_mode == "off":
         return False, "mode_off"
 
-    tweaks = payload.get("suggested_prompt_tweaks") if isinstance(payload.get("suggested_prompt_tweaks"), list) else []
-    if tweaks:
-        return False, "prompt_tweaks"
-
+    # Les tweaks de prompts ne bloquent plus l'auto-apply mémoire (ignorés à l'écriture).
     memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
     facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
+    directive = payload.get("memory_directive") if isinstance(payload.get("memory_directive"), dict) else None
+
+    # Oublis / suppressions : toujours HITL. « Mémorise » explicite : auto en safe/full.
+    if directive:
+        action = str(directive.get("action") or "").strip()
+        if action in {"forget_all", "forget_phrase"}:
+            return False, "memory_directive_forget"
+        if action == "remember" and apply_mode in {"safe", "full"}:
+            detail = str(directive.get("detail") or "").strip()
+            if not detail and not memory_updates:
+                return False, "no_memory_updates"
+            return True, "ok"
+        return False, "memory_directive"
+
     if not memory_updates and not facts:
         return False, "no_memory_updates"
 
     # Brand kit vitrine : données déjà saisies par le dirigeant → auto en safe/full
     source = str(payload.get("source") or "").strip()
-    if source == "chat_directive":
-        return False, "chat_directive"
-    if payload.get("memory_directive"):
-        return False, "memory_directive"
     if source == "storefront_sync" and apply_mode in {"safe", "full"}:
         return True, "ok"
 
@@ -112,6 +119,73 @@ def can_auto_apply_learning(payload: dict, *, mode: str | None = None) -> tuple[
             return False, "too_long"
 
     return True, "ok"
+
+
+def resolve_learning_decision(suggestion_id: str, decision: str) -> dict | None:
+    """Approuve (applique mémoire) ou rejette une suggestion. Retourne la ligne à jour."""
+    from database import get_learning_suggestion, resolve_learning_suggestion
+
+    sug = get_learning_suggestion(suggestion_id)
+    if not sug:
+        return None
+    if decision == "approve":
+        payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
+        memory_updates = (
+            payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
+        )
+        directive = payload.get("memory_directive") if isinstance(payload.get("memory_directive"), dict) else None
+        facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
+        if memory_updates or directive or facts:
+            apply_learning_payload_to_memory(
+                payload if isinstance(payload, dict) else {},
+                snapshot_comment="auto — learning suggestion approved",
+            )
+        try:
+            from services.chat_intelligence import record_chat_apply_feedback
+
+            record_chat_apply_feedback(
+                title=str(payload.get("title") or "Mémoire"),
+                kind="memory",
+                detail=str((payload.get("memory_directive") or {}).get("detail") or "")[:240],
+            )
+        except Exception:
+            pass
+        resolve_learning_suggestion(suggestion_id, "approved")
+    else:
+        resolve_learning_suggestion(suggestion_id, "rejected")
+    return get_learning_suggestion(suggestion_id)
+
+
+def resolve_learning_bulk(*, decision: str, limit: int = 40) -> dict:
+    """Traite en masse les suggestions mémoire pending (approve|reject)."""
+    from database import list_learning_suggestions
+
+    if decision not in {"approve", "reject"}:
+        raise ValueError("decision must be approve or reject")
+    pending = list_learning_suggestions(status="pending", limit=max(1, min(int(limit or 40), 100)))
+    resolved: list[str] = []
+    errors: list[dict[str, str]] = []
+    for sug in pending:
+        sid = str(sug.get("id") or "").strip()
+        if not sid:
+            continue
+        try:
+            out = resolve_learning_decision(sid, decision)
+            if out:
+                resolved.append(sid)
+            else:
+                errors.append({"id": sid, "error": "not_found"})
+        except Exception as exc:
+            logger.exception("resolve_learning_bulk failed for %s", sid)
+            errors.append({"id": sid, "error": str(exc)[:200]})
+    return {
+        "ok": True,
+        "decision": decision,
+        "resolved": resolved,
+        "resolved_count": len(resolved),
+        "errors": errors,
+        "error_count": len(errors),
+    }
 
 
 def apply_learning_payload_to_memory(payload: dict, *, snapshot_comment: str) -> dict[str, str]:

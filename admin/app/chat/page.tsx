@@ -784,7 +784,7 @@ function ChatPageInner() {
     !pending;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white lg:border-x lg:border-slate-200">
+    <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950 lg:border-x lg:border-slate-200 dark:lg:border-slate-800">
       {/* Mobile inbox */}
       <div className={`min-h-0 flex-1 lg:hidden ${mobilePane === "list" ? "flex" : "hidden"}`}>
         <ChatSidebar

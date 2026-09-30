@@ -121,6 +121,14 @@ def test_admin_briefing(client):
     assert "top_priorities" in body
     assert isinstance(body["top_priorities"], list)
     assert "memory_highlights" in body
+    assert "memory_digest" in body
+    assert isinstance(body["memory_digest"].get("lines"), list)
+    assert len(body["memory_digest"]["lines"]) <= 3
+    assert "day_anticipation" in body
+    assert isinstance(body["day_anticipation"].get("lines"), list)
+    assert "thinking_modes" in body
+    assert isinstance(body["thinking_modes"], list)
+    assert "inbox_severity" in body
     assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert", "config_blocked")
     assert "llm_readiness" in body
     assert "ready" in body["llm_readiness"]
@@ -130,6 +138,42 @@ def test_admin_briefing(client):
     assert isinstance(body["unconsulted_results"], list)
     assert "commercial" in body
     assert "counts" in body["commercial"]
+
+
+def test_severity_band_and_memory_digest():
+    from services.director_platform import _severity_band, _memory_digest, _day_anticipation
+
+    assert _severity_band("action_ticket") == "critical"
+    assert _severity_band("learning_suggestion") == "low"
+    assert _severity_band("hitl", urgency="critical") == "critical"
+    assert _severity_band("cio_question") == "high"
+
+    digest = _memory_digest(pending_count=2, highlights=[{"label": "Global", "snippet": "Client Acme"}])
+    assert digest["pending_count"] == 2
+    assert len(digest["lines"]) <= 3
+    assert any("suggestion" in ln.lower() for ln in digest["lines"])
+
+    day = _day_anticipation(limit=3)
+    assert isinstance(day.get("lines"), list)
+    assert len(day["lines"]) <= 3
+    assert day.get("href") == "/gestion/planning"
+
+
+def test_thinking_modes_normalize_and_prompt():
+    from services.thinking_modes import (
+        inject_thinking_mode,
+        list_thinking_modes_public,
+        normalize_thinking_mode,
+        thinking_mode_prompt_block,
+    )
+
+    assert normalize_thinking_mode("Artiste") == "artiste"
+    assert normalize_thinking_mode("nope") == "auto"
+    assert thinking_mode_prompt_block("auto") == ""
+    assert "Scientifique" in thinking_mode_prompt_block("scientifique")
+    assert "Mode de pensée" in inject_thinking_mode("Base.", "artiste")
+    modes = list_thinking_modes_public()
+    assert {m["id"] for m in modes} >= {"auto", "scientifique", "artiste"}
 
 
 def test_admin_briefing_llm_blocker(client, monkeypatch):

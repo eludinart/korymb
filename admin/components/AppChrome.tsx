@@ -12,6 +12,7 @@ import AuthBar from "./AuthBar";
 import CommandPalette from "./CommandPalette";
 import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
+import ColorSchemeToggle from "./ColorSchemeToggle";
 import { useExecutiveMode } from "../lib/executiveMode";
 import { useUiMode } from "../lib/uiMode";
 import { useSyncVisualViewportHeight } from "../lib/visualViewport";
@@ -66,7 +67,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               Korymb
             </Link>
             <p
-              className={`mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-700 ${
+              className={`mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300 ${
                 isChat ? "hidden lg:block" : ""
               }`}
             >
@@ -74,27 +75,27 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
             </p>
             <RuntimeHeader visible={showTechnical && !isChat} />
             {!isPilotage ? (
-              <p className={`mt-0.5 text-xs font-semibold text-slate-500 ${isChat ? "hidden" : "hidden sm:block"}`}>
+              <p className={`mt-0.5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${isChat ? "hidden" : "hidden sm:block"}`}>
                 <button
                   type="button"
                   disabled={uiBusy}
                   onClick={() => void setUiMode(isEssential ? "advanced" : "essential")}
-                  className="font-bold text-violet-700 underline-offset-2 hover:underline disabled:opacity-60"
+                  className="font-bold text-violet-700 underline-offset-2 hover:underline disabled:opacity-60 dark:text-violet-300"
                 >
                   {isEssential ? "Passer en Avancé" : "Passer en Essentiel"}
                 </button>
-                <span className="mx-1 text-slate-300">·</span>
+                <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
                 <button
                   type="button"
                   onClick={toggleTechnical}
-                  className="font-bold text-slate-600 underline-offset-2 hover:underline"
+                  className="font-bold text-slate-600 underline-offset-2 hover:underline dark:text-slate-300"
                 >
                   {technicalOptIn ? "Masquer le technique" : "Afficher le technique"}
                 </button>
                 {executiveMode ? (
                   <>
-                    <span className="mx-1 text-slate-300">·</span>
-                    <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px]">Ctrl+K</kbd>
+                    <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
+                    <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] dark:bg-slate-800">Ctrl+K</kbd>
                   </>
                 ) : null}
               </p>
@@ -102,6 +103,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 lg:items-start">
             <div className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${isChat ? "lg:flex" : ""}`}>
+              <ColorSchemeToggle compact />
               <div className={isChat ? "hidden lg:block" : undefined}>
                 <HeaderActivityToggle open={statusOpen} onToggle={() => setStatusOpen((v) => !v)} />
               </div>
@@ -116,7 +118,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
             {isChat ? (
               <Link
                 href="/briefing"
-                className="flex h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 lg:hidden"
+                className="flex h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 dark:text-violet-200 dark:active:bg-violet-950 lg:hidden"
               >
                 Accueil
               </Link>

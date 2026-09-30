@@ -356,7 +356,10 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
         "name": "upload_google_drive",
         "description": (
             "Enregistre un fichier dans l'espace Korymb du compte (CSV, markdown ou texte). "
-            "Ne va plus sur Google Drive. Pour un tableau de prospection : inclure TOUTES les lignes réelles "
+            "Ne va PAS sur Google Drive. À utiliser UNIQUEMENT si le dirigeant demande explicitement "
+            "un fichier séparé (CSV, export, document téléchargeable). Sinon, livre le contenu "
+            "dans la réponse avec #### LIVRABLE — … (lisible in-app). "
+            "Pour un tableau de prospection : inclure TOUTES les lignes réelles "
             "(web_search), jamais d'exemple Dupont/Martin."
         ),
         "input_schema": {

@@ -68,6 +68,7 @@ class ChatRequest(BaseModel):
     agent_group_id: str | None = None
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
     confirm_action: bool = False
+    thinking_mode: str = "auto"
 
 
 def _build_chat_mission_txt(
@@ -196,6 +197,9 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 chat_session_id=session_id or None,
             )
             job_logs: list[str] = []
+            from services.thinking_modes import normalize_thinking_mode
+
+            think_mode = normalize_thinking_mode(request.thinking_mode)
             active_jobs[job_id] = {
                 "status": "running",
                 "agent": run_agent,
@@ -213,6 +217,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "parent_job_id": linked_parent_id or None,
                 "chat_session_id": session_id or None,
                 "agent_group_id": group_id,
+                "mission_config": {"thinking_mode": think_mode},
             }
             job_logs_ref = active_jobs[job_id]["logs"]
 

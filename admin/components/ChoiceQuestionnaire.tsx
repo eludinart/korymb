@@ -99,25 +99,35 @@ export default function ChoiceQuestionnaire({
 
   if (answeredSummary) {
     return (
-      <div className={`rounded-2xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 ${className}`}>
-        <p className="text-xs font-bold uppercase tracking-wide text-emerald-900">Réponses envoyées</p>
-        <p className="mt-1 whitespace-pre-wrap text-sm text-emerald-950">{answeredSummary}</p>
+      <div
+        className={`rounded-2xl border border-emerald-200 bg-emerald-50/90 px-3 py-3 dark:border-emerald-800 dark:bg-emerald-950/50 ${className}`}
+      >
+        <p className="text-xs font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+          Réponses envoyées
+        </p>
+        <p className="mt-1 whitespace-pre-wrap text-sm text-emerald-950 dark:text-emerald-50">{answeredSummary}</p>
       </div>
     );
   }
 
   return (
-    <div className={`rounded-2xl border border-violet-200 bg-violet-50/40 px-3 py-3 sm:px-4 ${className}`}>
+    <div
+      className={`rounded-2xl border border-violet-200 bg-violet-50/40 px-3 py-3 dark:border-violet-800 dark:bg-violet-950/30 sm:px-4 ${className}`}
+    >
       {payload.title ? (
-        <p className="mb-2 text-sm font-bold text-slate-950">{payload.title}</p>
+        <p className="mb-2 text-sm font-bold text-slate-950 dark:text-slate-50">{payload.title}</p>
       ) : (
-        <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-violet-800">À cocher</p>
+        <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-violet-800 dark:text-violet-300">À cocher</p>
       )}
 
       <div className="space-y-3">
         {payload.questions.map((q, qi) => (
-          <fieldset key={q.id} className="rounded-xl border border-slate-200 bg-white px-3 py-3" disabled={locked}>
-            <legend className="px-1 text-sm font-semibold text-slate-900">
+          <fieldset
+            key={q.id}
+            className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-950"
+            disabled={locked}
+          >
+            <legend className="px-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
               {payload.questions.length > 1 ? (
                 <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
                   {qi + 1}
@@ -145,8 +155,8 @@ export default function ChoiceQuestionnaire({
                       <label
                         className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
                           checked
-                            ? "border-violet-400 bg-violet-50 ring-2 ring-violet-200"
-                            : "border-slate-200 bg-slate-50/80 active:bg-slate-100"
+                            ? "border-violet-400 bg-violet-50 ring-2 ring-violet-200 dark:border-violet-500 dark:bg-violet-950/60 dark:ring-violet-700"
+                            : "border-slate-200 bg-slate-50/80 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:active:bg-slate-800"
                         } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
                       >
                         <input
@@ -157,7 +167,9 @@ export default function ChoiceQuestionnaire({
                           onChange={() => toggle(q, opt.id)}
                           className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
                         />
-                        <span className="min-w-0 flex-1 font-medium leading-snug text-slate-900">{opt.label}</span>
+                        <span className="min-w-0 flex-1 font-medium leading-snug text-slate-900 dark:text-slate-100">
+                          {opt.label}
+                        </span>
                       </label>
                     </li>
                   );
@@ -192,7 +204,7 @@ export default function ChoiceQuestionnaire({
         {busy ? "Envoi…" : payload.submitLabel || "Valider et envoyer"}
       </button>
       {error ? (
-        <p className="mt-2 text-xs font-medium text-red-700" role="alert">
+        <p className="mt-2 text-xs font-medium text-red-700 dark:text-red-300" role="alert">
           {error}
         </p>
       ) : null}

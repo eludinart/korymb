@@ -115,6 +115,23 @@ def _urgency_level(days_open: int, sla_days: int) -> str:
     return "ok"
 
 
+def _severity_band(kind: str, *, urgency: str = "ok", overdue: bool = False) -> str:
+    """Coût d'erreur : critical > high > medium > low."""
+    k = str(kind or "").strip()
+    urg = str(urgency or "ok").strip()
+    if k == "action_ticket":
+        return "critical"
+    if k in {"hitl", "crm_follow_up"}:
+        if urg == "critical" or overdue:
+            return "critical"
+        return "high"
+    if k in {"cio_question", "mission_error"}:
+        return "high"
+    if k in {"closure", "quality", "config_suggestion"}:
+        return "medium"
+    return "low"
+
+
 def _enrich_inbox_item(item: dict, *, job_row: dict | None = None) -> dict:
     kind = str(item.get("kind") or "")
     created_at = str(item.get("created_at") or item.get("updated_at") or "")
@@ -128,6 +145,11 @@ def _enrich_inbox_item(item: dict, *, job_row: dict | None = None) -> dict:
     enriched["sla_days"] = sla
     enriched["days_overdue"] = days_overdue
     enriched["urgency"] = _urgency_level(days_open, sla)
+    enriched["severity"] = _severity_band(
+        kind,
+        urgency=enriched["urgency"],
+        overdue=bool(item.get("overdue")) or days_overdue > 0,
+    )
     enriched["progress_label"] = _progress_label(kind)
     enriched["priority_rank"] = priority_score + 1
     if job_row:
@@ -258,6 +280,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         elif st == "running":
             pass
         pending_cio_questions: list[str] = []
+        pending_cio_specs: dict = {}
         latest_cio_ts = None
         for ev in row.get("events") or []:
             if not isinstance(ev, dict) or ev.get("type") != "cio_question":
@@ -269,9 +292,24 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
             if not isinstance(raw_qs, list):
                 continue
             for q in raw_qs:
-                text = str(q).strip()
+                if isinstance(q, dict):
+                    text = str(q.get("prompt") or q.get("question") or "").strip()
+                    opts = q.get("options") if isinstance(q.get("options"), list) else []
+                    if text and opts and text not in pending_cio_specs:
+                        pending_cio_specs[text] = {
+                            "selection": q.get("selection") if q.get("selection") in ("single", "multi") else "multi",
+                            "options": opts,
+                        }
+                else:
+                    text = str(q).strip()
                 if text and text not in pending_cio_questions:
                     pending_cio_questions.append(text)
+            specs = pl.get("question_specs")
+            if isinstance(specs, dict):
+                for k, v in specs.items():
+                    key = str(k).strip()
+                    if key and key not in pending_cio_specs and isinstance(v, dict):
+                        pending_cio_specs[key] = v
             if ev.get("ts"):
                 latest_cio_ts = ev.get("ts")
         if pending_cio_questions:
@@ -284,6 +322,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "title": (first_q or mission)[:200],
                 "mission": mission[:160],
                 "questions": pending_cio_questions,
+                "question_specs": pending_cio_specs or None,
                 "created_at": cio_created,
                 "updated_at": cio_created,
                 "priority_score": _priority_score("cio_question"),
@@ -422,7 +461,13 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
     except Exception:
         pass
 
-    items.sort(key=lambda x: (x.get("priority_score", 9), str(x.get("updated_at") or "")))
+    items.sort(
+        key=lambda x: (
+            {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(x.get("severity") or "low"), 9),
+            x.get("priority_score", 9),
+            str(x.get("updated_at") or ""),
+        )
+    )
     visible = [i for i in items if not _is_dismissed(i)]
     return {"items": visible[:limit], "total": len(visible)}
 
@@ -529,6 +574,129 @@ def _memory_highlights(limit: int = 3) -> list[dict]:
         return highlights
     except Exception:
         return []
+
+
+def _day_anticipation(*, limit: int = 5) -> dict[str, Any]:
+    """Prochaines échéances planning (48 h) — anticipation légère pour le briefing."""
+    lines: list[str] = []
+    events_out: list[dict[str, Any]] = []
+    try:
+        from services.business_db import list_calendar_events
+
+        now = datetime.utcnow()
+        day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        until = day0 + timedelta(days=2) - timedelta(microseconds=1)
+        rows = list_calendar_events(
+            from_at=day0.isoformat(),
+            to_at=until.isoformat(),
+            limit=40,
+        )
+        today_s = day0.date().isoformat()
+        tomorrow_s = (day0 + timedelta(days=1)).date().isoformat()
+        for row in rows:
+            status = str(row.get("status") or "").strip().lower()
+            if status in {"cancelled", "canceled"}:
+                continue
+            starts = str(row.get("starts_at") or "").strip()
+            title = str(row.get("title") or "Événement").strip()[:80]
+            if not starts or not title:
+                continue
+            day_part = starts[:10]
+            try:
+                dt = datetime.fromisoformat(starts.replace("Z", "+00:00").replace("+00:00", ""))
+                hhmm = dt.strftime("%H:%M")
+            except Exception:
+                hhmm = starts[11:16] if len(starts) >= 16 else ""
+            if day_part == today_s:
+                when = f"Aujourd'hui {hhmm}".strip()
+            elif day_part == tomorrow_s:
+                when = f"Demain {hhmm}".strip()
+            else:
+                when = f"{day_part} {hhmm}".strip()
+            loc = str(row.get("location") or "").strip()
+            line = f"{when} — {title}" + (f" ({loc})" if loc else "")
+            lines.append(line)
+            events_out.append({
+                "id": row.get("id"),
+                "title": title,
+                "starts_at": starts,
+                "when_label": when,
+                "href": f"/gestion/planning/{row.get('id')}" if row.get("id") else "/gestion/planning",
+            })
+            if len(lines) >= limit:
+                break
+    except Exception:
+        lines = []
+        events_out = []
+
+    if not lines:
+        lines = ["Rien d’urgent au planning sur les prochaines 48 h."]
+
+    # Relances CRM dues → une ligne d'anticipation métier
+    try:
+        from services.business_db import list_due_crm_follow_ups
+
+        due = list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=5)
+        overdue_n = sum(1 for e in due if e.get("overdue"))
+        if overdue_n:
+            lines.insert(0, f"{overdue_n} relance{'s' if overdue_n > 1 else ''} commerciale{'s' if overdue_n > 1 else ''} en retard.")
+        elif due:
+            lines.insert(0, f"{len(due)} relance{'s' if len(due) > 1 else ''} commerciale{'s' if len(due) > 1 else ''} due{'s' if len(due) > 1 else ''} aujourd'hui.")
+        lines = lines[:3]
+    except Exception:
+        lines = lines[:3]
+
+    return {
+        "lines": lines[:3],
+        "events": events_out[:limit],
+        "href": "/gestion/planning",
+    }
+
+
+def _memory_digest(*, pending_count: int = 0, highlights: list[dict] | None = None, limit: int = 3) -> dict[str, Any]:
+    """Résumé ultra-court (≤3 lignes) pour le briefing — checkpoint mémoire léger."""
+    lines: list[str] = []
+    pending = max(0, int(pending_count or 0))
+    if pending > 0:
+        lines.append(
+            f"{pending} suggestion{'s' if pending > 1 else ''} mémoire en attente — "
+            "tout intégrer ou ignorer en un geste dans Décisions."
+        )
+
+    try:
+        recent_auto = list_learning_suggestions(status="auto_applied", limit=6)
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        for sug in recent_auto:
+            created = str(sug.get("created_at") or sug.get("resolved_at") or "")
+            if today not in created:
+                continue
+            payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
+            title = str(payload.get("title") or "Mémoire").strip()[:80]
+            if title:
+                lines.append(f"Retenu automatiquement : {title}.")
+            if len(lines) >= limit:
+                break
+    except Exception:
+        pass
+
+    for h in highlights or []:
+        if len(lines) >= limit:
+            break
+        label = str(h.get("label") or h.get("key") or "").strip()
+        snippet = str(h.get("snippet") or "").strip()
+        if not snippet:
+            continue
+        short = snippet if len(snippet) <= 100 else snippet[:97] + "…"
+        lines.append(f"{label} : {short}" if label else short)
+
+    if not lines:
+        lines.append("Mémoire légère pour l’instant — dites « Mémorise : … » dans le chat pour enrichir.")
+
+    return {
+        "lines": lines[:limit],
+        "pending_count": pending,
+        "href": "/inbox" if pending else "/administration/memory",
+    }
 
 
 def _llm_readiness() -> dict[str, Any]:
@@ -726,12 +894,36 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         unconsulted_count=len(unconsulted),
     )
 
+    memory_highlights = _memory_highlights()
+    pending_memory = sum(
+        1 for it in (inbox.get("items") or []) if str(it.get("kind") or "") == "learning_suggestion"
+    )
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for it in inbox.get("items") or []:
+        band = str(it.get("severity") or "low")
+        if band in severity_counts:
+            severity_counts[band] += 1
+        else:
+            severity_counts["low"] += 1
+
+    thinking_modes_list: list[dict[str, str]] = []
+    try:
+        from services.thinking_modes import list_thinking_modes_public
+
+        thinking_modes_list = list_thinking_modes_public()
+    except Exception:
+        thinking_modes_list = []
+
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
         "executive_summary": executive_summary,
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
-        "memory_highlights": _memory_highlights(),
+        "memory_highlights": memory_highlights,
+        "memory_digest": _memory_digest(pending_count=pending_memory, highlights=memory_highlights),
+        "day_anticipation": _day_anticipation(),
+        "thinking_modes": thinking_modes_list,
+        "inbox_severity": severity_counts,
         "ritual_status": _ritual_status(
             inbox["total"],
             budget_block,

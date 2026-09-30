@@ -94,20 +94,20 @@ export default function ChatSidebar({
     <aside
       className={
         inbox
-          ? `flex h-full min-h-0 w-full flex-col bg-white ${className}`
-          : `flex h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r border-slate-200 bg-white lg:w-72 lg:shrink-0 lg:bg-slate-50/90 ${className}`
+          ? `chat-sidebar flex h-full min-h-0 w-full flex-col ${className}`
+          : `chat-sidebar flex h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r lg:w-72 lg:shrink-0 ${className}`
       }
       aria-label="Conversations"
     >
       <div
-        className={`shrink-0 border-b border-slate-200 ${inbox ? "px-4 py-3" : "px-3 py-2"}`}
+        className={`shrink-0 border-b border-slate-200 dark:border-slate-800 ${inbox ? "px-4 py-3" : "px-3 py-2"}`}
       >
         {inbox ? (
           <div className="mb-3 flex items-center justify-between gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-slate-950">Conversation</h1>
+            <h1 className="text-xl font-bold tracking-tight text-slate-950 dark:text-slate-50">Conversation</h1>
             <Link
               href="/briefing"
-              className="rounded-full px-3 py-1.5 text-xs font-bold text-violet-800 active:bg-violet-50"
+              className="rounded-full px-3 py-1.5 text-xs font-bold text-violet-800 active:bg-violet-50 dark:text-violet-300 dark:active:bg-violet-950"
             >
               Accueil
             </Link>
@@ -128,7 +128,7 @@ export default function ChatSidebar({
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 sm:p-2">
         {sorted.length === 0 ? (
-          <li className="px-3 py-10 text-center text-sm text-slate-500">
+          <li className="px-3 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
             Aucune conversation. Lancez la première.
           </li>
         ) : (
@@ -143,12 +143,12 @@ export default function ChatSidebar({
                 <div
                   className={`group flex items-start gap-1 rounded-2xl border transition-colors ${
                     active
-                      ? "border-violet-400 bg-white shadow-sm ring-2 ring-violet-300"
+                      ? "border-violet-400 bg-violet-50 shadow-sm ring-2 ring-violet-200 dark:border-violet-500 dark:bg-violet-950 dark:ring-violet-700"
                       : unread
-                        ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50"
+                        ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
                         : inbox
-                          ? "border-slate-100 bg-white active:bg-slate-50"
-                          : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
+                          ? "border-slate-200 bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
+                          : "border-transparent bg-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
                   }`}
                 >
                   <button
@@ -159,22 +159,22 @@ export default function ChatSidebar({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p
-                        className={`line-clamp-2 font-semibold leading-snug ${
+                        className={`line-clamp-2 font-semibold leading-snug text-slate-900 dark:text-slate-100 ${
                           inbox ? "text-[15px]" : "text-sm"
-                        } ${active ? "text-violet-950" : "text-slate-900"}`}
+                        }`}
                       >
                         {c.title}
                       </p>
                       <time
                         dateTime={new Date(c.updatedAt).toISOString()}
-                        className="shrink-0 text-right text-[10px] leading-tight tabular-nums text-slate-400"
+                        className="shrink-0 text-right text-[10px] leading-tight tabular-nums text-slate-400 dark:text-slate-500"
                         title={formatDateTime(c.updatedAt)}
                       >
                         {inbox ? formatRelative(c.updatedAt) : formatDateTime(c.updatedAt)}
                       </time>
                     </div>
                     {fleet ? (
-                      <p className="mt-0.5 truncate text-[11px] font-semibold text-violet-700/90">{fleet}</p>
+                      <p className="mt-0.5 truncate text-[11px] font-semibold text-violet-700/90 dark:text-violet-300/90">{fleet}</p>
                     ) : null}
 
                     {working ? (

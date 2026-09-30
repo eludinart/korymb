@@ -35,20 +35,20 @@ export default function ChatBottomSheet({ open, onClose, title, children, tall }
 
   return createPortal(
     <div className="fixed inset-0 z-[90] lg:hidden" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" className="absolute inset-0 bg-slate-950/45" aria-label="Fermer" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-slate-950/45 dark:bg-black/60" aria-label="Fermer" onClick={onClose} />
       <div
-        className={`absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl ${
+        className={`absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 dark:shadow-black/50 ${
           tall ? "max-h-[92dvh]" : "max-h-[85dvh]"
         }`}
         style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))" }}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 pb-3 pt-2">
-          <div className="mx-auto absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-slate-300" aria-hidden />
-          <p className="mt-2 text-base font-bold text-slate-900">{title}</p>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-4 pb-3 pt-2 dark:border-slate-800">
+          <div className="mx-auto absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden />
+          <p className="mt-2 text-base font-bold text-slate-900 dark:text-slate-50">{title}</p>
           <button
             type="button"
             onClick={onClose}
-            className="mt-2 rounded-full px-2 py-1 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+            className="mt-2 rounded-full px-2 py-1 text-sm font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             Fermer
           </button>

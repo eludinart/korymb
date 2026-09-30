@@ -95,12 +95,15 @@ def start_assistant_chat_job(
                 update_job(job_id, "completed", text, job_logs, 0, 0, source="chat", result_surface=surface)
                 return
 
+            from services.choice_questionnaire import QCM_INSTRUCTION
+
             system_prompt = (
                 ASSISTANT_SYSTEM
                 + FLEUR_CONTEXT
                 + "\nSois conversationnel et utile. "
                 "Ne propose une équipe que si c'est clairement demandé ou nécessaire. "
                 "Pour « qui es-tu ? » : courte présentation d'Assistant Korymb (chatbot), sans te dire CIO.\n"
+                + QCM_INSTRUCTION
             )
             messages = []
             for h in history[-12:]:

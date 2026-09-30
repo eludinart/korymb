@@ -43,13 +43,14 @@ REALITY_ASSET_CONSTRAINTS = (
 )
 
 KORYMB_DRIVE_AUTOPUBLISH = (
-    "\n\n### Livrables fichiers (espace Korymb)\n"
-    "Korymb enregistre **uniquement les pieces operationnelles** dans **votre compte Korymb** "
-    "(fichiers du serveur, pas Google Drive) : **tableaux** → CSV, **courriers / lettres / mails** → document. "
-    "Chaque piece doit etre marquee `#### LIVRABLE — <titre>` avec le **texte integral** pret a l'emploi.\n"
-    "**Ne pas** deposer de synthese de mission, de plan d'action, ni de description de ce que tu vas faire — "
-    "cela reste lisible dans l'application. Tu n'inventes jamais de lien de fichier : le moteur ajoute les URLs reelles "
-    "en fin de mission pour les vrais livrables uniquement.\n"
+    "\n\n### Livrables (espace Korymb — pas Google Drive)\n"
+    "Par défaut, livre le contenu **dans la réponse** (lisible dans Korymb) : marque les pièces "
+    "opérationnelles avec `#### LIVRABLE — <titre>` et le **texte intégral**.\n"
+    "**Ne crée PAS de fichier séparé** (CSV, document) sauf si le dirigeant le demande clairement "
+    "(ex. « fichier CSV », « enregistre en fichier », « exporte ») — alors utilise l'outil "
+    "`upload_google_drive` qui enregistre **dans Korymb**, jamais sur Google Drive.\n"
+    "Les synthèses, plans d'action et descriptions de ce que tu vas faire restent dans le chat. "
+    "Tu n'inventes jamais de lien de fichier.\n"
 )
 
 MODE_CADRAGE_CIO = (
@@ -211,7 +212,9 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Pour installer un dispositif de travail (prompts stratégiques, playbooks) : "
             "`korymb_save_mission_template` / `korymb_save_playbook` — écriture réelle, pas un copier-coller.\n"
             "Si une mission est ambiguë ou nécessite des arbitrages importants, tu peux poser des questions au dirigeant "
-            "via le champ 'clarifying_questions' du plan JSON — la mission continue à s'exécuter pendant qu'il répond.\n"
+            "via le champ 'clarifying_questions' du plan JSON — la mission continue à s'exécuter pendant qu'il répond. "
+            "Préfère des questions à options (objets avec prompt + options + selection multi|single) pour que le dirigeant "
+            "coche dans l'UI ; sinon une string libre. En chat, utilise aussi un bloc ```korymb-qcm``` JSON.\n"
             "Tu reçois aussi un bloc « Historique missions Korymb » (missions déjà exécutées, avec livrables). "
             "Exploite-le quand le dirigeant prolonge ou réutilise un travail passé : "
             "ne réponds pas « impossible » sans t'appuyer sur ces sources et citer l'intitulé des missions concernées (pas leur numéro technique).\n\n"

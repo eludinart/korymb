@@ -19,24 +19,52 @@
   --app-header-offset: 0px;
   --app-visual-height: 100dvh;
   --app-visual-offset-top: 0px;
-  --chat-text-size: 1rem;
+  --chat-text-size: 0.8125rem;
+  --theme-body-from: #eef2ff;
+  --theme-body-mid: #f8fafc;
+  --theme-body-to: #f1f5f9;
+}
+
+html.dark {
+  color-scheme: dark;
+  --background: #0b1220;
+  --foreground: #f1f5f9;
+  --surface: #111827;
+  --surface-muted: #0f172a;
+  --border-strong: #475569;
+  --accent-violet: #a78bfa;
+  --accent-amber: #fbbf24;
+  --accent-emerald: #34d399;
+  --accent-rose: #fb7185;
+  --theme-body-from: #070b14;
+  --theme-body-mid: #0b1220;
+  --theme-body-to: #111827;
+  --chat-text-size: 0.8125rem;
 }
 
 html {
   -webkit-text-size-adjust: 100%;
   overflow-x: hidden;
   scroll-behavior: smooth;
+  background-color: var(--theme-body-mid);
 }
 
 body {
   color: var(--foreground);
-  background: linear-gradient(180deg, #eef2ff 0%, #f8fafc 28%, #f1f5f9 100%);
+  background: linear-gradient(
+    180deg,
+    var(--theme-body-from) 0%,
+    var(--theme-body-mid) 28%,
+    var(--theme-body-to) 100%
+  );
+  background-color: var(--theme-body-mid);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.55;
   overflow-x: hidden;
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
+  min-height: 100dvh;
 }
 
 @layer utilities {
@@ -97,9 +125,14 @@ body {
       max-height: var(--app-visual-height, 100dvh);
     }
 
+    /* Clavier ouvert : maximiser la zone messages (style WhatsApp). */
+    html.chat-immersion[data-keyboard-open="1"] .chat-thread-header {
+      display: none;
+    }
+
     html.chat-immersion[data-keyboard-open="1"] .chat-composer-shell {
-      padding-top: 0.25rem;
-      padding-bottom: 0.25rem;
+      padding-top: 0.15rem !important;
+      padding-bottom: 0.15rem !important;
     }
 
     html.chat-immersion[data-keyboard-open="1"] .chat-thinking-picker {
@@ -196,7 +229,7 @@ body {
   }
 
   .page-header {
-    @apply relative mb-6 overflow-hidden rounded-2xl border-2 bg-white px-4 py-5 shadow-md sm:px-6 sm:py-6;
+    @apply relative mb-6 overflow-hidden rounded-2xl border-2 border-slate-200 bg-white px-4 py-5 shadow-md sm:px-6 sm:py-6;
   }
 
   .page-header--violet {
@@ -285,31 +318,31 @@ body {
   }
 
   .stat-card--urgent {
-    @apply border-rose-300 bg-gradient-to-br from-rose-50 to-white;
+    @apply border-rose-300 bg-gradient-to-br from-rose-50 to-white dark:border-rose-800 dark:from-rose-950 dark:to-slate-900;
   }
 
   .stat-card--warn {
-    @apply border-amber-300 bg-gradient-to-br from-amber-50 to-white;
+    @apply border-amber-300 bg-gradient-to-br from-amber-50 to-white dark:border-amber-800 dark:from-amber-950 dark:to-slate-900;
   }
 
   .stat-card--ok {
-    @apply border-emerald-300 bg-gradient-to-br from-emerald-50 to-white;
+    @apply border-emerald-300 bg-gradient-to-br from-emerald-50 to-white dark:border-emerald-800 dark:from-emerald-950 dark:to-slate-900;
   }
 
   .stat-card--info {
-    @apply border-sky-300 bg-gradient-to-br from-sky-50 to-white;
+    @apply border-sky-300 bg-gradient-to-br from-sky-50 to-white dark:border-sky-800 dark:from-sky-950 dark:to-slate-900;
   }
 
   .stat-label {
-    @apply text-xs font-bold uppercase tracking-wider text-slate-600;
+    @apply text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400;
   }
 
   .stat-value {
-    @apply mt-2 text-3xl font-extrabold tabular-nums text-slate-950;
+    @apply mt-2 text-3xl font-extrabold tabular-nums text-slate-950 dark:text-slate-50;
   }
 
   .stat-hint {
-    @apply mt-1 text-sm font-semibold text-slate-600;
+    @apply mt-1 text-sm font-semibold text-slate-600 dark:text-slate-400;
   }
 
   /* ── Alerts ── */
@@ -318,19 +351,19 @@ body {
   }
 
   .alert-box--error {
-    @apply border-red-300 bg-red-50 text-red-950;
+    @apply border-red-300 bg-red-50 text-red-950 dark:border-red-500 dark:bg-red-950 dark:text-red-50;
   }
 
   .alert-box--warn {
-    @apply border-amber-300 bg-amber-50 text-amber-950;
+    @apply border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-500 dark:bg-amber-950 dark:text-amber-50;
   }
 
   .alert-box--success {
-    @apply border-emerald-300 bg-emerald-50 text-emerald-950;
+    @apply border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-500 dark:bg-emerald-950 dark:text-emerald-50;
   }
 
   .alert-box--info {
-    @apply border-sky-300 bg-sky-50 text-sky-950;
+    @apply border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-500 dark:bg-sky-950 dark:text-sky-50;
   }
 
   .alert-title {
@@ -342,19 +375,19 @@ body {
   }
 
   .empty-state {
-    @apply rounded-2xl border-2 border-dashed border-slate-300 bg-white px-5 py-8 text-center shadow-sm;
+    @apply rounded-2xl border-2 border-dashed border-slate-300 bg-white px-5 py-8 text-center shadow-sm dark:border-slate-600 dark:bg-slate-900;
   }
 
   .empty-state-title {
-    @apply text-base font-bold text-slate-800;
+    @apply text-base font-bold text-slate-800 dark:text-slate-100;
   }
 
   .empty-state-body {
-    @apply mt-2 text-sm font-medium text-slate-600;
+    @apply mt-2 text-sm font-medium text-slate-600 dark:text-slate-400;
   }
 
   .loading-line {
-    @apply text-base font-semibold text-slate-600;
+    @apply text-base font-semibold text-slate-600 dark:text-slate-400;
   }
 
   @keyframes busy-slide {
@@ -397,11 +430,11 @@ body {
   }
 
   .btn-danger {
-    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-red-300 bg-white px-4 py-2.5 text-sm font-bold text-red-800 transition hover:bg-red-50 active:scale-[0.98] disabled:opacity-50;
+    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-red-300 bg-white px-4 py-2.5 text-sm font-bold text-red-800 transition hover:bg-red-50 active:scale-[0.98] disabled:opacity-50 dark:border-red-700 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950;
   }
 
   .btn-secondary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50;
+    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 shadow-sm transition hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
   }
 
   .btn-amber {
@@ -409,15 +442,15 @@ body {
   }
 
   .btn-link-primary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200;
+    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200 dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-700 dark:hover:bg-violet-900;
   }
 
   .btn-link-secondary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50;
+    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
   }
 
   .input-field {
-    @apply min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 sm:text-sm;
+    @apply min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-emerald-400 dark:focus:ring-emerald-900 sm:text-sm;
   }
 
   /* ── Kind badges (inbox, etc.) ── */
@@ -426,73 +459,79 @@ body {
   }
 
   .kind-badge--hitl {
-    @apply bg-violet-100 text-violet-950 ring-violet-300;
+    @apply bg-violet-100 text-violet-950 ring-violet-300 dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-700;
   }
 
   .kind-badge--action_ticket {
-    @apply bg-orange-100 text-orange-950 ring-orange-300;
+    @apply bg-orange-100 text-orange-950 ring-orange-300 dark:bg-orange-950 dark:text-orange-100 dark:ring-orange-700;
   }
 
   .kind-badge--crm_follow_up {
-    @apply bg-teal-100 text-teal-950 ring-teal-300;
+    @apply bg-teal-100 text-teal-950 ring-teal-300 dark:bg-teal-950 dark:text-teal-100 dark:ring-teal-700;
   }
 
   .kind-badge--cio_question {
-    @apply bg-amber-100 text-amber-950 ring-amber-300;
+    @apply bg-amber-100 text-amber-950 ring-amber-300 dark:bg-amber-950 dark:text-amber-100 dark:ring-amber-700;
   }
 
   .kind-badge--closure {
-    @apply bg-emerald-100 text-emerald-950 ring-emerald-300;
+    @apply bg-emerald-100 text-emerald-950 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-700;
   }
 
   .kind-badge--scheduler_output {
-    @apply bg-sky-100 text-sky-950 ring-sky-300;
+    @apply bg-sky-100 text-sky-950 ring-sky-300 dark:bg-sky-950 dark:text-sky-100 dark:ring-sky-700;
   }
 
   .kind-badge--learning_suggestion {
-    @apply bg-indigo-100 text-indigo-950 ring-indigo-300;
+    @apply bg-indigo-100 text-indigo-950 ring-indigo-300 dark:bg-indigo-950 dark:text-indigo-100 dark:ring-indigo-700;
   }
 
   .kind-badge--quality {
-    @apply bg-rose-100 text-rose-950 ring-rose-300;
+    @apply bg-rose-100 text-rose-950 ring-rose-300 dark:bg-rose-950 dark:text-rose-100 dark:ring-rose-700;
   }
 
   .kind-badge--default {
-    @apply bg-slate-100 text-slate-900 ring-slate-300;
+    @apply bg-slate-100 text-slate-900 ring-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-600;
   }
 
   /* ── Cards action (inbox) ── */
   .action-card {
-    @apply rounded-2xl border-2 border-slate-200 bg-white p-4 shadow-md sm:p-5;
+    @apply rounded-2xl border-2 border-slate-200 bg-white p-4 shadow-md dark:border-slate-700 dark:bg-slate-900 sm:p-5;
   }
 
   .action-card-title {
-    @apply text-base font-bold leading-snug text-slate-950 sm:text-lg;
+    @apply text-base font-bold leading-snug text-slate-950 dark:text-slate-50 sm:text-lg;
   }
 
   /* ── App header ── */
   .app-brand {
-    @apply truncate text-lg font-extrabold tracking-tight text-slate-950 sm:text-xl;
+    @apply truncate text-lg font-extrabold tracking-tight sm:text-xl;
+    color: #020617;
   }
 
   /* z-40 : au-dessus du contenu page (ex. chat sidebar z-20) pour que cloches / menus
      ne passent pas sous les panneaux absolute de main. Overlays body restent à 80+. */
   .app-header-bar {
-    @apply sticky top-0 z-40 w-full min-w-0 border-b-2 border-violet-200 bg-white/95 shadow-md backdrop-blur-md pt-safe;
+    @apply sticky top-0 z-40 w-full min-w-0 border-b-2 shadow-md backdrop-blur-md pt-safe;
+    border-color: #ddd6fe;
+    background-color: rgba(255, 255, 255, 0.97);
+    color: #0f172a;
   }
 
   .app-status-strip {
-    @apply w-full min-w-0 border-t border-violet-100 bg-gradient-to-r from-violet-50/90 to-slate-50/90;
+    @apply w-full min-w-0 border-t;
+    border-color: #ede9fe;
+    background: linear-gradient(to right, rgba(245, 243, 255, 0.95), rgba(248, 250, 252, 0.95));
   }
 
   /* ── Mobile sheets / overlays ── */
   .mobile-bottom-sheet {
-    @apply absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl border-2 border-violet-200 bg-white shadow-2xl;
+    @apply absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl border-2 border-violet-200 bg-white shadow-2xl dark:border-violet-900 dark:bg-slate-900;
     top: max(0.75rem, var(--safe-top));
   }
 
   .mobile-sheet-handle {
-    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300;
+    @apply mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-300 dark:bg-slate-600;
   }
 
   /* Horizontal nav chips (admin / gestion) */
@@ -504,7 +543,7 @@ body {
 
   /* ── Mobile tabs ── */
   .mobile-tab-bar {
-    @apply sticky z-10 flex gap-1.5 rounded-2xl border-2 border-slate-200 bg-white p-1.5 shadow-md;
+    @apply sticky z-10 flex gap-1.5 rounded-2xl border-2 border-slate-200 bg-white p-1.5 shadow-md dark:border-slate-700 dark:bg-slate-900;
     top: calc(var(--app-header-offset, 0px) + 0.25rem);
   }
 
@@ -518,12 +557,12 @@ body {
   }
 
   .mobile-tab-inactive {
-    @apply font-semibold text-slate-700 hover:bg-violet-50 active:bg-violet-100;
+    @apply font-semibold text-slate-700 hover:bg-violet-50 active:bg-violet-100 dark:text-slate-300 dark:hover:bg-violet-950 dark:active:bg-violet-900;
   }
 
   /* ── Nav mobile drawer (porté en portal body — hors header blur) ── */
   .nav-drawer {
-    @apply absolute inset-y-0 right-0 flex w-[min(100vw-1.5rem,22rem)] flex-col bg-white shadow-2xl pt-safe;
+    @apply absolute inset-y-0 right-0 flex w-[min(100vw-1.5rem,22rem)] flex-col bg-white shadow-2xl pt-safe dark:bg-slate-900;
   }
 
   .nav-drawer-link {
@@ -536,7 +575,12 @@ body {
   }
 
   .nav-drawer-link-idle {
-    @apply text-slate-800 hover:bg-violet-50 active:bg-violet-100;
+    color: #1e293b;
+  }
+
+  .nav-drawer-link-idle:hover,
+  .nav-drawer-link-idle:active {
+    background-color: #f5f3ff;
   }
 
   .nav-drawer-link-priority {
@@ -545,11 +589,20 @@ body {
 
   /* ── Form fields mobile ── */
   .field-input {
-    @apply w-full rounded-xl border-2 border-slate-300 bg-white px-3 py-3 text-base text-slate-900 shadow-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200 disabled:opacity-50;
+    @apply w-full rounded-xl border-2 px-3 py-3 text-base shadow-sm outline-none transition disabled:opacity-50;
+    border-color: #cbd5e1;
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  .field-input:focus {
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
   }
 
   .field-label {
-    @apply mb-1.5 block text-sm font-bold text-slate-800;
+    @apply mb-1.5 block text-sm font-bold;
+    color: #1e293b;
   }
 
   /* ── Admin sidebar ── */
@@ -563,7 +616,12 @@ body {
   }
 
   .admin-nav-link-idle {
-    @apply text-slate-800 hover:bg-violet-50 active:bg-violet-100;
+    color: #1e293b;
+  }
+
+  .admin-nav-link-idle:hover,
+  .admin-nav-link-idle:active {
+    background-color: #f5f3ff;
   }
 
   /* ── Gestion sidebar ── */
@@ -577,6 +635,114 @@ body {
   }
 
   .gestion-nav-link-idle {
-    @apply text-slate-800 hover:bg-emerald-50 active:bg-emerald-100;
+    color: #1e293b;
+  }
+
+  .gestion-nav-link-idle:hover,
+  .gestion-nav-link-idle:active {
+    background-color: #ecfdf5;
+  }
+
+  /* ── Chat : clair par défaut ; nocturne seulement via html.dark ── */
+  .chat-root {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .chat-composer-shell {
+    border-top: 1px solid #e2e8f0;
+    background-color: #ffffff !important;
+  }
+
+  .chat-sidebar {
+    background-color: #ffffff !important;
+    color: #0f172a !important;
+    border-color: #e2e8f0 !important;
+  }
+
+  .chat-sidebar-muted {
+    background-color: #f8fafc !important;
+  }
+
+  .chat-input-pill {
+    @apply rounded-[1.35rem] border;
+    border-color: #e2e8f0;
+    background-color: #f1f5f9 !important;
+  }
+
+  .chat-input-pill:focus-within {
+    border-color: #c4b5fd;
+    background-color: #ffffff !important;
+    box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+  }
+
+  .chat-thread-header {
+    border-bottom: 1px solid #e2e8f0;
+    background-color: #ffffff !important;
+  }
+
+  .chat-bubble-assistant {
+    background-color: #f1f5f9 !important;
+    color: #1e293b !important;
+  }
+
+  .chat-bubble-user {
+    background-color: #4c1d95 !important;
+    color: #ffffff !important;
+  }
+
+  .chat-bubble-assistant .agent-message-md,
+  .chat-bubble-assistant .agent-message-md :where(p, li, h1, h2, h3, h4, h5, h6, strong, em, span, div) {
+    color: inherit !important;
+  }
+
+  .chat-bubble-assistant .agent-message-md h1 {
+    border-color: #cbd5e1 !important;
+  }
+
+  .chat-bubble-assistant .md-link {
+    color: #6d28d9 !important;
+  }
+
+  .chat-bubble-assistant .md-code-inline {
+    background-color: #e2e8f0 !important;
+    color: #0f172a !important;
+  }
+
+  .chat-bubble-assistant .md-pre,
+  .chat-bubble-assistant .md-blockquote {
+    background-color: #e2e8f0 !important;
+    color: inherit !important;
+    border-color: #cbd5e1 !important;
+  }
+
+  .chat-bubble-assistant .md-hr {
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Tableaux markdown — fond + texte toujours contrastés */
+  .chat-bubble-assistant .md-table-wrap {
+    background-color: #ffffff !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  .chat-bubble-assistant .md-table-head {
+    background-color: #f1f5f9 !important;
+    border-color: #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  .chat-bubble-assistant .md-table-body {
+    border-color: #e2e8f0 !important;
+  }
+
+  .chat-bubble-assistant .md-table-th,
+  .chat-bubble-assistant .md-table-td {
+    color: #0f172a !important;
+  }
+
+  .chat-bubble-assistant .md-table-row:hover {
+    background-color: #f8fafc !important;
   }
 }

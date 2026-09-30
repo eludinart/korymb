@@ -3,9 +3,12 @@ import type { InboxActionItem } from "../components/director/InboxActionCard";
 export type InboxSortMode =
   | "priority_desc"
   | "priority_asc"
+  | "severity_desc"
   | "overdue_desc"
   | "date_asc"
   | "date_desc";
+
+export type InboxSeverityFilter = "all" | "critical" | "high" | "actionable";
 
 export type InboxKindFilter = "all" | InboxActionItem["kind"];
 
@@ -16,6 +19,7 @@ export type InboxDisplayPrefs = {
   sort: InboxSortMode;
   kindFilter: InboxKindFilter;
   tab: InboxTabId;
+  severity: InboxSeverityFilter;
 };
 
 export const INBOX_TABS: { id: InboxTabId; label: string; kinds: InboxActionItem["kind"][] | null }[] = [
@@ -30,18 +34,34 @@ export const INBOX_TABS: { id: InboxTabId; label: string; kinds: InboxActionItem
 const LS_KEY = "korymb-inbox-display-prefs";
 
 const DEFAULT_PREFS: InboxDisplayPrefs = {
-  sort: "priority_desc",
+  sort: "severity_desc",
   kindFilter: "all",
   tab: "all",
+  severity: "all",
 };
 
 export const INBOX_SORT_OPTIONS: { value: InboxSortMode; label: string }[] = [
+  { value: "severity_desc", label: "Sévérité — coût d'erreur d'abord" },
   { value: "priority_desc", label: "Priorité — la plus urgente d'abord" },
   { value: "priority_asc", label: "Priorité — la moins urgente d'abord" },
   { value: "overdue_desc", label: "Retard — le plus en retard d'abord" },
   { value: "date_asc", label: "Ancienneté — la plus ancienne d'abord" },
   { value: "date_desc", label: "Ancienneté — la plus récente d'abord" },
 ];
+
+export const INBOX_SEVERITY_OPTIONS: { value: InboxSeverityFilter; label: string }[] = [
+  { value: "all", label: "Toutes sévérités" },
+  { value: "critical", label: "Urgentes (critique + haute)" },
+  { value: "actionable", label: "Actions externes" },
+  { value: "high", label: "Haute seulement" },
+];
+
+const SEVERITY_RANK: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
 
 export const INBOX_KIND_OPTIONS: { value: InboxKindFilter; label: string }[] = [
   { value: "all", label: "Tous les types" },
@@ -68,7 +88,10 @@ export function loadInboxDisplayPrefs(): InboxDisplayPrefs {
       ? parsed.kindFilter!
       : DEFAULT_PREFS.kindFilter;
     const tab = INBOX_TABS.some((t) => t.id === parsed.tab) ? parsed.tab! : DEFAULT_PREFS.tab;
-    return { sort, kindFilter, tab };
+    const severity = INBOX_SEVERITY_OPTIONS.some((o) => o.value === parsed.severity)
+      ? parsed.severity!
+      : DEFAULT_PREFS.severity;
+    return { sort, kindFilter, tab, severity };
   } catch {
     return DEFAULT_PREFS;
   }
@@ -89,6 +112,39 @@ function ts(item: InboxActionItem): number {
 export function filterInboxItems(items: InboxActionItem[], kindFilter: InboxKindFilter): InboxActionItem[] {
   if (kindFilter === "all") return items;
   return items.filter((i) => i.kind === kindFilter);
+}
+
+export function filterInboxBySeverity(
+  items: InboxActionItem[],
+  severity: InboxSeverityFilter,
+): InboxActionItem[] {
+  if (severity === "all") return items;
+  if (severity === "critical") {
+    return items.filter((i) => {
+      const s = String(i.severity || "low");
+      return s === "critical" || s === "high";
+    });
+  }
+  if (severity === "high") {
+    return items.filter((i) => String(i.severity || "") === "high");
+  }
+  if (severity === "actionable") {
+    return items.filter((i) => ["action_ticket", "hitl", "crm_follow_up"].includes(String(i.kind || "")));
+  }
+  return items;
+}
+
+export function countInboxBySeverity(items: InboxActionItem[]): Record<string, number> {
+  const out = { critical: 0, high: 0, medium: 0, low: 0, actionable: 0 };
+  for (const item of items) {
+    const s = String(item.severity || "low");
+    if (s in out) out[s as keyof typeof out] += 1;
+    else out.low += 1;
+    if (["action_ticket", "hitl", "crm_follow_up"].includes(String(item.kind || ""))) {
+      out.actionable += 1;
+    }
+  }
+  return out;
 }
 
 export function filterInboxByTab(items: InboxActionItem[], tab: InboxTabId): InboxActionItem[] {
@@ -117,6 +173,15 @@ export function sortInboxItems(items: InboxActionItem[], sort: InboxSortMode): I
         (a, b) =>
           Number(b.priority_score ?? 9) - Number(a.priority_score ?? 9) ||
           ts(b) - ts(a),
+      );
+    case "severity_desc":
+      return list.sort(
+        (a, b) =>
+          (SEVERITY_RANK[String(a.severity || "low")] ?? 9) -
+            (SEVERITY_RANK[String(b.severity || "low")] ?? 9) ||
+          Number(a.priority_score ?? 9) - Number(b.priority_score ?? 9) ||
+          Number(b.days_overdue ?? 0) - Number(a.days_overdue ?? 0) ||
+          ts(a) - ts(b),
       );
     case "overdue_desc":
       return list.sort(

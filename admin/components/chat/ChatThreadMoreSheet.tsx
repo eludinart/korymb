@@ -1,6 +1,7 @@
 "use client";
 
 import ChatBottomSheet from "./ChatBottomSheet";
+import ColorSchemeToggle from "../ColorSchemeToggle";
 import {
   CHAT_TEXT_SCALE_LABELS,
   CHAT_TEXT_SCALE_ORDER,
@@ -30,19 +31,26 @@ export default function ChatThreadMoreSheet({
   onDelete,
   linkedParentJobId,
   onOpenLinkedMission,
-  textScale = "md",
+  textScale = "sm",
   onTextScaleChange,
 }: Props) {
   const row =
-    "flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left text-[15px] font-semibold active:bg-slate-100 disabled:opacity-40";
+    "flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left text-[15px] font-semibold active:bg-slate-100 disabled:opacity-40 dark:active:bg-slate-800";
 
   return (
     <ChatBottomSheet open={open} onClose={onClose} title="Conversation">
       <div className="space-y-1 pb-2">
+        <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Affichage</p>
+          <div className="mt-2">
+            <ColorSchemeToggle className="w-full justify-center" />
+          </div>
+        </div>
+
         {onTextScaleChange ? (
-          <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Taille du texte</p>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
+          <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Taille du texte</p>
+            <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
               {CHAT_TEXT_SCALE_ORDER.map((id) => {
                 const active = textScale === id;
                 return (
@@ -53,7 +61,7 @@ export default function ChatThreadMoreSheet({
                     className={
                       active
                         ? "rounded-xl bg-violet-700 py-2.5 text-sm font-bold text-white"
-                        : "rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100"
+                        : "rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:active:bg-slate-800"
                     }
                     aria-pressed={active}
                   >
@@ -69,13 +77,16 @@ export default function ChatThreadMoreSheet({
           <button
             type="button"
             disabled={convertBusy}
-            className={`${row} text-violet-800`}
+            className={`${row} text-violet-800 dark:text-violet-300`}
             onClick={() => {
               onClose();
               onConvertToMission();
             }}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-800" aria-hidden>
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200"
+              aria-hidden
+            >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 4v16M5 5h12l-2 4 2 4H5" />
               </svg>
@@ -87,13 +98,16 @@ export default function ChatThreadMoreSheet({
         {linkedParentJobId && onOpenLinkedMission ? (
           <button
             type="button"
-            className={`${row} text-slate-800`}
+            className={`${row} text-slate-800 dark:text-slate-100`}
             onClick={() => {
               onClose();
               onOpenLinkedMission();
             }}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-sky-800" aria-hidden>
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200"
+              aria-hidden
+            >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5h11M9 12h11M9 19h11M4 5h.01M4 12h.01M4 19h.01" />
               </svg>
@@ -105,13 +119,16 @@ export default function ChatThreadMoreSheet({
         {onDelete ? (
           <button
             type="button"
-            className={`${row} text-red-700`}
+            className={`${row} text-red-700 dark:text-red-400`}
             onClick={() => {
               onClose();
               onDelete();
             }}
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-700" aria-hidden>
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"
+              aria-hidden
+            >
               ×
             </span>
             Supprimer la conversation
