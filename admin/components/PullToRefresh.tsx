@@ -87,13 +87,38 @@ export default function PullToRefresh() {
       return null;
     }
 
+    /** Un ancêtre déjà défilé doit garder le geste : ne pas le transformer en refresh. */
+    function pageAtTop(target: EventTarget | null) {
+      let el = target instanceof Element ? target.parentElement : null;
+      while (el) {
+        if (el === document.body || el === document.documentElement) break;
+        const oy = window.getComputedStyle(el).overflowY;
+        if (
+          (oy === "auto" || oy === "scroll") &&
+          el.scrollHeight > el.clientHeight + 2 &&
+          el.scrollTop > 1
+        ) {
+          return false;
+        }
+        el = el.parentElement;
+      }
+      const root = document.scrollingElement;
+      return !root || root.scrollTop <= 1;
+    }
+
+    function releaseTracking() {
+      tracking = false;
+      armed = false;
+      zone = null;
+    }
+
     function onStart(event: TouchEvent) {
       if (!enabled || refreshing || event.touches.length !== 1) return;
       const touch = event.touches[0];
       const target = event.target;
       if (target instanceof Element && target.closest("input, textarea, select, [contenteditable='true']")) return;
       const next = zoneFromTouch(touch);
-      if (!next) return;
+      if (!next || !pageAtTop(target)) return;
       window.clearTimeout(settleTimer);
       if (document.documentElement.dataset.pull === "settle") reset(true);
       startX = touch.clientX;
@@ -110,19 +135,11 @@ export default function PullToRefresh() {
       const dx = touch.clientX - startX;
       const dy = touch.clientY - startY;
       if (!armed) {
-        if (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) {
-          tracking = false;
-          zone = null;
+        if (dy < 0 || (Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(dy)) || !pageAtTop(event.target)) {
+          releaseTracking();
           return;
         }
-        if (dy < ARM_PX) {
-          if (dy > 6 && event.cancelable) event.preventDefault();
-          if (dy < -10) {
-            tracking = false;
-            zone = null;
-          }
-          return;
-        }
+        if (dy < ARM_PX) return;
         if (!zone) return;
         armed = true;
         markSources(zone);

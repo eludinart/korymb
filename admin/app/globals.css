@@ -44,7 +44,8 @@ html.dark {
 
 html {
   -webkit-text-size-adjust: 100%;
-  overflow-x: hidden;
+  /* clip : hidden calcule overflow-y en auto et fige le scroll tactile (iOS / Android). */
+  overflow-x: clip;
   scroll-behavior: smooth;
   background-color: var(--theme-body-mid);
 }
@@ -61,18 +62,13 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 16px;
   line-height: 1.55;
-  overflow-x: hidden;
+  overflow-x: clip;
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
   min-height: 100dvh;
 }
 
 @media (max-width: 1023px) {
-  html,
-  body {
-    overscroll-behavior-y: contain;
-  }
-
   .pull-refresh-cue {
     display: flex;
   }
