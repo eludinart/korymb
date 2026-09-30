@@ -159,25 +159,25 @@ export function groupedGestionNavLinks(essential = false): {
 }
 
 export function gestionNavGroupHeadingClass(id: GestionNavGroupId): string {
-  if (id === "creation") return "text-violet-700";
-  if (id === "equipes") return "text-sky-700";
-  return "text-emerald-700";
+  if (id === "creation") return "text-violet-700 dark:text-violet-300";
+  if (id === "equipes") return "text-sky-700 dark:text-sky-300";
+  return "text-emerald-700 dark:text-emerald-300";
 }
 
 export function gestionNavGroupCompactClass(id: GestionNavGroupId): string {
-  if (id === "creation") return "text-violet-500";
-  if (id === "equipes") return "text-sky-500";
-  return "text-emerald-500";
+  if (id === "creation") return "text-violet-500 dark:text-violet-300";
+  if (id === "equipes") return "text-sky-500 dark:text-sky-300";
+  return "text-emerald-500 dark:text-emerald-300";
 }
 
 export function gestionNavGroupCardBorderClass(id: GestionNavGroupId): string {
-  if (id === "creation") return "border-violet-100 hover:border-violet-300";
-  if (id === "equipes") return "border-sky-100 hover:border-sky-300";
-  return "border-emerald-100 hover:border-emerald-300";
+  if (id === "creation") return "border-violet-100 hover:border-violet-300 dark:border-violet-800 dark:hover:border-violet-500";
+  if (id === "equipes") return "border-sky-100 hover:border-sky-300 dark:border-sky-800 dark:hover:border-sky-500";
+  return "border-emerald-100 hover:border-emerald-300 dark:border-emerald-800 dark:hover:border-emerald-500";
 }
 
 export function gestionNavGroupTitleHoverClass(id: GestionNavGroupId): string {
-  if (id === "creation") return "group-hover:text-violet-900";
-  if (id === "equipes") return "group-hover:text-sky-900";
-  return "group-hover:text-emerald-900";
+  if (id === "creation") return "group-hover:text-violet-900 dark:group-hover:text-violet-200";
+  if (id === "equipes") return "group-hover:text-sky-900 dark:group-hover:text-sky-200";
+  return "group-hover:text-emerald-900 dark:group-hover:text-emerald-200";
 }

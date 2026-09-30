@@ -50,6 +50,9 @@ type Props = {
   data?: CommercialMorningSnapshot | null;
 };
 
+const shell =
+  "rounded-2xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/90 via-white to-white p-4 shadow-sm dark:border-teal-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 sm:p-5";
+
 /** Tableau de bord commercial du matin — relances, devis, joignabilité. */
 export default function BriefingCommercialPanel({ data }: Props) {
   if (!data) return null;
@@ -66,14 +69,11 @@ export default function BriefingCommercialPanel({ data }: Props) {
     Number(counts.email_threads_needs_reply || 0);
   if (totalSignal === 0 && !Number(counts.follow_ups_due_tomorrow || 0)) {
     return (
-      <section
-        className="rounded-2xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/90 via-white to-white p-4 shadow-sm sm:p-5"
-        aria-labelledby="briefing-commercial-heading"
-      >
-        <h2 id="briefing-commercial-heading" className="text-base font-bold text-teal-950">
+      <section className={shell} aria-labelledby="briefing-commercial-heading">
+        <h2 id="briefing-commercial-heading" className="text-base font-bold text-teal-950 dark:text-teal-100">
           Commercial du matin
         </h2>
-        <p className="mt-1 text-sm text-teal-900/80">
+        <p className="mt-1 text-sm text-teal-800 dark:text-slate-300">
           Rien d&apos;urgent — aucune relance due, devis en attente ni fiche injoignable.
         </p>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -98,16 +98,13 @@ export default function BriefingCommercialPanel({ data }: Props) {
   }
 
   return (
-    <section
-      className="rounded-2xl border-2 border-teal-200 bg-gradient-to-br from-teal-50/90 via-white to-white p-4 shadow-sm sm:p-5"
-      aria-labelledby="briefing-commercial-heading"
-    >
+    <section className={shell} aria-labelledby="briefing-commercial-heading">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="briefing-commercial-heading" className="text-base font-bold text-teal-950">
+          <h2 id="briefing-commercial-heading" className="text-base font-bold text-teal-950 dark:text-teal-100">
             Commercial du matin
           </h2>
-          <p className="mt-0.5 text-sm text-teal-900/80">
+          <p className="mt-0.5 text-sm text-teal-800 dark:text-slate-300">
             Relances dues, devis sans réponse, fiches à compléter — votre tableau de bord avant les décisions.
           </p>
         </div>
@@ -117,22 +114,26 @@ export default function BriefingCommercialPanel({ data }: Props) {
       </div>
 
       <div className="mt-4 grid gap-2 sm:grid-cols-3">
-        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Relances aujourd&apos;hui</p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-900">{counts.follow_ups_due_today || 0}</p>
+        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3 dark:border-slate-700 dark:bg-slate-950/80">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-300">
+            Relances aujourd&apos;hui
+          </p>
+          <p className="mt-1 text-2xl font-extrabold text-slate-900 dark:text-slate-50">
+            {counts.follow_ups_due_today || 0}
+          </p>
           {Number(counts.follow_ups_overdue || 0) > 0 ? (
-            <p className="text-xs font-semibold text-amber-800">{counts.follow_ups_overdue} en retard</p>
+            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">{counts.follow_ups_overdue} en retard</p>
           ) : null}
         </div>
-        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Devis &gt; 7 j</p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-900">{counts.stale_quotes || 0}</p>
-          <p className="text-xs text-slate-500">envoyés sans suite</p>
+        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3 dark:border-slate-700 dark:bg-slate-950/80">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-300">Devis &gt; 7 j</p>
+          <p className="mt-1 text-2xl font-extrabold text-slate-900 dark:text-slate-50">{counts.stale_quotes || 0}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">envoyés sans suite</p>
         </div>
-        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Joignabilité</p>
-          <p className="mt-1 text-2xl font-extrabold text-slate-900">{counts.weak_contacts || 0}</p>
-          <p className="text-xs text-slate-500">
+        <div className="rounded-xl border border-teal-100 bg-white/90 px-3 py-3 dark:border-slate-700 dark:bg-slate-950/80">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-300">Joignabilité</p>
+          <p className="mt-1 text-2xl font-extrabold text-slate-900 dark:text-slate-50">{counts.weak_contacts || 0}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400">
             demain : {counts.follow_ups_due_tomorrow ?? data.follow_ups_due_tomorrow_count ?? 0} relance(s)
           </p>
         </div>
@@ -140,19 +141,23 @@ export default function BriefingCommercialPanel({ data }: Props) {
 
       {followUps.length > 0 ? (
         <div className="mt-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">À traiter aujourd&apos;hui</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800 dark:text-teal-300">
+            À traiter aujourd&apos;hui
+          </p>
           <ul className="mt-2 space-y-2">
             {followUps.slice(0, 5).map((ev) => (
               <li
                 key={ev.id || ev.title}
-                className="flex flex-col gap-1 rounded-lg border border-teal-100 bg-white/80 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-1 rounded-lg border border-teal-100 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/70 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-bold text-slate-900">
+                  <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-50">
                     {ev.title || "Relance"}
                     {ev.contact_name ? ` — ${ev.contact_name}` : ""}
                   </p>
-                  {ev.overdue ? <p className="text-xs font-semibold text-amber-800">En retard</p> : null}
+                  {ev.overdue ? (
+                    <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">En retard</p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 gap-2">
                   {ev.id ? (
@@ -180,17 +185,17 @@ export default function BriefingCommercialPanel({ data }: Props) {
 
       {staleQuotes.length > 0 ? (
         <div className="mt-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Devis à relancer</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800 dark:text-teal-300">Devis à relancer</p>
           <ul className="mt-2 space-y-2">
             {staleQuotes.slice(0, 4).map((q) => (
               <li
                 key={q.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/40"
               >
-                <span className="text-sm font-semibold text-slate-900">
+                <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
                   {q.quote_number || q.title || q.id}
                   {q.days_stale != null ? (
-                    <span className="ml-2 text-xs font-medium text-amber-800">{q.days_stale} j</span>
+                    <span className="ml-2 text-xs font-medium text-amber-800 dark:text-amber-300">{q.days_stale} j</span>
                   ) : null}
                 </span>
                 <Link href="/gestion/devis" className="btn-link-secondary text-xs">
@@ -204,13 +209,13 @@ export default function BriefingCommercialPanel({ data }: Props) {
 
       {weak.length > 0 ? (
         <div className="mt-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">Fiches peu joignables</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800 dark:text-teal-300">Fiches peu joignables</p>
           <ul className="mt-2 flex flex-wrap gap-2">
             {weak.slice(0, 6).map((c) => (
               <Link
                 key={c.id}
                 href={`/gestion/contacts/${encodeURIComponent(c.id || "")}`}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:border-teal-300"
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-800 hover:border-teal-300 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100 dark:hover:border-teal-500"
               >
                 {c.name || "Contact"}
               </Link>
@@ -221,16 +226,16 @@ export default function BriefingCommercialPanel({ data }: Props) {
 
       {openMails.length > 0 ? (
         <div className="mt-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-teal-800">
+          <p className="text-xs font-bold uppercase tracking-wide text-teal-800 dark:text-teal-300">
             E-mails en attente de réponse ({counts.email_threads_open ?? openMails.length})
           </p>
           <ul className="mt-2 space-y-2">
             {openMails.slice(0, 5).map((t) => (
               <li
                 key={t.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-teal-100 bg-white/80 px-3 py-2"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-teal-100 bg-white/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-950/70"
               >
-                <span className="truncate text-sm font-semibold text-slate-900">
+                <span className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50">
                   {t.subject || t.to_email || "Fil e-mail"}
                 </span>
                 <Link href="/gestion/courrier" className="btn-link-secondary text-xs">
