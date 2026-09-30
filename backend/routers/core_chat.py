@@ -288,7 +288,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         linked_parent_id,
                         session_id,
                     )
-                    if request.confirm_action:
+                    if request.confirm_action or att_snap:
                         text, ti, to = orchestrate_coordinateur_mission(
                             mission_txt,
                             msg_snap,
@@ -477,7 +477,10 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     None,
                 )
             else:
-                mirror_ack, mirror_err = "", None
+                mirror_ack, mirror_err = generate_mirror_ack_result(
+                    msg_snap,
+                    agent_group_id=group_id,
+                )
             if llm_outage_is_hard(llm_outage_kind(mirror_err)):
                 label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
                 reason = llm_outage_reason(mirror_err)
