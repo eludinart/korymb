@@ -71,6 +71,8 @@ Guide détaillé : [DEMARRAGE.md](DEMARRAGE.md).
 
 Guide déploiement : [COOLIFY_HARDENING.md](../COOLIFY_HARDENING.md).
 
+**Build Next sur le VPS** : l’hôte a ~8 GiB RAM et beaucoup de conteneurs. Sans swap, `next build` peut mourir en exit **255** au milieu de « Creating an optimized production build » (pas d’erreur TypeScript). Swap actif : `/swapfile` 4 GiB. Le `Dockerfile` limite le heap Node (`NODE_OPTIONS=--max-old-space-size=2048`). En cas de récidive : libérer le cache (`docker builder prune -af`) avant un redeploy, éviter deux builds Coolify en parallèle.
+
 Smoke test post-déploiement :
 
 ```bash

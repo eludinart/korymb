@@ -18,6 +18,8 @@ RUN test -f admin/lib/chatJobAgents.ts && test -f admin/lib/chatMirrorDisplay.ts
 ENV NODE_ENV=production
 ENV NEXT_DIST_DIR=.next-build
 ENV PORT=3000
+# Peak memory during next build on Coolify VPS (~8 GiB, many containers).
+ENV NODE_OPTIONS=--max-old-space-size=2048
 # Inclut tools/check-next-suspense.mjs puis next build (échoue tôt si page useSearchParams sans Suspense).
 RUN npm run build
 

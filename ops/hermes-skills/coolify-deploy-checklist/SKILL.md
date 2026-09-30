@@ -16,3 +16,5 @@ Après un déploiement (ou alerte), vérifier dans l'ordre :
 6. Si script présent : `/opt/data/scripts/eludein-post-deploy-smoke.sh`
 
 Si un check FAIL → Telegram Éric + brief Korymb (skill `eludein-second-cerveau`). Ne pas redéployer sans accord.
+
+Si le **build** Coolify échoue en exit **255** pendant `next build` (sans erreur TS) : mémoire VPS — vérifier `free -h` / swap `/swapfile`, puis `docker builder prune -af` et relancer **un** déploiement à la fois.
