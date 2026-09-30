@@ -56,7 +56,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
   return (
     <OperatorGate>
       <CommandPalette />
-      <header ref={headerRef} className={`app-header-bar ${isChat ? "app-header-bar--chat" : ""}`}>
+      <header ref={headerRef} data-pull-refresh="" className={`app-header-bar ${isChat ? "app-header-bar--chat" : ""}`}>
         <div
           className={`flex w-full min-w-0 flex-wrap items-center gap-2 px-3 sm:flex-nowrap sm:gap-3 sm:px-5 lg:px-6 xl:px-8 ${
             isChat ? "py-1 sm:py-3 lg:items-start" : "items-start py-2.5 sm:py-3"

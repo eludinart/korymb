@@ -64,7 +64,7 @@ function MissionsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);
-  const { busyId, feedback, error, setError, setFeedback, onCloseMission, onShelveMission } = useMissionActions();
+  const { busyId, feedback, error, setError, setFeedback, onValidate, onShelveMission } = useMissionActions();
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
@@ -741,7 +741,7 @@ function MissionsContent() {
                 onSelect={(id) => openMission(id)}
                 onFinish={(id) => {
                   const job = sortedRows.find((x) => x.job_id === id);
-                  void onCloseMission(id, job?.mission);
+                  void onValidate(id, job?.mission);
                 }}
                 onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
                 onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
@@ -898,14 +898,16 @@ function MissionsContent() {
                 <div className="mt-2 max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
                   {canCloseMission && canResumeCio ? (
                     <div className="border-b border-violet-100 p-3">
-                      <button
-                        type="button"
-                        disabled={busyId === selected}
-                        onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
-                      >
-                        {busyId === selected ? "…" : "Clôturer la mission"}
-                      </button>
+                      {selectedJobStatus === "completed" ? (
+                        <button
+                          type="button"
+                          disabled={busyId === selected}
+                          onClick={() => void onValidate(String(selected), detail.data?.mission)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          {busyId === selected ? "…" : "Clôturer la mission"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={busyId === selected}
@@ -915,7 +917,7 @@ function MissionsContent() {
                         Mettre de côté
                       </button>
                       <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                        Close le dossier — la poursuite CIO sera désactivée.
+                        Clôturer enregistre le succès et lance l&apos;apprentissage. Mettre de côté range le dossier sans ce rituel.
                       </p>
                     </div>
                   ) : missionClosedByUser ? (
@@ -1019,14 +1021,23 @@ function MissionsContent() {
                   >
                     {cioResumeBusy ? "Envoi…" : leadSendLabel}
                   </button>
-                  {canCloseMission ? (
+                  {canCloseMission && selectedJobStatus === "completed" ? (
                     <button
                       type="button"
                       disabled={busyId === selected}
-                      onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
+                      onClick={() => void onValidate(String(selected), detail.data?.mission)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
                     >
                       {busyId === selected ? "…" : "Clôturer la mission"}
+                    </button>
+                  ) : canCloseMission ? (
+                    <button
+                      type="button"
+                      disabled={busyId === selected}
+                      onClick={() => void onShelveMission(String(selected), detail.data?.mission)}
+                      className="w-full rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 disabled:opacity-40"
+                    >
+                      {busyId === selected ? "…" : "Mettre de côté"}
                     </button>
                   ) : null}
                 </form>
@@ -1043,7 +1054,8 @@ function MissionsContent() {
                 hasPendingQuestions={hasPendingCioQuestions}
                 busy={Boolean(ticketBusyId)}
                 finishBusy={busyId === selected}
-                onFinish={() => void onCloseMission(String(selected), detail.data?.mission)}
+                onFinish={() => void onValidate(String(selected), detail.data?.mission)}
+                onShelve={() => void onShelveMission(String(selected), detail.data?.mission)}
                 onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
                 onFocusDecide={() => {
                   setMobileDetailPane("resultats");
@@ -1177,9 +1189,9 @@ function MissionsContent() {
                         missionClosed={Boolean(
                           detail.data.user_validated_at || detail.data.mission_closed_by_user,
                         )}
-                        canValidateMission={canCloseMission}
+                        canValidateMission={canCloseMission && selectedJobStatus === "completed"}
                         validateBusy={busyId === selected}
-                        onValidateMission={() => void onCloseMission(selected)}
+                        onValidateMission={() => void onValidate(selected, detail.data?.mission)}
                         validateLabel="Clôturer la mission"
                         onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
                       />

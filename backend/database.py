@@ -2974,15 +2974,13 @@ def _memory_context_allowed_keys() -> frozenset[str]:
     return _CONTEXT_KEYS_LEGACY | _SYSTEM_ENTERPRISE_CONTEXT_KEYS | frozenset(list_custom_agent_keys_raw())
 
 
-# Cache lecture enterprise_memory (singleton) — invalidé à chaque écriture.
-_ENTERPRISE_MEM_CACHE: dict[str, Any] | None = None
-_ENTERPRISE_MEM_CACHE_AT: float = 0.0
+# Cache lecture enterprise_memory, par espace — invalidé à chaque écriture.
+_ENTERPRISE_MEM_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _ENTERPRISE_MEM_TTL_SEC = 2.0
 
 
 def invalidate_enterprise_memory_cache() -> None:
-    global _ENTERPRISE_MEM_CACHE
-    _ENTERPRISE_MEM_CACHE = None
+    _ENTERPRISE_MEM_CACHE.clear()
 
 
 def validate_custom_agent_key(raw: str) -> tuple[str, str | None]:
@@ -3399,21 +3397,21 @@ def init_enterprise_memory_row() -> None:
 
 
 def get_enterprise_memory() -> dict:
-    global _ENTERPRISE_MEM_CACHE, _ENTERPRISE_MEM_CACHE_AT
     init_enterprise_memory_row()
+    wid = _ws()
     now_m = time.monotonic()
-    if _ENTERPRISE_MEM_CACHE is not None and (now_m - _ENTERPRISE_MEM_CACHE_AT) < _ENTERPRISE_MEM_TTL_SEC:
-        return copy.deepcopy(_ENTERPRISE_MEM_CACHE)
+    hit = _ENTERPRISE_MEM_CACHE.get(wid)
+    if hit is not None and (now_m - hit[0]) < _ENTERPRISE_MEM_TTL_SEC:
+        return copy.deepcopy(hit[1])
     with get_conn() as conn:
         row = conn.execute(
             "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE workspace_id=?",
-            (_ws(),),
+            (wid,),
         ).fetchone()
     allowed = _memory_context_allowed_keys()
     if not row:
         out = {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
-        _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
-        _ENTERPRISE_MEM_CACHE_AT = now_m
+        _ENTERPRISE_MEM_CACHE[wid] = (now_m, copy.deepcopy(out))
         return copy.deepcopy(out)
     try:
         ctx = json.loads(row["contexts_json"] or "{}")
@@ -3436,8 +3434,7 @@ def get_enterprise_memory() -> dict:
         "recent_missions": recent,
         "updated_at": row["updated_at"],
     }
-    _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
-    _ENTERPRISE_MEM_CACHE_AT = now_m
+    _ENTERPRISE_MEM_CACHE[wid] = (now_m, copy.deepcopy(out))
     return copy.deepcopy(out)
 
 

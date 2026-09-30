@@ -40,7 +40,7 @@ export default function ChatConversationHeader({
     textScale === "xs" ? "A−−" : textScale === "sm" ? "A−" : textScale === "lg" ? "A+" : "A";
 
   return (
-    <header className="chat-thread-header flex h-11 shrink-0 items-center gap-0.5 px-1 lg:hidden">
+    <header data-pull-refresh="" className="chat-thread-header flex h-11 shrink-0 items-center gap-0.5 px-1 lg:hidden">
       <button
         type="button"
         onClick={onBack}

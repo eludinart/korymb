@@ -1,7 +1,10 @@
 /**
  * Secret agent API — résolution serveur uniquement.
- * En production : KORYMB_AGENT_SECRET ou AGENT_API_SECRET obligatoires.
- * En dev local : repli documenté sur NEXT_PUBLIC_KORYMB_AGENT_SECRET (jamais en prod).
+ * Les proxies navigateur (`/api/korymb`, événements, réglages) ne l'envoient pas :
+ * sans cookie de session, la requête est refusée. Hermes et les scripts appellent
+ * l'API FastAPI directement avec `X-Agent-Secret`.
+ * En production : KORYMB_AGENT_SECRET ou AGENT_API_SECRET.
+ * En dev local : repli sur NEXT_PUBLIC_KORYMB_AGENT_SECRET (jamais en prod).
  */
 export function resolveProxySecret(): string {
   const primary =

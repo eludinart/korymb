@@ -42,7 +42,9 @@ def test_hitl_wait_wakes_on_notify(monkeypatch):
     t = threading.Thread(target=waiter, daemon=True)
     t.start()
     time.sleep(0.05)
+    assert hw.has_hitl_waiter(job_id)
     hw.notify_hitl_resolved(job_id)
     t.join(timeout=3)
     assert not t.is_alive()
     assert result_box.get("out", {}).get("decision") == "approve"
+    assert not hw.has_hitl_waiter(job_id)

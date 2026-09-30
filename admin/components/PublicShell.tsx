@@ -46,7 +46,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
 
   const inner = (
     <div className={isVitrine ? "flex min-h-screen flex-col" : "min-h-screen bg-gradient-to-b from-violet-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"}>
-      <header className="border-b border-slate-200 bg-white/80 backdrop-blur-md dark:border-violet-900 dark:bg-slate-950/90" style={isVitrine ? { borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" } : undefined}>
+      <header data-pull-refresh="" className="border-b border-slate-200 bg-white/80 backdrop-blur-md dark:border-violet-900 dark:bg-slate-950/90" style={isVitrine ? { borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" } : undefined}>
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link href={isVitrine ? `/p/${encodeURIComponent(vitrineSlug)}` : "/"} className="flex min-w-0 items-center gap-3">
             {isVitrine && brand?.logo_url ? (

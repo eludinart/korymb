@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
-import { resolveProxySecret } from "../../../../lib/proxySecret";
 
 /** Catalogue public des modèles de démarrage (pas d'auth utilisateur). */
 export async function GET() {
@@ -13,12 +12,9 @@ export async function GET() {
       { status: 503 },
     );
   }
-  const secret = resolveProxySecret();
-  const headers: HeadersInit = { Accept: "application/json" };
-  if (secret) headers["X-Agent-Secret"] = secret;
   try {
     const res = await fetch(`${base}/auth/starter-packs`, {
-      headers,
+      headers: { Accept: "application/json" },
       cache: "no-store",
     });
     const data = await res.json().catch(() => ({}));

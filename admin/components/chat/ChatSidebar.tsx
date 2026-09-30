@@ -100,6 +100,7 @@ export default function ChatSidebar({
       aria-label="Conversations"
     >
       <div
+        data-pull-refresh={inbox ? "" : undefined}
         className={`shrink-0 border-b border-slate-200 dark:border-slate-800 ${inbox ? "px-4 py-3" : "px-3 py-2"}`}
       >
         {inbox ? (

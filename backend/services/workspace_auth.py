@@ -431,13 +431,29 @@ async def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[
     return auth
 
 
+async def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+    """Admin ou membre d'équipe. Le secret agent passe (scripts) ; le participant est refusé."""
+    if auth.get("mode") == "agent_secret":
+        return auth
+    if not is_operator_role(str(auth.get("role") or "")):
+        raise HTTPException(
+            status_code=403,
+            detail="Réservé à l'équipe de l'espace. Un compte participant ne peut pas faire cette action.",
+        )
+    return auth
+
+
 def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     user = get_user_by_id(user_id)
     workspace = get_workspace_by_id(workspace_id)
     membership = get_membership(workspace_id, user_id)
     workspaces = list_user_workspaces(user_id)
-    members = list_workspace_operators(workspace_id) if membership else []
     role = normalize_role(str((membership or {}).get("role") or "member"))
+    members = (
+        list_workspace_operators(workspace_id)
+        if membership and is_operator_role(role)
+        else []
+    )
     ws = dict(workspace or {})
     from workspace_db import normalize_ui_mode
 

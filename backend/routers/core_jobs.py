@@ -1043,12 +1043,21 @@ def job_revise(job_id: str, body: JobReviseBody, background_tasks: BackgroundTas
 
 @router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(resolve_tenant)])
 def job_quality_override(job_id: str, payload: dict):
-    from database import get_job, insert_quality_verdict
-    if not get_job(job_id):
+    from database import get_job, insert_quality_verdict, set_job_status_quick
+    from state import active_jobs
+
+    row = get_job(job_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
     reason = str(payload.get("reason") or "").strip()
     insert_quality_verdict(job_id, phase="override", score=10.0, rejected=False, payload={"reason": reason, "override": True})
-    return {"ok": True, "job_id": job_id}
+    unblocked = False
+    if str(row.get("status") or "") == "quality_blocked":
+        set_job_status_quick(job_id, "completed")
+        if job_id in active_jobs:
+            active_jobs[job_id]["status"] = "completed"
+        unblocked = True
+    return {"ok": True, "job_id": job_id, "status": "completed" if unblocked else row.get("status"), "unblocked": unblocked}
 
 
 # ── Compat /run/* (proxys restrictifs) ───────────────────────────────────────

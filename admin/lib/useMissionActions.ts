@@ -46,21 +46,26 @@ export function useMissionActions() {
     }
   };
 
-  const onValidate = (jobId: string, mission?: string | null) =>
-    runAction(jobId, validateMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
+  const onValidate = (jobId: string, mission?: string | null) => {
+    const ok = window.confirm(
+      "Clôturer cette mission ?\n\nElle est terminée : la clôture enregistre le succès et lance l'apprentissage. Les livrables restent consultables.",
+    );
+    if (!ok) return Promise.resolve();
+    return runAction(jobId, validateMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
+  };
 
   const onCloseMission = (jobId: string, mission?: string | null) => {
     const ok = window.confirm(
-      "Clôturer cette mission ?\n\nElle sort du suivi actif : la poursuite CIO sera désactivée. Les livrables restent consultables.\n\nPour seulement la retirer de Décisions sans la clôturer, utilisez « Mettre de côté ».",
+      "Clôturer cette mission ?\n\nElle sort du suivi actif : la poursuite CIO sera désactivée. Les livrables restent consultables.\n\nPour seulement la retirer du suivi sans le rituel de succès, utilisez « Mettre de côté ».",
     );
     if (!ok) return Promise.resolve();
     return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » clôturée.`);
   };
 
-  /** Alias lisible : archive douce (même API que close). */
+  /** Range le dossier sans apprentissage (close-mission). */
   const onShelveMission = (jobId: string, mission?: string | null) => {
     const ok = window.confirm(
-      "Mettre de côté cette mission ?\n\nElle ne sera plus proposée dans le suivi actif. Les livrables restent consultables.",
+      "Mettre de côté cette mission ?\n\nElle sort du suivi actif sans le rituel de succès : pas d'apprentissage. Les livrables restent consultables.",
     );
     if (!ok) return Promise.resolve();
     return runAction(jobId, closeMission, `« ${missionActionLabel(jobId, mission)} » mise de côté.`);

@@ -47,7 +47,7 @@ export default function SubscriberShell({ children }: { children: React.ReactNod
   return (
     <PracticeTheme identity={brand || { name: practiceLabel }}>
       <div className="flex min-h-screen flex-col">
-        <header className="border-b bg-white/80 backdrop-blur-md" style={{ borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" }}>
+        <header data-pull-refresh="" className="border-b bg-white/80 backdrop-blur-md" style={{ borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" }}>
           <div className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-4 sm:px-6">
             <div className="flex items-start justify-between gap-4">
               <Link href={homeHref} className="flex min-w-0 items-center gap-3">

@@ -10,6 +10,16 @@ from state import KorymbJobCancelled, raise_if_job_cancelled as _raise_if_job_ca
 
 _lock = threading.Lock()
 _events: dict[str, threading.Event] = {}
+_waiters: set[str] = set()
+
+
+def has_hitl_waiter(job_id: str) -> bool:
+    """Vrai si ce processus a un thread bloqué dans wait_for_cio_plan_hitl_resolution."""
+    jid = (job_id or "").strip()
+    if not jid:
+        return False
+    with _lock:
+        return jid in _waiters
 
 
 def _event_for(job_id: str) -> threading.Event:
@@ -101,21 +111,28 @@ def wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None = None)
     if max_wait_s > 86400:
         max_wait_s = max_wait_s * poll_interval
 
+    jid = (job_id or "").strip()
+    with _lock:
+        _waiters.add(jid)
     ev = _event_for(job_id)
     ev.clear()
     deadline = time.monotonic() + max_wait_s
     tick = 0
-    while True:
-        outcome = _read_resolution(job_id, job_logs)
-        if outcome is not None:
-            clear_hitl_wait(job_id)
-            return outcome
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        wait_s = min(poll_interval, remaining)
-        ev.wait(timeout=wait_s)
-        tick += 1
-        if tick > 0 and tick % 30 == 0 and job_logs is not None:
-            job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
-    raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+    try:
+        while True:
+            outcome = _read_resolution(job_id, job_logs)
+            if outcome is not None:
+                clear_hitl_wait(job_id)
+                return outcome
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            wait_s = min(poll_interval, remaining)
+            ev.wait(timeout=wait_s)
+            tick += 1
+            if tick > 0 and tick % 30 == 0 and job_logs is not None:
+                job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
+        raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+    finally:
+        with _lock:
+            _waiters.discard(jid)

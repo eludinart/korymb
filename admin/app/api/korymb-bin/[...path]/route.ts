@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isProxyUnprotected, resolveProxySecret } from "../../../../lib/proxySecret";
+import { isProxyUnprotected } from "../../../../lib/proxySecret";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
@@ -10,23 +10,18 @@ function targetPath(path: string[]) {
   return joined.startsWith("/") ? joined : `/${joined}`;
 }
 
-function withAuthHeaders(request: NextRequest, joinedPath: string, secret: string, contentType: string | null) {
+function withSessionHeaders(request: NextRequest, contentType: string | null) {
   const headers = new Headers();
   if (contentType) headers.set("Content-Type", contentType);
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else if (!isProxyUnprotected(joinedPath) && secret) {
-    headers.set("X-Agent-Secret", secret);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   return headers;
 }
 
 async function proxy(request: NextRequest, path: string[]) {
   const joinedPath = path.join("/");
-  const secret = resolveProxySecret();
   if (!joinedPath) {
     return NextResponse.json({ error: "Path manquant" }, { status: 400 });
   }
@@ -41,12 +36,9 @@ async function proxy(request: NextRequest, path: string[]) {
   }
   if (!isProxyUnprotected(joinedPath)) {
     const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
-    if (!token && !secret) {
+    if (!token) {
       return NextResponse.json(
-        {
-          error:
-            "Authentification requise — connectez-vous ou configurez KORYMB_AGENT_SECRET côté serveur Next.",
-        },
+        { error: "Authentification requise — connectez-vous." },
         { status: 401 },
       );
     }
@@ -57,7 +49,7 @@ async function proxy(request: NextRequest, path: string[]) {
   const method = request.method;
   const incomingType = request.headers.get("content-type");
   const hasBody = method !== "GET" && method !== "HEAD";
-  const headers = withAuthHeaders(request, joinedPath, secret, hasBody ? incomingType : null);
+  const headers = withSessionHeaders(request, hasBody ? incomingType : null);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("upstream timeout")), 60_000);

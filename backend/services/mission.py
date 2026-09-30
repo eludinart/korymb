@@ -1534,7 +1534,11 @@ def _cio_attempt_direct_answer(
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
     chat_ops = ""
     if chat_mode:
-        from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+        from services.chat_intelligence import (
+            is_product_snapshot,
+            user_forces_direct_answer,
+            user_wants_choice_questionnaire,
+        )
         from services.agent_groups import group_memory_scope
 
         label_txt = root_mission_label or mission_txt
@@ -1553,9 +1557,10 @@ def _cio_attempt_direct_answer(
         elif not user_wants_choice_questionnaire(label_txt):
             chat_ops += (
                 "\nEn chat : réponds de façon utile et décisive. "
-                "Interdit de terminer par une grille de questions méta. "
-                "Propose des priorités concrètes si le sujet est large.\n"
+                "Interdit de terminer par une grille de questions méta.\n"
             )
+            if not is_product_snapshot(label_txt):
+                chat_ops += "Propose des priorités concrètes si le sujet est large.\n"
     system = (
         chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
         + "\n\n"
@@ -1580,7 +1585,7 @@ def _cio_attempt_direct_answer(
         "sans l'avoir produit via un outil (upload vers l'espace Korymb / recherche web) dans ce tour. "
         "Ne crée un fichier séparé que si le dirigeant l'a demandé."
         + chat_ops
-        + (chat_tool_mandate(intent) if chat_mode else "")
+        + (chat_tool_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
         + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
     )
     try:
@@ -1642,25 +1647,6 @@ def _cio_attempt_direct_answer(
                 "[korymb] Réponse directe CIO rejetée (livrable ou lien fictif) — bascule vers délégation."
             )
         return None, ti, to
-    if chat_mode:
-        try:
-            from services.chat_topic_guard import reply_is_crm_drift, guard_chat_reply
-
-            if reply_is_crm_drift(text, user_text=root_mission_label or mission_txt):
-                if job_logs is not None:
-                    job_logs.append(
-                        "[korymb] Réponse directe rejetée (dérive CRM hors sujet)."
-                    )
-                if allow_tools:
-                    return None, ti, to
-                safe, _ = guard_chat_reply(
-                    text,
-                    user_text=root_mission_label or mission_txt,
-                    agent_group_id=agent_group_id,
-                )
-                return safe, ti, to
-        except Exception:
-            pass
     return text, ti, to
 
 
@@ -1699,10 +1685,115 @@ def answer_chat_turn_without_tools(
             agent_group_id=agent_group_id,
         )
         if drifted and job_logs is not None:
-            job_logs.append("[korymb] Garde-fou chat : dérive CRM neutralisée.")
+            job_logs.append("[korymb] Gabarit interne retiré de la réponse chat.")
     except Exception:
         pass
     return cleaned, ti, to
+
+
+def resume_orphan_hitl_execution(job_id: str) -> None:
+    """Relance la délégation après HITL si le thread d'attente n'est plus dans ce processus."""
+    jid = (job_id or "").strip()
+    if not jid:
+        return
+    row = db_get_job(jid)
+    if not row:
+        logger.warning("HITL resume: job %s introuvable", jid)
+        return
+    status = str(row.get("status") or "")
+    if status == "cancelled":
+        return
+    resolution = row.get("hitl_resolution") if isinstance(row.get("hitl_resolution"), dict) else {}
+    amended = resolution.get("amended_plan") if resolution.get("decision") == "amend" else None
+    plan = amended if isinstance(amended, dict) and amended else row.get("plan")
+    if not isinstance(plan, dict) or not plan:
+        logger.warning("HITL resume: plan absent pour %s", jid)
+        return
+    cfg = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
+    logs = list(row.get("logs") or [])
+    logs.append("[korymb] Reprise après validation — le worker d'attente n'était plus là.")
+    events = list(row.get("events") or [])
+    team = list(row.get("team_trace") or row.get("team") or [])
+    active_jobs[jid] = {
+        "status": "running",
+        "agent": str(row.get("agent") or "coordinateur"),
+        "mission": str(row.get("mission") or ""),
+        "result": row.get("result"),
+        "logs": logs,
+        "tokens_in": int(row.get("tokens_in") or 0),
+        "tokens_out": int(row.get("tokens_out") or 0),
+        "team": team,
+        "events": events,
+        "plan": plan,
+        "source": row.get("source"),
+        "mission_config": cfg,
+        "created_at": row.get("created_at"),
+    }
+    mission_plain = str(row.get("mission") or "")
+    try:
+        result, t_in, t_out = orchestrate_coordinateur_mission(
+            mission_plain,
+            mission_plain,
+            logs,
+            chat_mode=False,
+            job_id=jid,
+            cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
+            cio_plan_hitl_enabled=False,
+            allowed_agents=list(cfg.get("allowed_agents")) if cfg.get("allowed_agents") else None,
+            orchestrator_key=str(cfg.get("orchestrator_key") or row.get("agent") or "coordinateur"),
+            agent_group_id=(str(cfg.get("agent_group_id") or "").strip() or None),
+            approved_plan=plan,
+        )
+        final_status = "completed"
+        try:
+            from services.quality_gate import assess_and_record, notify_quality_alert, should_block_completion
+
+            verdict = assess_and_record(jid, result=str(result or ""), phase="completion")
+            if should_block_completion(jid, float(verdict.get("score") or 0)):
+                final_status = "quality_blocked"
+                notify_quality_alert(jid, float(verdict.get("score") or 0))
+        except Exception:
+            logger.exception("Quality gate failed on HITL resume %s", jid)
+        if jid in active_jobs:
+            active_jobs[jid].update({
+                "status": final_status,
+                "result": result,
+                "tokens_in": t_in,
+                "tokens_out": t_out,
+            })
+        logs.append(f"[korymb] Reprise terminée — {t_in}↑ {t_out}↓ tokens.")
+        snap = active_jobs.get(jid, {})
+        update_job(
+            jid,
+            final_status,
+            result,
+            logs,
+            t_in,
+            t_out,
+            team_trace=snap.get("team") or team,
+            plan=snap.get("plan") or plan,
+            events=snap.get("events") or events,
+            source=snap.get("source") or row.get("source"),
+            mission_config=cfg,
+        )
+    except KorymbJobCancelled:
+        logger.info("HITL resume %s annulé", jid)
+    except Exception as exc:
+        logger.exception("HITL resume failed for %s", jid)
+        logs.append(f"[korymb] Reprise impossible : {exc}")
+        update_job(
+            jid,
+            f"error: {exc}",
+            row.get("result") if isinstance(row.get("result"), str) else None,
+            logs,
+            int(row.get("tokens_in") or 0),
+            int(row.get("tokens_out") or 0),
+            team_trace=team,
+            plan=plan if isinstance(plan, dict) else {},
+            events=events,
+            source=row.get("source"),
+            mission_config=cfg,
+        )
 
 
 def orchestrate_coordinateur_mission(
@@ -1716,6 +1807,7 @@ def orchestrate_coordinateur_mission(
     allowed_agents: list[str] | tuple[str, ...] | None = None,
     orchestrator_key: str = "coordinateur",
     agent_group_id: str | None = None,
+    approved_plan: dict | None = None,
 ) -> tuple[str, int, int]:
     """
     Plan JSON → exécution par sous-agents → synthèse CIO.
@@ -1895,18 +1987,23 @@ def orchestrate_coordinateur_mission(
             "Les rôles sans dépendance déclarée travaillent EN PARALLÈLE. "
             "Omets ce champ (ou {}) si toutes les sous-tâches sont indépendantes."
         )
-    log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
-    plan_max_tokens = 1024 if chat_mode else 4096
-    plan_profile = "lite" if chat_mode else "standard"
-    plan_txt, ti, to = llm_turn(
-        system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
-        plan_user,
-        max_tokens=plan_max_tokens,
-        or_profile=plan_profile,
-        usage_job_id=job_id,
-        usage_context="cio_plan_json",
-    )
+    if isinstance(approved_plan, dict) and approved_plan:
+        plan_txt = json.dumps(approved_plan, ensure_ascii=False)
+        ti = to = 0
+        log("[korymb] Plan CIO déjà validé — reprise de l'exécution sans nouvelle analyse.")
+    else:
+        log("[korymb] CIO — analyse de la mission...")
+        plan_max_tokens = 1024 if chat_mode else 4096
+        plan_profile = "lite" if chat_mode else "standard"
+        plan_txt, ti, to = llm_turn(
+            system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
+            plan_user,
+            max_tokens=plan_max_tokens,
+            or_profile=plan_profile,
+            usage_job_id=job_id,
+            usage_context="cio_plan_json",
+        )
     t_in += ti
     t_out += to
     _sync_active_job_tokens(job_id, t_in, t_out)
@@ -2103,7 +2200,7 @@ def orchestrate_coordinateur_mission(
         )
         _persist_running_job_snapshot(job_id)
 
-        if cio_plan_hitl_enabled and not chat_mode:
+        if cio_plan_hitl_enabled and not chat_mode and not (isinstance(approved_plan, dict) and approved_plan):
             from services.orchestrator import prepare_hitl_gate
 
             preview = json.dumps(plan_public, ensure_ascii=False, indent=2)
@@ -2689,7 +2786,7 @@ def orchestrate_coordinateur_mission(
 
         chat_intent = classify_chat_intent(root_mission_label or mission_txt)
         chat_grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=chat_intent)
-        chat_tail += chat_tool_mandate(chat_intent) + chat_brief_mandate(
+        chat_tail += chat_tool_mandate(chat_intent, root_mission_label or mission_txt) + chat_brief_mandate(
             chat_intent, root_mission_label or mission_txt,
         )
     chat_solo_honesty = (

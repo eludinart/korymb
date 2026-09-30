@@ -156,3 +156,75 @@ def run_subagent_quality_gate(
         log(f"[korymb] Quality gate {agent_label} : retry impossible ({exc}) — livrable initial conservé.")
 
     return final_text, t_in, t_out, verdict
+
+
+def _min_score_to_complete() -> float:
+    from database import get_behavior_setting
+    from services.behavior_defaults import behavior_default_value
+
+    raw = get_behavior_setting("quality.min_score_to_complete")
+    if raw is None:
+        raw = behavior_default_value("quality.min_score_to_complete")
+    try:
+        return float(raw if raw is not None else 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def heuristic_completion_score(result: str) -> float:
+    """Score 0–10 sans appel LLM. 0 côté réglage = le seuil ne bloque pas."""
+    text = (result or "").strip()
+    n = len(text)
+    if n < 40:
+        return 1.0
+    if n < 120:
+        return 4.0
+    if n < 400:
+        return 6.5
+    return 8.5
+
+
+def assess_and_record(job_id: str, *, result: str = "", phase: str = "completion") -> dict[str, Any]:
+    """Enregistre un verdict heuristique. Ne lève pas si la persistance échoue."""
+    score = heuristic_completion_score(result)
+    threshold = _min_score_to_complete()
+    rejected = threshold > 0 and score < threshold
+    try:
+        from database import insert_quality_verdict
+
+        insert_quality_verdict(
+            job_id,
+            phase=phase or "completion",
+            score=score,
+            rejected=rejected,
+            payload={"heuristic": True, "threshold": threshold, "chars": len((result or "").strip())},
+        )
+    except Exception:
+        logger.exception("quality verdict persist failed for %s", job_id)
+    return {"score": score, "rejected": rejected, "threshold": threshold}
+
+
+def should_block_completion(job_id: str, score: float) -> bool:
+    del job_id
+    threshold = _min_score_to_complete()
+    if threshold <= 0:
+        return False
+    try:
+        return float(score) < threshold
+    except (TypeError, ValueError):
+        return False
+
+
+def notify_quality_alert(job_id: str, score: float) -> None:
+    try:
+        from services.director_platform import emit_director_notification
+
+        emit_director_notification(
+            kind="quality",
+            title="Qualité sous le seuil",
+            body=f"Score {float(score):.1f} — la mission attend un override avant clôture.",
+            job_id=job_id,
+            action_url=f"/inbox?job={job_id}",
+        )
+    except Exception:
+        logger.exception("quality alert failed for %s", job_id)

@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import AppChrome from "./AppChrome";
 import PublicShell from "./PublicShell";
+import PullToRefresh from "./PullToRefresh";
 import SubscriberShell from "./SubscriberShell";
 
 const PUBLIC_EXACT = new Set(["/", "/login", "/register", "/confidentialite", "/cgu"]);
@@ -18,11 +19,18 @@ function isSubscriberRoute(pathname: string) {
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  if (isPublicRoute(pathname)) {
-    return <PublicShell>{children}</PublicShell>;
-  }
-  if (isSubscriberRoute(pathname)) {
-    return <SubscriberShell>{children}</SubscriberShell>;
-  }
-  return <AppChrome>{children}</AppChrome>;
+  const shell = isPublicRoute(pathname) ? (
+    <PublicShell>{children}</PublicShell>
+  ) : isSubscriberRoute(pathname) ? (
+    <SubscriberShell>{children}</SubscriberShell>
+  ) : (
+    <AppChrome>{children}</AppChrome>
+  );
+
+  return (
+    <>
+      <PullToRefresh />
+      {shell}
+    </>
+  );
 }

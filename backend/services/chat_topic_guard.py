@@ -6,10 +6,8 @@ import unicodedata
 
 from services.chat_intelligence import INTENT_CRM, INTENT_STATUS, classify_chat_intent
 
-_FALLBACK = (
-    "Je me suis écarté du sujet (contenu CRM / prospection hors contexte). "
-    "Reformulez votre demande pour l'équipe ou le fil en cours — "
-    "sans fiches Gestion ni tableau de prospection — et je réponds uniquement là-dessus."
+_FALLBACK_MARK = re.compile(
+    r"(?i)je me suis [eé]cart[eé] du sujet"
 )
 
 # Signaux forts : un seul suffit souvent ; deux = dérive certaine.
@@ -20,7 +18,7 @@ _STRONG_CRM = re.compile(
     r"questions?\s+strat[eé]giques?\s+du\s+cio|"
     r"synth[eè]se\s+d[eé]cisionnelle|"
     r"enrichissement\s+(e-?mail|email|t[eé]l[eé]phone|contact)|"
-    r"/gestion/playbooks|playbook\s+e-?mail|"
+    r"playbook\s+e-?mail|"
     r"contacts?\s+r[eé]serve|prospection\s+(web|gmail|linkedin)"
     r")\b"
 )
@@ -44,6 +42,28 @@ _USER_CRM_OK = re.compile(
 def _fold(s: str) -> str:
     s = unicodedata.normalize("NFKD", s or "")
     return "".join(c for c in s if not unicodedata.combining(c)).lower()
+
+
+_PRODUCT_OPS_RE = re.compile(
+    r"\b(korymb|plateforme|cockpit|aujourd.?hui|priorit)\b",
+    re.I,
+)
+
+
+def is_guard_fallback(text: str) -> bool:
+    """True si le texte est (surtout) le refus anti-dérive, pas une vraie réponse."""
+    raw = (text or "").strip()
+    if not raw or len(raw) > 500:
+        return False
+    return bool(_FALLBACK_MARK.search(raw))
+
+
+def user_asks_product_ops(user_text: str) -> bool:
+    """Question sur le logiciel Korymb (priorités, aujourd'hui), pas sur les clients."""
+    raw = (user_text or "").strip()
+    if not raw or user_invites_crm_topic(raw):
+        return False
+    return bool(_PRODUCT_OPS_RE.search(_fold(raw)))
 
 
 def user_invites_crm_topic(user_text: str) -> bool:
@@ -114,45 +134,23 @@ def guard_chat_reply(
     agent_group_id: str | None = None,
 ) -> tuple[str, bool]:
     """
-    Blinden la réponse chat contre une dérive CRM hors sujet.
+    Retire les gabarits internes (questions CIO, annexe livrable).
 
-    Retourne (texte_sûr, drifted).
-    `agent_group_id` non-entreprise : seuil plus bas (équipe projet).
+    Ne remplace jamais une réponse par un refus. L'assistant généraliste peut
+    parler métier, CRM compris, et proposer une flotte — la confirmation reste
+    côté dirigeant. `user_text` et `agent_group_id` sont conservés pour les
+    appelants ; ils ne censurent plus le texte.
     """
+    del user_text, agent_group_id
     text = (reply or "").strip()
     if not text:
         return text, False
-    if user_invites_crm_topic(user_text):
+    if is_guard_fallback(text):
+        return text, True
+    cleaned = strip_crm_blocks(text).strip()
+    if not cleaned:
         return text, False
-
-    project_team = False
-    gid = (agent_group_id or "").strip()
-    if gid and gid != "entreprise":
-        try:
-            from services.agent_groups import group_memory_scope
-
-            project_team = group_memory_scope(gid) != "enterprise"
-        except Exception:
-            project_team = True
-
-    score = crm_drift_score(text)
-    threshold = 1 if project_team else 2
-    if score < threshold:
-        return text, False
-
-    cleaned = strip_crm_blocks(text)
-    # Si après découpe il reste encore trop de CRM, ou presque rien : fallback.
-    if crm_drift_score(cleaned) >= threshold or len(cleaned) < 40:
-        return _FALLBACK, True
-    # Reste un peu de CRM faible : on ajoute un avertissement court.
-    if crm_drift_score(cleaned) >= 1:
-        return (
-            cleaned
-            + "\n\n_(J'ai retiré un bloc CRM/prospection hors sujet. "
-            "Reformulez si vous vouliez parler Gestion.)_",
-            True,
-        )
-    return cleaned, True
+    return cleaned, cleaned != text
 
 
 def crm_tools_allowed_for_chat(*, user_text: str, agent_group_id: str | None) -> bool:

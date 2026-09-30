@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { KORYMB_TOKEN_COOKIE } from "./lib/authSession";
 
+/** `/api/korymb*` reste joignable sans cookie pour les chemins publics (vitrine).
+ *  Le proxy refuse ensuite toute route métier sans session — il n'attache pas le secret agent. */
 const PUBLIC_PREFIXES = [
   "/login",
   "/register",

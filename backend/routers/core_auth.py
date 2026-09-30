@@ -154,7 +154,7 @@ def auth_me(auth: dict = Depends(auth_svc.resolve_tenant)):
 
 
 @router.post("/workspaces")
-def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.resolve_tenant)):
+def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.require_operator)):
     if auth.get("mode") == "agent_secret":
         raise HTTPException(status_code=400, detail="Création d'espace réservée aux utilisateurs connectés.")
     user_id = str(auth.get("user_id") or "")
@@ -208,7 +208,7 @@ def auth_set_ui_mode(body: UiModeBody, auth: dict = Depends(auth_svc.require_adm
 
 
 @router.get("/members")
-def auth_list_members(auth: dict = Depends(auth_svc.resolve_tenant)):
+def auth_list_members(auth: dict = Depends(auth_svc.require_operator)):
     if auth.get("mode") == "agent_secret":
         return {"members": []}
     from workspace_db import list_workspace_operators

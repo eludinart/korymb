@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isProxyUnprotected, resolveProxySecret } from "../../../../lib/proxySecret";
+import { isProxyUnprotected } from "../../../../lib/proxySecret";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
@@ -22,25 +22,19 @@ function upstreamTimeoutMs(joinedPath: string): number {
 
 /** Headers upstream propres — ne jamais cloner request.headers (hop-by-hop / content-length
  *  provoquent `fetch failed` côté undici sur PATCH/POST). */
-function withSecretHeaders(request: NextRequest, joinedPath: string, secret: string) {
+function withSessionHeaders(request: NextRequest) {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
   headers.set("Accept", "application/json");
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  } else if (!isProxyUnprotected(joinedPath) && secret) {
-    headers.set("X-Agent-Secret", secret);
-  }
-  // Toujours propager le workspace (JWT ou secret agent) pour l'isolation multi-tenant.
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   return headers;
 }
 
 async function proxy(request: NextRequest, path: string[]) {
   const joinedPath = path.join("/");
-  const secret = resolveProxySecret();
   if (!joinedPath) {
     return NextResponse.json({ error: "Path manquant" }, { status: 400 });
   }
@@ -55,12 +49,9 @@ async function proxy(request: NextRequest, path: string[]) {
   }
   if (!isProxyUnprotected(joinedPath)) {
     const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
-    if (!token && !secret) {
+    if (!token) {
       return NextResponse.json(
-        {
-          error:
-            "Authentification requise — connectez-vous ou configurez KORYMB_AGENT_SECRET côté serveur Next.",
-        },
+        { error: "Authentification requise — connectez-vous." },
         { status: 401 },
       );
     }
@@ -79,7 +70,7 @@ async function proxy(request: NextRequest, path: string[]) {
     const rawBody = hasBody ? await request.text() : "";
     response = await fetch(upstream, {
       method: request.method,
-      headers: withSecretHeaders(request, joinedPath, secret),
+      headers: withSessionHeaders(request),
       cache: "no-store",
       signal: controller.signal,
       // Chaîne vide → undefined : évite un Content-Length forcé à tort par undici

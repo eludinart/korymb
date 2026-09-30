@@ -67,6 +67,21 @@ body {
   min-height: 100dvh;
 }
 
+@media (max-width: 1023px) {
+  html,
+  body {
+    overscroll-behavior-y: contain;
+  }
+
+  .pull-refresh-cue {
+    display: flex;
+  }
+}
+
+html.dark .pull-refresh-cue {
+  color: #c4b5fd;
+}
+
 @layer utilities {
   .touch-target {
     min-height: 44px;
@@ -516,6 +531,76 @@ body {
     border-color: #ddd6fe;
     background-color: rgba(255, 255, 255, 0.97);
     color: #0f172a;
+  }
+
+  .pull-refresh-cue {
+    pointer-events: none;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 30;
+    display: none;
+    height: var(--pull-y, 0px);
+    align-items: flex-end;
+    justify-content: center;
+    overflow: hidden;
+    color: #5b21b6;
+  }
+
+  .pull-refresh-cue-inner {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-bottom: 0.35rem;
+    font-size: 12px;
+    font-weight: 700;
+    opacity: clamp(0, calc((var(--pull-y, 0px) - 18px) / 28px), 1);
+  }
+
+  .pull-refresh-icon {
+    display: inline-flex;
+    width: 16px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .pull-refresh-icon svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.15s ease;
+  }
+
+  .pull-refresh-icon.is-ready svg {
+    transform: rotate(180deg);
+  }
+
+  .pull-refresh-icon.is-spin svg {
+    display: none;
+  }
+
+  .pull-refresh-icon.is-spin {
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 999px;
+    animation: pull-refresh-spin 0.7s linear infinite;
+  }
+
+  @keyframes pull-refresh-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  html[data-pull="1"] .is-pull-source,
+  html[data-pull="refresh"] .is-pull-source {
+    transform: translate3d(0, var(--pull-y, 0px), 0);
+  }
+
+  html[data-pull="settle"] .is-pull-source {
+    transform: translate3d(0, 0, 0);
+    transition: transform 0.22s ease;
   }
 
   .app-status-strip {
