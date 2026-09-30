@@ -19,8 +19,7 @@ function executiveToChatMarkdown(exec: CioJsonExecutive): string {
   if (exec.planSteps.length) {
     blocks.push("## Plan", "");
     for (const step of exec.planSteps.slice(0, 8)) {
-      const status = step.status ? ` (${step.status})` : "";
-      blocks.push(`- **${step.agent}**${status} : ${step.task}`);
+      blocks.push(`- **${step.agent}** : ${step.task}`);
     }
     blocks.push("");
   }
