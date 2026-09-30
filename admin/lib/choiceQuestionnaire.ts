@@ -55,6 +55,13 @@ function normalizeOption(raw: unknown, index: number): ChoiceOption | null {
   return { id, label };
 }
 
+/** Multi « autres / optionnel » : zéro case cochée = réponse valide. */
+function looksOptionalPrompt(prompt: string): boolean {
+  return /\b(autre|autres|optionnel|optionnelle|facultatif|facultative|si besoin|en plus|bonus)\b/i.test(
+    prompt,
+  );
+}
+
 function normalizeQuestion(raw: unknown, index: number): ChoiceQuestion | null {
   if (typeof raw === "string") {
     const prompt = raw.trim();
@@ -84,12 +91,18 @@ function normalizeQuestion(raw: unknown, index: number): ChoiceQuestion | null {
     selection = "text";
   }
   const id = String(o.id || o.key || slugId(prompt, `q-${index + 1}`)).trim() || `q-${index + 1}`;
+  let required = true;
+  if (typeof o.required === "boolean") {
+    required = o.required;
+  } else if (selection === "multi" && looksOptionalPrompt(prompt)) {
+    required = false;
+  }
   return {
     id,
     prompt,
     selection,
     options,
-    required: o.required !== false,
+    required,
   };
 }
 

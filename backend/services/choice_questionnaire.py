@@ -112,6 +112,7 @@ QCM_INSTRUCTION = (
     "}\n"
     "```\n"
     "`selection`: `multi` (cases) ou `single` (un seul choix). "
+    "Pour une question multi facultative (ex. « Autres actions »), mets `\"required\": false`. "
     "Le dirigeant peut toujours ajouter un commentaire libre avant Valider.\n"
     "En plan mission JSON, tu peux aussi mettre des objets dans `clarifying_questions` "
     "avec `prompt` + `options` (+ `selection`) au lieu de simples strings.\n"

@@ -25,6 +25,15 @@ function optionChecked(
   return (selected[question.id] || []).includes(optionId);
 }
 
+function questionFilled(
+  q: ChoiceQuestion,
+  selected: Record<string, string[]>,
+  textAnswers: Record<string, string>,
+): boolean {
+  if (q.selection === "text") return Boolean((textAnswers[q.id] || "").trim());
+  return (selected[q.id] || []).length > 0;
+}
+
 /**
  * QCM dirigeant : cases / radios + commentaire libre + un bouton Valider.
  * Réutilisé dans le chat, les missions et Décisions.
@@ -49,22 +58,25 @@ export default function ChoiceQuestionnaire({
   });
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
+  const [triedSubmit, setTriedSubmit] = useState(false);
 
   const locked = busy || disabled || Boolean(answeredSummary);
 
-  const canSubmit = useMemo(() => {
-    if (locked) return false;
+  const missingLabels = useMemo(() => {
+    const missing: string[] = [];
     for (const q of payload.questions) {
       if (q.required === false) continue;
-      if (q.selection === "text") {
-        if (!(textAnswers[q.id] || "").trim()) return false;
-      } else if (!(selected[q.id] || []).length) {
-        return false;
+      if (!questionFilled(q, selected, textAnswers)) {
+        missing.push(q.prompt);
       }
     }
-    if (payload.commentRequired && !comment.trim()) return false;
-    return true;
-  }, [locked, payload, selected, textAnswers, comment]);
+    if (payload.commentRequired && !comment.trim()) {
+      missing.push(payload.commentLabel || "Commentaire");
+    }
+    return missing;
+  }, [payload, selected, textAnswers, comment]);
+
+  const canSubmit = !locked && missingLabels.length === 0;
 
   const toggle = (q: ChoiceQuestion, optionId: string) => {
     if (locked) return;
@@ -79,6 +91,7 @@ export default function ChoiceQuestionnaire({
   };
 
   const handleSubmit = async () => {
+    setTriedSubmit(true);
     if (!canSubmit) return;
     setError("");
     const answers: ChoiceAnswerPayload["answers"] = payload.questions.map((q) => {
@@ -121,68 +134,90 @@ export default function ChoiceQuestionnaire({
       )}
 
       <div className="space-y-3">
-        {payload.questions.map((q, qi) => (
-          <fieldset
-            key={q.id}
-            className="rounded-xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-700 dark:bg-slate-950"
-            disabled={locked}
-          >
-            <legend className="px-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
-              {payload.questions.length > 1 ? (
-                <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
-                  {qi + 1}
-                </span>
-              ) : null}
-              {q.prompt}
-            </legend>
+        {payload.questions.map((q, qi) => {
+          const incomplete =
+            triedSubmit && q.required !== false && !questionFilled(q, selected, textAnswers);
+          return (
+            <fieldset
+              key={q.id}
+              className={`rounded-xl border bg-white px-3 py-3 dark:bg-slate-950 ${
+                incomplete
+                  ? "border-amber-400 ring-2 ring-amber-200 dark:border-amber-500 dark:ring-amber-800"
+                  : "border-slate-200 dark:border-slate-700"
+              }`}
+              disabled={locked}
+            >
+              <legend className="px-1 text-sm font-semibold text-slate-900 dark:text-slate-50">
+                {payload.questions.length > 1 ? (
+                  <span className="mr-1.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-violet-600 text-[10px] font-bold text-white">
+                    {qi + 1}
+                  </span>
+                ) : null}
+                {q.prompt}
+                {q.required === false ? (
+                  <span className="ml-1.5 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    (optionnel)
+                  </span>
+                ) : (
+                  <span className="ml-0.5 text-violet-700 dark:text-violet-300" aria-hidden>
+                    *
+                  </span>
+                )}
+              </legend>
 
-            {q.selection === "text" ? (
-              <textarea
-                value={textAnswers[q.id] || ""}
-                onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                disabled={locked}
-                rows={2}
-                placeholder="Votre réponse…"
-                className="field-input mt-2 w-full resize-y text-sm"
-              />
-            ) : (
-              <ul className="mt-2 space-y-1.5">
-                {q.options.map((opt) => {
-                  const checked = optionChecked(q, selected, opt.id);
-                  const inputType = q.selection === "single" ? "radio" : "checkbox";
-                  return (
-                    <li key={opt.id}>
-                      <label
-                        className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
-                          checked
-                            ? "border-violet-400 bg-violet-50 ring-2 ring-violet-200 dark:border-violet-500 dark:bg-violet-950/60 dark:ring-violet-700"
-                            : "border-slate-200 bg-slate-50/80 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:active:bg-slate-800"
-                        } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
-                      >
-                        <input
-                          type={inputType}
-                          name={q.selection === "single" ? `qcm-${q.id}` : undefined}
-                          checked={checked}
-                          disabled={locked}
-                          onChange={() => toggle(q, opt.id)}
-                          className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
-                        />
-                        <span className="min-w-0 flex-1 font-medium leading-snug text-slate-900 dark:text-slate-100">
-                          {opt.label}
-                        </span>
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </fieldset>
-        ))}
+              {q.selection === "text" ? (
+                <textarea
+                  value={textAnswers[q.id] || ""}
+                  onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                  disabled={locked}
+                  rows={2}
+                  placeholder="Votre réponse…"
+                  className="field-input mt-2 w-full resize-y text-sm"
+                />
+              ) : (
+                <ul className="mt-2 space-y-1.5">
+                  {q.options.map((opt) => {
+                    const checked = optionChecked(q, selected, opt.id);
+                    const inputType = q.selection === "single" ? "radio" : "checkbox";
+                    return (
+                      <li key={opt.id}>
+                        <label
+                          className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border px-3 py-2.5 text-sm transition-colors ${
+                            checked
+                              ? "border-violet-400 bg-violet-50 ring-2 ring-violet-200 dark:border-violet-500 dark:bg-violet-950/60 dark:ring-violet-700"
+                              : "border-slate-200 bg-slate-50/80 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:active:bg-slate-800"
+                          } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
+                        >
+                          <input
+                            type={inputType}
+                            name={q.selection === "single" ? `qcm-${q.id}` : undefined}
+                            checked={checked}
+                            disabled={locked}
+                            onChange={() => toggle(q, opt.id)}
+                            className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
+                          />
+                          <span className="min-w-0 flex-1 font-medium leading-snug text-slate-900 dark:text-slate-100">
+                            {opt.label}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </fieldset>
+          );
+        })}
       </div>
 
       <div className="mt-3">
         <label className="field-label" htmlFor={`qcm-comment-${payload.questions[0]?.id || "x"}`}>
           {payload.commentLabel || "Commentaire (optionnel)"}
+          {payload.commentRequired ? (
+            <span className="ml-0.5 text-violet-700 dark:text-violet-300" aria-hidden>
+              *
+            </span>
+          ) : null}
         </label>
         <textarea
           id={`qcm-comment-${payload.questions[0]?.id || "x"}`}
@@ -195,11 +230,24 @@ export default function ChoiceQuestionnaire({
         />
       </div>
 
+      {!canSubmit && !locked && (triedSubmit || missingLabels.length > 0) ? (
+        <p className="mt-2 text-xs font-medium text-amber-800 dark:text-amber-200" role="status">
+          {triedSubmit
+            ? `À compléter : ${missingLabels.slice(0, 3).join(" · ")}${missingLabels.length > 3 ? "…" : ""}`
+            : "Répondez aux questions marquées * pour activer la validation."}
+        </p>
+      ) : null}
+
       <button
         type="button"
-        disabled={!canSubmit}
+        disabled={locked}
+        aria-disabled={!canSubmit}
         onClick={() => void handleSubmit()}
-        className="mt-3 min-h-11 w-full rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-semibold text-white active:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+        className={`mt-3 min-h-11 w-full rounded-xl px-4 py-2.5 text-sm font-semibold text-white sm:w-auto ${
+          canSubmit
+            ? "bg-violet-700 active:bg-violet-800"
+            : "cursor-pointer bg-slate-500 text-white dark:bg-slate-600 dark:text-slate-100"
+        } ${locked ? "cursor-not-allowed opacity-60" : ""}`}
       >
         {busy ? "Envoi…" : payload.submitLabel || "Valider et envoyer"}
       </button>
