@@ -744,6 +744,14 @@ function ChatPageInner() {
     rememberInterlocutor(interlocutor, describeInterlocutor(interlocutor, groups).title);
   }, [interlocutor, groupsList]);
 
+  const interlocutorLabel = useCallback(
+    (conv: ChatConversation) => {
+      if (!conv.interlocutor || conv.interlocutor === "assistant") return null;
+      return describeInterlocutor(conv.interlocutor, groupsList as GroupOpt[]).title;
+    },
+    [groupsList],
+  );
+
   if (!hydrated || !activeId) {
     return <div className="p-6 text-center text-slate-500">Chargement…</div>;
   }
@@ -754,14 +762,6 @@ function ChatPageInner() {
     messages.some((m) => m.role === "assistant") &&
     activePendingCount === 0 &&
     !pending;
-
-  const interlocutorLabel = useCallback(
-    (conv: ChatConversation) => {
-      if (!conv.interlocutor || conv.interlocutor === "assistant") return null;
-      return describeInterlocutor(conv.interlocutor, groupsList as GroupOpt[]).title;
-    },
-    [groupsList],
-  );
 
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white lg:border-x lg:border-slate-200">
