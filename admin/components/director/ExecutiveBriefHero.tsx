@@ -33,9 +33,9 @@ type BriefingRitual = {
   executive_summary?: string;
   top_priorities?: ExecutivePriority[];
   memory_highlights?: MemoryHighlight[];
-  memory_digest?: MemoryDigest;
-  day_anticipation?: DayAnticipation;
-  inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number };
+  memory_digest?: MemoryDigest | null;
+  day_anticipation?: DayAnticipation | null;
+  inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
   ritual_status?: "clear" | "decisions_needed" | "budget_alert" | "config_blocked" | string;
   llm_readiness?: {
     ready?: boolean;
