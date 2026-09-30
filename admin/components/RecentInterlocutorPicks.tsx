@@ -39,7 +39,7 @@ export default function RecentInterlocutorPicks({
   if (!picks.length) return null;
 
   return (
-    <div className={`flex min-w-0 flex-wrap items-center gap-1 ${className}`}>
+    <div className={`flex min-w-0 flex-wrap items-center gap-1.5 ${className}`}>
       <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Reprendre</span>
       {picks.slice(0, 4).map((row) => (
         <button
@@ -47,7 +47,7 @@ export default function RecentInterlocutorPicks({
           type="button"
           disabled={disabled}
           onClick={() => onPick(row.value)}
-          className="max-w-[10rem] truncate rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:border-violet-300 hover:text-violet-900 disabled:opacity-40"
+          className="max-w-[12rem] truncate rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-violet-300 hover:text-violet-900 active:bg-violet-50 disabled:opacity-40"
           title={`Reprendre ${row.label}`}
         >
           {row.label}

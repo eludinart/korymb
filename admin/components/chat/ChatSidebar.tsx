@@ -13,9 +13,25 @@ type Props = {
   onDelete: (id: string) => void;
   interlocutorLabel?: (conv: ChatConversation) => string | null;
   className?: string;
+  /** Mobile plein écran : pas de chrome desktop. */
+  variant?: "sidebar" | "inbox";
 };
 
-/** Date + heure toujours visibles (fr-FR). */
+function formatRelative(ts: number): string {
+  const d = new Date(ts);
+  if (!Number.isFinite(d.getTime())) return "—";
+  const now = Date.now();
+  const diff = Math.max(0, now - d.getTime());
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "à l'instant";
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} j`;
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+}
+
 function formatDateTime(ts: number): string {
   const d = new Date(ts);
   if (!Number.isFinite(d.getTime())) return "—";
@@ -37,9 +53,11 @@ export default function ChatSidebar({
   onDelete,
   interlocutorLabel,
   className = "",
+  variant = "sidebar",
 }: Props) {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
+  const inbox = variant === "inbox";
   const sorted = useMemo(
     () =>
       [...conversations].sort((a, b) => {
@@ -51,6 +69,7 @@ export default function ChatSidebar({
   );
 
   useEffect(() => {
+    if (inbox) return;
     const list = listRef.current;
     const el = activeRef.current;
     if (!list || !el) return;
@@ -61,7 +80,7 @@ export default function ChatSidebar({
     } else if (elRect.bottom > listRect.bottom) {
       list.scrollTop += elRect.bottom - listRect.bottom;
     }
-  }, [activeId, sorted]);
+  }, [activeId, sorted, inbox]);
 
   const pendingByConv = new Map<string, PendingChatJob[]>();
   for (const j of pendingJobs) {
@@ -72,50 +91,70 @@ export default function ChatSidebar({
 
   return (
     <aside
-      className={`h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r border-slate-200 bg-white lg:w-72 lg:shrink-0 lg:bg-slate-50/90 ${className}`}
+      className={
+        inbox
+          ? `flex h-full min-h-0 w-full flex-col bg-white ${className}`
+          : `flex h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r border-slate-200 bg-white lg:w-72 lg:shrink-0 lg:bg-slate-50/90 ${className}`
+      }
       aria-label="Conversations"
     >
-      <div className="shrink-0 border-b border-slate-200 px-3 py-2">
+      <div
+        className={`shrink-0 border-b border-slate-200 ${inbox ? "px-4 py-3" : "px-3 py-2"}`}
+      >
+        {inbox ? (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h1 className="text-xl font-bold tracking-tight text-slate-950">Conversation</h1>
+          </div>
+        ) : null}
         <button
           type="button"
           onClick={onNew}
-          className="w-full rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
+          className={
+            inbox
+              ? "w-full rounded-2xl bg-violet-700 px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm active:bg-violet-800"
+              : "w-full rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
+          }
         >
           Nouvelle conversation
         </button>
       </div>
 
-      <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2">
+      <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 sm:p-2">
         {sorted.length === 0 ? (
-          <li className="px-2 py-6 text-center text-xs text-slate-500">Aucune conversation pour l&apos;instant.</li>
+          <li className="px-3 py-10 text-center text-sm text-slate-500">
+            Aucune conversation. Lancez la première.
+          </li>
         ) : (
           sorted.map((c) => {
-            const active = c.id === activeId;
+            const active = !inbox && c.id === activeId;
             const pending = pendingByConv.get(c.id) || [];
             const working = pending.length > 0;
             const unread = Boolean(c.unread);
+            const fleet = interlocutorLabel?.(c);
             return (
               <li key={c.id} ref={active ? activeRef : undefined}>
                 <div
-                  className={`group flex items-start gap-1 rounded-xl border transition-colors ${
+                  className={`group flex items-start gap-1 rounded-2xl border transition-colors ${
                     active
                       ? "border-violet-400 bg-white shadow-sm ring-2 ring-violet-300"
                       : unread
-                        ? "border-emerald-200 bg-emerald-50/80 hover:bg-emerald-50"
-                        : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
+                        ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50"
+                        : inbox
+                          ? "border-slate-100 bg-white active:bg-slate-50"
+                          : "border-transparent bg-transparent hover:border-slate-200 hover:bg-white"
                   }`}
                 >
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
+                    className={`min-w-0 flex-1 text-left ${inbox ? "px-3.5 py-3.5" : "px-3 py-2.5"}`}
                     aria-current={active ? "true" : undefined}
-                    className="min-w-0 flex-1 px-3 py-2.5 text-left"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p
-                        className={`line-clamp-2 text-sm font-semibold leading-snug ${
-                          active ? "text-violet-950" : "text-slate-900"
-                        }`}
+                        className={`line-clamp-2 font-semibold leading-snug ${
+                          inbox ? "text-[15px]" : "text-sm"
+                        } ${active ? "text-violet-950" : "text-slate-900"}`}
                       >
                         {c.title}
                       </p>
@@ -124,11 +163,11 @@ export default function ChatSidebar({
                         className="shrink-0 text-right text-[10px] leading-tight tabular-nums text-slate-400"
                         title={formatDateTime(c.updatedAt)}
                       >
-                        {formatDateTime(c.updatedAt)}
+                        {inbox ? formatRelative(c.updatedAt) : formatDateTime(c.updatedAt)}
                       </time>
                     </div>
-                    {interlocutorLabel?.(c) ? (
-                      <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{interlocutorLabel(c)}</p>
+                    {fleet ? (
+                      <p className="mt-0.5 truncate text-[11px] font-semibold text-violet-700/90">{fleet}</p>
                     ) : null}
 
                     {working ? (
@@ -161,7 +200,9 @@ export default function ChatSidebar({
                   <button
                     type="button"
                     onClick={() => onDelete(c.id)}
-                    className="touch-target shrink-0 rounded-lg px-2 text-base text-slate-400 opacity-100 transition-colors hover:bg-red-50 hover:text-red-700 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    className={`touch-target shrink-0 rounded-lg px-2 text-base text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700 ${
+                      inbox ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                    }`}
                     aria-label={`Supprimer ${c.title}`}
                     title="Supprimer"
                   >

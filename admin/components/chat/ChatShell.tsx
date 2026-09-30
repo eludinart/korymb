@@ -130,7 +130,7 @@ function ChatReplyPending({
             <button
               type="button"
               onClick={onStop}
-              className="rounded-full border border-violet-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-violet-900 hover:bg-violet-100"
+              className="rounded-full border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-50"
             >
               Arrêter
             </button>
@@ -203,6 +203,8 @@ export default function ChatShell({
   const [portalReady, setPortalReady] = useState(false);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
+  const stickyHitl = [...messages].reverse().find((m) => m.role === "assistant" && m.pendingAction);
+  const showPendingBar = pending || backgroundJobCount > 0;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -290,7 +292,7 @@ export default function ChatShell({
     "pointer-events-none absolute left-0 top-0 h-px w-px overflow-hidden opacity-0";
 
   return (
-    <div className={`relative mx-auto flex min-h-0 w-full flex-col bg-white ${className || "h-[calc(100dvh-10rem)]"}`}>
+    <div className={`relative mx-auto flex min-h-0 w-full flex-col bg-white ${className || "h-full"}`}>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 py-2 sm:px-4 sm:py-4">
         <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
           {isFirstTurn ? (
@@ -309,12 +311,25 @@ export default function ChatShell({
             const degraded = Boolean(m.degraded) || chatTextIsDegraded(m.content);
             return (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[min(100%,28rem)] sm:max-w-[85%] ${m.role === "user" ? "w-auto" : "w-full sm:w-auto"}`}>
+                <div
+                  className={
+                    m.role === "user"
+                      ? "max-w-[min(100%,28rem)] w-auto sm:max-w-[85%]"
+                      : "w-full max-w-none sm:max-w-[92%]"
+                  }
+                >
+                  {m.role === "assistant" && agents.length > 0 ? (
+                    <div className="mb-1 flex flex-wrap gap-1 lg:hidden">
+                      {agents.map((key) => (
+                        <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
+                      ))}
+                    </div>
+                  ) : null}
                   <div
-                    className={`overflow-hidden px-3.5 py-2 text-[15px] leading-snug sm:rounded-3xl sm:px-5 sm:py-3 sm:leading-relaxed ${
+                    className={`overflow-hidden text-[15px] leading-snug sm:leading-relaxed ${
                       m.role === "user"
-                        ? "rounded-[1.15rem] rounded-br-md bg-slate-900 text-white"
-                        : "rounded-[1.15rem] rounded-bl-md bg-slate-100 text-slate-800"
+                        ? "rounded-[1.15rem] rounded-br-md bg-slate-900 px-3.5 py-2 text-white sm:rounded-3xl sm:px-5 sm:py-3"
+                        : "rounded-none bg-transparent px-0.5 py-0.5 text-slate-800 sm:rounded-[1.15rem] sm:rounded-bl-md sm:bg-slate-100 sm:px-5 sm:py-3"
                     }`}
                   >
                     {m.role === "user" ? (
@@ -334,7 +349,7 @@ export default function ChatShell({
                     )}
                   </div>
                   {m.role === "assistant" && agents.length > 0 ? (
-                    <div className="mt-1 flex flex-wrap gap-1">
+                    <div className="mt-1 hidden flex-wrap gap-1 lg:flex">
                       {agents.map((key) => (
                         <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
                       ))}
@@ -342,13 +357,13 @@ export default function ChatShell({
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
                   {m.role === "assistant" && m.pendingAction ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
+                    <div className="mt-2 hidden flex-wrap gap-2 lg:flex">
                       <button
                         type="button"
                         onClick={() => onConfirmAction?.(m.pendingAction?.message || "")}
                         className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800"
                       >
-                        Lancer l'action
+                        Lancer l&apos;action
                       </button>
                       <button
                         type="button"
@@ -377,16 +392,49 @@ export default function ChatShell({
             );
           })}
 
-          {pending || backgroundJobCount > 0 ? (
+          {/* Desktop : pending dans le fil ; mobile = barre sticky sous le scroll */}
+          {showPendingBar ? (
+            <div className="hidden lg:block">
+              <ChatReplyPending
+                count={Math.max(1, backgroundJobCount)}
+                percent={backgroundProgress?.percent}
+                onStop={onStopReply}
+              />
+            </div>
+          ) : null}
+          <div ref={bottomRef} className="h-1 shrink-0" aria-hidden />
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-slate-200 bg-white">
+        {showPendingBar ? (
+          <div className="border-b border-violet-100 px-2 py-1.5 lg:hidden">
             <ChatReplyPending
               count={Math.max(1, backgroundJobCount)}
               percent={backgroundProgress?.percent}
               onStop={onStopReply}
             />
-          ) : null}
-          <div ref={bottomRef} className="h-1 shrink-0" aria-hidden />
-        </div>
-      </div>
+          </div>
+        ) : null}
+
+        {stickyHitl?.pendingAction ? (
+          <div className="flex gap-2 border-b border-amber-100 bg-amber-50/95 px-3 py-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => onConfirmAction?.(stickyHitl.pendingAction?.message || "")}
+              className="min-h-11 flex-1 rounded-xl bg-violet-700 text-sm font-semibold text-white active:bg-violet-800"
+            >
+              Lancer l&apos;action
+            </button>
+            <button
+              type="button"
+              onClick={() => onDismissAction?.(stickyHitl.id)}
+              className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 active:bg-slate-50"
+            >
+              Annuler
+            </button>
+          </div>
+        ) : null}
 
       <form
         onSubmit={onSubmit}
@@ -406,7 +454,7 @@ export default function ChatShell({
           setDragging(false);
           takeFiles(filesFromDataTransfer(e.dataTransfer));
         }}
-        className="relative shrink-0 border-t border-slate-200 bg-white px-2 pt-1.5 sm:px-4 sm:pt-3"
+        className="relative px-2 pt-1.5 sm:px-4 sm:pt-3"
         style={{ paddingBottom: "max(0.4rem, env(safe-area-inset-bottom, 0px))" }}
       >
         {dragging ? (
@@ -484,7 +532,7 @@ export default function ChatShell({
               type="button"
               onClick={openAttachMenu}
               disabled={pending || uploadBusy || attachments.length >= CHAT_FILE_MAX}
-              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 disabled:opacity-40"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-600 hover:bg-slate-100 disabled:opacity-40 sm:h-8 sm:w-8"
               aria-label="Joindre une photo ou un fichier"
               title="Joindre"
               aria-expanded={attachOpen}
@@ -499,7 +547,7 @@ export default function ChatShell({
               type="button"
               onClick={onConvertToMission}
               disabled={convertBusy}
-              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40"
+              className="mb-0.5 hidden h-8 w-8 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40 lg:flex"
               aria-label="Préparer une mission"
               title="Préparer une mission"
             >
@@ -534,13 +582,14 @@ export default function ChatShell({
           <button
             type="submit"
             disabled={pending || uploadBusy || (!draft.trim() && attachments.length === 0)}
-            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-700 text-white transition-colors hover:bg-violet-800 disabled:bg-slate-300 disabled:text-white"
+            className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-700 text-white transition-colors hover:bg-violet-800 disabled:bg-slate-300 disabled:text-white sm:h-9 sm:w-9"
             aria-label="Envoyer"
           >
             <SendIcon />
           </button>
         </div>
       </form>
+      </div>
 
       {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
         <div className="absolute inset-0 z-30 flex flex-col bg-white">

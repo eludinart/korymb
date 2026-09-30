@@ -5,6 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
+import ChatConversationHeader from "../../components/chat/ChatConversationHeader";
+import ChatInterlocutorSheet from "../../components/chat/ChatInterlocutorSheet";
+import ChatThreadMoreSheet from "../../components/chat/ChatThreadMoreSheet";
 import ChatInterlocutorSelect, {
   describeInterlocutor,
   interlocutorFromGroupId,
@@ -96,7 +99,11 @@ function ChatPageInner() {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [backgroundJobs, setBackgroundJobs] = useState<PendingChatJob[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobilePane, setMobilePane] = useState<"list" | "thread">(() =>
+    urlSessionId || linkedParentJobId || highlightJobId ? "thread" : "list",
+  );
+  const [fleetSheetOpen, setFleetSheetOpen] = useState(false);
+  const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertBrief, setConvertBrief] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
@@ -207,7 +214,7 @@ function ChatPageInner() {
   const selectConversation = useCallback(
     (id: string) => {
       if (id === activeId) {
-        setSidebarOpen(false);
+        setMobilePane("thread");
         return;
       }
       if (activeId) {
@@ -226,7 +233,7 @@ function ChatPageInner() {
       setDraft("");
       setPendingFiles([]);
       setUploadError("");
-      setSidebarOpen(false);
+      setMobilePane("thread");
       refreshConversations();
       router.replace(`/chat?session=${encodeURIComponent(id)}`, { scroll: false });
     },
@@ -246,10 +253,17 @@ function ChatPageInner() {
     setDraft("");
     setPendingFiles([]);
     setUploadError("");
-    setSidebarOpen(false);
+    setMobilePane("thread");
     refreshConversations();
     router.replace(`/chat?session=${encodeURIComponent(conv.id)}`, { scroll: false });
   }, [activeId, messages, persistActiveConversation, refreshConversations, router]);
+
+  const backToMobileList = useCallback(() => {
+    if (activeId) persistActiveConversation(messages);
+    setMobilePane("list");
+    setFleetSheetOpen(false);
+    setMoreSheetOpen(false);
+  }, [activeId, messages, persistActiveConversation]);
 
   const removeConversation = useCallback(
     async (id: string) => {
@@ -741,69 +755,58 @@ function ChatPageInner() {
     activePendingCount === 0 &&
     !pending;
 
+  const interlocutorLabel = useCallback(
+    (conv: ChatConversation) => {
+      if (!conv.interlocutor || conv.interlocutor === "assistant") return null;
+      return describeInterlocutor(conv.interlocutor, groupsList as GroupOpt[]).title;
+    },
+    [groupsList],
+  );
+
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white lg:border-x lg:border-slate-200">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-slate-200 px-1.5 sm:px-2 lg:hidden">
-        <button
-          type="button"
-          onClick={() => setSidebarOpen((v) => !v)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100 lg:hidden"
-          aria-label={sidebarOpen ? "Fermer les conversations" : "Conversations"}
-          aria-expanded={sidebarOpen}
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-            <path strokeLinecap="round" d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
-          </svg>
-        </button>
-        <p className="min-w-0 flex-1 truncate px-1 text-sm font-semibold text-slate-800">
-          {conversations.find((c) => c.id === activeId)?.title || "Chat"}
-        </p>
-        <ChatInterlocutorSelect
-          value={interlocutor}
-          onChange={chooseInterlocutor}
-          groups={groupsList as GroupOpt[]}
-          disabled={pending}
-          variant="compact"
+      {/* Mobile inbox */}
+      <div className={`min-h-0 flex-1 lg:hidden ${mobilePane === "list" ? "flex" : "hidden"}`}>
+        <ChatSidebar
+          variant="inbox"
+          conversations={conversations}
+          activeId={activeId}
+          pendingJobs={backgroundJobs}
+          onSelect={selectConversation}
+          onNew={newConversation}
+          onDelete={(id) => void removeConversation(id)}
+          interlocutorLabel={interlocutorLabel}
+          className="flex"
         />
-        <button
-          type="button"
-          onClick={newConversation}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-700 hover:bg-slate-100 lg:hidden"
-          aria-label="Nouvelle conversation"
-        >
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
       </div>
 
-      <div className="relative flex min-h-0 flex-1">
-        {sidebarOpen ? (
-          <button
-            type="button"
-            className="absolute inset-0 z-10 bg-slate-950/40 lg:hidden"
-            aria-label="Fermer le panneau conversations"
-            onClick={() => setSidebarOpen(false)}
-          />
-        ) : null}
-
+      {/* Thread : mobile (si ouvert) + desktop toujours */}
+      <div
+        className={`relative min-h-0 flex-1 overflow-hidden ${
+          mobilePane === "thread" ? "flex" : "hidden lg:flex"
+        }`}
+      >
         <ChatSidebar
           conversations={conversations}
           activeId={activeId}
           pendingJobs={backgroundJobs}
           onSelect={selectConversation}
           onNew={newConversation}
-          onDelete={removeConversation}
-          interlocutorLabel={(conv) => {
-            if (!conv.interlocutor || conv.interlocutor === "assistant") return null;
-            return describeInterlocutor(conv.interlocutor, groupsList as GroupOpt[]).title;
-          }}
-          className={`absolute inset-y-0 left-0 z-20 shadow-xl lg:relative lg:shadow-none ${
-            sidebarOpen ? "flex" : "hidden lg:flex"
-          }`}
+          onDelete={(id) => void removeConversation(id)}
+          interlocutorLabel={interlocutorLabel}
+          className="hidden lg:flex"
         />
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ChatConversationHeader
+            title={conversations.find((c) => c.id === activeId)?.title || "Chat"}
+            interlocutor={interlocutor}
+            groups={groupsList as GroupOpt[]}
+            onBack={backToMobileList}
+            onOpenFleet={() => setFleetSheetOpen(true)}
+            onOpenMore={() => setMoreSheetOpen(true)}
+            pending={pending}
+          />
           <div className="hidden shrink-0 items-center gap-3 border-b border-slate-100 px-3 py-2 lg:flex">
             <ChatInterlocutorSelect
               value={interlocutor}
@@ -828,7 +831,7 @@ function ChatPageInner() {
             onStopReply={activePendingCount > 0 ? () => void stopActiveReply() : undefined}
             onConfirmAction={(message) => void send({ confirmAction: true, text: message })}
             onDismissAction={dismissPendingAction}
-            className="h-full max-w-none"
+            className="h-full max-w-none min-h-0 flex-1"
             agentLabels={agentLabels}
             onPatchMessage={patchMessage}
             onConvertToMission={openConvertPreview}
@@ -851,6 +854,29 @@ function ChatPageInner() {
           />
         </div>
       </div>
+
+      <ChatInterlocutorSheet
+        open={fleetSheetOpen}
+        onClose={() => setFleetSheetOpen(false)}
+        value={interlocutor}
+        onChange={chooseInterlocutor}
+        groups={groupsList as GroupOpt[]}
+        disabled={pending}
+      />
+      <ChatThreadMoreSheet
+        open={moreSheetOpen}
+        onClose={() => setMoreSheetOpen(false)}
+        canConvertToMission={canConvertToMission}
+        convertBusy={convertBusy}
+        onConvertToMission={openConvertPreview}
+        onDelete={() => activeId && void removeConversation(activeId)}
+        linkedParentJobId={linkedParentJobId || undefined}
+        onOpenLinkedMission={
+          linkedParentJobId
+            ? () => router.push(`/missions?job=${encodeURIComponent(linkedParentJobId)}`)
+            : undefined
+        }
+      />
     </div>
   );
 }

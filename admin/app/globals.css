@@ -70,12 +70,27 @@ body {
     max-height: calc(100dvh - var(--app-header-offset, 7rem));
   }
 
+  .app-chat-main {
+    /* Hauteur réelle viewport − header mesuré (pas de marge fantôme 10rem). */
+    height: calc(100dvh - var(--app-header-offset, 3rem));
+    max-height: calc(100dvh - var(--app-header-offset, 3rem));
+  }
+
   @media (max-width: 1023px) {
     .app-carte-main {
       height: auto;
       max-height: none;
       overflow: visible;
       min-height: calc(100dvh - var(--app-header-offset, 7rem));
+    }
+
+    html.chat-immersion .app-header-bar--chat {
+      box-shadow: none;
+    }
+
+    html.chat-immersion .app-brand {
+      font-size: 1rem;
+      line-height: 1.2;
     }
   }
 

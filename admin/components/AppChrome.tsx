@@ -42,13 +42,18 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     };
   }, [executiveMode, showTechnical, isChat, isFlushPage, statusOpen]);
 
+  useEffect(() => {
+    document.documentElement.classList.toggle("chat-immersion", isChat);
+    return () => document.documentElement.classList.remove("chat-immersion");
+  }, [isChat]);
+
   return (
     <OperatorGate>
       <CommandPalette />
-      <header ref={headerRef} className="app-header-bar">
+      <header ref={headerRef} className={`app-header-bar ${isChat ? "app-header-bar--chat" : ""}`}>
         <div
-          className={`flex w-full min-w-0 flex-wrap items-start gap-2 px-3 sm:flex-nowrap sm:gap-3 sm:px-5 lg:px-6 xl:px-8 ${
-            isChat ? "py-1.5 sm:py-3" : "py-2.5 sm:py-3"
+          className={`flex w-full min-w-0 flex-wrap items-center gap-2 px-3 sm:flex-nowrap sm:gap-3 sm:px-5 lg:px-6 xl:px-8 ${
+            isChat ? "py-1 sm:py-3 lg:items-start" : "items-start py-2.5 sm:py-3"
           }`}
         >
           <div className="min-w-0 shrink-0">
@@ -57,14 +62,14 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
             </Link>
             <p
               className={`mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-violet-700 ${
-                isChat ? "hidden sm:block" : ""
+                isChat ? "hidden lg:block" : ""
               }`}
             >
               {isEssential ? "Essentiel" : "Activité"}
             </p>
             <RuntimeHeader visible={showTechnical} />
             {!isPilotage ? (
-              <p className="mt-0.5 hidden text-xs font-semibold text-slate-500 sm:block">
+              <p className={`mt-0.5 text-xs font-semibold text-slate-500 ${isChat ? "hidden lg:block" : "hidden sm:block"}`}>
                 <button
                   type="button"
                   disabled={uiBusy}
@@ -90,13 +95,27 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               </p>
             ) : null}
           </div>
-          <div className="flex min-w-0 flex-1 items-start justify-end gap-1.5 sm:gap-2">
-            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-              <HeaderActivityToggle open={statusOpen} onToggle={() => setStatusOpen((v) => !v)} />
-              <AuthBar />
+          <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 lg:items-start">
+            <div className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${isChat ? "lg:flex" : ""}`}>
+              <div className={isChat ? "hidden lg:block" : undefined}>
+                <HeaderActivityToggle open={statusOpen} onToggle={() => setStatusOpen((v) => !v)} />
+              </div>
+              <div className={isChat ? "hidden lg:block" : undefined}>
+                <AuthBar />
+              </div>
               <NotificationBell />
             </div>
-            <AppNav />
+            <div className={isChat ? "hidden lg:block" : undefined}>
+              <AppNav />
+            </div>
+            {isChat ? (
+              <Link
+                href="/briefing"
+                className="flex h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 lg:hidden"
+              >
+                Accueil
+              </Link>
+            ) : null}
           </div>
         </div>
         {statusOpen ? (
@@ -111,7 +130,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
       <main
         className={
           isChat
-            ? "app-flush-main"
+            ? "app-flush-main app-chat-main"
             : isCarte
               ? "app-flush-main app-carte-main"
               : "w-full min-w-0 px-3 py-4 pb-safe sm:px-5 sm:py-6 lg:px-6 lg:py-8 xl:px-8"
