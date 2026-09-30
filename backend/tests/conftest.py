@@ -49,3 +49,12 @@ def client(app, test_secret: str):
     from fastapi.testclient import TestClient
 
     return TestClient(app, headers={"X-Agent-Secret": test_secret})
+
+
+@pytest.fixture(autouse=True)
+def _stub_chat_mirror_ack(monkeypatch):
+    """Évite les appels LLM réels pour l’accusé de réception (clé test invalide)."""
+    monkeypatch.setattr(
+        "routers.core_chat.generate_mirror_ack_result",
+        lambda *a, **k: ("Accusé de réception (test).", None),
+    )
