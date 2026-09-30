@@ -102,8 +102,9 @@ export function upsertConversation(conversation: ChatConversation) {
   });
 }
 
-export function deleteConversation(id: string) {
+export function deleteConversation(id: string, opts?: { remote?: boolean }) {
   saveConversations(loadConversations().filter((c) => c.id !== id));
+  if (opts?.remote === false) return;
   void deleteChatConversationOnServer(id).catch(() => {});
 }
 

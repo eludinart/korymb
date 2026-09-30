@@ -116,7 +116,8 @@ def delete_job_impl(job_id: str) -> dict:
     from database import (
         collect_job_delete_cluster_ids,
         delete_job_cascade,
-        get_conn,
+        forget_chat_session_if_empty,
+        get_job as db_get_job_row,
         resolve_job_id,
         _cluster_delete_order,
     )
@@ -124,6 +125,11 @@ def delete_job_impl(job_id: str) -> dict:
     resolved = resolve_job_id(raw)
     if not resolved:
         raise HTTPException(status_code=404, detail="Job introuvable.")
+
+    primary = db_get_job_row(resolved) or {}
+    chat_session = ""
+    if str(primary.get("source") or "").lower().startswith("chat"):
+        chat_session = str(primary.get("chat_session_id") or "").strip()
 
     cluster = collect_job_delete_cluster_ids(resolved)
     if not cluster:
@@ -137,6 +143,11 @@ def delete_job_impl(job_id: str) -> dict:
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Job introuvable.")
+    if chat_session:
+        try:
+            forget_chat_session_if_empty(chat_session)
+        except Exception:
+            logger.exception("forget chat session %s", chat_session)
     return {"deleted": resolved, "deleted_ids": deleted, "count": len(deleted)}
 
 

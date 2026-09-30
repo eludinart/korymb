@@ -270,36 +270,89 @@ function ChatPageInner() {
     setMoreSheetOpen(false);
   }, [activeId, messages, persistActiveConversation]);
 
+  const eraseConversation = useCallback(
+    async (id: string) => {
+      const conv = loadConversations().find((c) => c.id === id);
+      const convMessages = id === activeId ? messages : (conv?.messages ?? []);
+      const { deleteChatConversationOnServer } = await import("../../lib/chatConversationsApi");
+      try {
+        await deleteChatConversationOnServer(id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/404|introuvable/i.test(msg)) throw err;
+      }
+      try {
+        await deleteChatConversationJobs(id, convMessages);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/introuvable|aucune occurrence/i.test(msg)) throw err;
+      }
+      deleteConversation(id, { remote: false });
+    },
+    [activeId, messages],
+  );
+
+  const settleAfterRemoval = useCallback(
+    (removedIds: string[]) => {
+      invalidateAfterMissionDelete(qc);
+      const remaining = loadConversations();
+      const removed = new Set(removedIds);
+      const jobs = loadPendingChatJobs().filter((j) => !removed.has(j.conversationId));
+      localStorage.setItem("korymb-chat-pending-jobs-v1", JSON.stringify(jobs));
+      if (activeId && removed.has(activeId)) {
+        if (remaining.length) selectConversation(remaining[0].id);
+        else newConversation();
+      } else {
+        refreshConversations();
+        setBackgroundJobs(jobs);
+      }
+    },
+    [activeId, newConversation, qc, refreshConversations, selectConversation],
+  );
+
   const removeConversation = useCallback(
     async (id: string) => {
       if (!confirmDeleteChatConversation()) return;
-      const conv = loadConversations().find((c) => c.id === id);
-      const convMessages = id === activeId ? messages : (conv?.messages ?? []);
       try {
-        await deleteChatConversationJobs(id, convMessages);
-        invalidateAfterMissionDelete(qc);
+        await eraseConversation(id);
       } catch (err) {
         if (typeof window !== "undefined") {
           window.alert(err instanceof Error ? err.message : String(err));
         }
         return;
       }
-      deleteConversation(id);
-      const remaining = loadConversations();
-      const jobs = loadPendingChatJobs().filter((j) => j.conversationId !== id);
-      localStorage.setItem("korymb-chat-pending-jobs-v1", JSON.stringify(jobs));
-      if (activeId === id) {
-        if (remaining.length) {
-          selectConversation(remaining[0].id);
-        } else {
-          newConversation();
-        }
-      } else {
-        refreshConversations();
-        setBackgroundJobs(jobs);
-      }
+      settleAfterRemoval([id]);
     },
-    [activeId, messages, newConversation, qc, refreshConversations, selectConversation],
+    [eraseConversation, settleAfterRemoval],
+  );
+
+  const removeConversations = useCallback(
+    async (ids: string[]): Promise<boolean> => {
+      const unique = [...new Set(ids.filter(Boolean))];
+      if (!unique.length) return false;
+      if (
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `Supprimer ${unique.length} conversation(s) ?\n\nLes échanges et les jobs chat associés seront effacés. Une mission parente liée, si présente, n'est pas supprimée.`,
+        )
+      ) {
+        return false;
+      }
+      const removed: string[] = [];
+      let firstError = "";
+      for (const id of unique) {
+        try {
+          await eraseConversation(id);
+          removed.push(id);
+        } catch (err) {
+          if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+        }
+      }
+      if (removed.length) settleAfterRemoval(removed);
+      if (firstError && typeof window !== "undefined") window.alert(firstError);
+      return removed.length === unique.length;
+    },
+    [eraseConversation, settleAfterRemoval],
   );
 
   useEffect(() => {
@@ -798,6 +851,7 @@ function ChatPageInner() {
           onSelect={selectConversation}
           onNew={newConversation}
           onDelete={(id) => void removeConversation(id)}
+          onDeleteMany={(ids) => removeConversations(ids)}
           interlocutorLabel={interlocutorLabel}
           className="flex"
         />
@@ -816,6 +870,7 @@ function ChatPageInner() {
           onSelect={selectConversation}
           onNew={newConversation}
           onDelete={(id) => void removeConversation(id)}
+          onDeleteMany={(ids) => removeConversations(ids)}
           interlocutorLabel={interlocutorLabel}
           className="hidden lg:flex"
         />

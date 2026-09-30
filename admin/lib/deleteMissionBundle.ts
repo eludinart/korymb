@@ -1,5 +1,4 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { agentHeaders, requestJson } from "./api";
 import { missionActionLabel } from "./missionLabel";
 import {
   collectMissionClusterJobIds,
@@ -28,8 +27,12 @@ export function invalidateAfterMissionDelete(qc: QueryClient) {
   void qc.invalidateQueries({ queryKey: QK.deliverablesLibrary });
 }
 
+function isChatJob(job: Job | undefined): boolean {
+  return String(job?.source || "").toLowerCase().startsWith("chat");
+}
+
 function missionLikeJobs(jobs: Job[]): Job[] {
-  return jobs.filter((j) => String(j.source || "mission") !== "chat");
+  return jobs.filter((j) => !isChatJob(j));
 }
 
 function jobsInCluster(jobs: Job[], clusterKey: string): Job[] {
@@ -37,68 +40,66 @@ function jobsInCluster(jobs: Job[], clusterKey: string): Job[] {
   return missionJobs.filter((j) => missionClusterKey(j, missionJobs) === clusterKey);
 }
 
-async function fetchJobsCards(): Promise<Job[]> {
-  const { data } = await requestJson("/jobs/cards", {
-    headers: agentHeaders(),
-    retries: 1,
-    timeoutMs: 30_000,
-  });
-  const list = (data as { jobs?: unknown })?.jobs;
-  return Array.isArray(list) ? (list as Job[]) : [];
-}
-
-/** Jobs visibles du même cluster (UI). La suppression backend couvre toute la base. */
+/** Jobs visibles du même cluster mission (hors conversations chat). */
 export function collectMissionDeleteJobIds(primaryJobId: string, allJobs: Job[]): string[] {
-  return collectMissionClusterJobIds(primaryJobId, allJobs);
+  return collectMissionClusterJobIds(primaryJobId, missionLikeJobs(allJobs));
 }
 
-/**
- * Supprime jusqu'à disparition réelle du cluster (gère backend ancien = 1 job/coup
- * et faux positifs). Vérifie en rechargeant /jobs/cards entre chaque passe.
- */
+/** Supprime les jobs demandés. Un chat n'entraîne que sa session, pas les autres prompts identiques. */
 export async function deleteMissionJobBundle(jobIds: string[], allJobs: Job[] = []): Promise<number> {
-  const primary = normalizeJobId(jobIds[0]);
-  if (!primary) throw new Error("Identifiant mission manquant.");
+  const requested = [...new Set(jobIds.map((id) => normalizeJobId(id)).filter(Boolean))];
+  if (!requested.length) throw new Error("Identifiant manquant.");
 
-  const seed =
-    allJobs.find((j) => normalizeJobId(j.job_id) === primary) ||
-    ({ job_id: primary, agent: "coordinateur", mission: "" } as Job);
-  const missionJobs = missionLikeJobs(allJobs);
-  const clusterKey = missionClusterKey(seed, missionJobs.length ? missionJobs : [seed]);
+  const targets = new Set<string>(requested);
+  const missionPool = missionLikeJobs(allJobs);
 
-  let total = 0;
-  let jobs = allJobs;
-
-  for (let attempt = 0; attempt < 25; attempt++) {
-    const batch = jobsInCluster(jobs, clusterKey);
-    if (!batch.length) return total;
-
-    const targetId = normalizeJobId(batch[0].job_id);
-    const result = await deleteMissionJob(targetId);
-    const n = deletedCountFrom(result);
-    if (n <= 0) {
-      throw new Error(
-        "Aucune occurrence supprimée. Redémarrez le backend (start-dev-cursor.ps1) si le problème persiste.",
-      );
+  for (const id of requested) {
+    const job = allJobs.find((j) => normalizeJobId(j.job_id) === id);
+    if (isChatJob(job)) {
+      const session = String(job?.chat_session_id || "").trim();
+      if (session) {
+        for (const other of allJobs) {
+          if (!isChatJob(other)) continue;
+          if (String(other.chat_session_id || "").trim() !== session) continue;
+          const oid = normalizeJobId(other.job_id);
+          if (oid) targets.add(oid);
+        }
+      }
+      continue;
     }
-    total += n;
-
-    jobs = await fetchJobsCards();
-    const remaining = jobsInCluster(jobs, clusterKey);
-    if (!remaining.length) return total;
-
-    // Backend cluster (plusieurs ids d'un coup) mais reliquat visible → une passe de plus
-    if (n > 1 && attempt >= 2) {
-      throw new Error(
-        `Il reste ${remaining.length} occurrence(s) visible(s) après suppression. Réessayez ou redémarrez le backend.`,
-      );
+    if (!missionPool.length) continue;
+    for (const cid of collectMissionClusterJobIds(id, missionPool)) {
+      const nid = normalizeJobId(cid);
+      if (nid) targets.add(nid);
     }
   }
 
-  const left = jobsInCluster(await fetchJobsCards(), clusterKey);
-  if (left.length) {
+  let total = 0;
+  const alreadyGone = new Set<string>();
+  for (const id of targets) {
+    if (!id || alreadyGone.has(id)) continue;
+    try {
+      const result = await deleteMissionJob(id);
+      total += deletedCountFrom(result);
+      alreadyGone.add(id);
+      if (result.deleted) alreadyGone.add(normalizeJobId(result.deleted));
+      for (const did of result.deleted_ids || []) {
+        const nid = normalizeJobId(did);
+        if (nid) alreadyGone.add(nid);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/introuvable/i.test(msg)) {
+        alreadyGone.add(id);
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  if (total <= 0) {
     throw new Error(
-      `Impossible de tout effacer (${left.length} occurrence(s) restante(s)). Redémarrez start-dev-cursor.ps1 puis réessayez.`,
+      "Aucune occurrence supprimée. Redémarrez le backend (start-dev-cursor.ps1) si le problème persiste.",
     );
   }
   return total;

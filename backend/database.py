@@ -1877,17 +1877,53 @@ def upsert_chat_conversation(
     }
 
 
+def forget_chat_session_if_empty(session_id: str) -> None:
+    """Retire la conversation si plus aucun job chat ne la référence."""
+    sid = (session_id or "").strip()[:64]
+    if not sid:
+        return
+    ws = _ws()
+    with get_conn() as conn:
+        left = conn.execute(
+            "SELECT 1 FROM jobs WHERE chat_session_id=? AND workspace_id=? AND source LIKE 'chat%' LIMIT 1",
+            (sid, ws),
+        ).fetchone()
+        if left:
+            return
+        conn.execute(
+            "DELETE FROM chat_conversations WHERE id=? AND workspace_id=?",
+            (sid, ws),
+        )
+        conn.commit()
+
+
 def delete_chat_conversation(conv_id: str) -> bool:
+    """Efface la conversation et les jobs chat de cette session. La mission parente reste."""
     cid = (conv_id or "").strip()[:64]
     if not cid:
         return False
+    ws = _ws()
+    job_ids: list[str] = []
     with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, source FROM jobs WHERE chat_session_id=? AND workspace_id=?",
+            (cid, ws),
+        ).fetchall()
+        for row in rows or []:
+            data = dict(row)
+            if str(data.get("source") or "").lower().startswith("chat"):
+                jid = _norm_job_id(data.get("id"))
+                if jid:
+                    job_ids.append(jid)
         cur = conn.execute(
             "DELETE FROM chat_conversations WHERE id=? AND workspace_id=?",
-            (cid, _ws()),
+            (cid, ws),
         )
         conn.commit()
-    return bool(getattr(cur, "rowcount", 0))
+        removed = bool(getattr(cur, "rowcount", 0))
+    for jid in job_ids:
+        delete_job_cascade(jid)
+    return removed or bool(job_ids)
 
 
 def update_job_orchestration_phase(job_id: str, phase: str) -> None:
@@ -4012,6 +4048,10 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
     if not primary:
         return [jid]
 
+    source = str(primary.get("source") or "").strip().lower()
+    if source.startswith("chat"):
+        return _chat_job_delete_cluster_ids(jid, primary)
+
     ids: set[str] = set()
     agent = str(primary.get("agent") or "coordinateur").strip()
     mission = str(primary.get("mission") or "").strip()
@@ -4084,6 +4124,44 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
         for start in list(ids):
             add_descendants(start)
 
+    return _cluster_delete_order([x for x in ids if x])
+
+
+def _chat_job_delete_cluster_ids(job_id: str, primary: dict) -> list[str]:
+    """Jobs d'une même session chat. N'entraîne pas la mission parente ni les autres prompts identiques."""
+    ids: set[str] = {job_id}
+    session = str(primary.get("chat_session_id") or "").strip()
+    with get_conn() as conn:
+        ws = _ws()
+        if session:
+            rows = conn.execute(
+                "SELECT id, source FROM jobs WHERE chat_session_id=? AND workspace_id=?",
+                (session, ws),
+            ).fetchall()
+            for row in rows or []:
+                data = dict(row)
+                if not str(data.get("source") or "").lower().startswith("chat"):
+                    continue
+                rid = _norm_job_id(data.get("id"))
+                if rid:
+                    ids.add(rid)
+
+        def add_chat_descendants(parent: str) -> None:
+            children = conn.execute(
+                "SELECT id, source FROM jobs WHERE parent_job_id=? AND workspace_id=?",
+                (parent, ws),
+            ).fetchall()
+            for child in children or []:
+                data = dict(child)
+                if not str(data.get("source") or "").lower().startswith("chat"):
+                    continue
+                cid = _norm_job_id(data.get("id"))
+                if cid and cid not in ids:
+                    ids.add(cid)
+                    add_chat_descendants(cid)
+
+        for start in list(ids):
+            add_chat_descendants(start)
     return _cluster_delete_order([x for x in ids if x])
 
 

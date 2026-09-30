@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
 
@@ -12,6 +12,7 @@ type Props = {
   onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  onDeleteMany: (ids: string[]) => Promise<boolean | void> | boolean | void;
   interlocutorLabel?: (conv: ChatConversation) => string | null;
   className?: string;
   /** Mobile plein écran : pas de chrome desktop. */
@@ -52,12 +53,16 @@ export default function ChatSidebar({
   onSelect,
   onNew,
   onDelete,
+  onDeleteMany,
   interlocutorLabel,
   className = "",
   variant = "sidebar",
 }: Props) {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
+  const allRef = useRef<HTMLInputElement>(null);
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState(false);
   const inbox = variant === "inbox";
   const sorted = useMemo(
     () =>
@@ -82,6 +87,47 @@ export default function ChatSidebar({
       list.scrollTop += elRect.bottom - listRect.bottom;
     }
   }, [activeId, sorted, inbox]);
+
+  const pickedIds = sorted.filter((c) => picked[c.id]).map((c) => c.id);
+  const allChecked = sorted.length > 0 && pickedIds.length === sorted.length;
+
+  useEffect(() => {
+    const live = new Set(sorted.map((c) => c.id));
+    setPicked((prev) => {
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const [id, on] of Object.entries(prev)) {
+        if (on && live.has(id)) next[id] = true;
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [sorted]);
+
+  useEffect(() => {
+    if (allRef.current) allRef.current.indeterminate = pickedIds.length > 0 && !allChecked;
+  }, [pickedIds.length, allChecked]);
+
+  const toggleAll = () => {
+    if (allChecked) {
+      setPicked({});
+      return;
+    }
+    const next: Record<string, boolean> = {};
+    for (const c of sorted) next[c.id] = true;
+    setPicked(next);
+  };
+
+  const removePicked = async () => {
+    if (!pickedIds.length) return;
+    setBusy(true);
+    try {
+      const done = await onDeleteMany(pickedIds);
+      if (done !== false) setPicked({});
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const pendingByConv = new Map<string, PendingChatJob[]>();
   for (const j of pendingJobs) {
@@ -125,6 +171,31 @@ export default function ChatSidebar({
         >
           Nouvelle conversation
         </button>
+        {sorted.length > 0 ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+              <input
+                ref={allRef}
+                type="checkbox"
+                checked={allChecked}
+                disabled={busy}
+                onChange={toggleAll}
+                className="h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500"
+              />
+              Tout
+            </label>
+            {pickedIds.length > 0 ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void removePicked()}
+                className="min-h-11 rounded-lg border border-red-200 bg-red-50 px-2.5 text-[11px] font-semibold text-red-800 hover:bg-red-100 disabled:opacity-40 dark:border-red-900 dark:bg-red-950 dark:text-red-200"
+              >
+                {busy ? "Suppression…" : `Supprimer (${pickedIds.length})`}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 sm:p-2">
@@ -152,6 +223,16 @@ export default function ChatSidebar({
                           : "border-transparent bg-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
                   }`}
                 >
+                  <label className="flex min-h-11 shrink-0 cursor-pointer items-start pl-2 pt-3">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(picked[c.id])}
+                      disabled={busy}
+                      aria-label={`Sélectionner ${c.title}`}
+                      onChange={() => setPicked((prev) => ({ ...prev, [c.id]: !prev[c.id] }))}
+                      className="h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500"
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}

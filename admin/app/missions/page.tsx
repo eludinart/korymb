@@ -30,6 +30,8 @@ import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import MissionKanbanBoard from "../../components/missions/MissionKanbanBoard";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
+import { deleteChatConversationOnServer } from "../../lib/chatConversationsApi";
+import { deleteConversation } from "../../lib/chatSessions";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
 import { buildMissionExecutiveBrief } from "../../lib/missionExecutiveBrief";
@@ -244,6 +246,24 @@ function MissionsContent() {
     }
   };
 
+  const purgeArchiveEntry = async (entry: HistoryEntry) => {
+    await deleteMissionJobBundle(entry.jobIds, rows);
+    if (entry.type === "chat" && entry.id.startsWith("chat:")) {
+      const sessionId = entry.id.slice("chat:".length);
+      try {
+        await deleteChatConversationOnServer(sessionId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/404|introuvable/i.test(msg)) throw err;
+      }
+      deleteConversation(sessionId, { remote: false });
+    }
+    if (selected && entry.jobIds.includes(selected)) {
+      setSelected(null);
+      router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
+    }
+  };
+
   const deleteArchiveEntry = async (entry: HistoryEntry) => {
     const label =
       entry.type === "chat"
@@ -253,11 +273,7 @@ function MissionsContent() {
     setArchiveDeleteBusy(true);
     setError("");
     try {
-      await deleteMissionJobBundle(entry.jobIds, rows);
-      if (selected && entry.jobIds.includes(selected)) {
-        setSelected(null);
-        router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
-      }
+      await purgeArchiveEntry(entry);
       setFeedback(entry.type === "chat" ? "Conversation supprimée." : `Mission « ${entry.title} » supprimée.`);
       invalidateAfterMissionDelete(qc);
     } catch (err) {
@@ -265,6 +281,35 @@ function MissionsContent() {
     } finally {
       setArchiveDeleteBusy(false);
     }
+  };
+
+  const deleteArchiveEntries = async (entries: HistoryEntry[]): Promise<boolean> => {
+    if (!entries.length) return false;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Supprimer ${entries.length} élément(s) des archives ?\n\nLe contenu disparaît définitivement de l'application.`,
+      )
+    ) {
+      return false;
+    }
+    setArchiveDeleteBusy(true);
+    setError("");
+    let ok = 0;
+    let firstError = "";
+    for (const entry of entries) {
+      try {
+        await purgeArchiveEntry(entry);
+        ok += 1;
+      } catch (err) {
+        if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    invalidateAfterMissionDelete(qc);
+    if (ok) setFeedback(`${ok} élément(s) supprimé(s).`);
+    if (firstError) setError(firstError);
+    setArchiveDeleteBusy(false);
+    return ok === entries.length;
   };
 
   useEffect(() => {
@@ -761,6 +806,7 @@ function MissionsContent() {
             busy={archiveDeleteBusy}
             onSelect={(id) => openMission(id)}
             onDelete={(entry) => void deleteArchiveEntry(entry)}
+            onDeleteMany={(entries) => deleteArchiveEntries(entries)}
           />
         )}
         </div>
