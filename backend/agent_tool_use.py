@@ -774,23 +774,26 @@ def _execute_tool(name: str, inp: Any) -> str:
             inp = json.loads(inp) if isinstance(inp, str) else {}
         except json.JSONDecodeError:
             inp = {}
-    if name in _QUEUE_TOOLS:
-        try:
-            from services.action_queue import enqueue_from_tool
+    ctx = _tool_run_ctx.get()
+    try:
+        from services.tool_policy import apply_tool_policy
 
-            ctx = _tool_run_ctx.get()
-            return enqueue_from_tool(
-                tool_name=name,
-                inp=inp,
-                job_id=str(ctx.get("job_id") or ""),
-                agent_key=str(ctx.get("agent_key") or ""),
-            )
-        except Exception as exc:
-            logger.exception("enqueue action failed for %s", name)
+        gated = apply_tool_policy(
+            name,
+            inp,
+            job_id=str(ctx.get("job_id") or ""),
+            agent_key=str(ctx.get("agent_key") or ""),
+        )
+    except Exception as exc:
+        logger.exception("tool policy failed for %s", name)
+        if name in _QUEUE_TOOLS or name in _EXECUTE_GATED:
             return (
-                f"[sandbox] Exécution bloquée pour `{name}` — file d'arbitrage indisponible ({exc}). "
+                f"[sandbox] Exécution bloquée pour `{name}` — règle d'outils indisponible ({exc}). "
                 "Aucun effet externe n'a été produit."
             )
+        gated = None
+    if gated is not None:
+        return gated
     if name in _EXECUTE_GATED:
         try:
             from database import get_behavior_setting

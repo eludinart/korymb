@@ -34,6 +34,7 @@ from llm_client import llm_turn, llm_chat
 from agent_tool_use import llm_chat_maybe_tools, llm_turn_maybe_tools
 from state import (
     active_jobs,
+    HitlParked,
     KorymbJobCancelled,
     raise_if_job_cancelled as _raise_if_job_cancelled,
     add_daily as _add_daily,
@@ -1711,7 +1712,7 @@ def resume_orphan_hitl_execution(job_id: str) -> None:
         return
     cfg = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
     logs = list(row.get("logs") or [])
-    logs.append("[korymb] Reprise après validation — le worker d'attente n'était plus là.")
+    logs.append("[korymb] Reprise après validation du plan — exécution relancée.")
     events = list(row.get("events") or [])
     team = list(row.get("team_trace") or row.get("team") or [])
     active_jobs[jid] = {
@@ -2216,13 +2217,25 @@ def orchestrate_coordinateur_mission(
             if (prep.get("status") or "") != "awaiting_validation":
                 log("[korymb] HITL plan CIO : suspension impossible (état du job), poursuite sans attente.")
             else:
-                log("[korymb] Plan CIO — attente validation dirigeant (approuver, modifier ou rejeter).")
+                log("[korymb] Plan CIO enregistré — worker arrêté. Reprise au clic Valider.")
                 _emit_job_event(
                     job_id,
                     "cio_plan_hitl",
                     "coordinateur",
-                    {"status": "awaiting_validation", "kind": "cio_plan"},
+                    {"status": "awaiting_validation", "kind": "cio_plan", "parked": True},
                 )
+                plan_saved = {
+                    "agents": list(delegated),
+                    "synthese_attendue": str(plan.get("synthese_attendue") or "")[:4000],
+                    "sous_taches": {
+                        k: _tache_to_str(v).strip()
+                        for k, v in st.items()
+                        if k in agents_def() and k != "coordinateur" and _tache_to_str(v).strip()
+                    },
+                }
+                if job_id in active_jobs:
+                    active_jobs[job_id]["plan"] = plan_saved
+                    active_jobs[job_id]["status"] = "awaiting_validation"
                 try:
                     j = active_jobs.get(job_id) or {}
                     update_job(
@@ -2233,50 +2246,14 @@ def orchestrate_coordinateur_mission(
                         int(j.get("tokens_in", 0)),
                         int(j.get("tokens_out", 0)),
                         j.get("team") or [],
-                        plan_public,
+                        plan_saved,
                         j.get("events") or [],
                         source=j.get("source"),
                         mission_config=j.get("mission_config") if isinstance(j.get("mission_config"), dict) else None,
                     )
                 except Exception:
                     logger.exception("persist awaiting_validation snapshot")
-                outcome = _wait_for_cio_plan_hitl_resolution(job_id, job_logs)
-                dec = outcome.get("decision") if isinstance(outcome, dict) else "approve"
-                if dec == "amend":
-                    am = outcome.get("amended_plan")
-                    if isinstance(am, dict) and am:
-                        _apply_cio_plan_amendment(st, plan, am, log, job_id)
-                        delegated = [
-                            k
-                            for k in st
-                            if k in agents_def()
-                            and k != "coordinateur"
-                            and _tache_to_str(st.get(k)).strip()
-                        ]
-                        plan_public = {
-                            "agents": list(delegated),
-                            "synthese_attendue": str(plan.get("synthese_attendue") or "")[:800],
-                            "sous_taches": {
-                                k: (str(v)[:500] + ("…" if len(str(v)) > 500 else ""))
-                                for k, v in st.items()
-                                if k in agents_def() and k != "coordinateur"
-                            },
-                        }
-                        active_jobs[job_id]["plan"] = plan_public
-                        _emit_job_event(
-                            job_id,
-                            "plan_parsed",
-                            "coordinateur",
-                            {"plan": plan_public, "source": "cio_plan_hitl_amend"},
-                        )
-                else:
-                    _emit_job_event(
-                        job_id,
-                        "cio_plan_hitl_resolved",
-                        "coordinateur",
-                        {"decision": "approve"},
-                    )
-                _persist_running_job_snapshot(job_id)
+                raise HitlParked()
 
     if job_id and team_rows:
         team_rows[0]["status"] = "done"
@@ -3501,6 +3478,14 @@ def _schedule_mission_execution(
                     active_jobs[job_id]["user_validated_at"] = uv
                     active_jobs[job_id]["mission_closed_by_user"] = True
             logger.info("Job [%s] OK — %d tokens.", job_id, t_in_total + t_out_total)
+
+        except HitlParked:
+            job_logs.append(
+                "[korymb] Mission en pause — le plan est en base. Le fil d'exécution est libéré.",
+            )
+            if job_id in active_jobs:
+                active_jobs[job_id]["status"] = "awaiting_validation"
+            logger.info("Job [%s] en pause HITL (plan CIO).", job_id)
 
         except KorymbJobCancelled:
             job_logs.append("[korymb] Mission interrompue — arrêt demandé par l'utilisateur.")

@@ -25,6 +25,10 @@ class KorymbJobCancelled(Exception):
     """Annulation demandée par l'utilisateur (POST /jobs/{id}/cancel)."""
 
 
+class HitlParked(Exception):
+    """Plan CIO enregistré : le worker s'arrête. La reprise part au clic Valider."""
+
+
 def _wait_while_job_paused(job_id: str) -> None:
     """Bloque le thread mission jusqu'à reprise ou annulation."""
     import time

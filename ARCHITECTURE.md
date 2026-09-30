@@ -59,7 +59,7 @@ Every feature touching LLM execution must verify:
 
 - Missions run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
 - **Operational default: `legacy`.** `langgraph` / `shadow` are frozen unless `KORYMB_ALLOW_LANGGRAPH=1` on the API process (staging only). Nodes still wrap the legacy CIO/triad pipeline; checkpoints remain SQLite-local (`backend/data/langgraph_checkpoints.db`) — not multi-instance safe.
-- HITL wait (legacy): in-process `threading.Event` + spaced DB poll (`services/hitl_wait.py`); resolve notifies waiters via `notify_hitl_resolved`.
+- HITL plan CIO : le worker enregistre le plan (`awaiting_validation`) et s'arrête (`HitlParked`). Le clic Valider relance l'exécution (`resume_orphan_hitl_execution`), même dans un autre processus. L'attente par thread (`services/hitl_wait.py`) reste pour les tests et le mode LangGraph.
 - HITL canonique: `GET /jobs/{id}/hitl`, `POST /jobs/{id}/hitl/resolve`.
 - Clôture dirigeant post-mission: `POST /jobs/{id}/validate-mission` (distinct du HITL).
 - Décisions (file dirigeant, pas le courrier) : `GET /admin/inbox` — agrège HITL, clôtures, questions CIO, scheduler, qualité, apprentissage. UI : `/inbox` libellé **Décisions**.

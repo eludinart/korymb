@@ -91,7 +91,7 @@ def _attach_cio_chain(
     if dec not in ("approve", "amend"):
         return result
     if orphan_scheduled:
-        follow = "Exécution reprogrammée — le worker d'attente était absent"
+        follow = "Mission relancée — exécution reprise après validation"
     elif inline_waiter:
         follow = "Mission relancée — les sous-agents démarrent"
     else:
