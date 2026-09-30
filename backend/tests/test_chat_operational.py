@@ -6,6 +6,7 @@ from services.chat_intelligence import user_forces_direct_answer, user_wants_cho
 
 def test_user_wants_choice_questionnaire():
     assert user_wants_choice_questionnaire("Fais-moi un QCM pour choisir")
+    assert user_wants_choice_questionnaire("fait moi un qcm pour me simplifier la tache")
     assert user_wants_choice_questionnaire("questionnaire avec cases à cocher")
     assert not user_wants_choice_questionnaire("Que faire aujourd'hui pour Korymb ?")
 

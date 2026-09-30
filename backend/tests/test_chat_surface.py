@@ -1,4 +1,5 @@
 from services.chat_surface import surface_chat_result
+from services.choice_questionnaire import ensure_interactive_qcm
 
 
 def test_surface_chat_strips_reprise_and_global_context():
@@ -44,7 +45,25 @@ Priorise le PWA et le HITL.
     assert "améliorations d'interface" not in out
 
 
+def test_surface_chat_promotes_questions_to_qcm_when_requested():
+    raw = """Voici le cadrage.
+
+## Questions pour la suite
+1. Quelles données SUPPRIMER DÉFINITIVEMENT ? (Coche toutes celles qui ne servent plus)
+2. Quelle est TA PRIORITÉ ABSOLUE pour ce nettoyage ? (1 seul choix)
+"""
+    out = surface_chat_result(raw, keep_questionnaire=True)
+    assert "korymb-qcm" in out
+    assert "SUPPRIMER" in out
+    assert "selection" in out
+
+
+def test_ensure_interactive_qcm_noop_if_fence_present():
+    raw = "Intro\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": [{\"id\": \"a\", \"prompt\": \"P?\", \"selection\": \"multi\", \"options\": [{\"id\": \"1\", \"label\": \"A\"}]}]}\n```\n"
+    assert ensure_interactive_qcm(raw) == raw.strip()
+
+
 def test_surface_chat_can_keep_questionnaire_when_requested():
-    raw = "Voici le QCM:\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": []}\n```\n"
+    raw = "Voici le QCM:\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": [{\"id\": \"a\", \"prompt\": \"P?\", \"selection\": \"multi\", \"options\": [{\"id\": \"1\", \"label\": \"A\"}]}]}\n```\n"
     out = surface_chat_result(raw, keep_questionnaire=True)
     assert "korymb-qcm" in out

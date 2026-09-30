@@ -6,7 +6,10 @@ import re
 from services.mission_labels import resolve_mission_id_refs_in_text
 
 _CHAT_DROP_SECTIONS = re.compile(
-    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES|Questions\s+pour\s+la\s+suite).*$"
+    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES).*$"
+)
+_CHAT_DROP_QUESTIONS_SECTION = re.compile(
+    r"(?ms)^##\s+Questions\s+pour\s+la\s+suite.*$"
 )
 _CHAT_DROP_QUESTIONS_INLINE = re.compile(
     r"(?ms)^(?:#{1,3}\s*)?Questions\s+pour\s+la\s+suite\s*\n(?:\s*\d+\.\s+.+\n?)+"
@@ -41,8 +44,14 @@ def surface_chat_result(raw: str | None, *, keep_questionnaire: bool = False) ->
         return (raw or "").strip()
     text = str(raw).strip()
     text = _CHAT_DROP_SECTIONS.sub("", text).strip()
-    text = _CHAT_DROP_QUESTIONS_INLINE.sub("", text).strip()
-    if not keep_questionnaire:
+    if keep_questionnaire:
+        from services.choice_questionnaire import ensure_interactive_qcm
+
+        # Convertit une liste « Questions pour la suite » en vrai QCM interactif.
+        text = ensure_interactive_qcm(text)
+    else:
+        text = _CHAT_DROP_QUESTIONS_SECTION.sub("", text).strip()
+        text = _CHAT_DROP_QUESTIONS_INLINE.sub("", text).strip()
         text = _KORYMB_QCM_FENCE.sub("", text).strip()
         text = _CLARIFYING_JSON_HINT.sub('"clarifying_questions": []', text)
     text = _LIVRABLE_ANNEX.sub("", text).strip()

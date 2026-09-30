@@ -59,7 +59,8 @@ _QCM_REQUEST_RE = re.compile(
     r"\b("
     r"qcm|questionnaire|cases? a cocher|cases? à cocher|"
     r"choix multiples|arbitre entre|options a cocher|options à cocher|"
-    r"fais[- ]moi (un |des )?choix|propose des options a valider"
+    r"fais[- ]moi (un |des )?choix|propose des options a valider|"
+    r"fait[- ]moi (un |des )?(qcm|questionnaire)|fais[- ]moi (un |des )?(qcm|questionnaire)"
     r")\b",
     re.I,
 )
