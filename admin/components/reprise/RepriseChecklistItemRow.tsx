@@ -32,12 +32,12 @@ type Props = {
 };
 
 const ACTION_BADGE: Record<RepriseItemActionKind, string> = {
-  validated: "bg-emerald-100 text-emerald-800",
-  noted: "bg-sky-100 text-sky-800",
-  deferred: "bg-amber-100 text-amber-800",
-  ignored: "bg-slate-200 text-slate-600",
-  mission_pending: "bg-violet-100 text-violet-800",
-  agent_launched: "bg-indigo-100 text-indigo-900",
+  validated: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
+  noted: "bg-sky-100 text-sky-900 dark:bg-sky-900 dark:text-sky-100",
+  deferred: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+  ignored: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
+  mission_pending: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  agent_launched: "bg-indigo-100 text-indigo-900 dark:bg-indigo-900 dark:text-indigo-100",
 };
 
 const PASSIVE_BADGE: Record<"deferred" | "ignored", string> = {
@@ -135,7 +135,9 @@ export default function RepriseChecklistItemRow({
               {isPassive && (variant === "deferred" || variant === "ignored") ? (
                 <span
                   className={`mb-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide ${
-                    variant === "deferred" ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"
+                    variant === "deferred"
+                      ? "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100"
+                      : "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100"
                   }`}
                 >
                   {PASSIVE_BADGE[variant]}
@@ -143,13 +145,15 @@ export default function RepriseChecklistItemRow({
               ) : null}
               <p
                 className={`text-sm font-semibold leading-snug sm:text-base ${
-                  variant === "ignored" ? "text-slate-500 line-through" : "text-slate-900"
+                  variant === "ignored"
+                    ? "text-slate-500 line-through dark:text-slate-400"
+                    : "text-slate-900 dark:text-slate-50"
                 }`}
               >
                 {itemText}
               </p>
               {suggestedAgents.length > 0 && !isPassive ? (
-                <p className="mt-1 text-xs text-slate-500">Agents : {suggestedAgents.join(", ")}</p>
+                <p className="mt-1 text-xs text-slate-600 dark:text-slate-400">Agents : {suggestedAgents.join(", ")}</p>
               ) : null}
               {actionKind && !isPassive ? (
                 <div className="mt-1.5 flex flex-wrap items-center gap-2">

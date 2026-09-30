@@ -424,16 +424,16 @@ export default function RepriseAuditPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[d.status]}`} />
                       <span className="font-semibold">{d.label}</span>
-                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium">
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium text-slate-800 dark:bg-slate-950/80 dark:text-slate-100">
                         {STATUS_LABELS[d.status]}
                       </span>
                       {d.checklist_missing.length > 0 ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900">
+                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-950 dark:bg-amber-900 dark:text-amber-100">
                           {d.checklist_missing.length} à traiter
                         </span>
                       ) : null}
                       {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0) > 0 ? (
-                        <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-xs font-bold text-slate-600">
+                        <span className="rounded-full bg-slate-300/90 px-2 py-0.5 text-xs font-bold text-slate-800 dark:bg-slate-700 dark:text-slate-100">
                           {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0)} mis de côté
                         </span>
                       ) : null}
@@ -449,7 +449,7 @@ export default function RepriseAuditPage() {
                     {d.checklist_missing.length === 0 &&
                     d.checklist_covered.length === 0 &&
                     ((d.checklist_deferred?.length ?? 0) > 0 || (d.checklist_ignored?.length ?? 0) > 0) ? (
-                      <p className="md:col-span-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-3 text-sm text-slate-600">
+                      <p className="md:col-span-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-950/60 dark:text-slate-300">
                         Tous les points de ce domaine sont mis de côté. Ouvrez « Mis de côté » pour les réafficher.
                       </p>
                     ) : null}

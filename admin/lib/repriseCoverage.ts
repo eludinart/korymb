@@ -109,12 +109,17 @@ export const STATUS_LABELS: Record<DomainStatus, string> = {
 };
 
 export const STATUS_STYLES: Record<DomainStatus, string> = {
-  covered: "border-emerald-200 bg-emerald-50 text-emerald-900",
-  partial: "border-amber-200 bg-amber-50 text-amber-900",
-  missing: "border-red-200 bg-red-50 text-red-900",
-  dormant: "border-slate-200 bg-slate-100 text-slate-600",
-  not_applicable: "border-slate-200 bg-slate-50 text-slate-500",
-  deferred: "border-violet-200 bg-violet-50 text-violet-900",
+  covered:
+    "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100",
+  partial:
+    "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100",
+  missing: "border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-950 dark:text-red-100",
+  dormant:
+    "border-slate-200 bg-slate-100 text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200",
+  not_applicable:
+    "border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300",
+  deferred:
+    "border-violet-200 bg-violet-50 text-violet-900 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-100",
 };
 
 export const STATUS_DOT: Record<DomainStatus, string> = {
