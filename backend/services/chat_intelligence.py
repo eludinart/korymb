@@ -268,6 +268,8 @@ def build_targeted_memory_block(user_text: str) -> str:
     mem = get_enterprise_memory()
     contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
     parts: list[str] = []
+    intent = classify_chat_intent(user_text)
+    folded = _fold(user_text)
     try:
         from services.memory_inbox import format_enterprise_facts_prompt
 
@@ -279,18 +281,19 @@ def build_targeted_memory_block(user_text: str) -> str:
     matched = _matching_memory_lines(user_text, str(contexts.get("global") or ""))
     if matched:
         parts.append("Faits mémoire liés à la question :\n" + matched[:MEMORY_CHAT_GLOBAL_CHARS])
-    else:
-        global_ctx = str(contexts.get("global") or "").strip()
-        if global_ctx:
-            parts.append("Contexte global (extrait) :\n" + global_ctx[: min(220, MEMORY_CHAT_GLOBAL_CHARS)])
+    # Ne jamais coller un extrait global « au hasard » : ça fait dériver le chat vers CRM/reprise.
     summary = str(contexts.get("auto_summary") or "").strip()
-    if summary:
+    if summary and (intent in (INTENT_STATUS, INTENT_MISSION) or matched):
         parts.append("Résumé missions :\n" + summary[:MEMORY_CHAT_SUMMARY_CHARS])
-    fb = load_chat_apply_feedback(limit=3)
-    if fb:
-        lines = [f"- {x.get('kind')}: {x.get('title')}" for x in fb if x.get("title")]
-        if lines:
-            parts.append("Récemment validé dans Décisions :\n" + "\n".join(lines))
+    wants_decisions = intent in (INTENT_CRM, INTENT_STATUS) or bool(
+        re.search(r"\b(decisions?|décisions?|inbox|hitl|crm|contact|prospect)\b", folded)
+    )
+    if wants_decisions:
+        fb = load_chat_apply_feedback(limit=3)
+        if fb:
+            lines = [f"- {x.get('kind')}: {x.get('title')}" for x in fb if x.get("title")]
+            if lines:
+                parts.append("Récemment validé dans Décisions :\n" + "\n".join(lines))
     if not parts:
         return ""
     return (

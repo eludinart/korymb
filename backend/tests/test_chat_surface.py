@@ -67,3 +67,17 @@ def test_surface_chat_can_keep_questionnaire_when_requested():
     raw = "Voici le QCM:\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": [{\"id\": \"a\", \"prompt\": \"P?\", \"selection\": \"multi\", \"options\": [{\"id\": \"1\", \"label\": \"A\"}]}]}\n```\n"
     out = surface_chat_result(raw, keep_questionnaire=True)
     assert "korymb-qcm" in out
+
+
+def test_surface_chat_strips_strategic_cio_questions():
+    raw = """## Synthèse
+Priorise le PWA ensuite.
+
+QUESTIONS STRATÉGIQUES DU CIO
+1. Faut-il enrichir Irina Gondel ?
+2. Lancer un playbook e-mail ?
+"""
+    out = surface_chat_result(raw)
+    assert "PWA" in out
+    assert "QUESTIONS STRATÉGIQUES" not in out
+    assert "Irina" not in out

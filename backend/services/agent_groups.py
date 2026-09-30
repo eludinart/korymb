@@ -1046,11 +1046,18 @@ def format_group_memory_prompt(group_id: str, *, max_chars: int = 4000) -> str:
             global_txt = contexts.get("global") if isinstance(contexts, dict) else ""
             global_txt = global_txt.strip() if isinstance(global_txt, str) else ""
             if global_txt:
-                gmax = min(1400, max_chars)
-                clipped_g = global_txt if len(global_txt) <= gmax else global_txt[: gmax - 1].rstrip() + "…"
-                parts.append("--- Mémoire partagée (héritée) ---")
-                parts.append("Contexte global :\n" + clipped_g)
-                parts.append("--- Fin mémoire partagée ---")
+                # Ne pas injecter un pavé CRM/reprise dans une équipe projet.
+                noisy = re.compile(
+                    r"(?i)\b(crm|prospection|resalib|reprise|rgpd|coach|prospect)\b"
+                )
+                kept_lines = [ln for ln in global_txt.splitlines() if ln.strip() and not noisy.search(ln)]
+                cleaned = "\n".join(kept_lines).strip() or ""
+                if cleaned:
+                    gmax = min(600, max_chars)
+                    clipped_g = cleaned if len(cleaned) <= gmax else cleaned[: gmax - 1].rstrip() + "…"
+                    parts.append("--- Mémoire partagée (héritée, filtrée) ---")
+                    parts.append(clipped_g)
+                    parts.append("--- Fin mémoire partagée ---")
         except Exception:
             pass
     return "\n".join(parts)

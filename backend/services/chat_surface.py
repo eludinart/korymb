@@ -6,7 +6,11 @@ import re
 from services.mission_labels import resolve_mission_id_refs_in_text
 
 _CHAT_DROP_SECTIONS = re.compile(
-    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES).*$"
+    r"(?ms)^#{1,3}\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES(?:\s+DU\s+CIO)?)\b.*?(?=^#{1,3}\s|\Z)"
+)
+_CHAT_DROP_STRATEGIC_INLINE = re.compile(
+    r"(?ms)^(?:\*{0,2}|_{0,2})?QUESTIONS\s+STRATÉGIQUES(?:\s+DU\s+CIO)?(?:\*{0,2}|_{0,2})?\s*\n"
+    r"(?:^\s*\d+\.\s+.+\n?)+"
 )
 _CHAT_DROP_QUESTIONS_SECTION = re.compile(
     r"(?ms)^##\s+Questions\s+pour\s+la\s+suite.*$"
@@ -44,6 +48,7 @@ def surface_chat_result(raw: str | None, *, keep_questionnaire: bool = False) ->
         return (raw or "").strip()
     text = str(raw).strip()
     text = _CHAT_DROP_SECTIONS.sub("", text).strip()
+    text = _CHAT_DROP_STRATEGIC_INLINE.sub("", text).strip()
     if keep_questionnaire:
         from services.choice_questionnaire import ensure_interactive_qcm
 

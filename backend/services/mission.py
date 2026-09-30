@@ -1452,7 +1452,9 @@ CHAT_MODE_RESPONSE_RULES = (
     "n'expose jamais le contexte global, les checklists reprise/RGPD/conformité, "
     "l'historique de missions, ni les métadonnées d'orchestration. "
     "Si tu fais référence à une mission passée, cite son **intitulé** (consigne), jamais son numéro #job_id. "
-    "Pas de préambule du type « je consulte l'historique » : va droit au fait."
+    "Pas de préambule du type « je consulte l'historique » : va droit au fait. "
+    "Interdit de pivoter vers CRM, prospection, contacts Gestion ou tickets Décisions "
+    "sauf si le dirigeant le demande explicitement dans ce message."
 )
 
 
@@ -1533,15 +1535,23 @@ def _cio_attempt_direct_answer(
     chat_ops = ""
     if chat_mode:
         from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+        from services.agent_groups import group_memory_scope
 
         label_txt = root_mission_label or mission_txt
+        if agent_group_id and group_memory_scope(agent_group_id) != "enterprise":
+            chat_ops += (
+                "\nTu es le lead d'une **équipe projet** (pas le CIO flotte entière). "
+                "Reste STRICTEMENT sur le mandat de cette équipe et la question posée. "
+                "Interdit de digresser vers CRM, prospection, enrichment contacts, "
+                "ou validation de fiches Décisions, sauf demande explicite.\n"
+            )
         if user_forces_direct_answer(label_txt):
-            chat_ops = (
+            chat_ops += (
                 "\nLe dirigeant exige une conclusion opérationnelle **maintenant** "
                 "(pas de questionnaire, pas de « Questions pour la suite »).\n"
             )
         elif not user_wants_choice_questionnaire(label_txt):
-            chat_ops = (
+            chat_ops += (
                 "\nEn chat : réponds de façon utile et décisive. "
                 "Interdit de terminer par une grille de questions méta. "
                 "Propose des priorités concrètes si le sujet est large.\n"

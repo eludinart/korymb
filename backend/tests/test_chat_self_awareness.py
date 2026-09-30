@@ -170,5 +170,9 @@ def test_targeted_memory_and_apply_feedback(client):
     record_chat_apply_feedback(title="CRM chat — Coach Apply", kind="crm_write", detail="ok")
     fb = load_chat_apply_feedback(limit=3)
     assert any("Coach Apply" in str(x.get("title") or "") for x in fb)
+    # Hors intent CRM : ne pas coller les Décisions (évite les réponses hors sujet).
     block2 = build_targeted_memory_block("quoi de neuf")
-    assert "Récemment validé" in block2 or "Coach Apply" in block2
+    assert "Récemment validé" not in block2
+    assert "Coach Apply" not in block2
+    block3 = build_targeted_memory_block("où en sont les décisions CRM ?")
+    assert "Récemment validé" in block3 or "Coach Apply" in block3
