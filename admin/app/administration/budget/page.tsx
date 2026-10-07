@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { requestJson, agentHeaders } from "../../../lib/api";
+import type { LlmEnvelope } from "../../../components/director/EnvelopeNotice";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -307,6 +308,15 @@ export default function BudgetPage() {
     refetchInterval: 60_000,
   });
 
+  const envelope = useQuery({
+    queryKey: ["llm-envelope"],
+    queryFn: async () => {
+      const { data } = await requestJson("/config/envelope");
+      return data as LlmEnvelope;
+    },
+  });
+
+  const env = envelope.data;
   const t = tokens.data;
 
   const alertLevel =
@@ -321,6 +331,28 @@ export default function BudgetPage() {
           Suivi du burn rate LLM en temps réel — rafraîchissement toutes les 30 secondes.
         </p>
       </div>
+
+      {envelope.isLoading ? <p className="text-sm text-slate-500">Lecture de l&apos;enveloppe…</p> : null}
+      {envelope.isError ? (
+        <p className="text-sm text-red-700">{(envelope.error as Error)?.message || "Enveloppe indisponible."}</p>
+      ) : null}
+      {env?.exempt ? null : env?.own_key ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-700">
+          Clé propre à cet espace : l&apos;enveloppe incluse ne s&apos;applique pas. La consommation est facturée sur cette clé.
+          {env.paused ? " L'IA de cet espace est en pause." : ""}
+        </div>
+      ) : env?.applies ? (
+        <div className={`rounded-2xl border p-5 ${env.blocked ? "border-red-200 bg-red-50" : env.warn ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
+          <p className="text-xs font-medium uppercase tracking-wider text-slate-500">Enveloppe incluse ce mois</p>
+          <p className="mt-1 text-2xl font-bold text-slate-900">
+            {fmtTokens(Number(env.tokens_remaining || 0))} restants
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {fmtTokens(Number(env.tokens_used_month || 0))} utilisés sur {fmtTokens(Number(env.monthly_token_cap || 0))} · renouvellement le 1er
+            {env.paused ? " · IA en pause" : ""}
+          </p>
+        </div>
+      ) : null}
 
       {/* Status badges */}
       {t && (t.alert || t.budget_exceeded) && (

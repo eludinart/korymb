@@ -1498,31 +1498,68 @@ def _ensure_llm_usage_table(conn) -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)")
         except Exception:
             pass
+        _ensure_llm_usage_billing_column(conn)
         return
     cur = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_usage_events'",
     ).fetchone()
-    if cur:
-        return
-    conn.execute(
-        """
-        CREATE TABLE llm_usage_events (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at      TEXT NOT NULL,
-            job_id          TEXT,
-            context_label   TEXT NOT NULL DEFAULT '',
-            tier            TEXT NOT NULL DEFAULT '',
-            model           TEXT NOT NULL DEFAULT '',
-            provider        TEXT NOT NULL DEFAULT '',
-            tokens_in       INTEGER NOT NULL DEFAULT 0,
-            tokens_out      INTEGER NOT NULL DEFAULT 0,
-            cost_usd        REAL NOT NULL DEFAULT 0
+    if not cur:
+        conn.execute(
+            """
+            CREATE TABLE llm_usage_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at      TEXT NOT NULL,
+                job_id          TEXT,
+                context_label   TEXT NOT NULL DEFAULT '',
+                tier            TEXT NOT NULL DEFAULT '',
+                model           TEXT NOT NULL DEFAULT '',
+                provider        TEXT NOT NULL DEFAULT '',
+                tokens_in       INTEGER NOT NULL DEFAULT 0,
+                tokens_out      INTEGER NOT NULL DEFAULT 0,
+                cost_usd        REAL NOT NULL DEFAULT 0,
+                billing_source  TEXT NOT NULL DEFAULT 'platform'
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)",
-    )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)",
+        )
+    _ensure_llm_usage_billing_column(conn)
+
+
+_LEGACY_USAGE_MARKED_EXEMPT = False
+
+
+def _ensure_llm_usage_billing_column(conn) -> None:
+    """Source de facturation : platform (clé serveur), own (clé de l'espace), exempt (espace interne)."""
+    global _LEGACY_USAGE_MARKED_EXEMPT
+    from workspace_db import _table_columns
+
+    try:
+        cols = _table_columns(conn, "llm_usage_events")
+    except Exception:
+        return
+    if not cols:
+        return
+    if "billing_source" not in cols:
+        ddl = "VARCHAR(16) NOT NULL DEFAULT 'platform'" if _is_mariadb() else "TEXT NOT NULL DEFAULT 'platform'"
+        try:
+            conn.execute(f"ALTER TABLE llm_usage_events ADD COLUMN billing_source {ddl}")
+        except Exception:
+            pass
+    if _LEGACY_USAGE_MARKED_EXEMPT:
+        return
+    try:
+        from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID
+
+        conn.execute(
+            "UPDATE llm_usage_events SET billing_source = 'exempt' "
+            "WHERE workspace_id = ? AND (billing_source IS NULL OR billing_source = '' OR billing_source = 'platform')",
+            (LEGACY_ELUDE_WORKSPACE_ID,),
+        )
+        _LEGACY_USAGE_MARKED_EXEMPT = True
+    except Exception:
+        pass
 
 
 def log_llm_usage_event(
@@ -1535,13 +1572,24 @@ def log_llm_usage_event(
     tokens_in: int,
     tokens_out: int,
     cost_usd: float,
+    billing_source: str | None = None,
 ) -> None:
     now = datetime.utcnow().isoformat()
+    source = (billing_source or "").strip().lower()
+    if source not in {"platform", "own", "exempt"}:
+        try:
+            from services.llm_envelope import current_billing_source
+
+            source = current_billing_source()
+        except Exception:
+            source = "platform"
+        if source not in {"platform", "own", "exempt"}:
+            source = "platform"
     with get_conn() as conn:
         _ensure_llm_usage_table(conn)
         conn.execute(
             "INSERT INTO llm_usage_events (created_at, job_id, context_label, tier, model, provider, "
-            "tokens_in, tokens_out, cost_usd, workspace_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "tokens_in, tokens_out, cost_usd, workspace_id, billing_source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 now,
                 _norm_job_id(job_id) or None,
@@ -1553,6 +1601,7 @@ def log_llm_usage_event(
                 int(tokens_out),
                 float(cost_usd),
                 _ws(),
+                source[:16],
             ),
         )
         conn.commit()

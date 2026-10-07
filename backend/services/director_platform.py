@@ -868,6 +868,36 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
             "kind": "config",
             "urgency": "critical",
         })
+    llm_envelope: dict[str, Any] = {}
+    try:
+        from services.llm_envelope import envelope_status
+
+        llm_envelope = envelope_status()
+        if llm_envelope.get("blocked"):
+            extra_priorities.append({
+                "id": "llm-envelope",
+                "label": (
+                    "L'IA de cet espace est en pause."
+                    if llm_envelope.get("paused")
+                    else "L'enveloppe IA de cet espace est atteinte pour ce mois."
+                ),
+                "href": "/administration/budget",
+                "kind": "config",
+                "urgency": "critical",
+            })
+        elif llm_envelope.get("warn"):
+            extra_priorities.append({
+                "id": "llm-envelope",
+                "label": (
+                    f"Enveloppe IA : {llm_envelope.get('percent')} % utilisée ce mois "
+                    f"({llm_envelope.get('tokens_remaining')} tokens restants)."
+                ),
+                "href": "/administration/budget",
+                "kind": "config",
+                "urgency": "high",
+            })
+    except Exception:
+        llm_envelope = {}
     commercial: dict[str, Any] = {}
     try:
         from services.business_db import get_commercial_morning_snapshot
@@ -918,6 +948,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
+        "llm_envelope": llm_envelope,
         "executive_summary": executive_summary,
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
         "memory_highlights": memory_highlights,

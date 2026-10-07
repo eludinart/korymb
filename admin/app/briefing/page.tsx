@@ -10,6 +10,7 @@ import BriefingCommercialPanel, {
   type CommercialMorningSnapshot,
 } from "../../components/director/BriefingCommercialPanel";
 import BriefingEssential from "../../components/director/BriefingEssential";
+import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import WorkSurfaceSwitcher from "../../components/director/WorkSurfaceSwitcher";
 import ScenarioSimulator from "../../components/director/ScenarioSimulator";
@@ -92,6 +93,7 @@ function BriefingPageContent() {
           href?: string;
         } | null;
         inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
+        llm_envelope?: LlmEnvelope | null;
         unconsulted_results?: Array<{
           job_id: string;
           mission?: string;
@@ -130,6 +132,7 @@ function BriefingPageContent() {
   if (isEssential) {
     return (
       <PageShell size="wide">
+        <EnvelopeNotice envelope={b?.llm_envelope} />
         {briefing.isLoading ? <LoadingLine /> : null}
         {briefing.isError ? (
           <AlertBox tone="error" title="Accueil indisponible">
@@ -175,6 +178,7 @@ function BriefingPageContent() {
         </AlertBox>
       ) : null}
 
+      <EnvelopeNotice envelope={b?.llm_envelope} />
       {briefing.isLoading ? <LoadingLine /> : null}
       {briefing.isError ? (
         <AlertBox tone="error" title="Briefing indisponible">

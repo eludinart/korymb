@@ -28,6 +28,14 @@
 - Implementation: `backend/services/starter_packs.py`, column `korymb_workspaces.starter_pack_id` (audit only).
 - Details: `docs/STARTER-PACKS.md`.
 
+## Enveloppe IA (clé serveur)
+
+- Un espace sans clé LLM propre pour le fournisseur actif consomme la clé du serveur, dans un plafond mensuel (`korymb_workspaces.llm_monthly_token_cap`, défaut 500 000 tokens, UTC).
+- Chaque appel est journalisé avec `llm_usage_events.billing_source` : `platform`, `own` ou `exempt`.
+- L'espace Élude `ws-default-legacy` est exempt. Une clé enregistrée sur l'espace sort de l'enveloppe.
+- Le propriétaire d'instance (propriétaire de l'espace Élude, ou `KORYMB_PLATFORM_OWNER_EMAIL`) voit et règle les plafonds : `GET/PATCH /platform/llm-envelopes`. Le client lit le reste via `GET /config/envelope`.
+- Le dépassement ou la pause refuse l'appel avant le fournisseur.
+
 ## UI mode (essential / advanced)
 
 - Workspace preference `ui_mode`: `essential` (default for new spaces) or `advanced` (legacy empty / Élude).

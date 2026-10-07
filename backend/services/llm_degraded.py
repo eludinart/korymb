@@ -10,9 +10,11 @@ DEGRADED_MARKER = "[[korymb-degraded]]"
 
 _HARD_QUOTA = re.compile(
     r"402|payment required|billing|insufficient|quota|credit|crédit|solde|balance|"
-    r"exceeded your|plan limit|out of credits|invalid api key|unauthorized|401",
+    r"exceeded your|plan limit|out of credits|invalid api key|unauthorized|401|"
+    r"enveloppe IA|IA de cet espace est en pause",
     re.I,
 )
+_ENVELOPE = re.compile(r"enveloppe IA|IA de cet espace est en pause", re.I)
 _TIMEOUT = re.compile(r"timeout|timed out|délai dépassé|read timed", re.I)
 _UPSTREAM = re.compile(
     r"\bHTTP (?:500|502|503|504)\b|service unavailable|bad gateway|overloaded|capacity",
@@ -47,6 +49,9 @@ def llm_outage_is_hard(kind: str | None) -> bool:
 
 
 def llm_outage_reason(exc: BaseException | None) -> str:
+    msg = str(exc or "").strip()
+    if _ENVELOPE.search(msg):
+        return msg
     kind = llm_outage_kind(exc)
     if kind == "quota":
         return "Le crédit, le quota ou la clé du modèle est indisponible."
@@ -65,6 +70,8 @@ def degraded_chat_reply(
 ) -> str:
     """Réponse utile sans appel LLM, avec un signal explicite de mode dégradé."""
     why = (reason or "Le modèle est momentanément indisponible.").strip()
+    if _ENVELOPE.search(why):
+        return f"{DEGRADED_MARKER}\n**Enveloppe IA** — {why}"
     notice = (
         f"{DEGRADED_MARKER}\n"
         f"**Mode dégradé** — {why} "

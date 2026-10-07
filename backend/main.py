@@ -79,6 +79,7 @@ from routers.core_admin import router as core_admin_router
 from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
 from routers.core_auth import router as core_auth_router
+from routers.core_platform import router as core_platform_router
 from routers.core_business import router as core_business_router
 from routers.core_actions import router as core_actions_router
 from routers.core_telegram import router as core_telegram_router
@@ -205,6 +206,7 @@ app.include_router(core_admin_router)
 app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
 app.include_router(core_auth_router)
+app.include_router(core_platform_router)
 app.include_router(core_business_router)
 app.include_router(core_actions_router)
 app.include_router(core_telegram_router)

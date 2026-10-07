@@ -154,6 +154,8 @@ def _ensure_workspace_public_columns(conn) -> None:
         "cover_file_id": "TEXT NOT NULL DEFAULT ''",
         "starter_pack_id": "TEXT NOT NULL DEFAULT ''",
         "ui_mode": "TEXT NOT NULL DEFAULT ''",
+        "llm_monthly_token_cap": "INTEGER NOT NULL DEFAULT 500000",
+        "llm_paused": "INTEGER NOT NULL DEFAULT 0",
     }
     for name, ddl in alterations.items():
         if name not in cols:

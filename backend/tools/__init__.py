@@ -302,6 +302,13 @@ def run_describe_image(image_url: str, context: str = "") -> str:
         return "ANTHROPIC_API_KEY non configuré — impossible d'analyser l'image."
 
     try:
+        from services.llm_envelope import LlmEnvelopeError, assert_call_allowed
+
+        assert_call_allowed()
+    except LlmEnvelopeError as exc:
+        return str(exc)
+
+    try:
         import anthropic
         client = anthropic.Anthropic(api_key=_anthropic_key())
         prompt = (

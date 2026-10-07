@@ -117,6 +117,7 @@ export default function AppNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [gestionOpen, setGestionOpen] = useState(false);
   const [canAdmin, setCanAdmin] = useState(true);
+  const [platformOwner, setPlatformOwner] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
@@ -145,6 +146,7 @@ export default function AppNav() {
           return;
         }
         setCanAdmin(d.role === "admin");
+        setPlatformOwner(Boolean(d.is_platform_owner));
       })
       .catch(() => setCanAdmin(true));
   }, []);
@@ -348,6 +350,18 @@ export default function AppNav() {
           })}
         </div>
       ))}
+      {platformOwner ? (
+        <Link
+          href="/administration/enveloppes"
+          onClick={() => {
+            closeMenu();
+            closeMore();
+          }}
+          className={drawerLinkClass(isAdminLinkActive(pathname, "/administration/enveloppes"))}
+        >
+          Enveloppes IA
+        </Link>
+      ) : null}
       {isEssential ? (
         <p className="px-2 pt-1 text-[11px] font-medium text-slate-500">
           Mode Essentiel — basculez en Avancé dans Configuration pour tout afficher.
@@ -539,39 +553,6 @@ export default function AppNav() {
                     >
                       <span aria-hidden>{item.icon}</span>
                       {item.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
-        ) : null}
-
-        {adminActive ? (
-          <nav className="flex max-w-full flex-wrap justify-end gap-x-3 gap-y-1 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
-            {adminGroups.map((group) => (
-              <div
-                key={group.id}
-                className={`flex flex-wrap items-center gap-1 ${
-                  group.emphasis === "agents" ? "rounded-full bg-violet-50 px-1.5 py-0.5 ring-1 ring-violet-200" : ""
-                }`}
-              >
-                <span className={`font-bold ${group.emphasis === "agents" ? "text-violet-700" : "text-slate-400"}`}>
-                  {group.label}:
-                </span>
-                {group.links.map((item) => {
-                  const active = isAdminLinkActive(pathname, item.href);
-                  const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`inline-flex items-center rounded-full px-2.5 py-1.5 font-bold ${
-                        active ? "bg-violet-100 text-violet-900 ring-1 ring-violet-200" : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.label}
-                      {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
                     </Link>
                   );
                 })}

@@ -1211,6 +1211,9 @@ def llm_turn_with_tools(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
+    from llm_client import guard_llm_envelope
+
+    guard_llm_envelope()
     allowed = set(tool_names)
     extra = (
         "\n\nTu disposes d'outils puissants : recherche web multi-provider (Tavily/Brave/DuckDuckGo), "
@@ -1638,6 +1641,9 @@ def llm_chat_with_tools(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
 ) -> tuple[str, int, int]:
+    from llm_client import guard_llm_envelope
+
+    guard_llm_envelope()
     allowed = set(tool_names)
     extra = (
         "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), PDF, RSS, "

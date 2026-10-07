@@ -200,6 +200,13 @@ def _message_content_to_text(content: Any) -> str:
     return str(content)
 
 
+def guard_llm_envelope() -> None:
+    """Refuse l'appel si l'enveloppe incluse est atteinte ou si l'IA de l'espace est en pause."""
+    from services.llm_envelope import assert_call_allowed
+
+    assert_call_allowed()
+
+
 def _assert_llm_ready(cfg: dict[str, Any]) -> None:
     prov = normalize_llm_provider(None, cfg)
     if is_chat_completions_provider(prov):
@@ -308,6 +315,7 @@ def llm_turn(
     request_timeout: float | None = None,
     max_retries: int | None = None,
 ) -> tuple[str, int, int]:
+    guard_llm_envelope()
     t0 = time.monotonic()
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
@@ -374,6 +382,7 @@ def llm_chat(
     request_timeout: float | None = None,
     max_retries: int | None = None,
 ) -> tuple[str, int, int]:
+    guard_llm_envelope()
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
     if is_chat_completions_provider(prov):

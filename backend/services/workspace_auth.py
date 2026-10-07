@@ -431,6 +431,17 @@ async def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[
     return auth
 
 
+async def require_platform_owner(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+    """Propriétaire de l'instance — pas tout admin d'espace, pas le secret agent."""
+    if auth.get("mode") != "user":
+        raise HTTPException(status_code=403, detail="Réservé au propriétaire de l'instance.")
+    from services.llm_envelope import is_platform_owner
+
+    if not is_platform_owner(str(auth.get("user_id") or "")):
+        raise HTTPException(status_code=403, detail="Réservé au propriétaire de l'instance.")
+    return auth
+
+
 async def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
     """Admin ou membre d'équipe. Le secret agent passe (scripts) ; le participant est refusé."""
     if auth.get("mode") == "agent_secret":
@@ -456,6 +467,7 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     )
     ws = dict(workspace or {})
     from workspace_db import normalize_ui_mode
+    from services.llm_envelope import is_platform_owner
 
     return {
         "user": user,
@@ -471,6 +483,7 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
         "workspaces": workspaces,
         "members": members,
         "role": role,
+        "is_platform_owner": is_platform_owner(user_id),
         "membership_status": normalize_participant_status(
             (membership or {}).get("status"),
             role=role,

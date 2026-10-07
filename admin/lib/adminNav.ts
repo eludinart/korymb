@@ -1,4 +1,4 @@
-/** Lien d'administration (source unique header AppNav + sidebar /administration). */
+/** Lien d'administration (sidebar /administration ; tiroir mobile via AppNav). */
 export type AdminNavLink = { href: string; label: string };
 
 export type AdminNavGroup = {
