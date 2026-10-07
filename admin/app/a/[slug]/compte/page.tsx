@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../../../lib/api";
 import { accountDisplayName, type AuthMeResponse } from "../../../../lib/authSession";
+import { queryClient } from "../../../../lib/queryClient";
 import { useSubscriberSpace } from "../../../../lib/subscriberHome";
 import { SessionList } from "../../../../components/espace/SubscriberLists";
 
 export default function SubscriberComptePage() {
   const { slug } = useParams<{ slug: string }>();
-  const router = useRouter();
   const home = useSubscriberSpace(slug);
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [displayName, setDisplayName] = useState("");
@@ -70,9 +70,10 @@ export default function SubscriberComptePage() {
   }
 
   async function logout() {
+    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/");
-    router.refresh();
+    queryClient.clear();
+    window.location.assign("/");
   }
 
   if (loading) {

@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { formatHttpApiErrorPayload } from "../../lib/api";
+import { queryClient } from "../../lib/queryClient";
 
 export function AccountLoginForm({
   audience,
@@ -12,7 +13,6 @@ export function AccountLoginForm({
   audience: "operator" | "subscriber";
   workspaceSlug?: string;
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const workspace = workspaceSlug || searchParams.get("workspace") || "";
   const next = searchParams.get("next") || "";
@@ -43,23 +43,17 @@ export function AccountLoginForm({
         setError(formatHttpApiErrorPayload(data) || "Connexion impossible.");
         return;
       }
-      const role = String(data.role || "");
       const slug = String(data.workspace?.slug || workspace || "");
+      let dest = "/";
       if (isOperator) {
-        if (next.startsWith("/") && !next.startsWith("/a/") && !next.startsWith("/p/")) {
-          router.replace(next);
-        } else {
-          router.replace("/briefing");
-        }
+        dest = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/a/") && !next.startsWith("/p/") ? next : "/briefing";
       } else if (next.startsWith("/a/")) {
-        router.replace(next);
+        dest = next;
       } else if (slug) {
-        router.replace(`/a/${encodeURIComponent(slug)}`);
-      } else {
-        router.replace("/");
+        dest = `/a/${encodeURIComponent(slug)}`;
       }
-      void role;
-      router.refresh();
+      queryClient.clear();
+      window.location.assign(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau.");
     } finally {

@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AuthMeResponse } from "../lib/authSession";
+import { queryClient } from "../lib/queryClient";
 
 export default function AuthBar() {
-  const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -84,9 +83,10 @@ export default function AuthBar() {
 
   async function logout() {
     setMenuOpen(false);
+    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/");
-    router.refresh();
+    queryClient.clear();
+    window.location.assign("/");
   }
 
   if (loading) {

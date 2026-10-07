@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import type { AuthMeResponse } from "../../lib/authSession";
+import { queryClient } from "../../lib/queryClient";
 
 export default function ProfilPage() {
   const [me, setMe] = useState<AuthMeResponse | null>(null);
@@ -61,6 +62,7 @@ export default function ProfilPage() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    queryClient.clear();
     window.location.href = "/";
   }
 

@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { accountDisplayName, type AuthMeResponse } from "../lib/authSession";
+import { queryClient } from "../lib/queryClient";
 import { ESPACE_NAV_LINKS, espaceHref, isEspaceLinkActive } from "../lib/espaceNav";
 import { useSubscriberHome } from "../lib/subscriberHome";
 import { PracticePoweredBy, PracticeTheme } from "./practice/PracticeTheme";
 
 export default function SubscriberShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  const router = useRouter();
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const home = useSubscriberHome();
 
@@ -39,9 +39,11 @@ export default function SubscriberShell({ children }: { children: React.ReactNod
   const userName = accountDisplayName(me);
 
   async function logout() {
+    const dest = slug ? `/p/${encodeURIComponent(slug)}` : "/";
+    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace(slug ? `/p/${encodeURIComponent(slug)}` : "/");
-    router.refresh();
+    queryClient.clear();
+    window.location.assign(dest);
   }
 
   return (
