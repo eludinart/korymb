@@ -289,6 +289,19 @@ def _has_reprise_context(corpus: str) -> bool:
     return bool(re.search(r"reprise|cession|acquisition|transmission|due diligence", corpus))
 
 
+# Domaines d'un métier précis : absents tant que le corpus de l'espace ne les mentionne pas.
+_SPECIALTY_DOMAIN_IDS = frozenset({"editorial_tarot"})
+
+
+def _corpus_word_count(corpus: str) -> int:
+    return len(re.findall(r"[a-zàâäéèêëïîôùûüç0-9]{4,}", corpus or ""))
+
+
+def _workspace_corpus_is_blank(corpus: str) -> bool:
+    """Espace sans mémoire ni missions : pas de checklist métier héritée."""
+    return _corpus_word_count(corpus) < 3
+
+
 def _format_director_reprise_decisions(actions: list[dict[str, Any]]) -> str:
     """Synthèse des choix dirigeant — à injecter dans les prompts pour ne pas reproposer l'éliminé."""
     ignored: list[str] = []
@@ -432,8 +445,8 @@ def _merge_user_actions(coverage: dict[str, Any], actions: list[dict[str, Any]])
         checklist_ratio = len(covered) / max(1, total_items) if total_items else 0.0
         keyword_score = len(domain.get("keyword_hits") or [])
         base_status = str(domain.get("status") or "missing")
-        if base_status == "dormant":
-            status = "dormant"
+        if base_status in ("dormant", "not_applicable"):
+            status = base_status
         else:
             status = _domain_status_after_actions(
                 keyword_score=keyword_score,
@@ -579,6 +592,8 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     ecosystem = ctx or build_ecosystem_proposal_context(max_chars=14_000)
     corpus = _collect_corpus(ecosystem)
     has_reprise = _has_reprise_context(corpus)
+    own_actions = list_reprise_checklist_actions()
+    blank = _workspace_corpus_is_blank(corpus) and not own_actions
 
     domains_out: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
@@ -592,8 +607,17 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
 
         checklist_ratio = len(covered_items) / max(1, len(checklist))
         keyword_score = len(hits)
+        specialty_unmatched = domain["id"] in _SPECIALTY_DOMAIN_IDS and keyword_score == 0
 
-        if scope == REPRISE_SCOPE_ACQUISITION and not has_reprise:
+        if blank or specialty_unmatched:
+            status = "not_applicable"
+            covered_items, missing_items = [], []
+            dormant_reason = (
+                "Aucun contexte métier dans cet espace."
+                if blank
+                else "Ce domaine ne correspond pas à l'activité documentée dans cet espace."
+            )
+        elif scope == REPRISE_SCOPE_ACQUISITION and not has_reprise:
             status = "dormant"
             dormant_reason = (
                 "Hors périmètre actuel : aucune reprise/cession documentée en mémoire. "
@@ -624,22 +648,24 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
             entry["dormant_reason"] = dormant_reason
         domains_out.append(entry)
 
-        if status not in ("covered", "dormant"):
+        if status not in ("covered", "dormant", "not_applicable"):
             gaps.append({
                 **entry,
                 "priority": 0 if status == "missing" else 1,
             })
 
     gaps.sort(key=lambda g: (g.get("priority", 9), g.get("label") or ""))
-    active_domains = [d for d in domains_out if d.get("status") != "dormant"]
+    active_domains = [d for d in domains_out if d.get("status") not in ("dormant", "not_applicable")]
     covered_n = sum(1 for d in active_domains if d["status"] == "covered")
     partial_n = sum(1 for d in active_domains if d["status"] == "partial")
     missing_n = sum(1 for d in active_domains if d["status"] == "missing")
     dormant_n = sum(1 for d in domains_out if d["status"] == "dormant")
+    na_n = sum(1 for d in domains_out if d["status"] == "not_applicable")
 
     result = {
         "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "coverage_score": round(covered_n / max(1, len(active_domains)), 2) if active_domains else 1.0,
+        "coverage_score": 0.0 if blank else (round(covered_n / max(1, len(active_domains)), 2) if active_domains else 1.0),
+        "workspace_empty": blank,
         "summary": {
             "total_domains": len(domains_out),
             "active_domains": len(active_domains),
@@ -647,10 +673,11 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
             "partial": partial_n,
             "missing": missing_n,
             "dormant": dormant_n,
+            "not_applicable": na_n,
         },
-        "domains": domains_out,
-        "gaps": gaps,
-        "has_reprise_context": has_reprise,
+        "domains": [] if blank else domains_out,
+        "gaps": [] if blank else gaps,
+        "has_reprise_context": False if blank else has_reprise,
     }
     actions = list_reprise_checklist_actions()
     merged = _merge_user_actions(result, actions)

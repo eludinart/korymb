@@ -58,6 +58,8 @@ export type CoverageResult = {
   domains: RepriseDomain[];
   gaps: RepriseDomain[];
   has_reprise_context: boolean;
+  /** Espace sans mémoire ni missions : pas de checklist d'un autre métier. */
+  workspace_empty?: boolean;
   director_decisions_summary?: string;
   user_actions?: Record<string, RepriseItemAction>;
 };

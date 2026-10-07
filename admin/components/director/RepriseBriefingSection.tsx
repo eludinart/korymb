@@ -67,7 +67,11 @@ export default function RepriseBriefingSection() {
         </AlertBox>
       ) : null}
 
-      {data ? (
+      {data?.workspace_empty ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+          Aucun audit de reprise dans cet espace. Il se construira à partir de votre activité, pas de celle d&apos;un autre compte.
+        </p>
+      ) : data ? (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-950">

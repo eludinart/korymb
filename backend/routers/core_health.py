@@ -158,7 +158,7 @@ def _web_tools_probe_json(*, refresh: bool) -> JSONResponse:
     )
 
 
-_TOKENS_PAYLOAD_CACHE: tuple[float, dict] | None = None
+_TOKENS_PAYLOAD_CACHE: dict[str, tuple[float, dict]] = {}
 _TOKENS_PAYLOAD_TTL_S = 25.0
 
 
@@ -209,12 +209,15 @@ def _tokens_payload_uncached() -> dict:
 
 
 def tokens_payload() -> dict:
-    global _TOKENS_PAYLOAD_CACHE
+    from database import _ws
+
+    wid = _ws()
     now = time.time()
-    if _TOKENS_PAYLOAD_CACHE and (now - _TOKENS_PAYLOAD_CACHE[0]) < _TOKENS_PAYLOAD_TTL_S:
-        return _TOKENS_PAYLOAD_CACHE[1]
+    hit = _TOKENS_PAYLOAD_CACHE.get(wid)
+    if hit and (now - hit[0]) < _TOKENS_PAYLOAD_TTL_S:
+        return hit[1]
     body = _tokens_payload_uncached()
-    _TOKENS_PAYLOAD_CACHE = (now, body)
+    _TOKENS_PAYLOAD_CACHE[wid] = (now, body)
     return body
 
 

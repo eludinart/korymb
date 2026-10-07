@@ -2,7 +2,6 @@ import type { ChatMsg } from "../components/chat/ChatShell";
 import {
   deleteChatConversationOnServer,
   fetchChatConversationsFromServer,
-  importLocalConversationsToServer,
   persistChatConversationToServer,
 } from "./chatConversationsApi";
 
@@ -23,6 +22,16 @@ const ACTIVE_KEY = "korymb-chat-active-conversation-v1";
 const LEGACY_MESSAGES_KEY = "korymb-chat-messages-v2";
 const LEGACY_SESSION_KEY = "korymb-chat-session-v2";
 
+let boundWorkspaceId = "";
+
+export function bindChatStorageWorkspace(workspaceId: string) {
+  boundWorkspaceId = (workspaceId || "").trim();
+}
+
+function scopedKey(base: string) {
+  return boundWorkspaceId ? `${base}:${boundWorkspaceId}` : base;
+}
+
 function now() {
   return Date.now();
 }
@@ -39,11 +48,12 @@ export function conversationTitleFromMessages(messages: ChatMsg[]): string {
 export function loadConversations(): ChatConversation[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(INDEX_KEY);
+    const raw = localStorage.getItem(scopedKey(INDEX_KEY));
     if (raw) {
       const parsed = JSON.parse(raw) as ChatConversation[];
       return Array.isArray(parsed) ? parsed.sort((a, b) => b.updatedAt - a.updatedAt) : [];
     }
+    if (boundWorkspaceId) return [];
     const legacy = localStorage.getItem(LEGACY_MESSAGES_KEY);
     if (legacy) {
       const messages = JSON.parse(legacy) as ChatMsg[];
@@ -70,17 +80,17 @@ export function loadConversations(): ChatConversation[] {
 export function saveConversations(conversations: ChatConversation[]) {
   if (typeof window === "undefined") return;
   const sorted = [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  localStorage.setItem(INDEX_KEY, JSON.stringify(sorted));
+  localStorage.setItem(scopedKey(INDEX_KEY), JSON.stringify(sorted));
 }
 
 export function getActiveConversationId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACTIVE_KEY);
+  return localStorage.getItem(scopedKey(ACTIVE_KEY));
 }
 
 export function setActiveConversationId(id: string) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(ACTIVE_KEY, id);
+  localStorage.setItem(scopedKey(ACTIVE_KEY), id);
 }
 
 export function createConversation(opts?: { linkedParentJobId?: string }): ChatConversation {
@@ -108,15 +118,24 @@ export function deleteConversation(id: string, opts?: { remote?: boolean }) {
   void deleteChatConversationOnServer(id).catch(() => {});
 }
 
-/** Charge les conversations serveur ; migre le localStorage si le serveur est vide. */
+async function bindWorkspaceFromSession(): Promise<void> {
+  try {
+    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { workspace?: { id?: string } };
+    const id = String(data?.workspace?.id || "").trim();
+    if (id) bindChatStorageWorkspace(id);
+  } catch {
+    /* conserve le cache local si la session n'est pas lisible */
+  }
+}
+
+/** Charge les conversations de l'espace courant. Un serveur vide reste vide (pas de reprise du cache d'un autre espace). */
 export async function hydrateConversationsFromServer(): Promise<ChatConversation[]> {
   try {
-    let server = await fetchChatConversationsFromServer();
+    await bindWorkspaceFromSession();
+    const server = await fetchChatConversationsFromServer();
     const local = loadConversations();
-    if (!server.length && local.length) {
-      await importLocalConversationsToServer(local);
-      server = await fetchChatConversationsFromServer();
-    }
     if (server.length) {
       const localById = new Map(local.map((c) => [c.id, c]));
       const merged = server.map((row) => ({
@@ -126,7 +145,8 @@ export async function hydrateConversationsFromServer(): Promise<ChatConversation
       saveConversations(merged);
       return merged;
     }
-    return local;
+    saveConversations([]);
+    return [];
   } catch {
     return loadConversations();
   }

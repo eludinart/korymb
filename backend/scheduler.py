@@ -147,13 +147,16 @@ async def _execute_mission_async(task: dict) -> None:
 
 async def run_task_by_id(task_id: str) -> None:
     """Point d'entrée APScheduler : charge la tâche, vérifie le budget, exécute."""
-    from database import get_scheduled_task, update_scheduled_task
+    from database import get_scheduled_task_any, update_scheduled_task
+    from tenant_context import set_tenant_context
+    from workspace_db import _DEFAULT_WORKSPACE_ID
 
     try:
-        task = get_scheduled_task(task_id)
+        task = get_scheduled_task_any(task_id)
         if not task:
             logger.warning("Tâche autonome introuvable : %s", task_id)
             return
+        set_tenant_context(workspace_id=str(task.get("workspace_id") or _DEFAULT_WORKSPACE_ID))
         if not task.get("enabled"):
             return
 
@@ -211,7 +214,7 @@ def register_db_tasks(scheduler) -> None:
     """Charge toutes les tâches activées depuis la DB et les enregistre dans le scheduler."""
     try:
         from database import list_scheduled_tasks
-        tasks = list_scheduled_tasks()
+        tasks = list_scheduled_tasks(all_workspaces=True)
         for task in tasks:
             if not task.get("enabled"):
                 continue

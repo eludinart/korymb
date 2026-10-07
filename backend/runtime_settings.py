@@ -68,7 +68,7 @@ def _migrate_json_file_to_db(file_data: dict[str, Any]) -> None:
 
 
 def _read_disk_raw() -> dict[str, Any]:
-    """Surcharges persistées : base de données, avec repli fichier legacy."""
+    """Surcharges de cet espace. Le fichier d'install n'est repris que par l'espace legacy."""
     try:
         from database import load_llm_runtime_settings_raw
 
@@ -77,6 +77,14 @@ def _read_disk_raw() -> dict[str, Any]:
             return {k: v for k, v in db_data.items() if k in _KEYS}
     except Exception:
         pass
+
+    try:
+        from services.workspace_brand import is_legacy_elude_workspace
+
+        if not is_legacy_elude_workspace():
+            return {}
+    except Exception:
+        return {}
 
     file_data = _read_json_file_raw()
     if file_data:

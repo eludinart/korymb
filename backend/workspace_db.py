@@ -45,6 +45,7 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "llm_runtime_settings",
     "custom_agents",
     "agent_groups",
+    "agent_group_memory",
     "team_blueprints",
     "enterprise_memory",
     "mission_idempotency",
@@ -56,6 +57,7 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "director_notifications",
     "hitl_plan_snapshots",
     "learning_suggestions",
+    "config_suggestions",
     "quality_verdicts",
     "playbooks",
     "reprise_checklist_actions",
@@ -860,6 +862,9 @@ def seed_workspace_defaults(workspace_id: str) -> None:
         seed_orchestration_prompt_defaults()
         seed_behavior_defaults()
         _seed_workspace_starters(workspace_id)
+        from services.agent_groups import ensure_enterprise_group
+
+        ensure_enterprise_group()
     finally:
         if prev:
             set_tenant_context(workspace_id=prev)

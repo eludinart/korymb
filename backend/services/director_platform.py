@@ -12,6 +12,7 @@ SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test"})
 
 from database import (
     _user_validated_set,
+    _ws,
     get_hitl_gate,
     list_autonomous_outputs,
     list_director_notifications,
@@ -838,8 +839,8 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         from database import get_conn
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT status FROM jobs WHERE updated_at >= ?",
-                (since.isoformat(),),
+                "SELECT status FROM jobs WHERE workspace_id=? AND updated_at >= ?",
+                (_ws(), since.isoformat()),
             ).fetchall()
         statuses = [str(dict(r).get("status") or "") for r in rows or []]
         analytics = {

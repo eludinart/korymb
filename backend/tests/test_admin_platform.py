@@ -687,6 +687,11 @@ def test_reprise_coverage_scan(client):
 
 
 def test_reprise_item_action_validates_and_updates_coverage(client):
+    from database import merge_enterprise_contexts
+
+    merge_enterprise_contexts({
+        "global": "Activité de formation et facturation clients, registre RGPD à tenir.",
+    })
     r0 = client.get("/admin/reprise/coverage")
     assert r0.status_code == 200
     domain = next(

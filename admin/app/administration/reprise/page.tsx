@@ -381,6 +381,7 @@ export default function RepriseAuditPage() {
         <p className="text-sm text-slate-500">Chargement du scan reprise…</p>
       ) : data ? (
         <>
+          {!data.workspace_empty ? (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Couverture globale</p>
@@ -399,8 +400,15 @@ export default function RepriseAuditPage() {
               <p className="mt-1 text-2xl font-bold text-red-900">{data.summary.missing}</p>
             </div>
           </section>
+          ) : null}
 
-          {!data.has_reprise_context ? (
+          {data.workspace_empty ? (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+              Cet espace n&apos;a pas encore d&apos;audit de reprise. Les checklists d&apos;une autre activité (clients, éditorial, cession…) n&apos;apparaissent pas ici. Décrivez votre activité dans la mémoire pour lancer un premier scan.
+            </p>
+          ) : null}
+
+          {!data.workspace_empty && !data.has_reprise_context ? (
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Peu de contexte « reprise » détecté. Ajoutez dans{" "}
               <Link href="/administration/memory" className="font-semibold underline">
@@ -410,6 +418,7 @@ export default function RepriseAuditPage() {
             </p>
           ) : null}
 
+          {!data.workspace_empty ? (
           <section>
             <h2 className="section-title mb-4">Checklist par domaine</h2>
             <div className="space-y-3">
@@ -548,8 +557,9 @@ export default function RepriseAuditPage() {
               ))}
             </div>
           </section>
+          ) : null}
 
-          {data.gaps.length > 0 ? (
+          {data.workspace_empty ? null : data.gaps.length > 0 ? (
             <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
               <h2 className="text-sm font-bold text-violet-900">
                 {data.gaps.length} lacune(s) prioritaire(s)

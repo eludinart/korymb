@@ -34,7 +34,7 @@ class AdminAgentUpsertBody(BaseModel):
     tools: list[str] = Field(default_factory=list)
 
 
-@router.get("/agents")
+@router.get("/agents", dependencies=[Depends(resolve_tenant)])
 def list_agents():
     ad = agents_def()
     return {
