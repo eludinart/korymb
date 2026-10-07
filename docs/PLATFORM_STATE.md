@@ -19,6 +19,7 @@
 - Templates avancés : `/administration/templates`.
 - Mémoire : `/administration/memory` · Scheduler : `/administration/autonomie`.
 - **Pas** de section produit « Rapports ».
+- Instance (propriétaire) : **Mes clients** `/administration/portefeuille` (signaux, ouvrir, créer, renommer, pause, file À traiter, archiver puis supprimer) et Enveloppes IA.
 
 ## Chat & QCM
 - Question « ce qui marche / ce qui bloque » : deux blocs courts tirés de ce fichier. Pas de roadmap.

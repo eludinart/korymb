@@ -362,6 +362,10 @@ def _resolve_workspace_from_request(
             ws = workspaces[0]["id"] if workspaces else _DEFAULT_WORKSPACE_ID
         membership = get_membership(ws, user_id)
         if not membership:
+            from services.llm_envelope import is_platform_owner
+
+            if is_platform_owner(user_id) and get_workspace_by_id(ws):
+                return ws, user_id, "admin"
             raise HTTPException(status_code=403, detail="Accès refusé à cet espace Korymb.")
         role = normalize_role(str(membership.get("role") or "member"))
         return ws, user_id, role

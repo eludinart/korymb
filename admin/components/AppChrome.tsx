@@ -10,6 +10,7 @@ import RuntimeHeader from "./RuntimeHeader";
 import NotificationBell from "./director/NotificationBell";
 import AuthBar from "./AuthBar";
 import CommandPalette from "./CommandPalette";
+import EssentialSurfaceGate from "./EssentialSurfaceGate";
 import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
 import ColorSchemeToggle from "./ColorSchemeToggle";
@@ -19,7 +20,14 @@ import { useSyncVisualViewportHeight } from "../lib/visualViewport";
 
 export default function AppChrome({ children }: { children: React.ReactNode }) {
   const { executiveMode, showTechnical, technicalOptIn, isPilotage, toggleTechnical } = useExecutiveMode();
-  const { isEssential, setUiMode, busy: uiBusy } = useUiMode();
+  const {
+    showAdvanced,
+    setUiMode,
+    busy: uiBusy,
+    canSetUiMode,
+    error: uiModeError,
+    loading: uiLoading,
+  } = useUiMode();
   const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname() || "";
   const isChat = pathname === "/chat";
@@ -71,20 +79,26 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                 isChat ? "hidden lg:block" : ""
               }`}
             >
-              {isEssential ? "Essentiel" : "Activité"}
+              {uiLoading ? "\u00a0" : showAdvanced ? "Activité" : "Essentiel"}
             </p>
             <RuntimeHeader visible={showTechnical && !isChat} />
             {!isPilotage ? (
               <p className={`mt-0.5 text-xs font-semibold text-slate-500 dark:text-slate-400 ${isChat ? "hidden" : "hidden sm:block"}`}>
-                <button
-                  type="button"
-                  disabled={uiBusy}
-                  onClick={() => void setUiMode(isEssential ? "advanced" : "essential")}
-                  className="font-bold text-violet-700 underline-offset-2 hover:underline disabled:opacity-60 dark:text-violet-300"
-                >
-                  {isEssential ? "Passer en Avancé" : "Passer en Essentiel"}
-                </button>
-                <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
+                {canSetUiMode && !uiLoading ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={uiBusy}
+                      onClick={() => {
+                        void setUiMode(showAdvanced ? "essential" : "advanced").catch(() => undefined);
+                      }}
+                      className="font-bold text-violet-700 underline-offset-2 hover:underline disabled:opacity-60 dark:text-violet-300"
+                    >
+                      {showAdvanced ? "Passer en Essentiel" : "Passer en Avancé"}
+                    </button>
+                    <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
+                  </>
+                ) : null}
                 <button
                   type="button"
                   onClick={toggleTechnical}
@@ -98,6 +112,11 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                     <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] dark:bg-slate-800">Ctrl+K</kbd>
                   </>
                 ) : null}
+              </p>
+            ) : null}
+            {uiModeError ? (
+              <p className={`mt-0.5 text-xs font-semibold text-red-700 dark:text-red-300 ${isChat ? "hidden" : ""}`}>
+                {uiModeError}
               </p>
             ) : null}
           </div>
@@ -143,7 +162,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               : "w-full min-w-0 px-3 py-4 pb-safe sm:px-5 sm:py-6 lg:px-6 lg:py-8 xl:px-8"
         }
       >
-        {children}
+        <EssentialSurfaceGate>{children}</EssentialSurfaceGate>
       </main>
     </OperatorGate>
   );

@@ -15,6 +15,32 @@ class EnvelopePatch(BaseModel):
     paused: bool | None = None
 
 
+class PortfolioCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=200)
+    starter_pack_id: str = Field(default="blank", max_length=64)
+
+
+class PortfolioPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    paused: bool | None = None
+
+
+class PortfolioDelete(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirm_name: str = Field(min_length=1, max_length=200)
+
+
+def _portfolio_call(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        message = str(exc)
+        status = 404 if message == "Espace introuvable." else 400
+        raise HTTPException(status_code=status, detail=message) from exc
+
+
 @router.get("/config/envelope")
 def config_envelope(auth: dict = Depends(require_operator)):
     from services.llm_envelope import envelope_status
@@ -44,3 +70,66 @@ def platform_patch_envelope(workspace_id: str, body: EnvelopePatch):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/platform/portfolio", dependencies=[Depends(require_platform_owner)])
+def platform_portfolio():
+    from services.platform_portfolio import list_portfolio
+
+    return list_portfolio()
+
+
+@router.get("/platform/attention", dependencies=[Depends(require_platform_owner)])
+def platform_attention(limit: int = 80):
+    from services.platform_portfolio import attention_queue
+
+    return attention_queue(limit=limit)
+
+
+@router.post("/platform/workspaces", dependencies=[Depends(require_platform_owner)])
+def platform_create_workspace(body: PortfolioCreate, auth: dict = Depends(require_platform_owner)):
+    from services.platform_portfolio import create_client_space
+
+    return _portfolio_call(
+        create_client_space,
+        name=body.name,
+        owner_user_id=str(auth.get("user_id") or ""),
+        starter_pack_id=body.starter_pack_id,
+    )
+
+
+@router.patch("/platform/workspaces/{workspace_id}", dependencies=[Depends(require_platform_owner)])
+def platform_patch_workspace(workspace_id: str, body: PortfolioPatch):
+    from services.platform_portfolio import update_client_space
+
+    if body.name is None and body.paused is None:
+        raise HTTPException(status_code=400, detail="Indiquez un nom ou une pause.")
+    return _portfolio_call(update_client_space, workspace_id, name=body.name, paused=body.paused)
+
+
+@router.post("/platform/workspaces/{workspace_id}/archive", dependencies=[Depends(require_platform_owner)])
+def platform_archive_workspace(workspace_id: str):
+    from services.platform_portfolio import archive_client_space
+
+    return _portfolio_call(archive_client_space, workspace_id)
+
+
+@router.post("/platform/workspaces/{workspace_id}/restore", dependencies=[Depends(require_platform_owner)])
+def platform_restore_workspace(workspace_id: str):
+    from services.platform_portfolio import restore_client_space
+
+    return _portfolio_call(restore_client_space, workspace_id)
+
+
+@router.post("/platform/workspaces/{workspace_id}/delete", dependencies=[Depends(require_platform_owner)])
+def platform_delete_workspace(workspace_id: str, body: PortfolioDelete):
+    from services.platform_portfolio import delete_client_space
+
+    return _portfolio_call(delete_client_space, workspace_id, confirm_name=body.confirm_name)
+
+
+@router.post("/platform/workspaces/{workspace_id}/open", dependencies=[Depends(require_platform_owner)])
+def platform_open_workspace(workspace_id: str):
+    from services.platform_portfolio import open_client_space
+
+    return _portfolio_call(open_client_space, workspace_id)

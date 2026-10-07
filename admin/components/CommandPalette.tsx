@@ -8,8 +8,7 @@ import { QK } from "../lib/queryClient";
 import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
 import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS, filterGestionNavLinks } from "../lib/gestionNav";
 import type { Job } from "../lib/types";
-import type { AuthMeResponse } from "../lib/authSession";
-import { normalizeUiMode } from "../lib/uiMode";
+import { useUiMode } from "../lib/uiMode";
 
 type Command = {
   id: string;
@@ -34,29 +33,20 @@ function CommandPaletteInner() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
+  const { showAdvanced, workspaceSlug } = useUiMode();
+  const essential = !showAdvanced;
+
   const jobs = useQuery({
     queryKey: QK.jobsCards,
     queryFn: async () => {
       const { data } = await requestJson("/jobs/cards", { headers: agentHeaders(), retries: 0, timeoutMs: 12_000 });
       return ((data as { jobs?: Job[] })?.jobs || []) as Job[];
     },
-    enabled: open,
+    enabled: open && showAdvanced,
     staleTime: 30_000,
   });
 
-  const me = useQuery({
-    queryKey: ["auth-me-palette"],
-    queryFn: async () => {
-      const r = await fetch("/api/auth/me", { cache: "no-store" });
-      if (!r.ok) return null;
-      return r.json() as Promise<AuthMeResponse>;
-    },
-    enabled: open,
-    staleTime: 300_000,
-  });
-
   const baseCommands: Command[] = useMemo(() => {
-    const essential = normalizeUiMode(me.data?.workspace?.ui_mode) === "essential";
     const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential });
     const gestionNav: Command[] = gestionLinks.map((link) => ({
       id: `gestion-${link.href}`,
@@ -75,7 +65,7 @@ function CommandPaletteInner() {
       href: action.href,
       group: "Actions gestion",
     }));
-    const slug = me.data?.workspace?.slug || "";
+    const slug = workspaceSlug;
     const espaceCommands: Command[] = slug
       ? [
           {
@@ -118,8 +108,12 @@ function CommandPaletteInner() {
         href: DIRECTOR_QUEUE_HREF,
         group: "Navigation",
       },
-      { id: "missions", label: "Travaux", href: "/missions", group: "Navigation" },
-      { id: "mission-new", label: "Nouveau travail", href: "/missions?create=1", group: "Actions IA" },
+      ...(essential
+        ? []
+        : [
+            { id: "missions", label: "Travaux", href: "/missions", group: "Navigation" },
+            { id: "mission-new", label: "Nouveau travail", href: "/missions?create=1", group: "Actions IA" },
+          ]),
       { id: "chat", label: "Conversation", href: "/chat", group: "Navigation" },
       ...(essential
         ? []
@@ -133,9 +127,10 @@ function CommandPaletteInner() {
             },
           ]),
     ];
-  }, [me.data?.workspace?.slug, me.data?.workspace?.ui_mode]);
+  }, [essential, workspaceSlug]);
 
   const jobCommands: Command[] = useMemo(() => {
+    if (essential) return [];
     const rows = (jobs.data || []).filter((j) => String(j.source || "") !== "chat").slice(0, 12);
     return rows.map((j) => ({
       id: `job-${j.job_id}`,
@@ -144,7 +139,7 @@ function CommandPaletteInner() {
       href: `/missions?job=${encodeURIComponent(j.job_id || "")}`,
       group: "Missions récentes",
     }));
-  }, [jobs.data]);
+  }, [essential, jobs.data]);
 
   const allCommands = useMemo(() => [...baseCommands, ...jobCommands], [baseCommands, jobCommands]);
 
@@ -225,7 +220,7 @@ function CommandPaletteInner() {
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher une action, une mission…"
+            placeholder={essential ? "Rechercher une action…" : "Rechercher une action, une mission…"}
             className="w-full bg-transparent text-base font-medium text-slate-900 outline-none placeholder:text-slate-400"
           />
           <p className="mt-1 text-[11px] text-slate-400">Ctrl+K · ↑↓ naviguer · Entrée valider</p>

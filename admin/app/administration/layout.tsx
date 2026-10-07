@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import AgentsAdminSubnav from "../../components/admin/AgentsAdminSubnav";
-import { ADMIN_NAV_GROUPS, isAdminLinkActive, isAgentsAdminPath } from "../../lib/adminNav";
+import { ADMIN_NAV_GROUPS, filterAdminNavGroups, isAdminLinkActive, isAgentsAdminPath } from "../../lib/adminNav";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
+import { useUiMode } from "../../lib/uiMode";
 
 function RepriseNavBadge({ count }: { count: number }) {
   if (count <= 0) return null;
@@ -18,6 +19,9 @@ function RepriseNavBadge({ count }: { count: number }) {
 
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
+  const { showAdvanced } = useUiMode();
+  const essentialNav = !showAdvanced;
+  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, { essential: essentialNav });
   const [platformOwner, setPlatformOwner] = useState(false);
   const reprise = useRepriseCoverage();
 
@@ -52,7 +56,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
       >
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-800 dark:text-violet-300">Administration</p>
         <nav className="-mx-1 mt-3 space-y-4 lg:mx-0">
-          {ADMIN_NAV_GROUPS.map((group) => {
+          {adminGroups.map((group) => {
             const agentsBlock = group.emphasis === "agents";
             return (
               <div
@@ -93,30 +97,39 @@ export default function AdministrationLayout({ children }: { children: React.Rea
               </div>
             );
           })}
-          {platformOwner ? (
+          {platformOwner && showAdvanced ? (
             <div>
               <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Instance
               </p>
-              <div className="mt-1">
-                <Link
-                  href="/administration/enveloppes"
-                  data-admin-nav-active={isAdminLinkActive(pathname, "/administration/enveloppes") ? "true" : undefined}
-                  className={`${
-                    isAdminLinkActive(pathname, "/administration/enveloppes")
-                      ? "admin-nav-link admin-nav-link-active"
-                      : "admin-nav-link admin-nav-link-idle"
-                  } inline-flex shrink-0 items-center gap-2`}
-                >
-                  Enveloppes IA
-                </Link>
+              <div className="mt-1 space-y-1">
+                {(
+                  [
+                    { href: "/administration/portefeuille", label: "Mes clients" },
+                    { href: "/administration/enveloppes", label: "Enveloppes IA" },
+                  ] as const
+                ).map((item) => {
+                  const active = isAdminLinkActive(pathname, item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      data-admin-nav-active={active ? "true" : undefined}
+                      className={`${
+                        active ? "admin-nav-link admin-nav-link-active" : "admin-nav-link admin-nav-link-idle"
+                      } inline-flex shrink-0 items-center gap-2`}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           ) : null}
         </nav>
       </aside>
       <div className="min-w-0 flex-1 space-y-6">
-        {agentsZone ? <AgentsAdminSubnav /> : null}
+        {agentsZone && showAdvanced ? <AgentsAdminSubnav /> : null}
         {children}
       </div>
     </div>

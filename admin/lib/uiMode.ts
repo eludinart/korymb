@@ -18,10 +18,15 @@ export async function fetchAuthMe(): Promise<AuthMeResponse | null> {
 }
 
 export function useUiMode(): {
-  uiMode: UiMode;
+  uiMode: UiMode | null;
   isEssential: boolean;
   isAdvanced: boolean;
+  /** Menu complet uniquement quand le mode Avancé est confirmé. */
+  showAdvanced: boolean;
   loading: boolean;
+  role: string;
+  canSetUiMode: boolean;
+  workspaceSlug: string;
   setUiMode: (mode: UiMode) => Promise<void>;
   busy: boolean;
   error: string;
@@ -36,15 +41,17 @@ export function useUiMode(): {
     staleTime: 60_000,
   });
 
-  useEffect(() => {
-    // Sync document attribute for CSS hooks if needed later
-    const mode = normalizeUiMode(me.data?.workspace?.ui_mode);
-    if (typeof document !== "undefined") {
-      document.documentElement.dataset.uiMode = mode;
-    }
-  }, [me.data?.workspace?.ui_mode]);
+  const uiMode: UiMode | null = !me.isFetched
+    ? null
+    : me.data
+      ? normalizeUiMode(me.data.workspace?.ui_mode)
+      : null;
 
-  const uiMode = normalizeUiMode(me.data?.workspace?.ui_mode);
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    if (uiMode) document.documentElement.dataset.uiMode = uiMode;
+    else delete document.documentElement.dataset.uiMode;
+  }, [uiMode]);
 
   const setUiMode = useCallback(
     async (mode: UiMode) => {
@@ -65,6 +72,7 @@ export function useUiMode(): {
         }
         await qc.invalidateQueries({ queryKey: ["auth-me-ui-mode"] });
         await qc.invalidateQueries({ queryKey: ["auth-me-briefing"] });
+        await qc.invalidateQueries({ queryKey: ["auth-me-palette"] });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur.");
         throw err;
@@ -79,7 +87,11 @@ export function useUiMode(): {
     uiMode,
     isEssential: uiMode === "essential",
     isAdvanced: uiMode === "advanced",
-    loading: me.isLoading,
+    showAdvanced: uiMode === "advanced",
+    loading: !me.isFetched,
+    role: me.data?.role || "",
+    canSetUiMode: me.data?.role === "admin",
+    workspaceSlug: me.data?.workspace?.slug || "",
     setUiMode,
     busy,
     error,

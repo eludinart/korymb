@@ -156,6 +156,7 @@ def _ensure_workspace_public_columns(conn) -> None:
         "ui_mode": "TEXT NOT NULL DEFAULT ''",
         "llm_monthly_token_cap": "INTEGER NOT NULL DEFAULT 500000",
         "llm_paused": "INTEGER NOT NULL DEFAULT 0",
+        "archived_at": "TEXT NOT NULL DEFAULT ''",
     }
     for name, ddl in alterations.items():
         if name not in cols:
@@ -1077,6 +1078,68 @@ def get_guest_membership_by_code(workspace_id: str, email: str, code: str) -> di
             (wid, mail, token),
         ).fetchone()
     return dict(row) if row else None
+
+
+def workspace_archived(row: dict[str, Any] | None) -> bool:
+    return bool(str((row or {}).get("archived_at") or "").strip())
+
+
+def set_workspace_archived(workspace_id: str, *, archived: bool) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    stamp = datetime.utcnow().isoformat() if archived else ""
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET archived_at = ? WHERE id = ?",
+            (stamp, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
+
+
+_PURGE_WORKSPACE_TABLES: tuple[str, ...] = (
+    "biz_email_messages",
+    "biz_email_threads",
+    "biz_event_audience",
+    "biz_event_audience_users",
+    "biz_interactions",
+    "biz_contact_enrichment_proposals",
+    "biz_calendar_events",
+    "biz_external_invoices",
+    "biz_quotes",
+    "biz_projects",
+    "biz_contacts",
+    "mission_events",
+    *_WORKSPACE_TABLES_WITH_COLUMN,
+    "korymb_memberships",
+)
+
+
+def delete_workspace_records(workspace_id: str) -> None:
+    """Efface les lignes rattachées à l'espace, puis la fiche espace."""
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not re.fullmatch(r"ws-[A-Za-z0-9_-]{1,80}", wid):
+        raise ValueError("Identifiant d'espace invalide.")
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        for table in _PURGE_WORKSPACE_TABLES:
+            if not re.fullmatch(r"[a-z_]+", table):
+                continue
+            try:
+                cols = _table_columns(conn, table)
+            except Exception:
+                continue
+            if "workspace_id" not in cols:
+                continue
+            conn.execute(f"DELETE FROM {table} WHERE workspace_id = ?", (wid,))
+        conn.execute("DELETE FROM korymb_workspaces WHERE id = ?", (wid,))
+        conn.commit()
 
 
 def update_workspace_name(workspace_id: str, name: str) -> dict[str, Any] | None:

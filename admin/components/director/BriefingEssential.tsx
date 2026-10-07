@@ -6,8 +6,6 @@ import { missionTitleLabel } from "../../lib/missionLabel";
 import { starterPackLabel } from "../../lib/starterPacks";
 import { SectionCard } from "../ui/PageChrome";
 import IntentionLaunch from "../missions/IntentionLaunch";
-import WorkSurfaceSwitcher from "./WorkSurfaceSwitcher";
-import ScenarioSimulator from "./ScenarioSimulator";
 
 type DecisionItem = {
   id?: string;
@@ -95,11 +93,9 @@ export default function BriefingEssential({
         <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700 dark:text-violet-300">Mode Cerveau</p>
         <h1 className="mt-1 text-2xl font-extrabold text-slate-900 dark:text-slate-50">{greet}</h1>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-          Une surface : anticiper, décider, demander — sans menus imbriqués.
+          Anticiper, décider, demander.
         </p>
       </header>
-
-      <WorkSurfaceSwitcher runningCount={missionsRunning.length} inboxCritical={criticalCount} />
 
       {showWelcome ? (
         <section className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 dark:border-emerald-800 dark:bg-emerald-950 sm:px-6">
@@ -232,31 +228,21 @@ export default function BriefingEssential({
         )}
       </SectionCard>
 
-      <SectionCard title="En cours" description="Traitements et missions actives">
+      <SectionCard title="En cours" description="Le résultat revient dans À valider, ou dans la conversation.">
         {missionsRunning.length === 0 ? (
           <p className="text-sm text-slate-600">Aucun traitement en cours.</p>
         ) : (
           <ul className="space-y-2">
             {missionsRunning.slice(0, 6).map((m) => (
-              <li key={m.job_id}>
-                <Link
-                  href={`/missions?job=${encodeURIComponent(m.job_id)}`}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 hover:border-violet-300"
-                >
-                  <span className="min-w-0 text-sm font-bold text-slate-900">
-                    {missionTitleLabel(m.mission, 90) || m.job_id}
-                  </span>
-                  <span className="shrink-0 text-xs font-bold text-violet-700">Suivre →</span>
-                </Link>
+              <li
+                key={m.job_id}
+                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-900"
+              >
+                {missionTitleLabel(m.mission, 90) || m.job_id}
               </li>
             ))}
           </ul>
         )}
-        <p className="mt-3 text-sm">
-          <Link href="/missions" className="font-semibold text-violet-700 hover:underline">
-            Toutes les missions →
-          </Link>
-        </p>
       </SectionCard>
 
       <SectionCard title="Demander" description="Une phrase suffit. Le résultat revient ici, à valider si besoin.">
@@ -271,8 +257,6 @@ export default function BriefingEssential({
           </Link>
         </p>
       </SectionCard>
-
-      <ScenarioSimulator />
     </div>
   );
 }

@@ -271,7 +271,8 @@ def list_instance_envelopes() -> list[dict[str, Any]]:
         _ensure_workspace_public_columns(conn)
         _ensure_llm_usage_table(conn)
         rows = conn.execute(
-            "SELECT w.id, w.name, w.slug, w.created_at, w.llm_monthly_token_cap, w.llm_paused, "
+            "SELECT w.id, w.name, w.slug, w.created_at, w.archived_at, w.starter_pack_id, "
+            "w.llm_monthly_token_cap, w.llm_paused, "
             "u.email AS owner_email, u.display_name AS owner_name "
             "FROM korymb_workspaces w "
             "LEFT JOIN korymb_users u ON u.id = w.owner_user_id "
@@ -298,6 +299,8 @@ def list_instance_envelopes() -> list[dict[str, Any]]:
         status["slug"] = base.get("slug") or ""
         status["owner_email"] = base.get("owner_email") or ""
         status["owner_name"] = base.get("owner_name") or ""
+        status["archived_at"] = str(base.get("archived_at") or "")
+        status["starter_pack_id"] = str(base.get("starter_pack_id") or "")
         status["last_call_at"] = stats.get("last_call") or ""
         if status["billing"] == "platform":
             try:

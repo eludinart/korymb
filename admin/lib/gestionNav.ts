@@ -126,7 +126,7 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
 }
 
 /** Liens Gestion en mode Essentiel : quotidien + modèles prêts à lancer. */
-const ESSENTIAL_GESTION_HREFS = new Set([
+export const ESSENTIAL_GESTION_HREFS = new Set([
   GESTION_HUB_HREF,
   "/gestion/playbooks",
   "/gestion/contacts",

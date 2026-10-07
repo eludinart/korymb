@@ -60,14 +60,17 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
   },
 ] as const;
 
-/** Liens visibles en mode Essentiel (le reste reste accessible via URL / mode Avancé). */
-const ESSENTIAL_ADMIN_HREFS = new Set([
+/** Liens visibles en mode Essentiel. Les autres pages d'administration sont fermées. */
+export const ESSENTIAL_ADMIN_HREFS = new Set([
   "/administration/memory",
   "/administration/vitrine",
   "/administration/modeles",
   "/administration/integrations",
   "/administration/equipes",
 ]);
+
+/** Entrée Administration quand le tableau de santé système est masqué. */
+export const ESSENTIAL_ADMIN_ENTRY = "/administration/memory";
 
 export function filterAdminNavGroups(
   groups: readonly AdminNavGroup[],

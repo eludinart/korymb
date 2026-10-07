@@ -35,6 +35,7 @@
 - L'espace Élude `ws-default-legacy` est exempt. Une clé enregistrée sur l'espace sort de l'enveloppe.
 - Le propriétaire d'instance (propriétaire de l'espace Élude, ou `KORYMB_PLATFORM_OWNER_EMAIL`) voit et règle les plafonds : `GET/PATCH /platform/llm-envelopes`. Le client lit le reste via `GET /config/envelope`.
 - Le dépassement ou la pause refuse l'appel avant le fournisseur.
+- Portefeuille (`/administration/portefeuille`, propriétaire seulement) : `GET /platform/portfolio` (à toi, en cours, IA du mois, dernière activité), `GET /platform/attention`, création / renommage / pause / archivage / suppression. `POST /platform/workspaces/{id}/open` puis cookie `korymb_workspace_id` entre dans l'espace. Le propriétaire peut ouvrir un espace dont il n'est pas membre, sans être ajouté à l'équipe. L'espace interne `ws-default-legacy` ne s'archive pas, ne se supprime pas et ne se met pas en pause. La suppression exige un archivage préalable et la saisie du nom.
 
 ## UI mode (essential / advanced)
 

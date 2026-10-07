@@ -52,3 +52,51 @@ def test_patch_ui_mode_rejects_invalid(client):
         json={"ui_mode": "pro"},
     )
     assert bad.status_code == 422
+
+
+def test_member_cannot_patch_ui_mode(client):
+    admin = client.post(
+        "/auth/register",
+        json={
+            "email": "ui-owner@example.com",
+            "password": "secretpass123",
+            "workspace_name": "UI Owner WS",
+        },
+    )
+    assert admin.status_code == 200, admin.text
+    workspace_id = admin.json()["workspace"]["id"]
+    admin_headers = {"Authorization": f"Bearer {admin.json()['token']}"}
+
+    member = client.post(
+        "/auth/register",
+        json={
+            "email": "ui-member@example.com",
+            "password": "secretpass123",
+            "workspace_name": "UI Member Own WS",
+        },
+    )
+    assert member.status_code == 200, member.text
+
+    invited = client.post(
+        "/auth/members",
+        headers=admin_headers,
+        json={"email": "ui-member@example.com", "role": "member"},
+    )
+    assert invited.status_code == 200, invited.text
+
+    login = client.post(
+        "/auth/login",
+        json={
+            "email": "ui-member@example.com",
+            "password": "secretpass123",
+            "workspace_id": workspace_id,
+        },
+    )
+    assert login.status_code == 200, login.text
+    assert login.json()["role"] == "member"
+    denied = client.patch(
+        "/auth/workspace/ui-mode",
+        headers={"Authorization": f"Bearer {login.json()['token']}"},
+        json={"ui_mode": "advanced"},
+    )
+    assert denied.status_code == 403, denied.text
