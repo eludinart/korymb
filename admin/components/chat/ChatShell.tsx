@@ -17,7 +17,6 @@ import {
   stripChoiceQuestionnaireFences,
 } from "../../lib/choiceQuestionnaire";
 import { resourceFileUrl } from "../../lib/business";
-import ThinkingModePicker from "../director/ThinkingModePicker";
 import type { DriveArtifact } from "../../lib/types";
 import {
   CHAT_ACCEPT_CAMERA,
@@ -50,7 +49,7 @@ export type ChatMsg = {
   /** Réponse locale : le modèle (crédit, quota ou délai) n'a pas répondu. */
   degraded?: boolean;
   /** Action proposée, en attente de confirmation. */
-  pendingAction?: { message: string };
+  pendingAction?: { message: string; attachments?: ChatFile[]; label?: string };
   /** QCM déjà répondu (résumé affiché à la place du formulaire). */
   choiceAnsweredSummary?: string;
 };
@@ -80,7 +79,13 @@ type Props = {
   uploadBusy?: boolean;
   uploadError?: string;
   onTeamCreated?: (groupId: string) => void;
-  onConfirmAction?: (message: string) => void;
+  onConfirmAction?: (message: string, attachments?: ChatFile[]) => void;
+  /** Envoie tout de suite le texte d'une pastille. */
+  onQuickSend?: (text: string) => void;
+  /** Propose de transmettre la demande à l'équipe. */
+  teamOffer?: boolean;
+  onHandOffToTeam?: () => void;
+  onDismissTeamOffer?: () => void;
   onDismissAction?: (messageId: string) => void;
   onStopReply?: () => void;
   /** Envoie une réponse QCM comme message utilisateur. */
@@ -93,13 +98,21 @@ function displayAgentKeys(msg: ChatMsg): string[] {
   return [];
 }
 
+function splitLead(text: string, maxLines = 5): { lead: string; rest: string } {
+  const lines = text.split("\n");
+  if (lines.length <= maxLines) return { lead: text, rest: "" };
+  return { lead: lines.slice(0, maxLines).join("\n"), rest: lines.slice(maxLines).join("\n") };
+}
+
 function ChatReplyPending({
   count,
   percent,
+  label,
   onStop,
 }: {
   count: number;
   percent?: number | null;
+  label?: string;
   onStop?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
@@ -113,7 +126,7 @@ function ChatReplyPending({
 
   const known = typeof percent === "number" && percent > 0;
   const dots = ".".repeat((Math.floor(elapsed * 2) % 3) + 1);
-  const label = count > 1 ? `${count} réponses en cours` : "Réponse en cours";
+  const statusLabel = label || (count > 1 ? `${count} réponses en cours` : "Je prépare");
 
   return (
     <div
@@ -133,7 +146,7 @@ function ChatReplyPending({
           ))}
         </span>
         <span className="min-w-0 truncate">
-          {label}
+          {statusLabel}
           <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
@@ -201,6 +214,10 @@ export default function ChatShell({
   onDismissAction,
   onStopReply,
   onSubmitChoiceAnswers,
+  onQuickSend,
+  teamOffer = false,
+  onHandOffToTeam,
+  onDismissTeamOffer,
 }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrolledAssistantIdRef = useRef<string>("");
@@ -211,6 +228,7 @@ export default function ChatShell({
   const hydratingRef = useRef<Set<string>>(new Set());
   const userMinHeightRef = useRef(0);
   const [localAgents, setLocalAgents] = useState<Record<string, string[]>>({});
+  const [expandedReply, setExpandedReply] = useState<Record<string, boolean>>({});
   const [dragging, setDragging] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
@@ -353,21 +371,21 @@ export default function ChatShell({
                 Qu&apos;est-ce qui vous préoccupe ?
               </h1>
               <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-base">
-                Réponse directe d&apos;abord — questionnaire seulement si vous le demandez.
+                Dites ce que vous voulez obtenir. Je réponds par la décision, le prochain pas, et ce qui manque.
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
                 {[
                   {
-                    label: "Priorités du jour",
-                    text: "Donne-moi 5 priorités concrètes pour aujourd'hui sur Korymb, sans questionnaire.",
+                    label: "Préparer un message client",
+                    text: "Prépare un message clair pour un client, prêt à copier.",
                   },
                   {
-                    label: "État de la plateforme",
-                    text: "Fais un point court sur l'état de Korymb (ce qui marche / ce qui bloque) et 3 actions.",
+                    label: "Résumer cette pièce jointe",
+                    text: "Résume cette pièce jointe : la décision, le prochain pas, ce qui manque.",
                   },
                   {
-                    label: "Décider sans QCM",
-                    text: "Réponds et décide avec moi : hypothèses raisonnables, pas de questions ouvertes.",
+                    label: "Décider et me dire quoi faire",
+                    text: "Décide avec moi et dis-moi quoi faire ensuite.",
                   },
                 ].map((chip) => (
                   <button
@@ -375,6 +393,10 @@ export default function ChatShell({
                     type="button"
                     disabled={pending || uploadBusy}
                     onClick={() => {
+                      if (onQuickSend) {
+                        onQuickSend(chip.text);
+                        return;
+                      }
                       onDraftChange(chip.text);
                       window.setTimeout(() => textareaRef.current?.focus(), 0);
                     }}
@@ -397,6 +419,10 @@ export default function ChatShell({
               m.role === "assistant"
                 ? stripChoiceQuestionnaireFences(chatBubbleDisplayText(m.id, m.content))
                 : m.content;
+            const folded = m.role === "assistant" ? splitLead(displaySource) : { lead: displaySource, rest: "" };
+            const replyOpen = Boolean(expandedReply[m.id]);
+            const shownSource = replyOpen || !folded.rest.trim() ? displaySource : folded.lead;
+            const actionLabel = m.pendingAction?.label || "Confirmer";
             return (
               <div
                 key={m.id}
@@ -410,13 +436,6 @@ export default function ChatShell({
                       : "w-full max-w-none sm:max-w-[92%]"
                   }
                 >
-                  {m.role === "assistant" && agents.length > 0 ? (
-                    <div className="mb-1 flex flex-wrap gap-1 lg:hidden">
-                      {agents.map((key) => (
-                        <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
-                      ))}
-                    </div>
-                  ) : null}
                   <div
                     className={`chat-bubble-text overflow-hidden leading-snug sm:leading-relaxed ${
                       m.role === "user"
@@ -437,16 +456,30 @@ export default function ChatShell({
                             Mode dégradé
                           </p>
                         ) : null}
-                        {displaySource.trim() ? <AgentMessageMarkdown source={displaySource} /> : null}
+                        {shownSource.trim() ? <AgentMessageMarkdown source={shownSource} /> : null}
+                        {folded.rest.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedReply((prev) => ({ ...prev, [m.id]: !replyOpen }))}
+                            className="mt-2 text-xs font-semibold text-violet-800 hover:underline dark:text-violet-300"
+                          >
+                            {replyOpen ? "Replier le détail" : "Voir le détail"}
+                          </button>
+                        ) : null}
                       </>
                     )}
                   </div>
                   {m.role === "assistant" && agents.length > 0 ? (
-                    <div className="mt-1 hidden flex-wrap gap-1 lg:flex">
-                      {agents.map((key) => (
-                        <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
-                      ))}
-                    </div>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        Qui a répondu
+                      </summary>
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {agents.map((key) => (
+                          <ChatAgentMacaron key={key} agentKey={key} label={agentLabels[key]} />
+                        ))}
+                      </div>
+                    </details>
                   ) : null}
                   {m.role === "assistant" && (qcm || m.choiceAnsweredSummary) ? (
                     <div className="mt-2">
@@ -470,13 +503,18 @@ export default function ChatShell({
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
                   {m.role === "assistant" && m.pendingAction ? (
-                    <div className="mt-2 hidden flex-wrap gap-2 lg:flex">
+                    <div className="mt-2 hidden flex-wrap items-center gap-2 lg:flex">
+                      {m.pendingAction.attachments?.length ? (
+                        <span className="max-w-full truncate text-[11px] text-slate-500">
+                          {m.pendingAction.attachments.map((f) => f.filename).join(", ")}
+                        </span>
+                      ) : null}
                       <button
                         type="button"
-                        onClick={() => onConfirmAction?.(m.pendingAction?.message || "")}
+                        onClick={() => onConfirmAction?.(m.pendingAction?.message || "", m.pendingAction?.attachments)}
                         className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-800"
                       >
-                        Lancer l&apos;action
+                        {actionLabel}
                       </button>
                       <button
                         type="button"
@@ -511,6 +549,7 @@ export default function ChatShell({
               <ChatReplyPending
                 count={Math.max(1, backgroundJobCount)}
                 percent={backgroundProgress?.percent}
+                label={backgroundProgress?.label}
                 onStop={onStopReply}
               />
             </div>
@@ -525,27 +564,35 @@ export default function ChatShell({
             <ChatReplyPending
               count={Math.max(1, backgroundJobCount)}
               percent={backgroundProgress?.percent}
+              label={backgroundProgress?.label}
               onStop={onStopReply}
             />
           </div>
         ) : null}
 
         {stickyHitl?.pendingAction ? (
-          <div className="flex gap-2 border-b border-amber-100 bg-amber-50/95 px-3 py-2 lg:hidden">
-            <button
-              type="button"
-              onClick={() => onConfirmAction?.(stickyHitl.pendingAction?.message || "")}
-              className="min-h-11 flex-1 rounded-xl bg-violet-700 text-sm font-semibold text-white active:bg-violet-800"
-            >
-              Lancer l&apos;action
-            </button>
-            <button
-              type="button"
-              onClick={() => onDismissAction?.(stickyHitl.id)}
-              className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-700 active:bg-slate-50"
-            >
-              Annuler
-            </button>
+          <div className="border-b border-amber-100 bg-amber-50/95 px-3 py-2 lg:hidden">
+            {stickyHitl.pendingAction.attachments?.length ? (
+              <p className="mb-1 truncate text-[11px] text-slate-600">
+                {stickyHitl.pendingAction.attachments.map((f) => f.filename).join(", ")}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => onConfirmAction?.(stickyHitl.pendingAction?.message || "", stickyHitl.pendingAction?.attachments)}
+                className="min-h-11 flex-1 rounded-xl bg-violet-700 px-2 text-sm font-semibold text-white active:bg-violet-800"
+              >
+                {stickyHitl.pendingAction.label || "Confirmer"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onDismissAction?.(stickyHitl.id)}
+                className="min-h-11 shrink-0 rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 active:bg-slate-50"
+              >
+                Annuler
+              </button>
+            </div>
           </div>
         ) : null}
 
@@ -639,12 +686,44 @@ export default function ChatShell({
           </div>
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
+        {teamOffer && onHandOffToTeam ? (
+          <div className="mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
+            <button
+              type="button"
+              onClick={onHandOffToTeam}
+              className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              Faire faire par l&apos;équipe
+            </button>
+            {onDismissTeamOffer ? (
+              <button
+                type="button"
+                onClick={onDismissTeamOffer}
+                className="rounded-full px-2 py-1.5 text-xs font-semibold text-slate-500"
+              >
+                Plus tard
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {canConvertToMission && onConvertToMission && convertBrief == null ? (
+          <div className="mx-auto max-w-3xl px-1 pb-1">
+            <button
+              type="button"
+              onClick={onConvertToMission}
+              disabled={convertBusy}
+              className="text-sm font-semibold text-violet-800 hover:underline disabled:opacity-40 dark:text-violet-300"
+            >
+              Préparer un travail
+            </button>
+          </div>
+        ) : null}
         <div className="mx-auto flex max-w-3xl items-end gap-1">
           {onAddFiles ? (
             <button
               type="button"
               onClick={openAttachMenu}
-              disabled={pending || uploadBusy || attachments.length >= CHAT_FILE_MAX}
+              disabled={uploadBusy || attachments.length >= CHAT_FILE_MAX}
               className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-600 active:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:active:bg-slate-800"
               aria-label="Joindre une photo ou un fichier"
               title="Joindre"
@@ -652,21 +731,6 @@ export default function ChatShell({
             >
               <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21.44 11.05 12.25 20.24a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.82-2.83l8.49-8.48" />
-              </svg>
-            </button>
-          ) : null}
-          <ThinkingModePicker persist icon className="mb-0.5" />
-          {canConvertToMission && onConvertToMission && convertBrief == null ? (
-            <button
-              type="button"
-              onClick={onConvertToMission}
-              disabled={convertBusy}
-              className="mb-0.5 hidden h-9 w-9 shrink-0 items-center justify-center rounded-full text-violet-700 hover:bg-violet-50 disabled:opacity-40 lg:flex"
-              aria-label="Préparer un travail"
-              title="Préparer un travail"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 4v16M5 5h12l-2 4 2 4H5" />
               </svg>
             </button>
           ) : null}
@@ -688,10 +752,9 @@ export default function ChatShell({
                 // Conserve une hauteur tirée à la main (poignée resize desktop).
                 if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
               }}
-              disabled={pending}
               rows={1}
               placeholder="Message"
-              className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none disabled:opacity-60 dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
+              className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
               style={{ height: 40 }}
               enterKeyHint="send"
               autoComplete="off"

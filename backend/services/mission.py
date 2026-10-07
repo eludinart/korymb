@@ -1536,6 +1536,7 @@ def _cio_attempt_direct_answer(
     chat_ops = ""
     if chat_mode:
         from services.chat_intelligence import (
+            CHAT_LEAD_SHAPE,
             is_product_snapshot,
             user_forces_direct_answer,
             user_wants_choice_questionnaire,
@@ -1562,6 +1563,7 @@ def _cio_attempt_direct_answer(
             )
             if not is_product_snapshot(label_txt):
                 chat_ops += "Propose des priorités concrètes si le sujet est large.\n"
+        chat_ops += CHAT_LEAD_SHAPE
     system = (
         chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
         + "\n\n"
@@ -1674,8 +1676,9 @@ def answer_chat_turn_without_tools(
     cleaned = (text or "").strip()
     if not cleaned:
         cleaned = (
-            "Je réponds sans lancer d'action. "
-            "Confirmez si vous voulez une recherche, un livrable ou un envoi."
+            "Je n'ai pas assez pour trancher.\n\n"
+            "Prochain pas : précisez le destinataire, le document ou le résultat attendu.\n\n"
+            "Il manque ce contexte."
         )
     try:
         from services.chat_topic_guard import guard_chat_reply

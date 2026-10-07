@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import ChatBottomSheet from "./ChatBottomSheet";
+import ChatInterlocutorSelect, { type GroupOpt } from "./ChatInterlocutorSelect";
 import ColorSchemeToggle from "../ColorSchemeToggle";
+import ThinkingModePicker from "../director/ThinkingModePicker";
 import {
   CHAT_TEXT_SCALE_LABELS,
   CHAT_TEXT_SCALE_ORDER,
@@ -11,28 +14,32 @@ import {
 type Props = {
   open: boolean;
   onClose: () => void;
-  canConvertToMission?: boolean;
-  convertBusy?: boolean;
-  onConvertToMission?: () => void;
   onDelete?: () => void;
   linkedParentJobId?: string;
   onOpenLinkedMission?: () => void;
   textScale?: ChatTextScale;
   onTextScaleChange?: (scale: ChatTextScale) => void;
+  interlocutor: string;
+  groups: GroupOpt[];
+  onInterlocutorChange: (value: string) => void;
+  interlocutorDisabled?: boolean;
+  onHandOffToTeam?: () => void;
 };
 
-/** Menu ⋯ conversation mobile. */
+/** Menu ⋯ : équipe, affichage, mission liée, suppression. */
 export default function ChatThreadMoreSheet({
   open,
   onClose,
-  canConvertToMission,
-  convertBusy,
-  onConvertToMission,
   onDelete,
   linkedParentJobId,
   onOpenLinkedMission,
   textScale = "sm",
   onTextScaleChange,
+  interlocutor,
+  groups,
+  onInterlocutorChange,
+  interlocutorDisabled,
+  onHandOffToTeam,
 }: Props) {
   const row =
     "flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left text-[15px] font-semibold active:bg-slate-100 disabled:opacity-40 dark:active:bg-slate-800";
@@ -40,6 +47,38 @@ export default function ChatThreadMoreSheet({
   return (
     <ChatBottomSheet open={open} onClose={onClose} title="Conversation">
       <div className="space-y-1 pb-2">
+        <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Interlocuteur</p>
+          <div className="mt-2">
+            <ChatInterlocutorSelect
+              value={interlocutor}
+              onChange={onInterlocutorChange}
+              groups={groups}
+              disabled={interlocutorDisabled}
+              variant="compact"
+            />
+          </div>
+          {onHandOffToTeam ? (
+            <button
+              type="button"
+              className="mt-2 text-sm font-semibold text-violet-800 dark:text-violet-300"
+              onClick={() => {
+                onClose();
+                onHandOffToTeam();
+              }}
+            >
+              Faire faire par l&apos;équipe
+            </button>
+          ) : null}
+        </div>
+
+        <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+          <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mode de pensée</p>
+          <div className="mt-2">
+            <ThinkingModePicker persist compact />
+          </div>
+        </div>
+
         <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Affichage</p>
           <div className="mt-2">
@@ -73,28 +112,6 @@ export default function ChatThreadMoreSheet({
           </div>
         ) : null}
 
-        {canConvertToMission && onConvertToMission ? (
-          <button
-            type="button"
-            disabled={convertBusy}
-            className={`${row} text-violet-800 dark:text-violet-300`}
-            onClick={() => {
-              onClose();
-              onConvertToMission();
-            }}
-          >
-            <span
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200"
-              aria-hidden
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 4v16M5 5h12l-2 4 2 4H5" />
-              </svg>
-            </span>
-            Préparer un travail
-          </button>
-        ) : null}
-
         {linkedParentJobId && onOpenLinkedMission ? (
           <button
             type="button"
@@ -115,6 +132,10 @@ export default function ChatThreadMoreSheet({
             Voir la mission liée
           </button>
         ) : null}
+
+        <Link href="/briefing" className={`${row} text-slate-800 dark:text-slate-100`} onClick={onClose}>
+          Accueil
+        </Link>
 
         {onDelete ? (
           <button

@@ -161,8 +161,63 @@ def product_snapshot_state_text(*, max_chars: int = 2800) -> str:
     return ""
 
 
+_IRREVERSIBLE_SEND_RE = re.compile(
+    r"\b(envoie|envoyer|publie|publier)\b",
+    re.I,
+)
+_IRREVERSIBLE_RECORD_RE = re.compile(
+    r"("
+    r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|upsert)\b.{0,48}"
+    r"\b(fiche|devis|contact|evenement|facture|projet|crm)|"
+    r"\bau crm\b"
+    r")",
+    re.I,
+)
+_LABEL_VERBS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(envoie|envoyer)\b"), "Envoyer"),
+    (re.compile(r"\b(publie|publier)\b"), "Publier"),
+    (re.compile(r"\b(cree|creer)\b"), "Créer"),
+    (re.compile(r"\b(ajoute|ajouter)\b"), "Ajouter"),
+    (re.compile(r"\b(enregistre|enregistrer)\b"), "Enregistrer"),
+)
+
+CHAT_LEAD_SHAPE = (
+    "\n### Forme de la réponse\n"
+    "Les premières lignes disent trois choses, dans cet ordre : "
+    "ce qui est décidé, le prochain pas, ce qui manque. "
+    "Le détail vient ensuite.\n"
+)
+
+
+def chat_message_needs_confirmation(text: str) -> bool:
+    """Vrai seulement pour un envoi, une publication ou une écriture de fiche / devis."""
+    folded = _fold(text)
+    if not folded:
+        return False
+    if _IRREVERSIBLE_SEND_RE.search(folded):
+        return True
+    return bool(_IRREVERSIBLE_RECORD_RE.search(folded))
+
+
+def irreversible_action_label(text: str) -> str:
+    """Libellé court affiché sur le bouton de confirmation."""
+    folded = _fold(text).strip()
+    raw = re.sub(r"\s+", " ", (text or "").strip())
+    for rx, verb in _LABEL_VERBS:
+        matched = rx.search(folded)
+        if not matched:
+            continue
+        rest = raw[matched.end() :].strip(" :,-")
+        phrase = f"{verb} {rest}".strip() if rest else verb
+        return phrase[:90] + ("…" if len(phrase) > 90 else "")
+    if not raw:
+        return "Confirmer"
+    phrase = raw[:90]
+    return phrase[0].upper() + phrase[1:]
+
+
 def chat_message_needs_action(text: str) -> bool:
-    """Vrai seulement si le message demande d'exécuter quelque chose (recherche, envoi, livrable)."""
+    """Vrai si le message demande un travail (recherche, rédaction, envoi, livrable)."""
     raw = (text or "").strip()
     if not raw:
         return False

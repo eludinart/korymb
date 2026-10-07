@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 
 from agent_tool_use import llm_chat_maybe_tools
-from database import save_job, update_job
+from database import get_chat_session_summary, save_job, update_job
 from services.agent_groups import ASSISTANT_SYSTEM
 from services.agents import FLEUR_CONTEXT
 from services.chat_surface import surface_chat_result
@@ -144,7 +144,11 @@ def start_assistant_chat_job(
                 update_job(job_id, "completed", text, job_logs, 0, 0, source="chat", result_surface=surface)
                 return
 
-            from services.chat_intelligence import user_forces_direct_answer, user_wants_choice_questionnaire
+            from services.chat_intelligence import (
+                CHAT_LEAD_SHAPE,
+                user_forces_direct_answer,
+                user_wants_choice_questionnaire,
+            )
             from services.choice_questionnaire import QCM_INSTRUCTION, QCM_INSTRUCTION_DEFAULT
 
             qcm_block = (
@@ -168,7 +172,12 @@ def start_assistant_chat_job(
                 + qcm_block
                 + force
                 + product_ops_prompt_addon(msg_snap)
+                + CHAT_LEAD_SHAPE
             )
+            if session_id:
+                summary = (get_chat_session_summary(session_id) or "").strip()
+                if summary:
+                    system_prompt += f"\n### Mémoire de la conversation\n{summary[:2500]}\n"
             messages = messages_for_assistant(history, msg_snap)
             tool_tags = ["web", "drive", "teams", "workspace"]
             reply, ti, to = llm_chat_maybe_tools(

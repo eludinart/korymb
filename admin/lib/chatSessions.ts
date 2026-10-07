@@ -130,23 +130,41 @@ async function bindWorkspaceFromSession(): Promise<void> {
   }
 }
 
-/** Charge les conversations de l'espace courant. Un serveur vide reste vide (pas de reprise du cache d'un autre espace). */
+/** Le serveur remplace une conversation seulement s'il est au moins aussi récent. Le local absent du serveur est conservé. */
+export function mergeConversations(local: ChatConversation[], server: ChatConversation[]): ChatConversation[] {
+  if (!server.length) return local;
+  const localById = new Map(local.map((c) => [c.id, c]));
+  const serverIds = new Set<string>();
+  const merged: ChatConversation[] = [];
+  for (const row of server) {
+    serverIds.add(row.id);
+    const prev = localById.get(row.id);
+    if (prev && Number(prev.updatedAt || 0) > Number(row.updatedAt || 0)) {
+      merged.push(prev);
+      continue;
+    }
+    merged.push({
+      ...row,
+      interlocutor: row.interlocutor || prev?.interlocutor,
+      linkedParentJobId: row.linkedParentJobId || prev?.linkedParentJobId,
+    });
+  }
+  for (const conv of local) {
+    if (!serverIds.has(conv.id)) merged.push(conv);
+  }
+  merged.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  return merged;
+}
+
+/** Charge les conversations de l'espace courant. Un serveur vide ne vide pas le fil local. */
 export async function hydrateConversationsFromServer(): Promise<ChatConversation[]> {
   try {
     await bindWorkspaceFromSession();
     const server = await fetchChatConversationsFromServer();
     const local = loadConversations();
-    if (server.length) {
-      const localById = new Map(local.map((c) => [c.id, c]));
-      const merged = server.map((row) => ({
-        ...row,
-        interlocutor: row.interlocutor || localById.get(row.id)?.interlocutor,
-      }));
-      saveConversations(merged);
-      return merged;
-    }
-    saveConversations([]);
-    return [];
+    const merged = mergeConversations(local, server);
+    if (server.length) saveConversations(merged);
+    return merged;
   } catch {
     return loadConversations();
   }

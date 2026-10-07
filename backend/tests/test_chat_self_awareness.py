@@ -126,6 +126,42 @@ def test_propose_platform_change_tool(client):
     assert any(s.get("kind") == "platform_spec" and "bouton X" in str(s.get("title") or "") for s in pending)
 
 
+def test_confirmation_only_for_irreversible_actions():
+    from services.chat_intelligence import (
+        chat_message_needs_action,
+        chat_message_needs_confirmation,
+        irreversible_action_label,
+    )
+
+    assert chat_message_needs_action("cherche des sources sur ce chapitre") is True
+    assert chat_message_needs_confirmation("cherche des sources sur ce chapitre") is False
+    assert chat_message_needs_confirmation("rédige un mail de relance") is False
+    assert chat_message_needs_confirmation("prépare un plan pour demain") is False
+    assert chat_message_needs_confirmation("envoie le devis à Martin") is True
+    assert chat_message_needs_confirmation("publie le post LinkedIn") is True
+    assert chat_message_needs_confirmation("crée la fiche de Martin") is True
+    assert chat_message_needs_confirmation("Ajoute le coach Dupont au CRM") is True
+    assert irreversible_action_label("envoie le devis à Martin") == "Envoyer le devis à Martin"
+
+
+def test_team_chat_keeps_raw_history_with_summary(monkeypatch):
+    import routers.core_chat as core_chat
+
+    monkeypatch.setattr(core_chat, "get_chat_session_summary", lambda sid: "Résumé : devis en cours")
+    text = core_chat._build_chat_mission_txt(
+        "Envoie-le",
+        [
+            {"role": "user", "content": "Le client s'appelle Martin"},
+            {"role": "assistant", "content": "Noté."},
+        ],
+        "",
+        "sess-1",
+    )
+    assert "Martin" in text
+    assert "Résumé : devis en cours" in text
+    assert "Envoie-le" in text
+
+
 def test_classify_chat_intent():
     from services.chat_intelligence import (
         INTENT_CRM,

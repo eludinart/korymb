@@ -71,55 +71,44 @@ class ChatRequest(BaseModel):
     thinking_mode: str = "auto"
 
 
+def _recent_hist_lines(hist_snap: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for item in (hist_snap or [])[-12:]:
+        if item.get("role") not in ("user", "assistant"):
+            continue
+        content = item.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        role = "Utilisateur" if item["role"] == "user" else "Interlocuteur"
+        lines.append(f"{role}: {content[:800]}")
+    return lines
+
+
 def _build_chat_mission_txt(
     msg_snap: str,
     hist_snap: list[dict],
     linked_parent_id: str,
     session_id: str,
 ) -> str:
+    """Résumé compressé s'il existe, plus les derniers tours bruts."""
     session_summary = get_chat_session_summary(session_id) if session_id else ""
-    hist_lines: list[str] = []
-    if not session_summary:
-        for h in hist_snap:
-            if h.get("role") in ("user", "assistant"):
-                role = "Utilisateur" if h["role"] == "user" else "Interlocuteur"
-                c = h.get("content", "")
-                if isinstance(c, str):
-                    hist_lines.append(f"{role}: {c[:800]}")
+    hist_lines = _recent_hist_lines(hist_snap)
+    parts: list[str] = []
     parent_blob = (
         _mission_followup_context_from_parent(linked_parent_id)
         if linked_parent_id
         else ""
     )
     if parent_blob:
-        if session_summary:
-            return (
-                parent_blob
-                + f"État compressé de la session chat :\n{session_summary}\n\n"
-                f"Dernière demande à traiter maintenant :\n{msg_snap}"
-            )
-        conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-        return (
-            parent_blob
-            + (
-                "Échanges récents dans cette session (chat) :\n"
-                + conv
-                + "\n\nDernière demande à traiter maintenant :\n"
-                + msg_snap
-                if hist_snap
-                else "Nouvelle demande du dirigeant (à traiter maintenant) :\n" + msg_snap
-            )
-        )
+        parts.append(parent_blob.rstrip())
     if session_summary:
-        return (
-            f"État compressé de la session :\n{session_summary}\n\n"
-            f"Dernière demande à traiter maintenant :\n{msg_snap}"
-        )
-    conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-    return (
-        f"Échanges récents :\n{conv}\n\n"
-        f"Dernière demande à traiter maintenant :\n{msg_snap}"
-    )
+        parts.append(f"État compressé de la session :\n{session_summary}")
+    if hist_lines:
+        parts.append("Échanges récents :\n" + "\n".join(hist_lines))
+    elif not session_summary:
+        parts.append("Échanges récents :\n(début de conversation)")
+    parts.append(f"Dernière demande à traiter maintenant :\n{msg_snap}")
+    return "\n\n".join(parts)
 
 
 def _attachment_payload(request: ChatRequest) -> list[dict]:
@@ -147,6 +136,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=400, detail="Message ou fichier requis.")
     group_id = (request.agent_group_id or "").strip()[:64] or None
 
+    from services.chat_intelligence import chat_message_needs_confirmation, irreversible_action_label
+
+    if chat_message_needs_confirmation(msg_raw) and not request.confirm_action:
+        label = irreversible_action_label(msg_raw)
+        return {
+            "status": "needs_confirmation",
+            "agent": agent_key,
+            "agent_group_id": group_id,
+            "proposal": label,
+            "action_label": label,
+        }
+
     try:
         if agent_key == "assistant":
             from services.assistant_chat import start_assistant_chat_job
@@ -171,23 +172,12 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             now_iso = datetime.utcnow().isoformat()
             linked_parent_id = (request.linked_job_id or "").strip()[:16]
             session_id = (request.chat_session_id or "").strip()[:64] or ""
-            hist_snap = [] if linked_parent_id or session_id else list(request.history[-6:])
+            hist_snap = list(request.history[-12:])
             msg_snap = msg_raw or (
                 "Fichiers joints : " + ", ".join(a.get("filename") or a.get("id") or "fichier" for a in att_snap)
             )
             from services.chat_intelligence import chat_message_needs_action
 
-            if chat_message_needs_action(msg_snap) and not request.confirm_action:
-                label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
-                return {
-                    "status": "needs_confirmation",
-                    "agent": run_agent,
-                    "agent_group_id": group_id,
-                    "proposal": (
-                        f"{label} peut lancer une action (recherche, livrable ou envoi). "
-                        "Rien n'est exécuté tant que vous ne confirmez pas."
-                    ),
-                }
             save_job(
                 job_id,
                 run_agent,
@@ -288,7 +278,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         linked_parent_id,
                         session_id,
                     )
-                    if request.confirm_action or att_snap:
+                    if request.confirm_action or chat_message_needs_action(msg_snap):
                         text, ti, to = orchestrate_coordinateur_mission(
                             mission_txt,
                             msg_snap,

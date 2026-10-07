@@ -62,6 +62,7 @@ export default function ChatSidebar({
   const activeRef = useRef<HTMLLIElement>(null);
   const allRef = useRef<HTMLInputElement>(null);
   const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [selecting, setSelecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const inbox = variant === "inbox";
   const sorted = useMemo(
@@ -173,18 +174,30 @@ export default function ChatSidebar({
         </button>
         {sorted.length > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-              <input
-                ref={allRef}
-                type="checkbox"
-                checked={allChecked}
-                disabled={busy}
-                onChange={toggleAll}
-                className="h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500"
-              />
-              Tout
-            </label>
-            {pickedIds.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                setPicked({});
+                setSelecting((on) => !on);
+              }}
+              className="min-h-11 rounded-lg px-1 text-[11px] font-semibold text-slate-600 hover:text-slate-900 dark:text-slate-300"
+            >
+              {selecting ? "Terminer" : "Sélectionner"}
+            </button>
+            {selecting ? (
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                <input
+                  ref={allRef}
+                  type="checkbox"
+                  checked={allChecked}
+                  disabled={busy}
+                  onChange={toggleAll}
+                  className="h-4 w-4 rounded border-slate-300 text-violet-700 focus:ring-violet-500"
+                />
+                Tout
+              </label>
+            ) : null}
+            {selecting && pickedIds.length > 0 ? (
               <button
                 type="button"
                 disabled={busy}
@@ -223,7 +236,7 @@ export default function ChatSidebar({
                           : "border-transparent bg-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
                   }`}
                 >
-                  <label className="flex min-h-11 shrink-0 cursor-pointer items-start pl-2 pt-3">
+                  <label className={`flex min-h-11 shrink-0 cursor-pointer items-start pl-2 pt-3 ${selecting ? "" : "hidden"}`}>
                     <input
                       type="checkbox"
                       checked={Boolean(picked[c.id])}
@@ -263,7 +276,7 @@ export default function ChatSidebar({
                       <div className="mt-1.5 space-y-0.5">
                         <p className="flex items-center gap-1.5 text-[11px] font-medium text-violet-800">
                           <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-violet-600" />
-                          Exploration en cours…
+                          {pending[0]?.progressLabel || "Je prépare…"}
                         </p>
                         {pending[0]?.userPreview ? (
                           <p className="truncate text-[11px] text-violet-600/90">{pending[0].userPreview}</p>

@@ -34,11 +34,11 @@ export default function ChatBottomSheet({ open, onClose, title, children, tall }
   if (!ready || !open) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[90] lg:hidden" role="dialog" aria-modal="true" aria-label={title}>
+    <div className="fixed inset-0 z-[90]" role="dialog" aria-modal="true" aria-label={title}>
       <button type="button" className="absolute inset-0 bg-slate-950/45 dark:bg-black/60" aria-label="Fermer" onClick={onClose} />
       <div
-        className={`absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 dark:shadow-black/50 ${
-          tall ? "max-h-[92dvh]" : "max-h-[85dvh]"
+        className={`absolute inset-x-0 bottom-0 flex flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl dark:bg-slate-900 dark:shadow-black/50 lg:inset-x-auto lg:bottom-auto lg:left-1/2 lg:top-1/2 lg:w-[min(28rem,92vw)] lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-2xl ${
+          tall ? "max-h-[92dvh] lg:max-h-[80vh]" : "max-h-[85dvh] lg:max-h-[80vh]"
         }`}
         style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom, 0px))" }}
       >
