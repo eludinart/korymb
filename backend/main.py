@@ -85,6 +85,7 @@ from routers.core_actions import router as core_actions_router
 from routers.core_telegram import router as core_telegram_router
 from routers.core_storefront import router as core_storefront_router
 from routers.core_studio import router as core_studio_router
+from routers.core_context_guide import router as core_context_guide_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -212,6 +213,7 @@ app.include_router(core_actions_router)
 app.include_router(core_telegram_router)
 app.include_router(core_storefront_router)
 app.include_router(core_studio_router)
+app.include_router(core_context_guide_router)
 
 
 @app.middleware("http")

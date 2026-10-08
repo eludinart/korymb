@@ -36,7 +36,6 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     label: "Présence & modèles",
     links: [
       { href: "/administration/vitrine", label: "Page publique" },
-      { href: "/administration/modeles", label: "Modèles de démarrage" },
       { href: "/administration/templates", label: "Templates missions" },
     ],
   },
@@ -47,6 +46,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { href: "/administration/orchestration", label: "Prompts d’orchestration" },
       { href: "/administration/comportements", label: "Comportements" },
       { href: "/administration/memory", label: "Votre activité" },
+      { href: "/administration/contexte", label: "Science de l'entreprise" },
     ],
   },
   {
@@ -63,6 +63,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
 /** Liens visibles en mode Essentiel. Les autres pages d'administration sont fermées. */
 export const ESSENTIAL_ADMIN_HREFS = new Set([
   "/administration/memory",
+  "/administration/contexte",
   "/administration/vitrine",
   "/administration/modeles",
   "/administration/integrations",

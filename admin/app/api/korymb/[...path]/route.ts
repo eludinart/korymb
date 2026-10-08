@@ -12,6 +12,7 @@ function upstreamTimeoutMs(joinedPath: string): number {
   const p = joinedPath.toLowerCase();
   if (p === "health" || p === "health/live" || p === "health/database" || p === "llm") return 8_000;
   if (p.startsWith("admin/reprise")) return 90_000;
+  if (p.startsWith("context-guide")) return 60_000;
   if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
   if (p.includes("emails/suggest-replies")) return 60_000;
   if (p.includes("emails/send")) return 60_000;

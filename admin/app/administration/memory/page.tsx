@@ -296,7 +296,7 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
             placeholder={
               key === "global"
-                ? "Ex. Cette semaine : relance partenaires, bilan Q2, préparer posts Instagram…"
+                ? "Ex. Activité professionnelle ou associative. Publics : clients, adhérents, partenaires. Cette semaine : relances, bilan, message aux membres."
                 : `Contexte pour ${MEMORY_CONTEXT_TITLES[key]}…`
             }
           />
@@ -684,7 +684,11 @@ export default function MemoryConsolePage() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Votre activité</h1>
         <p className="mt-1 text-sm text-slate-500">
           Quelques phrases sur ce que vous faites, pour qui, avec quels mots. L&apos;assistant s&apos;en sert pour
-          préparer le travail. Le détail par rôle est plus bas. Les équipes se gèrent depuis{" "}
+          préparer le travail. Le parcours qui la constitue est{" "}
+          <Link href="/administration/contexte" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
+            la science de l&apos;entreprise
+          </Link>
+          . Le détail par rôle est plus bas. Les équipes se gèrent depuis{" "}
           <Link href="/administration/equipes" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
             Équipes
           </Link>

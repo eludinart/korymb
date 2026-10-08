@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_SUBTITLE } from "../../lib/directorQueue";
 import { missionTitleLabel } from "../../lib/missionLabel";
-import { starterPackLabel } from "../../lib/starterPacks";
 import { SectionCard } from "../ui/PageChrome";
 import IntentionLaunch from "../missions/IntentionLaunch";
 
@@ -49,10 +48,10 @@ type Props = {
 const ONBOARDING_STEPS = [
   {
     n: 1,
-    title: "Décrire votre activité",
-    hint: "Quelques phrases suffisent. L'assistant s'en sert ensuite.",
-    href: "/administration/memory",
-    cta: "Écrire",
+    title: "Dire ce que vous suivez ici",
+    hint: "Une question à la fois. Rien n'est enregistré sans votre accord.",
+    href: "/administration/contexte",
+    cta: "Commencer",
   },
   {
     n: 2,
@@ -73,7 +72,6 @@ const ONBOARDING_STEPS = [
 export default function BriefingEssential({
   userName,
   showWelcome,
-  packId,
   decisions,
   inboxTotal,
   missionsRunning,
@@ -95,20 +93,19 @@ export default function BriefingEssential({
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
           Anticiper, décider, demander.
         </p>
+        <p className="mt-3 text-sm">
+          <Link href="/administration/contexte" className="font-semibold text-violet-700 hover:underline dark:text-violet-300">
+            Science de l&apos;entreprise
+          </Link>
+        </p>
       </header>
 
       {showWelcome ? (
         <section className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 dark:border-emerald-800 dark:bg-emerald-950 sm:px-6">
           <p className="text-sm font-bold text-emerald-900 dark:text-emerald-200">Premiers pas</p>
           <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-300">
-            {packId && packId !== "blank" ? (
-              <>
-                Le modèle <strong>{starterPackLabel(packId)}</strong> a préparé des points de départ. Trois gestes
-                pour les adapter à votre activité :
-              </>
-            ) : (
-              <>Espace prêt. Trois gestes pour commencer :</>
-            )}
+            Le contexte de l&apos;espace est encore à écrire. On commence par une question neutre, sans métier
+            imposé. Rien n&apos;est enregistré sans votre accord.
           </p>
           <ol className="mt-4 space-y-3">
             {ONBOARDING_STEPS.map((step) => (
