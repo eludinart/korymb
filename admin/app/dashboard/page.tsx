@@ -85,7 +85,7 @@ type FleetSection = {
 };
 
 type AgentAdminActions = {
-  ficheHref: string;
+  ficheHref?: string;
   onRemove?: () => void;
   removeBusy?: boolean;
   removeDisabled?: boolean;
@@ -199,9 +199,11 @@ function AgentStatusCard({
       </div>
       {admin ? (
         <div className="flex basis-full flex-wrap gap-x-3 gap-y-1 border-t border-slate-100 pt-2">
-          <Link href={admin.ficheHref} className="text-xs font-medium text-violet-800 hover:underline">
-            Fiche
-          </Link>
+          {admin.ficheHref ? (
+            <Link href={admin.ficheHref} className="text-xs font-medium text-violet-800 hover:underline">
+              Fiche
+            </Link>
+          ) : null}
           {admin.onRemove ? (
             <button
               type="button"
@@ -524,11 +526,10 @@ export default function DashboardPage() {
     if (!canAdmin) return null;
     const busy = row.runningForAgent.length > 0;
     const custom = row.agent.builtin === false && !row.agent.is_manager;
-    const actions: AgentAdminActions = {
-      ...(platformOwner
-        ? { ficheHref: `/administration/agents/${encodeURIComponent(row.agent.key)}` }
-        : {}),
-    };
+    const actions: AgentAdminActions = {};
+    if (platformOwner) {
+      actions.ficheHref = `/administration/agents/${encodeURIComponent(row.agent.key)}`;
+    }
     if (fleetId && !lead) {
       actions.onRemove = () => void removeFromFleet(fleetId, fleetLabel, row.agent.key, row.agent.label);
       actions.removeBusy = rosterBusyKey === `${fleetId}:${row.agent.key}`;
