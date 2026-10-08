@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any
 
 from database import get_conn
-from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID, is_legacy_elude_workspace
+from services.workspace_brand import is_legacy_elude_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -80,9 +80,9 @@ def _ws() -> str:
     try:
         from workspace_db import ws_id
 
-        return (ws_id() or LEGACY_ELUDE_WORKSPACE_ID).strip() or LEGACY_ELUDE_WORKSPACE_ID
+        return (ws_id() or "").strip()
     except Exception:
-        return LEGACY_ELUDE_WORKSPACE_ID
+        return ""
 
 
 def init_knowledge_table() -> None:

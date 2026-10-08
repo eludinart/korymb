@@ -22,6 +22,7 @@ import {
   addPendingChatJob,
   loadPendingChatJobs,
   pendingJobsForConversation,
+  savePendingChatJobs,
   removePendingChatJob,
   updatePendingChatJobProgress,
   type PendingChatJob,
@@ -307,7 +308,7 @@ function ChatPageInner() {
       const remaining = loadConversations();
       const removed = new Set(removedIds);
       const jobs = loadPendingChatJobs().filter((j) => !removed.has(j.conversationId));
-      localStorage.setItem("korymb-chat-pending-jobs-v1", JSON.stringify(jobs));
+      savePendingChatJobs(jobs);
       if (activeId && removed.has(activeId)) {
         if (remaining.length) selectConversation(remaining[0].id);
         else newConversation();
@@ -381,6 +382,7 @@ function ChatPageInner() {
         result?: string;
         degraded?: boolean;
         drive_artifacts?: unknown;
+        claim_guard?: ChatMsg["claimGuard"];
         team?: Array<{ phase?: string; status?: string }>;
         events?: Array<{ type?: string; data?: { phase?: string } }>;
       };
@@ -414,6 +416,7 @@ function ChatPageInner() {
           jobId,
           driveArtifacts: (data.drive_artifacts || []) as ChatJobDelivery["driveArtifacts"],
           deliverablesMarkdown: String(data.result || ""),
+          claimGuard: data.claim_guard,
         };
       }
       if (status.startsWith("error")) {
@@ -424,7 +427,7 @@ function ChatPageInner() {
   }, []);
 
   const deliverJobResult = useCallback(
-    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string } | string, isError = false) => {
+    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string; claimGuard?: ChatMsg["claimGuard"] } | string, isError = false) => {
       const surface = stoppedReplyRef.current.has(job.jobId)
         ? "Réponse arrêtée."
         : typeof delivery === "string"
@@ -433,6 +436,7 @@ function ChatPageInner() {
       const degraded = typeof delivery === "string" ? chatTextIsDegraded(delivery) : Boolean(delivery.degraded) || chatTextIsDegraded(delivery.surface);
       const driveArtifacts = typeof delivery === "string" ? undefined : delivery.driveArtifacts;
       const deliverablesMarkdown = typeof delivery === "string" ? undefined : delivery.deliverablesMarkdown;
+      const claimGuard = typeof delivery === "string" ? undefined : delivery.claimGuard;
       const assistantId = isError ? `e-${job.jobId}` : `a-${job.jobId}`;
       const conv = loadConversations().find((c) => c.id === job.conversationId);
       if (!conv) {
@@ -477,6 +481,7 @@ function ChatPageInner() {
           ...(agentKeys ? { agentKeys } : {}),
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
           ...(degraded ? { degraded: true } : {}),
+          ...(claimGuard?.status ? { claimGuard } : {}),
         },
       ];
       const preview = stripMarkdownPreview(surface);
@@ -736,6 +741,7 @@ function ChatPageInner() {
       } else {
         const surface = toChatSurface(String(data?.response || ""));
         const degraded = Boolean(data?.degraded) || chatTextIsDegraded(surface);
+        const claimGuard = data?.claim_guard as ChatMsg["claimGuard"] | undefined;
         setReplyProgress(null);
         setMessages([
           ...history,
@@ -745,6 +751,7 @@ function ChatPageInner() {
             content: surface,
             agentKeys: [agent],
             ...(degraded ? { degraded: true } : {}),
+            ...(claimGuard?.status ? { claimGuard } : {}),
           },
         ]);
       }

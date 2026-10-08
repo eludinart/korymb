@@ -2,8 +2,8 @@ import { test, expect } from "@playwright/test";
 
 test("accueil public", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /Korymb, votre activité/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /Créer un espace/i }).first()).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Vous dites quoi faire/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Créer (mon|un) espace/i }).first()).toBeVisible();
 });
 
 test("page de connexion Korymb", async ({ page }) => {

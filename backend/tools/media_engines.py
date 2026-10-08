@@ -759,7 +759,7 @@ def _video_storyboard(prompt: str, duration: int, ratio: str) -> str | None:
     frames = 3
     saved_ids: list[str] = []
     for idx in range(frames):
-        shot = f"{prompt}. Plan {idx + 1}/{frames}, cadrage {ratio}, lumière naturelle, pas de cliché voyance."
+        shot = f"{prompt}. Plan {idx + 1}/{frames}, cadrage {ratio}, lumière naturelle, visuel sobre et professionnel."
         try:
             if _mistral_ready():
                 out = _image_mistral(shot, "768x1280" if ratio in ("9:16", "9/16") else "1280x768")

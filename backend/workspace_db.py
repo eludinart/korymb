@@ -87,11 +87,12 @@ def slugify(name: str) -> str:
 
 
 def ws_id() -> str:
-    """Workspace courant (contexte requête) ou workspace legacy par défaut."""
-    wid = get_workspace_id()
-    if wid:
-        return wid
-    return _DEFAULT_WORKSPACE_ID
+    """Workspace courant. Sans contexte de requête : vide.
+
+    Ne pas retomber sur l'espace historique Élude : un tour sans tenant
+    lirait sinon sa mémoire, sa marque et ses fichiers.
+    """
+    return (get_workspace_id() or "").strip()
 
 
 def scoped_store_key(store_key: str) -> str:
@@ -408,10 +409,14 @@ def _backfill_workspace_ids(conn) -> None:
             continue
         if "workspace_id" not in cols:
             continue
-        conn.execute(
-            f"UPDATE {table} SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
-            (_DEFAULT_WORKSPACE_ID,),
-        )
+        try:
+            conn.execute(
+                f"UPDATE {table} SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+                (_DEFAULT_WORKSPACE_ID,),
+            )
+        except Exception:
+            # Une ligne vide ne doit pas écraser la ligne déjà portée par l'espace historique.
+            continue
 
 
 def create_user(email: str, password_hash: str, display_name: str = "") -> dict[str, Any]:

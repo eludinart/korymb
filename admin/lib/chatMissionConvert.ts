@@ -41,7 +41,7 @@ export function buildMissionBriefFromChat(messages: ChatMsg[], conversationTitle
     clip(conversationTitle || lastUser || "Approfondir le sujet discuté en chat.", 500),
     "",
     "## Hors-périmètre",
-    "Ne pas élargir au-delà de la demande (pas de roadmap, tarot ou partenariats non demandés).",
+    "Ne pas élargir au-delà de la demande (pas de sujet, d'offre ou de partenariat qui n'a pas été demandé).",
     "",
     "## Contexte (extraits récents)",
   ];

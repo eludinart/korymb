@@ -1,4 +1,5 @@
 import { ENTERPRISE_GROUP_ID, ENTERPRISE_ROLE_LABEL } from "./agentGroupUi";
+import { chatStorageKey } from "./chatSessions";
 
 /** "assistant" | "coordinateur" | `group:${id}` */
 export type RecentInterlocutor = {
@@ -30,8 +31,10 @@ export function fallbackInterlocutorLabel(value: string): string {
 
 export function loadRecentInterlocutors(): RecentInterlocutor[] {
   if (typeof window === "undefined") return [];
+  const key = chatStorageKey(STORAGE_KEY);
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as RecentInterlocutor[];
     if (!Array.isArray(parsed)) return [];
@@ -61,7 +64,9 @@ export function rememberInterlocutor(value: string, label?: string): RecentInter
     { value: clean, label: nextLabel, usedAt: Date.now() },
     ...prev.filter((row) => row.value !== clean),
   ].slice(0, MAX_RECENTS);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  const key = chatStorageKey(STORAGE_KEY);
+  if (!key) return next;
+  localStorage.setItem(key, JSON.stringify(next));
   return next;
 }
 

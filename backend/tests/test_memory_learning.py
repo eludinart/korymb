@@ -157,11 +157,11 @@ def test_chat_active_memory_includes_facts():
     from database import merge_enterprise_contexts
     from services.memory_inbox import merge_enterprise_facts, build_chat_active_memory_block
 
-    merge_enterprise_contexts({"global": "Priorité : ateliers Sïvåñà."})
+    merge_enterprise_contexts({"global": "Priorité : ateliers du lieu."})
     merge_enterprise_facts({"brand": "Élude In Art", "location": "Tourves"})
-    block = build_chat_active_memory_block()
+    block = build_chat_active_memory_block("Quelle est la priorité des ateliers ?")
     assert "Élude In Art" in block
-    assert "ateliers" in block.lower() or "Sïvåñà" in block or "Priorité" in block
+    assert "ateliers" in block.lower() or "priorite" in block.lower() or "Priorité" in block
 
 
 def test_propose_from_crm_creates_pending_when_auto_off(monkeypatch):

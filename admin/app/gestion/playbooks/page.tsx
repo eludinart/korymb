@@ -62,7 +62,7 @@ export default function PlaybooksPage() {
   const CAT_LABELS: Record<string, string> = {
     studio: "Studio",
     fleur: "Catalogue / produit",
-    sivana: "Lieu / écolieu",
+    sivana: "Lieu / site",
     ops: "Ops",
     generic: "Générique",
   };

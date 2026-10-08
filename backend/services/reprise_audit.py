@@ -298,8 +298,22 @@ def _corpus_word_count(corpus: str) -> int:
 
 
 def _workspace_corpus_is_blank(corpus: str) -> bool:
-    """Espace sans mémoire ni missions : pas de checklist métier héritée."""
+    """Texte trop court pour porter une activité documentée."""
     return _corpus_word_count(corpus) < 3
+
+
+def _activity_memory_is_blank(ctx: dict[str, Any]) -> bool:
+    """Mémoire entreprise vide : un chat d'accueil ne déclenche pas la checklist."""
+    parts: list[str] = []
+    contexts = ctx.get("memory_contexts") if isinstance(ctx.get("memory_contexts"), dict) else {}
+    for value in contexts.values():
+        if str(value or "").strip():
+            parts.append(str(value))
+    for row in ctx.get("recent_missions") or []:
+        if isinstance(row, dict):
+            parts.append(str(row.get("mission") or ""))
+            parts.append(str(row.get("preview") or ""))
+    return _workspace_corpus_is_blank("\n".join(parts))
 
 
 def _format_director_reprise_decisions(actions: list[dict[str, Any]]) -> str:
@@ -593,7 +607,8 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     corpus = _collect_corpus(ecosystem)
     has_reprise = _has_reprise_context(corpus)
     own_actions = list_reprise_checklist_actions()
-    blank = _workspace_corpus_is_blank(corpus) and not own_actions
+    # Le fil de chat (accueil, copilote) ne compte pas comme activité documentée.
+    blank = _activity_memory_is_blank(ecosystem) and not own_actions
 
     domains_out: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
@@ -1014,7 +1029,7 @@ def _generate_reprise_proposals_sync(
             3. Pas d'anticipation « reprise M&A » (cautions bancaires, due diligence RH, valorisation)
                sauf si c'est explicitement documenté dans la mémoire ou une lacune acquisition active.
             4. Chaque mission doit combler un point checklist_missing listé — titre actionnable et spécifique
-               à l'activité actuelle (éditorial tarot, commercial, IT, clients…).
+               à l'activité actuelle (offres, adhérents ou clients, communication, organisation…).
             5. Le champ content : objectif, livrables (3-5 puces), critère de succès — uniquement faisable maintenant.
             6. Renseigne reprise_domain et checklist_items_addressed.
             7. source_kind = "reprise_gap", source_label = phrase courte factuelle.
@@ -1028,10 +1043,10 @@ def _generate_reprise_proposals_sync(
                 "content": "Objectif…\\nLivrables :\\n- …\\n- …\\nCritère de succès : …",
                 "why_now": "Pourquoi c'est bloquant pour la reprise",
                 "agents": ["commercial"],
-                "reprise_domain": "editorial_tarot",
-                "checklist_items_addressed": ["Lister les éditeurs partenaires"],
+                "reprise_domain": "commercial_marketing",
+                "checklist_items_addressed": ["Clarifier l'offre et les publics prioritaires"],
                 "source_kind": "reprise_gap",
-                "source_label": "Lacune éditeurs tarot non couverte",
+                "source_label": "Offre et publics encore flous",
                 "risk_flags": [],
                 "launch_mode": "supervised"
               }}

@@ -131,6 +131,7 @@ def emit_job_event(
                 "synthesis_done",
                 "mission_done",
                 "error",
+                "claim_guard",
             })
             if typ not in _chat_public_events:
                 return

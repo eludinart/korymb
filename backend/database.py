@@ -886,6 +886,20 @@ def init_db():
         ensure_workspace_columns(conn)
         _ensure_mission_events_table(conn)
         conn.commit()
+    from tenant_context import clear_tenant_context, get_workspace_id, set_tenant_context
+    from workspace_db import _DEFAULT_WORKSPACE_ID
+
+    boot_ws = not (get_workspace_id() or "").strip()
+    if boot_ws:
+        set_tenant_context(workspace_id=_DEFAULT_WORKSPACE_ID)
+    try:
+        _init_db_seeds()
+    finally:
+        if boot_ws:
+            clear_tenant_context()
+
+
+def _init_db_seeds() -> None:
     init_enterprise_memory_row()
     _init_autonomous_tables()
     # Graphe de connaissance entités (import tardif pour éviter les cycles)
@@ -3608,9 +3622,11 @@ def upsert_agent_group_memory(
 
 
 def init_enterprise_memory_row() -> None:
-    """Contexte entreprise par espace Korymb."""
+    """Contexte entreprise par espace Korymb. Sans espace courant : ne rien écrire."""
     now = datetime.utcnow().isoformat()
     wid = _ws()
+    if not wid:
+        return
     with get_conn() as conn:
         text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
         conn.execute(
@@ -3637,8 +3653,10 @@ def init_enterprise_memory_row() -> None:
 
 
 def get_enterprise_memory() -> dict:
-    init_enterprise_memory_row()
     wid = _ws()
+    if not wid:
+        return {"contexts": {}, "recent_missions": [], "updated_at": None}
+    init_enterprise_memory_row()
     now_m = time.monotonic()
     hit = _ENTERPRISE_MEM_CACHE.get(wid)
     if hit is not None and (now_m - hit[0]) < _ENTERPRISE_MEM_TTL_SEC:

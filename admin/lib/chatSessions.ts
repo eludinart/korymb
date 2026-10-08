@@ -19,8 +19,6 @@ export type ChatConversation = {
 
 const INDEX_KEY = "korymb-chat-conversations-v1";
 const ACTIVE_KEY = "korymb-chat-active-conversation-v1";
-const LEGACY_MESSAGES_KEY = "korymb-chat-messages-v2";
-const LEGACY_SESSION_KEY = "korymb-chat-session-v2";
 
 let boundWorkspaceId = "";
 
@@ -28,8 +26,12 @@ export function bindChatStorageWorkspace(workspaceId: string) {
   boundWorkspaceId = (workspaceId || "").trim();
 }
 
+export function chatStorageKey(base: string) {
+  return boundWorkspaceId ? `${base}:${boundWorkspaceId}` : "";
+}
+
 function scopedKey(base: string) {
-  return boundWorkspaceId ? `${base}:${boundWorkspaceId}` : base;
+  return chatStorageKey(base);
 }
 
 function now() {
@@ -47,31 +49,13 @@ export function conversationTitleFromMessages(messages: ChatMsg[]): string {
 
 export function loadConversations(): ChatConversation[] {
   if (typeof window === "undefined") return [];
+  const key = scopedKey(INDEX_KEY);
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(scopedKey(INDEX_KEY));
-    if (raw) {
-      const parsed = JSON.parse(raw) as ChatConversation[];
-      return Array.isArray(parsed) ? parsed.sort((a, b) => b.updatedAt - a.updatedAt) : [];
-    }
-    if (boundWorkspaceId) return [];
-    const legacy = localStorage.getItem(LEGACY_MESSAGES_KEY);
-    if (legacy) {
-      const messages = JSON.parse(legacy) as ChatMsg[];
-      if (Array.isArray(messages) && messages.length > 0) {
-        const id = localStorage.getItem(LEGACY_SESSION_KEY) || `conv-${now()}`;
-        const conv: ChatConversation = {
-          id,
-          title: conversationTitleFromMessages(messages),
-          messages,
-          updatedAt: now(),
-        };
-        saveConversations([conv]);
-        setActiveConversationId(id);
-        localStorage.removeItem(LEGACY_MESSAGES_KEY);
-        return [conv];
-      }
-    }
-    return [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatConversation[];
+    return Array.isArray(parsed) ? parsed.sort((a, b) => b.updatedAt - a.updatedAt) : [];
   } catch {
     return [];
   }
@@ -79,18 +63,24 @@ export function loadConversations(): ChatConversation[] {
 
 export function saveConversations(conversations: ChatConversation[]) {
   if (typeof window === "undefined") return;
+  const key = scopedKey(INDEX_KEY);
+  if (!key) return;
   const sorted = [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  localStorage.setItem(scopedKey(INDEX_KEY), JSON.stringify(sorted));
+  localStorage.setItem(key, JSON.stringify(sorted));
 }
 
 export function getActiveConversationId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(scopedKey(ACTIVE_KEY));
+  const key = scopedKey(ACTIVE_KEY);
+  if (!key) return null;
+  return localStorage.getItem(key);
 }
 
 export function setActiveConversationId(id: string) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(scopedKey(ACTIVE_KEY), id);
+  const key = scopedKey(ACTIVE_KEY);
+  if (!key) return;
+  localStorage.setItem(key, id);
 }
 
 export function createConversation(opts?: { linkedParentJobId?: string }): ChatConversation {

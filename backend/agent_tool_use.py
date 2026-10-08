@@ -716,11 +716,32 @@ _ALL_ANTHROPIC_TOOLS.extend(BUSINESS_TOOL_SCHEMAS)
 _ALL_ANTHROPIC_TOOLS.extend(WORKSPACE_TOOL_SCHEMAS)
 
 
+_PRODUCT_DB_TOOLS = frozenset({
+    "db_list_tables",
+    "db_describe_table",
+    "db_query",
+    "db_analyze_users",
+})
+
+
+def _product_db_tools_allowed() -> bool:
+    """La base produit externe (instance Fleur) n'est visible que sur l'espace legacy."""
+    try:
+        from services.workspace_brand import is_legacy_elude_workspace
+
+        return is_legacy_elude_workspace()
+    except Exception:
+        return False
+
+
 def tool_names_for_tags(tags: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
+    allow_product_db = _product_db_tools_allowed()
     for tag in tags:
         for name in _TAG_TO_TOOLS.get(tag, ()):
+            if name in _PRODUCT_DB_TOOLS and not allow_product_db:
+                continue
             if name not in seen:
                 seen.add(name)
                 out.append(name)
@@ -991,14 +1012,20 @@ def _execute_tool(name: str, inp: Any) -> str:
                 agent_key=str(ctx.get("agent_key") or ""),
             )
             return format_proposal_tool_result(sug, kind_label="Proposition plateforme")
-        if name == "db_list_tables":
-            return run_db_list_tables("")
-        if name == "db_describe_table":
-            return run_db_describe_table(str(inp.get("table_name", "")))
-        if name == "db_query":
-            return run_db_query(str(inp.get("sql", "")))
-        if name == "db_analyze_users":
-            return run_db_analyze_users(str(inp.get("question", "")))
+        if name in _PRODUCT_DB_TOOLS:
+            if not _product_db_tools_allowed():
+                return (
+                    "Base produit externe non connectée à cet espace. "
+                    "Utilise la mémoire, le CRM et les outils de cet espace."
+                )
+            if name == "db_list_tables":
+                return run_db_list_tables("")
+            if name == "db_describe_table":
+                return run_db_describe_table(str(inp.get("table_name", "")))
+            if name == "db_query":
+                return run_db_query(str(inp.get("sql", "")))
+            if name == "db_analyze_users":
+                return run_db_analyze_users(str(inp.get("question", "")))
         if name == "get_instagram_insights":
             return run_get_instagram_insights(
                 str(inp.get("period", "week") or "week"),

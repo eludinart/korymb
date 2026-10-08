@@ -96,7 +96,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "tags": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Ex: coach, thérapeute, Var, Fleur d'ÅmÔurs",
+                    "description": "Ex: adhérent, partenaire, bénévole, ville",
                 },
                 "profile_notes": {
                     "type": "string",
@@ -216,8 +216,8 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "gestion_create_project",
         "description": (
-            "Ouvre un projet commercial (séance, stage SÏvåñà, module pro, accompagnement) "
-            "rattaché à un contact."
+            "Ouvre un projet (séance, formation, événement, accompagnement) "
+            "rattaché à un contact ou à une structure."
         ),
         "input_schema": {
             "type": "object",
@@ -226,7 +226,7 @@ BUSINESS_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "contact_id": {"type": "string"},
                 "project_type": {
                     "type": "string",
-                    "description": "seance | stage | module_pro | accompagnement | sivana | autre",
+                    "description": "seance | stage | formation | accompagnement | evenement | autre",
                 },
                 "description": {"type": "string"},
                 "location": {"type": "string"},

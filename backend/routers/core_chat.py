@@ -302,6 +302,16 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             agent_group_id=group_id,
                         )
                     surface = surface_chat_result(text, user_text=msg_snap, agent_group_id=group_id)
+                    from services.claim_guard import seal_chat_texts
+
+                    text, surface, _claims = seal_chat_texts(
+                        text,
+                        surface,
+                        user_text=msg_snap,
+                        history=hist_snap,
+                        job_logs=job_logs_ref,
+                        job_id=job_id,
+                    )
                     _add_daily_svc(ti, to)
                     team_snap = active_jobs[job_id].get("team", [])
                     pl = active_jobs[job_id].get("plan") or {}
@@ -602,6 +612,14 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "degraded": True,
                 "degraded_reason": reason,
             }
+        from services.claim_guard import apply_chat_claim_guard
+
+        guarded = apply_chat_claim_guard(
+            reply,
+            user_text=msg_raw or request.message or "",
+            history=list(request.history or []),
+        )
+        reply = guarded.text
         _add_daily_svc(ti, to)
         if link_th:
             try:
@@ -621,7 +639,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 )
             except Exception:
                 logger.exception("append_job_mission_thread (chat synchrone)")
-        return {"response": reply, "agent": request.agent}
+        return {"response": reply, "agent": request.agent, "claim_guard": guarded.payload()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=_user_visible_chat_sync_failure_text(e)) from e
 

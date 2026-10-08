@@ -291,7 +291,7 @@ def run_search_linkedin(query: str) -> str:
 def run_describe_image(image_url: str, context: str = "") -> str:
     """
     Analyse et décrit le contenu d'une image via Claude Haiku Vision.
-    Fonctionne avec : photos Instagram, posts Facebook, affiches, cartes tarot, logos, etc.
+    Fonctionne avec : photos, posts, affiches, visuels de campagne, logos, etc.
     Nécessite ANTHROPIC_API_KEY.
     """
     url = (image_url or "").strip()

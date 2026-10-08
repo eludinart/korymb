@@ -53,10 +53,15 @@ def client(app, test_secret: str):
 
 @pytest.fixture(autouse=True)
 def _reset_tenant_context():
-    """Évite qu’un test laisse un workspace ContextVar polluer le suivant."""
-    from tenant_context import clear_tenant_context
+    """Chaque test part sur l'espace historique, comme l'ancien repli de ws_id().
+
+    Un test qui efface le contexte ne doit plus hériter silencieusement d'Élude :
+    ws_id() reste vide tant qu'un set_tenant_context n'a pas eu lieu.
+    """
+    from tenant_context import clear_tenant_context, set_tenant_context
 
     clear_tenant_context()
+    set_tenant_context(workspace_id="ws-default-legacy")
     yield
     clear_tenant_context()
 

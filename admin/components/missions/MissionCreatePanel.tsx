@@ -221,7 +221,7 @@ export default function MissionCreatePanel({
           value={mission}
           onChange={(e) => setMission(e.target.value)}
           className="field-input leading-relaxed"
-          placeholder="Ex. : analyser les prospects PACA et préparer un kit de contact…"
+          placeholder="Ex. : préparer le message aux adhérents et lister les prochaines actions…"
           autoFocus
         />
       </div>

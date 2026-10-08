@@ -36,10 +36,10 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "tools": ("wordpress_create_post", "generate_image", "create_branded_pdf"),
         "duration_hint": "8–12 min de lecture",
         "brief": (
-            "Rédige un article complet (1 000–1 600 mots), posture non divinatoire. "
+            "Rédige un article complet (1 000–1 600 mots), ton professionnel et concret. "
             "Structure : titre accrocheur sans clickbait, chapô 2–3 phrases, 4–6 H2, "
-            "exemples concrets liés à l'offre, CTA unique. HTML propre pour WordPress. "
-            "Puis wordpress_create_post (brouillon HITL)."
+            "exemples liés à l'activité (offre, adhérents, bénéficiaires), CTA unique. "
+            "HTML propre pour WordPress. Puis wordpress_create_post (brouillon HITL)."
         ),
     },
     {
@@ -53,9 +53,9 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "tools": ("generate_image", "post_instagram", "create_canva_design"),
         "duration_hint": "feed 4:5 · 150–300 mots",
         "brief": (
-            "Produis un post Instagram : accroche 1 ligne, corps invitant, 3–5 hashtags de niche "
-            "(pas de #love #tarot génériques), CTA doux. Génère un visuel 1080×1350 via generate_image "
-            "(esthétique végétale, cartes, lumière douce — pas de cliché voyance). "
+            "Produis un post Instagram : accroche 1 ligne, corps clair, 3–5 hashtags liés à l'activité "
+            "(pas de hashtags fourre-tout), CTA sobre. Génère un visuel 1080×1350 via generate_image "
+            "(lumière naturelle, lieu ou équipe si la mémoire le décrit — pas de cliché générique). "
             "Puis post_instagram (file HITL)."
         ),
     },
@@ -110,7 +110,7 @@ STUDIO_FORMATS: tuple[dict[str, Any], ...] = (
         "label": "Carrousel Instagram",
         "group": "réseaux",
         "icon": "🎠",
-        "description": "5 à 8 slides pédagogiques, une idée par carte, CTA sur la dernière.",
+        "description": "5 à 8 slides pédagogiques, une idée par slide, appel à l'action sur la dernière.",
         "resource_type": "",
         "channels": ("instagram",),
         "tools": ("generate_image", "post_instagram", "create_canva_design"),
@@ -516,7 +516,7 @@ def build_production_brief(
         "## Identité de marque (vitrine + mémoire)",
         f"- Nom : {brand['name']}",
         f"- Accroche : {brand['tagline'] or '(a formuler, ne pas inventer d une offre)'}",
-        f"- Lieu : {brand['location'] or 'Tourves / Haut-Var'}",
+        f"- Lieu : {brand['location'] or '(non renseigné — ne pas inventer de ville)'}",
     ]
     offers = brand.get("offers") if isinstance(brand.get("offers"), list) else []
     offer_titles = [
@@ -545,12 +545,12 @@ def build_production_brief(
     lines += [
         "## Contraintes de production",
         "- Français soigné, tutoiement ou vouvoiement cohérent avec la mémoire (par défaut : vouvoiement public, tutoiement intime si demandé).",
-        "- Aucune divination, horoscope, « tirez une carte pour connaître votre avenir ».",
-        "- Ne pas inventer de dates de stage, tarifs ou URLs absents de la mémoire / du brief.",
+        "- Rester dans l'activité décrite par la mémoire (professionnelle ou associative). Ne pas importer une autre marque.",
+        "- Ne pas inventer de dates, tarifs, lieux ou URLs absents de la mémoire / du brief.",
         "- Publications externes : prépare le post (et le ticket HITL si l'outil le fait). "
         "Le dirigeant valide ensuite dans le Studio : si le connecteur est branché, l'envoi part.",
         "- Si un outil n'est pas configuré, livre quand même le texte / storyboard et signale le manque.",
-        "- Un visuel : prompt détaillé (lumière, cadrage, interdits : boule de cristal, clichés new-age).",
+        "- Un visuel : prompt détaillé (lumière, cadrage, public réel de l'activité). Pas de décor inventé.",
         "- Moteurs média : une chaîne gratuit → payant. N'invente pas de provider. "
         "Appelle generate_image / text_to_speech / generate_video ; le runtime choisit le moteur.",
     ]

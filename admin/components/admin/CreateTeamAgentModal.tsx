@@ -156,7 +156,7 @@ export default function CreateTeamAgentModal({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="ex. Correcteur d’épreuves"
+              placeholder="ex. Chargé de communication"
               required
               autoFocus
             />
@@ -176,7 +176,7 @@ export default function CreateTeamAgentModal({
                   value={keyDraft}
                   onChange={(e) => setKeyDraft(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 font-mono text-sm"
-                  placeholder="ex. correcteur_epreuves"
+                  placeholder="ex. charge_communication"
                 />
               </div>
             ) : null}
@@ -191,7 +191,7 @@ export default function CreateTeamAgentModal({
               value={role}
               onChange={(e) => setRole(e.target.value)}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              placeholder="ex. Relit manuscrits, uniformise le style"
+              placeholder="ex. Rédige les supports, garde un ton clair pour les adhérents"
             />
           </div>
 

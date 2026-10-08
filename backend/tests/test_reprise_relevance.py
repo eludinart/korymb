@@ -17,6 +17,31 @@ def test_blank_workspace_reprise_audit_is_empty(monkeypatch):
     assert "tarot" not in str(coverage).lower()
 
 
+def test_chat_welcome_does_not_open_reprise_audit(monkeypatch):
+    monkeypatch.setattr("database.list_reprise_checklist_actions", lambda: [])
+    coverage = scan_reprise_coverage({
+        "memory_contexts": {},
+        "recent_missions": [],
+        "missions_digest": [{
+            "mission": "Décide avec moi et dis-moi quoi faire ensuite.",
+            "result": (
+                "Je suis l'assistant Korymb, votre copilote dans le cockpit. "
+                "Je suis là pour vous aider à prendre des décisions et à définir les prochaines étapes."
+            ),
+        }],
+        "thread_excerpts": [{
+            "mission": "Décide avec moi et dis-moi quoi faire ensuite.",
+            "thread_tail": [{
+                "role": "assistant",
+                "content": "Pour commencer, quel est le sujet principal que vous souhaitez aborder ?",
+            }],
+        }],
+    })
+    assert coverage["workspace_empty"] is True
+    assert coverage["gaps"] == []
+    assert coverage["domains"] == []
+
+
 def test_specialty_domain_stays_out_without_matching_activity(monkeypatch):
     monkeypatch.setattr("database.list_reprise_checklist_actions", lambda: [])
     coverage = scan_reprise_coverage({

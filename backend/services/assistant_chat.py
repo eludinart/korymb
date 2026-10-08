@@ -222,6 +222,16 @@ def start_assistant_chat_job(
                     f"**Équipe proposée** (`{pending_bp}`) — valide avec le bouton "
                     f"**Créer l'équipe** sous ce message."
                 )
+            from services.claim_guard import seal_chat_texts
+
+            reply, surface, _claims = seal_chat_texts(
+                reply,
+                surface,
+                user_text=msg_snap,
+                history=history,
+                job_logs=job_logs,
+                job_id=job_id,
+            )
             _add_daily_svc(ti, to)
             if job_id in active_jobs:
                 active_jobs[job_id].update({
@@ -241,6 +251,7 @@ def start_assistant_chat_job(
                 ti,
                 to,
                 team_trace=active_jobs.get(job_id, {}).get("team"),
+                events=active_jobs.get(job_id, {}).get("events"),
                 source="chat",
                 result_surface=surface,
             )

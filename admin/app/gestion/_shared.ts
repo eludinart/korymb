@@ -94,8 +94,8 @@ export const PROJECT_TYPE_LABELS: Record<string, string> = {
   stage: "Session",
   module_pro: "Parcours",
   accompagnement: "Suivi",
-  /** Clé DB historique — libellé générique. */
-  sivana: "Lieu",
+  /** Clé DB historique — libellé générique (site, local, lieu d'activité). */
+  sivana: "Site",
   autre: "Autre",
 };
 

@@ -63,7 +63,11 @@ async def run_veille_task(task: dict) -> None:
     """
     task_id = task["id"]
     params = task.get("params") or {}
-    topics: list[str] = params.get("topics") or ["bien-être émotionnel", "spiritualité", "tarot"]
+    topics: list[str] = params.get("topics") or [
+        "actualité du secteur",
+        "partenariats et appels à projets",
+        "communication auprès des publics",
+    ]
     rss_feeds: list[str] = params.get("rss_feeds") or []
     max_results_per_topic: int = int(params.get("max_results_per_topic") or 5)
     output_type: str = params.get("output_type") or "veille_summary"

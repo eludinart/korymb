@@ -130,7 +130,7 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "`gestion_propose_contact_enrichment` (proposition à valider) — **ne pas** écraser via upsert/update. "
             "Ne propose un e-mail, téléphone, **site web** ou réseau **que** s'il est clairement la même personne "
             "(même nom + structure/ville). `website` = site officiel du contact uniquement — jamais le site de "
-            "l'espace Korymb, jamais un annuaire (Resalib/Doctolib). En cas d'homonyme ou de doute, laisse vide et dis-le.\n"
+            "l'espace Korymb, jamais un annuaire tiers. En cas d'homonyme ou de doute, laisse vide et dis-le.\n"
             "**Ne jamais** utiliser crm_* / Notion / HubSpot / Google Sheets pour les contacts ou devis — "
             "seuls les outils gestion_* écrivent dans l'application Korymb.\n"
             "Si tu rédiges plusieurs courriels de prospection : chacun doit être un bloc complet "

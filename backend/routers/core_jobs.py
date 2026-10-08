@@ -40,6 +40,30 @@ router = APIRouter(tags=["jobs"])
 logger = logging.getLogger(__name__)
 
 
+def _claim_guard_for_payload(job_like: dict | None, events: list | None) -> dict | None:
+    """Statut du garde-fou (ancré / partiel / inconnu) pour l'affichage chat."""
+    if isinstance(job_like, dict) and isinstance(job_like.get("claim_guard"), dict):
+        cg = job_like["claim_guard"]
+        if cg.get("status"):
+            return {
+                "status": str(cg.get("status")),
+                "intent": str(cg.get("intent") or ""),
+                "dropped_count": int(cg.get("dropped_count") or 0),
+            }
+    for ev in reversed(events or []):
+        if not isinstance(ev, dict) or ev.get("type") != "claim_guard":
+            continue
+        pl = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+        if not pl.get("status"):
+            continue
+        return {
+            "status": str(pl.get("status")),
+            "intent": str(pl.get("intent") or ""),
+            "dropped_count": int(pl.get("dropped_count") or 0),
+        }
+    return None
+
+
 def _result_surface_for_payload(job_like: dict, row_db: dict | None = None) -> str | None:
     surf = job_like.get("result_surface")
     if isinstance(surf, str) and surf.strip():
@@ -599,6 +623,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "job_id": job_id, "status": job["status"], "agent": job["agent"], "mission": job["mission"],
             "result": job.get("result"),
             "result_surface": _result_surface_for_payload(job, row_db),
+            "claim_guard": _claim_guard_for_payload(job, ev),
             "team": job.get("team") or [],
             "logs": logs[log_offset:], "log_total": len(logs),
             "tokens_in": job.get("tokens_in", 0), "tokens_out": job.get("tokens_out", 0),
@@ -648,6 +673,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "job_id": job_id, "status": row["status"], "agent": row["agent"], "mission": row["mission"],
         "result": row.get("result"),
         "result_surface": _result_surface_for_payload(row),
+        "claim_guard": _claim_guard_for_payload(row, ev),
         "team": parse_team_field(row),
         "logs": logs[log_offset:], "log_total": len(logs),
         "tokens_in": row.get("tokens_in", 0), "tokens_out": row.get("tokens_out", 0),

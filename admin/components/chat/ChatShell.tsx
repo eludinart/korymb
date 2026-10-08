@@ -48,11 +48,39 @@ export type ChatMsg = {
   blueprintOutcome?: { status: "created" | "rejected"; label?: string };
   /** Réponse locale : le modèle (crédit, quota ou délai) n'a pas répondu. */
   degraded?: boolean;
+  /** Contrôle des précisions (e-mail, montant, lien) contre les données du tour. */
+  claimGuard?: { status?: string; intent?: string; dropped_count?: number };
   /** Action proposée, en attente de confirmation. */
   pendingAction?: { message: string; attachments?: ChatFile[]; label?: string };
   /** QCM déjà répondu (résumé affiché à la place du formulaire). */
   choiceAnsweredSummary?: string;
 };
+
+function claimGuardLabel(guard: ChatMsg["claimGuard"]): { label: string; title: string; className: string } | null {
+  const status = String(guard?.status || "");
+  if (status === "partial") {
+    return {
+      label: "Partiel",
+      title: "Des précisions absentes des données de ce tour ont été retirées.",
+      className: "bg-amber-100 text-amber-950 dark:bg-amber-900/40 dark:text-amber-100",
+    };
+  }
+  if (status === "unknown") {
+    return {
+      label: "Donnée absente",
+      title: "La réponse ne s'appuyait pas sur une donnée vérifiée.",
+      className: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
+    };
+  }
+  if (status === "anchored" && (guard?.intent === "crm" || guard?.intent === "status" || guard?.intent === "platform")) {
+    return {
+      label: "Ancré",
+      title: "Les e-mails, montants, liens et dates de cette réponse figurent dans les données du tour.",
+      className: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900/40 dark:text-emerald-100",
+    };
+  }
+  return null;
+}
 
 type Props = {
   messages: ChatMsg[];
@@ -411,6 +439,7 @@ export default function ChatShell({
           {messages.map((m) => {
             const agents = localAgents[m.id] || displayAgentKeys(m);
             const degraded = Boolean(m.degraded) || chatTextIsDegraded(m.content);
+            const claim = claimGuardLabel(m.claimGuard);
             const qcm =
               m.role === "assistant" && !m.choiceAnsweredSummary
                 ? parseChoiceQuestionnaireFromText(m.content)
@@ -454,6 +483,14 @@ export default function ChatShell({
                         {degraded ? (
                           <p className="mb-2 inline-flex items-center rounded-full bg-amber-200/80 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-950">
                             Mode dégradé
+                          </p>
+                        ) : null}
+                        {claim ? (
+                          <p
+                            className={`mb-2 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${claim.className}`}
+                            title={claim.title}
+                          >
+                            {claim.label}
                           </p>
                         ) : null}
                         {shownSource.trim() ? <AgentMessageMarkdown source={shownSource} /> : null}

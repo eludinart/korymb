@@ -594,7 +594,7 @@ def _mission_suggests_commercial(text: str) -> bool:
         "prospect", "client", "vendre", "vente", "lead", "contact", "coach", "therapeute",
         "linkedin", "var", "recherche", "trouver", "liste", "email", "cible", "marche",
         "piste", "accompagnement", "qui contacter", "personnes",
-        "elude", "tarot", "fleur", "korymb", "entreprise", "activite", "offre", "strategie",
+        "adherent", "benevole", "association", "entreprise", "activite", "offre", "strategie",
         "organisation", "communication", "marketing", "partenaire", "reseau", "promotion",
         "developper", "outil", "site", "app", "atelier", "stage", "module",
     )
@@ -2778,9 +2778,8 @@ def orchestrate_coordinateur_mission(
     )
     relevance_mandate = (
         "\n\nAncrage obligatoire : commence par reformuler en une phrase la demande exacte du dirigeant, "
-        "puis réponds UNIQUEMENT à cette demande. Interdit de digresser vers d'autres sujets (tarot, "
-        "partenariats, roadmap…) s'ils n'ont pas été demandés. Si le contexte est insuffisant, dis-le "
-        "plutôt que d'inventer un livrable à côté de la plaque."
+        "puis réponds UNIQUEMENT à cette demande. Reste sur le sujet demandé. "
+        "Si le contexte est insuffisant, dis-le plutôt que d'inventer un livrable à côté."
     )
     contact_table_mandate = (
         _CONTACT_TABLE_MANDATE_SUFFIX
@@ -2815,7 +2814,9 @@ def orchestrate_coordinateur_mission(
         )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + relevance_mandate + synth_grounding,
-            synthese_user + contact_table_mandate,
+            synthese_user
+            + contact_table_mandate
+            + (("\n\n" + chat_grounding) if (chat_mode and chat_grounding) else ""),
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,

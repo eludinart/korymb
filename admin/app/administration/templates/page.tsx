@@ -222,7 +222,7 @@ function TemplateDrawer({
               onChange={(e) => handleMissionChange(e.target.value)}
               rows={10}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
-              placeholder={"Génère le rapport commercial de la semaine {{semaine}} pour le client {{client}}."}
+              placeholder={"Prépare le compte-rendu de {{semaine}} pour {{destinataire}} (client, adhérent ou partenaire)."}
             />
           </div>
 

@@ -149,14 +149,17 @@ async def run_task_by_id(task_id: str) -> None:
     """Point d'entrée APScheduler : charge la tâche, vérifie le budget, exécute."""
     from database import get_scheduled_task_any, update_scheduled_task
     from tenant_context import set_tenant_context
-    from workspace_db import _DEFAULT_WORKSPACE_ID
 
     try:
         task = get_scheduled_task_any(task_id)
         if not task:
             logger.warning("Tâche autonome introuvable : %s", task_id)
             return
-        set_tenant_context(workspace_id=str(task.get("workspace_id") or _DEFAULT_WORKSPACE_ID))
+        task_ws = str(task.get("workspace_id") or "").strip()
+        if not task_ws:
+            logger.warning("Tâche autonome %s sans espace — ignorée", task_id)
+            return
+        set_tenant_context(workspace_id=task_ws)
         if not task.get("enabled"):
             return
 
