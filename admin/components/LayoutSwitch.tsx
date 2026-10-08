@@ -6,7 +6,7 @@ import PublicShell from "./PublicShell";
 import PullToRefresh from "./PullToRefresh";
 import SubscriberShell from "./SubscriberShell";
 
-const PUBLIC_EXACT = new Set(["/", "/login", "/register", "/confidentialite", "/cgu"]);
+const PUBLIC_EXACT = new Set(["/", "/login", "/register", "/ouvrir", "/confidentialite", "/cgu"]);
 
 function isPublicRoute(pathname: string) {
   if (PUBLIC_EXACT.has(pathname)) return true;

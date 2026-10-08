@@ -20,6 +20,7 @@ const PUBLIC_PREFIXES = [
 
 /** Assets PWA / icônes : publics (sinon Chrome reçoit du HTML login → « Manifest syntax error »). */
 const PUBLIC_EXACT = new Set([
+  "/ouvrir",
   "/manifest.json",
   "/sw.js",
   "/favicon.ico",
@@ -48,6 +49,11 @@ function participantLoginFromPath(pathname: string) {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (isPublicRoute(pathname)) {
+    return NextResponse.next();
+  }
+  /* /briefing est le start_url historique de l'icône. Sans cookie, la page
+   * répond 200 (écran d'ouverture) au lieu d'une 307 qui fige le splash. */
+  if (pathname === "/briefing") {
     return NextResponse.next();
   }
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim();
