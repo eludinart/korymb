@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useUiMode } from "../../lib/uiMode";
 import { AlertBox, PageLink, SectionCard } from "../ui/PageChrome";
 import {
   formatCoveragePct,
@@ -35,7 +36,9 @@ function DomainRow({ domain }: { domain: RepriseDomain }) {
 }
 
 export default function RepriseBriefingSection() {
+  const { isPlatformOwner } = useUiMode();
   const coverage = useRepriseCoverage();
+  if (!isPlatformOwner) return null;
   const data = coverage.data;
   const gaps = data?.gaps ?? [];
   const attention = (data?.domains ?? []).filter(

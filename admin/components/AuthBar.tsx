@@ -116,7 +116,8 @@ export default function AuthBar() {
   }
 
   const wsName = me.workspace?.name || "Mon Korymb";
-  const roleLabel = me.role === "admin" ? "Admin" : "Utilisateur";
+  const visiting = Boolean(me.visiting_client_space);
+  const roleLabel = visiting ? "Profil Élude · visite" : me.role === "admin" ? "Admin" : "Utilisateur";
   const initial = (me.user.email || "U").slice(0, 1).toUpperCase();
 
   return (
@@ -125,13 +126,17 @@ export default function AuthBar() {
         ref={buttonRef}
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
-        className="touch-target inline-flex max-w-[12rem] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-2.5 text-sm font-extrabold text-violet-800 shadow-sm hover:bg-violet-50 dark:border-slate-600 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800 sm:max-w-[16rem] sm:px-3"
+        className={`touch-target inline-flex max-w-[12rem] items-center gap-2 rounded-xl border-2 px-2.5 text-sm font-extrabold shadow-sm sm:max-w-[16rem] sm:px-3 ${
+          visiting
+            ? "border-amber-500 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-500 dark:bg-amber-950 dark:text-amber-50 dark:hover:bg-amber-900"
+            : "border-slate-200 bg-white text-violet-800 hover:bg-violet-50 dark:border-slate-600 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
+        }`}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
         aria-label="Compte"
       >
         <span className="hidden min-w-0 truncate text-[11px] font-bold uppercase tracking-wide sm:inline">
-          {wsName}
+          {visiting ? `Visite · ${wsName}` : wsName}
         </span>
         <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs dark:bg-violet-900 dark:text-violet-100">
           {initial}
@@ -145,11 +150,23 @@ export default function AuthBar() {
           className="z-[80] overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900"
         >
           <div className="border-b border-slate-100 px-3 py-2.5 dark:border-slate-700">
-            <p className="truncate text-xs font-extrabold text-slate-950 dark:text-slate-50">{wsName}</p>
+            {visiting ? (
+              <p className="text-[10px] font-extrabold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                Profil Élude · administrateur
+              </p>
+            ) : null}
+            <p className="truncate text-xs font-extrabold text-slate-950 dark:text-slate-50">
+              {visiting ? `Espace consulté : ${wsName}` : wsName}
+            </p>
             <p className="truncate text-[11px] text-slate-600 dark:text-slate-300">{me.user.email}</p>
             <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
               {roleLabel}
             </p>
+            {visiting ? (
+              <p className="mt-1 text-[11px] font-medium text-amber-900 dark:text-amber-100">
+                Ce compte n&apos;est pas celui du client. Ne remplacez pas ses informations par les vôtres.
+              </p>
+            ) : null}
           </div>
           <div className="p-1.5">
             <Link

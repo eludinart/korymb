@@ -20,6 +20,7 @@
 - Mémoire : `/administration/memory` · Scheduler : `/administration/autonomie`.
 - **Pas** de section produit « Rapports ».
 - Instance (propriétaire) : **Mes clients** `/administration/portefeuille` (signaux, ouvrir, créer, renommer, pause, file À traiter, archiver puis supprimer) et Enveloppes IA.
+- Visite client : bandeau **Profil Élude** + **Revenir à mon espace**. Le moteur (santé, orchestration, budget, configuration LLM, fiches agents) n'apparaît que pour ce profil. Un admin client garde équipes, intégrations, page publique, activité et science de l'entreprise.
 
 ## Chat & QCM
 - Question « ce qui marche / ce qui bloque » : deux blocs courts tirés de ce fichier. Pas de roadmap.

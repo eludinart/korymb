@@ -156,6 +156,7 @@ export default function EspacePage() {
         </form>
       </section>
 
+      {me?.is_platform_owner ? (
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">Créer un autre espace Korymb</h2>
         <p className="mt-1 text-sm text-slate-600">Chaque espace a ses propres missions, mémoire et configuration.</p>
@@ -184,6 +185,7 @@ export default function EspacePage() {
           </button>
         </form>
       </section>
+      ) : null}
 
       {message ? <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{message}</p> : null}
       {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}

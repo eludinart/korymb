@@ -26,6 +26,11 @@ export function useUiMode(): {
   loading: boolean;
   role: string;
   canSetUiMode: boolean;
+  isPlatformOwner: boolean;
+  visitingClientSpace: boolean;
+  homeWorkspaceId: string;
+  workspaceName: string;
+  accountEmail: string;
   workspaceSlug: string;
   setUiMode: (mode: UiMode) => Promise<void>;
   busy: boolean;
@@ -90,7 +95,12 @@ export function useUiMode(): {
     showAdvanced: uiMode === "advanced",
     loading: !me.isFetched,
     role: me.data?.role || "",
-    canSetUiMode: me.data?.role === "admin",
+    canSetUiMode: me.data?.role === "admin" && !me.data?.visiting_client_space,
+    isPlatformOwner: Boolean(me.data?.is_platform_owner),
+    visitingClientSpace: Boolean(me.data?.visiting_client_space),
+    homeWorkspaceId: me.data?.home_workspace_id || "",
+    workspaceName: me.data?.workspace?.name || "",
+    accountEmail: me.data?.user?.email || "",
     workspaceSlug: me.data?.workspace?.slug || "",
     setUiMode,
     busy,

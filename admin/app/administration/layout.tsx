@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import AgentsAdminSubnav from "../../components/admin/AgentsAdminSubnav";
 import { ADMIN_NAV_GROUPS, filterAdminNavGroups, isAdminLinkActive, isAgentsAdminPath } from "../../lib/adminNav";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
@@ -19,18 +19,13 @@ function RepriseNavBadge({ count }: { count: number }) {
 
 export default function AdministrationLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  const { showAdvanced } = useUiMode();
+  const { showAdvanced, isPlatformOwner } = useUiMode();
   const essentialNav = !showAdvanced;
-  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, { essential: essentialNav });
-  const [platformOwner, setPlatformOwner] = useState(false);
+  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, {
+    essential: essentialNav,
+    platformOwner: isPlatformOwner,
+  });
   const reprise = useRepriseCoverage();
-
-  useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setPlatformOwner(Boolean(d?.is_platform_owner)))
-      .catch(() => setPlatformOwner(false));
-  }, []);
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
   const agentsZone = isAgentsAdminPath(pathname);
   const asideRef = useRef<HTMLElement>(null);
@@ -97,7 +92,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
               </div>
             );
           })}
-          {platformOwner && showAdvanced ? (
+          {isPlatformOwner ? (
             <div>
               <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Instance
@@ -129,7 +124,7 @@ export default function AdministrationLayout({ children }: { children: React.Rea
         </nav>
       </aside>
       <div className="min-w-0 flex-1 space-y-6">
-        {agentsZone && showAdvanced ? <AgentsAdminSubnav /> : null}
+        {agentsZone && isPlatformOwner ? <AgentsAdminSubnav /> : null}
         {children}
       </div>
     </div>

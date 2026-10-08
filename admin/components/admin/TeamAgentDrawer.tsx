@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { requestJson } from "../../lib/api";
+import { useUiMode } from "../../lib/uiMode";
 import { QK } from "../../lib/queryClient";
 import type { Agent } from "../../lib/types";
 
@@ -41,6 +42,7 @@ export default function TeamAgentDrawer({
   onRemovedFromGroup,
   canRemoveFromGroup,
 }: Props) {
+  const { isPlatformOwner } = useUiMode();
   const qc = useQueryClient();
   const [label, setLabel] = useState("");
   const [role, setRole] = useState("");
@@ -127,12 +129,14 @@ export default function TeamAgentDrawer({
             <p className="text-[10px] font-extrabold uppercase tracking-wider text-violet-700">Fiche agent</p>
             <h2 className="mt-1 truncate text-lg font-bold text-slate-900">{displayLabel}</h2>
             <p className="font-mono text-xs text-slate-500">{agentKey}</p>
-            <Link
-              href={`/administration/agents/${encodeURIComponent(agentKey)}`}
-              className="mt-2 inline-block text-xs font-semibold text-violet-700 hover:underline"
-            >
-              Voir la fiche complète →
-            </Link>
+            {isPlatformOwner ? (
+              <Link
+                href={`/administration/agents/${encodeURIComponent(agentKey)}`}
+                className="mt-2 inline-block text-xs font-semibold text-violet-700 hover:underline"
+              >
+                Voir la fiche complète →
+              </Link>
+            ) : null}
           </div>
           <button
             type="button"
@@ -275,12 +279,14 @@ export default function TeamAgentDrawer({
         </div>
 
         <footer className="space-y-2 border-t border-slate-100 px-5 py-4">
-          <Link
-            href={`/administration/agents/${encodeURIComponent(agentKey)}`}
-            className="block rounded-xl bg-violet-700 px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-violet-800"
-          >
-            Ouvrir la fiche complète →
-          </Link>
+          {isPlatformOwner ? (
+            <Link
+              href={`/administration/agents/${encodeURIComponent(agentKey)}`}
+              className="block rounded-xl bg-violet-700 px-4 py-2.5 text-center text-sm font-bold text-white hover:bg-violet-800"
+            >
+              Ouvrir la fiche complète →
+            </Link>
+          ) : null}
           {canRemoveFromGroup && onRemovedFromGroup ? (
             <button
               type="button"

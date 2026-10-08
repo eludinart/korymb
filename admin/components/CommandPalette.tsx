@@ -33,7 +33,7 @@ function CommandPaletteInner() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
-  const { showAdvanced, workspaceSlug } = useUiMode();
+  const { showAdvanced, isPlatformOwner, workspaceSlug } = useUiMode();
   const essential = !showAdvanced;
 
   const jobs = useQuery({
@@ -119,15 +119,19 @@ function CommandPaletteInner() {
         ? []
         : [
             { id: "dashboard", label: "Vue agents", href: "/dashboard", group: "Navigation" },
-            {
-              id: "budget",
-              label: "Budget & coûts IA",
-              href: "/administration/budget",
-              group: "Administration",
-            },
+            ...(isPlatformOwner
+              ? [
+                  {
+                    id: "budget",
+                    label: "Budget & coûts IA",
+                    href: "/administration/budget",
+                    group: "Administration",
+                  },
+                ]
+              : []),
           ]),
     ];
-  }, [essential, workspaceSlug]);
+  }, [essential, isPlatformOwner, workspaceSlug]);
 
   const jobCommands: Command[] = useMemo(() => {
     if (essential) return [];

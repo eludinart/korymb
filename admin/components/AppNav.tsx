@@ -103,14 +103,14 @@ function RepriseNavBadge({ count }: { count: number }) {
   );
 }
 
-function adminHref(href: string, essentialNav: boolean) {
-  if (href === "/administration") return essentialNav ? ESSENTIAL_ADMIN_ENTRY : "/administration/dashboard";
+function adminHref(href: string, platformOwner: boolean) {
+  if (href === "/administration") return platformOwner ? "/administration/dashboard" : ESSENTIAL_ADMIN_ENTRY;
   return href;
 }
 
 export default function AppNav() {
   const pathname = usePathname() || "";
-  const { showAdvanced } = useUiMode();
+  const { showAdvanced, isPlatformOwner, role } = useUiMode();
   const essentialNav = !showAdvanced;
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
   const gestionActive = isGestionPath(pathname);
@@ -118,8 +118,7 @@ export default function AppNav() {
   const [mounted, setMounted] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [gestionOpen, setGestionOpen] = useState(false);
-  const [canAdmin, setCanAdmin] = useState(false);
-  const [platformOwner, setPlatformOwner] = useState(false);
+  const canAdmin = role === "admin";
   const moreRef = useRef<HTMLDivElement>(null);
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
@@ -128,7 +127,10 @@ export default function AppNav() {
   const navBefore = essentialNav ? NAV_BEFORE_GESTION_ESSENTIAL : NAV_BEFORE_GESTION_FULL;
   const navAfter = essentialNav ? NAV_AFTER_GESTION_ESSENTIAL : NAV_AFTER_GESTION_FULL;
   const navPrimary = [...navBefore, ...navAfter];
-  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, { essential: essentialNav });
+  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, {
+    essential: essentialNav,
+    platformOwner: isPlatformOwner,
+  });
   const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential: essentialNav });
   const gestionGroups = groupedGestionNavLinks(essentialNav);
   const gestionQuick = essentialNav
@@ -139,27 +141,10 @@ export default function AppNav() {
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d?.user) {
-          setCanAdmin(false);
-          setPlatformOwner(false);
-          return;
-        }
-        setCanAdmin(d.role === "admin");
-        setPlatformOwner(Boolean(d.is_platform_owner));
-      })
-      .catch(() => {
-        setCanAdmin(false);
-        setPlatformOwner(false);
-      });
-  }, []);
-
   const navMore = NAV_MORE.filter((item) => {
     if (!canAdmin && (item.href === "/administration" || item.href === "/configuration")) return false;
-    if (essentialNav && (item.href === "/dashboard" || item.href === "/configuration")) return false;
+    if (!isPlatformOwner && item.href === "/configuration") return false;
+    if (essentialNav && item.href === "/dashboard") return false;
     return true;
   });
   const moreActive = isMoreSectionActive(pathname, navMore);
@@ -308,7 +293,7 @@ export default function AppNav() {
         return (
           <Link
             key={item.href}
-            href={adminHref(item.href, essentialNav)}
+            href={adminHref(item.href, isPlatformOwner)}
             onClick={() => {
               closeMenu();
               closeMore();
@@ -358,7 +343,7 @@ export default function AppNav() {
           })}
         </div>
       ))}
-      {platformOwner && showAdvanced ? (
+      {isPlatformOwner ? (
         <>
           <Link
             href="/administration/portefeuille"
@@ -518,7 +503,7 @@ export default function AppNav() {
                   return (
                     <Link
                       key={item.href}
-                      href={adminHref(item.href, essentialNav)}
+                      href={adminHref(item.href, isPlatformOwner)}
                       role="menuitem"
                       onClick={closeMore}
                       className={`flex items-center rounded-xl px-3 py-2.5 text-sm font-semibold ${

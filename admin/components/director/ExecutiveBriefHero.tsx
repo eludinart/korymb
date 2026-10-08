@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useUiMode } from "../../lib/uiMode";
 
 export type ExecutivePriority = {
   id: string;
@@ -79,6 +80,7 @@ function urgencyRing(urgency?: string) {
 }
 
 export default function ExecutiveBriefHero({ data, userName }: Props) {
+  const { isPlatformOwner } = useUiMode();
   const priorities = data.top_priorities || [];
   const memory = data.memory_highlights || [];
   const digest = data.memory_digest;
@@ -118,7 +120,7 @@ export default function ExecutiveBriefHero({ data, userName }: Props) {
             <p className="mt-1 text-sm capitalize text-slate-500 dark:text-slate-400">{formatDateFr()}</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {llm.ready === false ? (
+            {llm.ready === false && isPlatformOwner ? (
               <Link
                 href="/configuration"
                 className="inline-flex items-center rounded-2xl bg-rose-700 px-4 py-2.5 text-sm font-bold text-white shadow-md hover:bg-rose-800"

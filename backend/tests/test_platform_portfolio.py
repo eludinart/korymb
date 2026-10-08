@@ -160,6 +160,15 @@ def test_owner_opens_foreign_space_without_membership(client, monkeypatch):
     assert body["workspace"]["id"] == client_ws
     assert body["role"] == "admin"
     assert body["is_platform_owner"] is True
+    assert body["home_workspace_id"] == "ws-default-legacy"
+    assert body["visiting_client_space"] is True
+
+    client_me = client.get("/auth/me", headers=_auth(client_token))
+    assert client_me.status_code == 200, client_me.text
+    client_body = client_me.json()
+    assert client_body["is_platform_owner"] is False
+    assert client_body["visiting_client_space"] is False
+    assert client_body["home_workspace_id"] is None
 
 
 def test_restore_brings_space_back(client, monkeypatch):

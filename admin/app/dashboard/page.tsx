@@ -402,6 +402,7 @@ export default function DashboardPage() {
     staleTime: 60_000,
   });
   const canAdmin = me.data?.role === "admin";
+  const platformOwner = Boolean(me.data?.is_platform_owner);
 
   const groupsQuery = useQuery({
     queryKey: ["agent-groups"],
@@ -524,7 +525,9 @@ export default function DashboardPage() {
     const busy = row.runningForAgent.length > 0;
     const custom = row.agent.builtin === false && !row.agent.is_manager;
     const actions: AgentAdminActions = {
-      ficheHref: `/administration/agents/${encodeURIComponent(row.agent.key)}`,
+      ...(platformOwner
+        ? { ficheHref: `/administration/agents/${encodeURIComponent(row.agent.key)}` }
+        : {}),
     };
     if (fleetId && !lead) {
       actions.onRemove = () => void removeFromFleet(fleetId, fleetLabel, row.agent.key, row.agent.label);
@@ -560,6 +563,7 @@ export default function DashboardPage() {
         <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{actionError}</p>
       ) : null}
 
+      {platformOwner ? (
       <section
         className={`rounded-2xl border p-5 ${
           pendingApprovals.isSuccess && (pendingApprovals.data || []).length > 0
@@ -654,20 +658,26 @@ export default function DashboardPage() {
           </p>
         ) : null}
       </section>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-slate-50/90 p-5">
         <h2 className="text-lg font-bold tracking-tight text-slate-900">État des agents</h2>
         <p className="mt-1 max-w-3xl text-sm text-slate-500">
           Les rôles sont regroupés par flotte : disponible ou en activité. Le bouton{" "}
           <span className="font-medium text-slate-700">Détail</span> affiche l&apos;état d&apos;exécution sur cette page.
-          La composition, la politique et les fiches se règlent dans{" "}
+          La composition et la politique se règlent dans{" "}
           <Link href="/administration/equipes" className="font-medium text-violet-800 hover:underline">
             Équipes
-          </Link>{" "}
-          et les{" "}
-          <Link href="/administration/agents" className="font-medium text-violet-800 hover:underline">
-            fiches agents
           </Link>
+          {platformOwner ? (
+            <>
+              {" "}
+              et les{" "}
+              <Link href="/administration/agents" className="font-medium text-violet-800 hover:underline">
+                fiches agents
+              </Link>
+            </>
+          ) : null}
           . Une flotte ou un agent ne se supprime que s&apos;il n&apos;est lié à rien d&apos;actif.
         </p>
         {agents.isLoading || (agents.isSuccess && groupsQuery.isPending) ? (

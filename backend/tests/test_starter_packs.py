@@ -149,7 +149,8 @@ def test_apply_unknown_pack_rejected(client):
     assert r.status_code == 400
 
 
-def test_create_workspace_with_pack(client):
+def test_create_workspace_with_pack(client, monkeypatch):
+    monkeypatch.setenv("KORYMB_PLATFORM_OWNER_EMAIL", "pack-create@example.com")
     reg = client.post(
         "/auth/register",
         json={

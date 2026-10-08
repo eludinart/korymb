@@ -154,8 +154,8 @@ def auth_me(auth: dict = Depends(auth_svc.resolve_tenant)):
 
 
 @router.post("/workspaces")
-def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.require_operator)):
-    if auth.get("mode") == "agent_secret":
+def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.require_platform_owner)):
+    if auth.get("mode") != "user":
         raise HTTPException(status_code=400, detail="Création d'espace réservée aux utilisateurs connectés.")
     user_id = str(auth.get("user_id") or "")
     from workspace_db import create_workspace

@@ -42,12 +42,13 @@ export default function ProfilPage() {
     setError("");
     setMessage("");
     try {
+      const visiting = Boolean(me?.visiting_client_space);
       const { res, data } = await requestJson("/auth/profile", {
         method: "PATCH",
         headers: agentHeaders(),
         body: JSON.stringify({
           display_name: displayName,
-          workspace_name: workspaceName,
+          ...(visiting ? {} : { workspace_name: workspaceName }),
         }),
       });
       if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || "Enregistrement impossible.");
@@ -81,23 +82,35 @@ export default function ProfilPage() {
     );
   }
 
-  const roleLabel = me.role === "admin" ? "Administrateur" : "Utilisateur";
+  const visiting = Boolean(me.visiting_client_space);
+  const roleLabel = visiting ? "Profil Élude · visite" : me.role === "admin" ? "Administrateur" : "Utilisateur";
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <header>
-        <h1 className="text-2xl font-extrabold text-slate-900">Mon profil</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">{visiting ? "Compte Élude" : "Mon profil"}</h1>
         <p className="mt-1 text-sm text-slate-600">{me.user.email}</p>
       </header>
+
+      {visiting ? (
+        <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+          <p className="text-[11px] font-extrabold uppercase tracking-wider">Espace consulté</p>
+          <p className="mt-1 text-base font-extrabold">{me.workspace?.name || "—"}</p>
+          <p className="mt-2">
+            Vous êtes sur l&apos;interface de ce client avec votre profil Élude. Le nom ci-dessous est le vôtre :
+            l&apos;enregistrer ne renomme pas cet espace et ne remplace pas les données du client.
+          </p>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="rounded-full bg-violet-100 px-3 py-1 font-bold text-violet-900">{roleLabel}</span>
-          <span className="text-slate-500">Espace : {me.workspace?.name || "—"}</span>
+          {visiting ? null : <span className="text-slate-500">Espace : {me.workspace?.name || "—"}</span>}
         </div>
         <form className="mt-6 space-y-4" onSubmit={onSave}>
           <label className="block text-sm font-semibold text-slate-700">
-            Nom affiché
+            {visiting ? "Votre nom (compte Élude)" : "Nom affiché"}
             <input
               type="text"
               value={displayName}
@@ -105,7 +118,7 @@ export default function ProfilPage() {
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
             />
           </label>
-          {me.role === "admin" ? (
+          {me.role === "admin" && !visiting ? (
             <label className="block text-sm font-semibold text-slate-700">
               Nom de l&apos;espace Korymb
               <input

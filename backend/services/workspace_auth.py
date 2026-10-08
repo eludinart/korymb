@@ -473,6 +473,9 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     from workspace_db import normalize_ui_mode
     from services.llm_envelope import is_platform_owner
 
+    owner = is_platform_owner(user_id)
+    home_workspace_id = _platform_home_workspace_id(user_id) if owner else None
+    current_workspace_id = str(ws.get("id") or workspace_id or "").strip()
     return {
         "user": user,
         "workspace": {
@@ -487,9 +490,23 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
         "workspaces": workspaces,
         "members": members,
         "role": role,
-        "is_platform_owner": is_platform_owner(user_id),
+        "is_platform_owner": owner,
+        "home_workspace_id": home_workspace_id,
+        "visiting_client_space": bool(home_workspace_id and current_workspace_id != home_workspace_id),
         "membership_status": normalize_participant_status(
             (membership or {}).get("status"),
             role=role,
         ),
     }
+
+
+def _platform_home_workspace_id(user_id: str) -> str | None:
+    """Espace de l'entreprise du propriétaire d'instance — point de retour après une visite client."""
+    from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID
+
+    if get_workspace_by_id(LEGACY_ELUDE_WORKSPACE_ID):
+        return LEGACY_ELUDE_WORKSPACE_ID
+    spaces = list_user_workspaces(user_id)
+    if not spaces:
+        return None
+    return str(spaces[0].get("id") or "") or None

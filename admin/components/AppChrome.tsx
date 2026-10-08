@@ -10,7 +10,9 @@ import RuntimeHeader from "./RuntimeHeader";
 import NotificationBell from "./director/NotificationBell";
 import AuthBar from "./AuthBar";
 import CommandPalette from "./CommandPalette";
+import ClientVisitBanner from "./ClientVisitBanner";
 import EssentialSurfaceGate from "./EssentialSurfaceGate";
+import OperatorAdminGate from "./OperatorAdminGate";
 import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
 import ColorSchemeToggle from "./ColorSchemeToggle";
@@ -25,6 +27,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     setUiMode,
     busy: uiBusy,
     canSetUiMode,
+    visitingClientSpace,
     error: uiModeError,
     loading: uiLoading,
   } = useUiMode();
@@ -79,7 +82,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                 isChat ? "hidden lg:block" : ""
               }`}
             >
-              {uiLoading ? "\u00a0" : showAdvanced ? "Activité" : "Essentiel"}
+              {uiLoading ? "\u00a0" : visitingClientSpace ? "Visite client" : showAdvanced ? "Activité" : "Essentiel"}
             </p>
             <RuntimeHeader visible={showTechnical && !isChat} />
             {!isPilotage ? (
@@ -153,6 +156,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
         ) : null}
         <DocumentBusyBar />
       </header>
+      <ClientVisitBanner />
       <main
         className={
           isChat
@@ -162,7 +166,9 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               : "w-full min-w-0 px-3 py-4 pb-safe sm:px-5 sm:py-6 lg:px-6 lg:py-8 xl:px-8"
         }
       >
-        <EssentialSurfaceGate>{children}</EssentialSurfaceGate>
+        <EssentialSurfaceGate>
+          <OperatorAdminGate>{children}</OperatorAdminGate>
+        </EssentialSurfaceGate>
       </main>
     </OperatorGate>
   );

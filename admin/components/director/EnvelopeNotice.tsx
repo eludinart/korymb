@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useUiMode } from "../../lib/uiMode";
 
 export type LlmEnvelope = {
   applies?: boolean;
@@ -24,6 +25,7 @@ function fmtTokens(n: number): string {
 }
 
 export default function EnvelopeNotice({ envelope }: { envelope?: LlmEnvelope | null }) {
+  const { isPlatformOwner } = useUiMode();
   if (!envelope || envelope.exempt) return null;
   if (!envelope.paused && !envelope.blocked && !envelope.warn) return null;
   if (!envelope.applies && !envelope.paused) return null;
@@ -49,9 +51,11 @@ export default function EnvelopeNotice({ envelope }: { envelope?: LlmEnvelope | 
             : `Enveloppe IA : ${envelope.percent ?? 0} % utilisée ce mois.`}
       </p>
       <p className="mt-1">{detail}</p>
-      <Link href="/administration/budget" className="mt-2 inline-block font-bold underline">
-        Voir le budget
-      </Link>
+      {isPlatformOwner ? (
+        <Link href="/administration/budget" className="mt-2 inline-block font-bold underline">
+          Voir le budget
+        </Link>
+      ) : null}
     </div>
   );
 }

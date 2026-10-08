@@ -9,6 +9,7 @@ import TeamAgentDrawer from "./TeamAgentDrawer";
 import CreateTeamAgentModal from "./CreateTeamAgentModal";
 import TeamMemoryPanel from "./TeamMemoryPanel";
 import { formatHttpApiErrorPayload, requestJson } from "../../lib/api";
+import { useUiMode } from "../../lib/uiMode";
 import { QK } from "../../lib/queryClient";
 import type { Agent } from "../../lib/types";
 import {
@@ -85,6 +86,7 @@ function statusBadge(status: string) {
 }
 
 export default function AgentTeamsHub() {
+  const { isPlatformOwner } = useUiMode();
   const qc = useQueryClient();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -363,20 +365,24 @@ export default function AgentTeamsHub() {
             <Link href="/chat" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
               Chat Assistant
             </Link>
-            {" · "}
-            <Link
-              href="/administration/agents"
-              className="font-semibold text-violet-700 underline-offset-2 hover:underline"
-            >
-              Fiches agents
-            </Link>
-            {" · "}
-            <Link
-              href="/administration/agents/nouveau"
-              className="font-semibold text-violet-700 underline-offset-2 hover:underline"
-            >
-              + Nouvel agent
-            </Link>
+            {isPlatformOwner ? (
+              <>
+                {" · "}
+                <Link
+                  href="/administration/agents"
+                  className="font-semibold text-violet-700 underline-offset-2 hover:underline"
+                >
+                  Fiches agents
+                </Link>
+                {" · "}
+                <Link
+                  href="/administration/agents/nouveau"
+                  className="font-semibold text-violet-700 underline-offset-2 hover:underline"
+                >
+                  + Nouvel agent
+                </Link>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -699,12 +705,14 @@ export default function AgentTeamsHub() {
                         >
                           Ajuster ici
                         </button>
-                        <Link
-                          href={`/administration/agents/${encodeURIComponent(leadCard.key)}`}
-                          className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-800"
-                        >
-                          Ouvrir la fiche →
-                        </Link>
+                        {isPlatformOwner ? (
+                          <Link
+                            href={`/administration/agents/${encodeURIComponent(leadCard.key)}`}
+                            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-800"
+                          >
+                            Ouvrir la fiche →
+                          </Link>
+                        ) : null}
                       </div>
                     </article>
                   ) : null}
@@ -738,12 +746,14 @@ export default function AgentTeamsHub() {
                         >
                           Ajuster ici
                         </button>
-                        <Link
-                          href={`/administration/agents/${encodeURIComponent(m.key)}`}
-                          className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-800"
-                        >
-                          Ouvrir la fiche →
-                        </Link>
+                        {isPlatformOwner ? (
+                          <Link
+                            href={`/administration/agents/${encodeURIComponent(m.key)}`}
+                            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-violet-800"
+                          >
+                            Ouvrir la fiche →
+                          </Link>
+                        ) : null}
                       </div>
                     </article>
                   ))}

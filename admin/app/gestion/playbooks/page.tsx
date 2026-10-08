@@ -18,7 +18,7 @@ type Playbook = {
 export default function PlaybooksPage() {
   const qc = useQueryClient();
   const { pushToast } = useActionToast();
-  const { isAdvanced } = useUiMode();
+  const { isAdvanced, isPlatformOwner } = useUiMode();
   const playbooks = useQuery({
     queryKey: ["playbooks"],
     queryFn: async () => {
@@ -75,7 +75,7 @@ export default function PlaybooksPage() {
         title="Modèles"
         description="Demandes prêtes à lancer. Le résultat revient à valider, ou part tout seul si vous l'avez choisi."
       />
-      {isAdvanced ? (
+      {isAdvanced && isPlatformOwner ? (
         <p className="text-sm text-slate-600">
           Pour créer ou modifier le texte des modèles avancés :{" "}
           <Link href="/administration/templates" className="font-semibold text-violet-700 underline-offset-2 hover:underline">

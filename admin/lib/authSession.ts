@@ -27,6 +27,11 @@ export type AuthMeResponse = {
   members?: Array<{ id: string; email: string; display_name?: string; role: string }>;
   role?: string;
   membership_status?: string;
+  is_platform_owner?: boolean;
+  /** Espace de l'entreprise du propriétaire d'instance. Absent pour un client. */
+  home_workspace_id?: string | null;
+  /** Vrai quand le profil Élude consulte un espace qui n'est pas le sien. */
+  visiting_client_space?: boolean;
 };
 
 export function accountDisplayName(me: AuthMeResponse | null | undefined): string {
