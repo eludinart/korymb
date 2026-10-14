@@ -216,6 +216,62 @@ def irreversible_action_label(text: str) -> str:
     return phrase[0].upper() + phrase[1:]
 
 
+_TEAM_DIRECT_RE = re.compile(
+    r"("
+    r"\b(equipe|flotte)\b|"
+    r"blueprint|"
+    r"creer .{0,48}(agent|equipe|flotte)|"
+    r"propose .{0,32}(equipe|flotte)"
+    r")"
+)
+_TEAM_CONFIRM_RE = re.compile(
+    r"^("
+    r"oui|ouais|ok|okay|d accord|daccord|vas[- ]y|go|"
+    r"valide|valider|c est bon|parfait|fais[- ]le|"
+    r"je valide|confirme|confirmer"
+    r")\b"
+)
+_TEAM_HISTORY_RE = re.compile(
+    r"(equipe|blueprint|propose_team|creer l'equipe|creer l equipe)"
+)
+_FAKE_TEAM_BUTTON_RE = re.compile(
+    r"(creer l'equipe|creer l equipe)"
+)
+
+
+def chat_turn_needs_team_tools(message: str, history: list | None = None) -> bool:
+    """Vrai si ce tour doit passer par les outils d'équipe (blueprint + bouton)."""
+    folded = _fold(message).strip()
+    if not folded:
+        return False
+    if _TEAM_DIRECT_RE.search(folded):
+        return True
+    if len(folded) > 80 or not _TEAM_CONFIRM_RE.search(folded):
+        return False
+    recent: list[str] = []
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        recent.append(_fold(str(item.get("content") or "")))
+        if len(recent) >= 2:
+            break
+    return bool(_TEAM_HISTORY_RE.search("\n".join(recent)))
+
+
+def strip_unbacked_team_button(text: str) -> str:
+    """Retire l'invitation à un bouton qui n'existe pas tant qu'aucun blueprint n'est créé."""
+    kept: list[str] = []
+    for line in (text or "").splitlines():
+        folded = _fold(line)
+        if _FAKE_TEAM_BUTTON_RE.search(folded) and re.search(
+            r"(bouton|clique|valide|interface|ui)",
+            folded,
+        ):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
 def chat_message_needs_action(text: str) -> bool:
     """Vrai si le message demande un travail (recherche, rédaction, envoi, livrable)."""
     raw = (text or "").strip()

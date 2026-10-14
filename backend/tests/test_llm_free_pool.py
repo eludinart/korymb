@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import httpx
 
+from llm_tiers import resolve_llm_tier
 from llm_free_pool import (
     configured_hops,
     free_pool_active,
@@ -99,3 +100,17 @@ def test_bad_groq_key_skips_the_other_groq_buckets():
     assert [model for _, model in client.calls] == ["openai/gpt-oss-120b", "gemini-3.1-flash-lite"]
     assert meta["provider"] == "gemini"
     assert "generativelanguage.googleapis.com" in client.calls[1][0]
+
+
+def test_openrouter_ignores_leftover_mistral_tier():
+    cfg = _cfg(
+        llm_provider="openrouter",
+        openrouter_model="google/gemini-2.5-flash-lite",
+        llm_tiers_json=(
+            '{"lite":{"model":"ministral-8b-latest",'
+            '"price_input_per_million_usd":0.1,"price_output_per_million_usd":0.1}}'
+        ),
+    )
+    model, tier, _, _ = resolve_llm_tier(cfg, "lite")
+    assert model == "google/gemini-2.5-flash-lite"
+    assert tier == "default"

@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
@@ -69,6 +70,7 @@ class ChatRequest(BaseModel):
     attachments: list[ChatAttachmentIn] = Field(default_factory=list)
     confirm_action: bool = False
     thinking_mode: str = "auto"
+    chat_use_mode: str = "operationnel"
 
 
 def _recent_hist_lines(hist_snap: list[dict]) -> list[str]:
@@ -150,17 +152,40 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
     try:
         if agent_key == "assistant":
-            from services.assistant_chat import start_assistant_chat_job
+            from services.assistant_chat import (
+                normalize_chat_use_mode,
+                run_assistant_chat_sync,
+                start_assistant_chat_job,
+                CHAT_USE_MODE_QUOTIDIEN,
+            )
             from services.chat_attachments import build_attachment_mission_block
+            from services.chat_intelligence import chat_message_needs_action, chat_turn_needs_team_tools
 
-            logger.info("chat route=assistant session=%s", (request.chat_session_id or "")[:24])
+            use_mode = normalize_chat_use_mode(request.chat_use_mode)
+            logger.info(
+                "chat route=assistant mode=%s session=%s",
+                use_mode,
+                (request.chat_session_id or "")[:24],
+            )
             att_block = build_attachment_mission_block(att_snap) if att_snap else ""
             turn = _user_turn_text(msg_raw, att_block)
+            hist = list(request.history or [])
+            # Quotidien : réponse sync (pas de job) sauf action, équipe ou pièce jointe.
+            needs_tools = chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist)
+            if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
+                return run_assistant_chat_sync(
+                    message=turn,
+                    history=hist,
+                    chat_use_mode=use_mode,
+                    chat_session_id=request.chat_session_id,
+                    use_tools=False,
+                )
             return start_assistant_chat_job(
                 message=turn,
-                history=list(request.history or []),
+                history=hist,
                 linked_job_id=request.linked_job_id,
                 chat_session_id=request.chat_session_id,
+                chat_use_mode=use_mode,
             )
 
         if agent_key == "coordinateur" or group_id:
@@ -538,7 +563,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             }
 
         if agent_key == "assistant":
-            from services.assistant_chat import start_assistant_chat_job
+            from services.assistant_chat import normalize_chat_use_mode, start_assistant_chat_job
             from services.chat_attachments import build_attachment_mission_block
 
             logger.warning("chat assistant via fallback guard")
@@ -548,6 +573,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 history=list(request.history or []),
                 linked_job_id=request.linked_job_id,
                 chat_session_id=request.chat_session_id,
+                chat_use_mode=normalize_chat_use_mode(request.chat_use_mode),
             )
 
         system_prompt = (
@@ -642,6 +668,78 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
         return {"response": reply, "agent": request.agent, "claim_guard": guarded.payload()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=_user_visible_chat_sync_failure_text(e)) from e
+
+
+@router.post("/chat/stream", dependencies=[Depends(resolve_tenant)])
+async def chat_stream(request: ChatRequest):
+    """SSE streaming Assistant (mode quotidien, tours sans outils)."""
+    from services.assistant_chat import (
+        CHAT_USE_MODE_QUOTIDIEN,
+        iter_assistant_chat_stream,
+        normalize_chat_use_mode,
+        start_assistant_chat_job,
+    )
+    from services.chat_attachments import build_attachment_mission_block
+    from services.chat_intelligence import (
+        chat_message_needs_action,
+        chat_message_needs_confirmation,
+        chat_turn_needs_team_tools,
+        irreversible_action_label,
+    )
+
+    agent_key = (request.agent or "assistant").strip().lower() or "assistant"
+    use_mode = normalize_chat_use_mode(request.chat_use_mode)
+    # Stream = Assistant quotidien uniquement ; sinon bascule job JSON.
+    if agent_key != "assistant" or use_mode != CHAT_USE_MODE_QUOTIDIEN:
+        raise HTTPException(
+            status_code=400,
+            detail="Le streaming est réservé au mode Quotidien (agent Assistant).",
+        )
+
+    att_snap = _attachment_payload(request)
+    msg_raw = (request.message or "").strip()
+    if not msg_raw and not att_snap:
+        raise HTTPException(status_code=400, detail="Message ou fichier requis.")
+
+    if chat_message_needs_confirmation(msg_raw) and not request.confirm_action:
+        label = irreversible_action_label(msg_raw)
+        return {
+            "status": "needs_confirmation",
+            "agent": "assistant",
+            "proposal": label,
+            "action_label": label,
+        }
+
+    att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+    turn = _user_turn_text(msg_raw, att_block)
+    hist = list(request.history or [])
+
+    if att_snap or chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist):
+        return start_assistant_chat_job(
+            message=turn,
+            history=hist,
+            linked_job_id=request.linked_job_id,
+            chat_session_id=request.chat_session_id,
+            chat_use_mode=use_mode,
+        )
+
+    def gen():
+        yield from iter_assistant_chat_stream(
+            message=turn,
+            history=hist,
+            chat_use_mode=use_mode,
+            chat_session_id=request.chat_session_id,
+        )
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 class ChatConversationBody(BaseModel):

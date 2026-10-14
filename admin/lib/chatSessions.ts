@@ -83,15 +83,50 @@ export function setActiveConversationId(id: string) {
   localStorage.setItem(key, id);
 }
 
-export function createConversation(opts?: { linkedParentJobId?: string }): ChatConversation {
-  const id = `conv-${crypto.randomUUID?.() ?? `${now()}-${Math.random().toString(36).slice(2, 9)}`}`;
+export function createConversation(opts?: {
+  linkedParentJobId?: string;
+  title?: string;
+  interlocutor?: string;
+  id?: string;
+}): ChatConversation {
+  const id =
+    opts?.id ||
+    `conv-${crypto.randomUUID?.() ?? `${now()}-${Math.random().toString(36).slice(2, 9)}`}`;
   return {
     id,
-    title: opts?.linkedParentJobId ? `Mission #${opts.linkedParentJobId}` : "Nouvelle conversation",
+    title: opts?.title
+      ? opts.title
+      : opts?.linkedParentJobId
+        ? `Mission #${opts.linkedParentJobId}`
+        : "Nouvelle conversation",
     messages: [],
     updatedAt: now(),
     linkedParentJobId: opts?.linkedParentJobId,
+    interlocutor: opts?.interlocutor,
   };
+}
+
+/** Fil « Perso » — conversation longue ancrée pour le mode quotidien. */
+export function ensurePersoConversation(persoTitle = "Perso"): ChatConversation {
+  const list = loadConversations();
+  const existing = list.find(
+    (c) => c.title === persoTitle || c.id === "conv-perso" || c.id.startsWith("conv-perso-"),
+  );
+  if (existing) {
+    if (existing.title !== persoTitle || existing.interlocutor !== "assistant") {
+      const patched = { ...existing, title: persoTitle, interlocutor: "assistant" as const };
+      upsertConversation(patched);
+      return patched;
+    }
+    return existing;
+  }
+  const conv = createConversation({
+    id: "conv-perso",
+    title: persoTitle,
+    interlocutor: "assistant",
+  });
+  upsertConversation(conv);
+  return conv;
 }
 
 export function upsertConversation(conversation: ChatConversation) {

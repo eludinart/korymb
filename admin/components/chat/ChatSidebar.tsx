@@ -68,6 +68,10 @@ export default function ChatSidebar({
   const sorted = useMemo(
     () =>
       [...conversations].sort((a, b) => {
+        const pin = (c: typeof a) =>
+          c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === "Perso" ? 1 : 0;
+        const pinDiff = pin(b) - pin(a);
+        if (pinDiff !== 0) return pinDiff;
         const byDate = Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
         if (byDate !== 0) return byDate;
         return String(b.id).localeCompare(String(a.id));

@@ -118,7 +118,16 @@ type Props = {
   onStopReply?: () => void;
   /** Envoie une réponse QCM comme message utilisateur. */
   onSubmitChoiceAnswers?: (messageId: string, text: string) => void;
+  /** Mode quotidien : chrome ops réduit + chips de reformulation. */
+  chatUseMode?: "quotidien" | "operationnel";
+  reformChips?: ReadonlyArray<{ label: string; text: string }>;
 };
+
+function messagePromisesMissingTeamButton(text: string): boolean {
+  const mentionsButton = /bouton|clique|valide|interface/i.test(text);
+  const mentionsCreate = /cr[eé]er\s+l\W{0,3}équipe/i.test(text);
+  return mentionsButton && mentionsCreate;
+}
 
 function displayAgentKeys(msg: ChatMsg): string[] {
   if (msg.agentKeys?.length) return msg.agentKeys;
@@ -246,7 +255,10 @@ export default function ChatShell({
   teamOffer = false,
   onHandOffToTeam,
   onDismissTeamOffer,
+  chatUseMode = "operationnel",
+  reformChips = [],
 }: Props) {
+  const isQuotidien = chatUseMode === "quotidien";
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrolledAssistantIdRef = useRef<string>("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -262,6 +274,9 @@ export default function ChatShell({
   const [portalReady, setPortalReady] = useState(false);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
+  const hasAssistantReply = messages.some(
+    (m) => m.role === "assistant" && Boolean(m.content.trim()) && !m.pendingAction,
+  );
   const stickyHitl = [...messages].reverse().find((m) => m.role === "assistant" && m.pendingAction);
   const showPendingBar = pending || backgroundJobCount > 0;
 
@@ -396,26 +411,44 @@ export default function ChatShell({
           {isFirstTurn ? (
             <div className="px-2 pt-6 text-center sm:pt-10">
               <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
-                Qu&apos;est-ce qui vous préoccupe ?
+                {isQuotidien ? "Comment puis-je vous aider ?" : "Qu'est-ce qui vous préoccupe ?"}
               </h1>
               <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400 sm:mt-3 sm:text-base">
-                Dites ce que vous voulez obtenir. Je réponds par la décision, le prochain pas, et ce qui manque.
+                {isQuotidien
+                  ? "Posez une question, demandez un brouillon, ou collez un texte à retravailler."
+                  : "Dites ce que vous voulez obtenir. Je réponds par la décision, le prochain pas, et ce qui manque."}
               </p>
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {[
-                  {
-                    label: "Préparer un message client",
-                    text: "Prépare un message clair pour un client, prêt à copier.",
-                  },
-                  {
-                    label: "Résumer cette pièce jointe",
-                    text: "Résume cette pièce jointe : la décision, le prochain pas, ce qui manque.",
-                  },
-                  {
-                    label: "Décider et me dire quoi faire",
-                    text: "Décide avec moi et dis-moi quoi faire ensuite.",
-                  },
-                ].map((chip) => (
+                {(isQuotidien
+                  ? [
+                      {
+                        label: "Résumer",
+                        text: "Résume clairement le texte ou le contexte que je vais coller.",
+                      },
+                      {
+                        label: "Brouillon e-mail",
+                        text: "Prépare un e-mail court et poli, prêt à copier.",
+                      },
+                      {
+                        label: "Idées",
+                        text: "Donne-moi 5 idées concrètes et actionnables.",
+                      },
+                    ]
+                  : [
+                      {
+                        label: "Préparer un message client",
+                        text: "Prépare un message clair pour un client, prêt à copier.",
+                      },
+                      {
+                        label: "Résumer cette pièce jointe",
+                        text: "Résume cette pièce jointe : la décision, le prochain pas, ce qui manque.",
+                      },
+                      {
+                        label: "Décider et me dire quoi faire",
+                        text: "Décide avec moi et dis-moi quoi faire ensuite.",
+                      },
+                    ]
+                ).map((chip) => (
                   <button
                     key={chip.label}
                     type="button"
@@ -436,7 +469,8 @@ export default function ChatShell({
             </div>
           ) : null}
 
-          {messages.map((m) => {
+          {messages.map((m, index) => {
+            const isLast = index === messages.length - 1;
             const agents = localAgents[m.id] || displayAgentKeys(m);
             const degraded = Boolean(m.degraded) || chatTextIsDegraded(m.content);
             const claim = claimGuardLabel(m.claimGuard);
@@ -574,6 +608,26 @@ export default function ChatShell({
                         })
                       }
                     />
+                  ) : null}
+                  {isLast &&
+                  m.role === "assistant" &&
+                  !m.pendingBlueprintId &&
+                  !m.blueprintOutcome &&
+                  messagePromisesMissingTeamButton(m.content) ? (
+                    <div className="mt-3 rounded-2xl border-2 border-violet-200 bg-violet-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-violet-950">Créer l’équipe proposée ?</p>
+                      <p className="mt-1 text-sm text-violet-800">
+                        La proposition n’a pas encore été enregistrée. Ce bouton la prépare, puis tu la valides.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={pending || !onQuickSend}
+                        onClick={() => onQuickSend?.("crée l'équipe")}
+                        className="mt-3 rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Créer l’équipe
+                      </button>
+                    </div>
                   ) : null}
                 </div>
               </div>
@@ -723,7 +777,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
-        {teamOffer && onHandOffToTeam ? (
+        {!isQuotidien && teamOffer && onHandOffToTeam ? (
           <div className="mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
             <button
               type="button"
@@ -743,7 +797,22 @@ export default function ChatShell({
             ) : null}
           </div>
         ) : null}
-        {canConvertToMission && onConvertToMission && convertBrief == null ? (
+        {isQuotidien && reformChips.length > 0 && !pending && hasAssistantReply ? (
+          <div className="mx-auto flex max-w-3xl flex-wrap gap-1.5 px-1 pb-1">
+            {reformChips.map((chip) => (
+              <button
+                key={chip.label}
+                type="button"
+                disabled={pending || uploadBusy}
+                onClick={() => onQuickSend?.(chip.text)}
+                className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-700 hover:border-violet-300 hover:text-violet-800 disabled:opacity-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {!isQuotidien && canConvertToMission && onConvertToMission && convertBrief == null ? (
           <div className="mx-auto max-w-3xl px-1 pb-1">
             <button
               type="button"

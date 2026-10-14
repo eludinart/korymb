@@ -31,6 +31,7 @@ import {
   conversationTitleFromMessages,
   createConversation,
   deleteConversation,
+  ensurePersoConversation,
   getActiveConversationId,
   hydrateConversationsFromServer,
   loadConversations,
@@ -55,6 +56,20 @@ import { cancelActiveJob } from "../../lib/jobControl";
 import { QK } from "../../lib/queryClient";
 import { rememberInterlocutor } from "../../lib/recentInterlocutors";
 import { useChatTextScale } from "../../lib/chatTextScale";
+import {
+  CHAT_PERSO_TITLE,
+  CHAT_QUICK_CHIPS,
+  chatHistoryLimit,
+  loadChatUseMode,
+  saveChatUseMode,
+  type ChatUseMode,
+} from "../../lib/chatUseMode";
+import { postChatStream } from "../../lib/chatStream";
+
+function blueprintIdFromText(text: string): string | undefined {
+  const match = text.match(/\bbp-[a-f0-9]{12}\b/i);
+  return match ? match[0].toLowerCase() : undefined;
+}
 
 function stripMarkdownPreview(text: string, max = 120): string {
   return text.replace(/[#*_`]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -121,10 +136,13 @@ function ChatPageInner() {
   const [interlocutor, setInterlocutor] = useState(() =>
     urlGroupId ? interlocutorFromGroupId(urlGroupId) : "assistant",
   );
+  const [chatUseMode, setChatUseMode] = useState<ChatUseMode>(() => loadChatUseMode());
   const pollingRef = useRef<Set<string>>(new Set());
   const stoppedReplyRef = useRef<Set<string>>(new Set());
   const activeIdRef = useRef<string | null>(null);
   const interlocutorRef = useRef(interlocutor);
+  const chatUseModeRef = useRef(chatUseMode);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const initRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -144,6 +162,10 @@ function ChatPageInner() {
   }, [interlocutor]);
 
   useEffect(() => {
+    chatUseModeRef.current = chatUseMode;
+  }, [chatUseMode]);
+
+  useEffect(() => {
     if (!urlGroupId) return;
     const value = interlocutorFromGroupId(urlGroupId);
     interlocutorRef.current = value;
@@ -156,6 +178,37 @@ function ChatPageInner() {
     setBackgroundJobs(loadPendingChatJobs());
   }, []);
 
+  const applyChatUseMode = useCallback(
+    (mode: ChatUseMode) => {
+      setChatUseMode(mode);
+      saveChatUseMode(mode);
+      if (mode === "quotidien") {
+        interlocutorRef.current = "assistant";
+        setInterlocutor("assistant");
+        rememberInterlocutor("assistant");
+        const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
+        refreshConversations();
+        if (!activeIdRef.current) {
+          setActiveConversationId(perso.id);
+          setActiveId(perso.id);
+          setMessages(perso.messages || []);
+        }
+      }
+    },
+    [refreshConversations],
+  );
+
+  const openPersoThread = useCallback(() => {
+    const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
+    setActiveConversationId(perso.id);
+    setActiveId(perso.id);
+    setMessages(perso.messages || []);
+    setMobilePane("thread");
+    interlocutorRef.current = "assistant";
+    setInterlocutor("assistant");
+    refreshConversations();
+  }, [refreshConversations]);
+
   const persistActiveConversation = useCallback(
     (nextMessages: ChatMsg[], extra?: Partial<ChatConversation>) => {
       const id = activeIdRef.current;
@@ -165,9 +218,15 @@ function ChatPageInner() {
       const messagesChanged =
         previous.length !== nextMessages.length ||
         previous.some((m, i) => m.id !== nextMessages[i]?.id || m.content !== nextMessages[i]?.content);
+      const pinnedTitle =
+        existing?.id === "conv-perso" ||
+        existing?.id.startsWith("conv-perso-") ||
+        existing?.title === CHAT_PERSO_TITLE
+          ? CHAT_PERSO_TITLE
+          : conversationTitleFromMessages(nextMessages);
       const conv: ChatConversation = {
         id,
-        title: conversationTitleFromMessages(nextMessages),
+        title: pinnedTitle,
         messages: nextMessages,
         updatedAt: messagesChanged ? Date.now() : existing?.updatedAt || Date.now(),
         linkedParentJobId: extra && "linkedParentJobId" in extra ? extra.linkedParentJobId : existing?.linkedParentJobId,
@@ -209,6 +268,14 @@ function ChatPageInner() {
         active = conv.id;
       }
 
+      if (loadChatUseMode() === "quotidien" && !linkedParentJobId && !urlSessionId) {
+        const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
+        list = loadConversations();
+        if (!active || !list.some((c) => c.id === active)) {
+          active = perso.id;
+        }
+      }
+
       if (!active || !list.some((c) => c.id === active)) {
         active = list[0].id;
       }
@@ -218,7 +285,10 @@ function ChatPageInner() {
       setActiveId(current.id);
       setActiveConversationId(current.id);
       setMessages(current.messages);
-      if (!urlGroupId && current.interlocutor) {
+      if (loadChatUseMode() === "quotidien") {
+        interlocutorRef.current = "assistant";
+        setInterlocutor("assistant");
+      } else if (!urlGroupId && current.interlocutor) {
         interlocutorRef.current = current.interlocutor;
         setInterlocutor(current.interlocutor);
       }
@@ -383,6 +453,7 @@ function ChatPageInner() {
         degraded?: boolean;
         drive_artifacts?: unknown;
         claim_guard?: ChatMsg["claimGuard"];
+        pending_blueprint_id?: string;
         team?: Array<{ phase?: string; status?: string }>;
         events?: Array<{ type?: string; data?: { phase?: string } }>;
       };
@@ -417,6 +488,7 @@ function ChatPageInner() {
           driveArtifacts: (data.drive_artifacts || []) as ChatJobDelivery["driveArtifacts"],
           deliverablesMarkdown: String(data.result || ""),
           claimGuard: data.claim_guard,
+          pendingBlueprintId: data.pending_blueprint_id || blueprintIdFromText(raw),
         };
       }
       if (status.startsWith("error")) {
@@ -427,7 +499,7 @@ function ChatPageInner() {
   }, []);
 
   const deliverJobResult = useCallback(
-    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string; claimGuard?: ChatMsg["claimGuard"] } | string, isError = false) => {
+    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string; claimGuard?: ChatMsg["claimGuard"]; pendingBlueprintId?: string } | string, isError = false) => {
       const surface = stoppedReplyRef.current.has(job.jobId)
         ? "Réponse arrêtée."
         : typeof delivery === "string"
@@ -437,6 +509,8 @@ function ChatPageInner() {
       const driveArtifacts = typeof delivery === "string" ? undefined : delivery.driveArtifacts;
       const deliverablesMarkdown = typeof delivery === "string" ? undefined : delivery.deliverablesMarkdown;
       const claimGuard = typeof delivery === "string" ? undefined : delivery.claimGuard;
+      const deliveredBlueprintId =
+        typeof delivery === "string" ? blueprintIdFromText(delivery) : delivery.pendingBlueprintId;
       const assistantId = isError ? `e-${job.jobId}` : `a-${job.jobId}`;
       const conv = loadConversations().find((c) => c.id === job.conversationId);
       if (!conv) {
@@ -455,7 +529,7 @@ function ChatPageInner() {
       if (!isError) {
         try {
           const { data: jobData } = await requestJson(`/jobs/${encodeURIComponent(job.jobId)}`, { retries: 1 });
-          pendingBlueprintId = jobData?.pending_blueprint_id || undefined;
+          pendingBlueprintId = jobData?.pending_blueprint_id || deliveredBlueprintId || blueprintIdFromText(surface);
           const keys = await fetchJobAgentKeys(job.jobId);
           const agent = String(jobData?.agent || "");
           if (agent === "assistant" || keys.includes("assistant")) {
@@ -466,6 +540,7 @@ function ChatPageInner() {
           }
         } catch {
           agentKeys = ["assistant"];
+          pendingBlueprintId = deliveredBlueprintId || blueprintIdFromText(surface);
         }
       }
 
@@ -547,6 +622,10 @@ function ChatPageInner() {
 
   const stopActiveReply = useCallback(async () => {
     if (!window.confirm("Arrêter la réponse en cours ?")) return;
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    setPending(false);
+    setReplyProgress(null);
     const convId = activeIdRef.current;
     if (!convId) return;
     const jobs = pendingJobsForConversation(convId);
@@ -675,34 +754,19 @@ function ChatPageInner() {
       const last = payloadSource[payloadSource.length - 1];
       if (last?.role === "user" && last.content.trim() === text) payloadSource = payloadSource.slice(0, -1);
     }
-    const historyPayload = payloadSource.map(({ role, content, attachments }) => ({
-      role,
-      content: attachments?.length
-        ? `${content}\n[Fichiers: ${attachments.map((a) => a.filename).join(", ")}]`.trim()
-        : content,
-    }));
+    const useMode = chatUseModeRef.current;
+    const histLimit = chatHistoryLimit(useMode);
+    const historyPayload = payloadSource
+      .map(({ role, content, attachments }) => ({
+        role,
+        content: attachments?.length
+          ? `${content}\n[Fichiers: ${attachments.map((a) => a.filename).join(", ")}]`.trim()
+          : content,
+      }))
+      .slice(-histLimit);
 
-    const who = interlocutorRef.current;
-    try {
-      const { agent, agentGroupId } = parseInterlocutor(who);
-      rememberInterlocutor(who);
-      const { data } = await requestJson("/chat", {
-        method: "POST",
-        headers: agentHeaders(),
-        timeoutMs: 25_000,
-        body: JSON.stringify({
-          message: text,
-          agent,
-          history: historyPayload,
-          chat_session_id: activeId,
-          ...(parentId ? { linked_job_id: parentId } : {}),
-          ...(agentGroupId ? { agent_group_id: agentGroupId } : {}),
-          ...(files.length ? { attachments: files } : {}),
-          ...(opts?.confirmAction ? { confirm_action: true } : {}),
-          thinking_mode: loadThinkingMode(),
-        }),
-      });
-
+    const who = useMode === "quotidien" ? "assistant" : interlocutorRef.current;
+    const applyChatData = (data: Record<string, unknown> | null | undefined, agent: string) => {
       if (data?.status === "needs_confirmation") {
         const askAgent = agent === "assistant" ? "assistant" : String(data.agent || agent || "coordinateur");
         const actionLabel = String(data.action_label || data.proposal || "Confirmer");
@@ -717,7 +781,9 @@ function ChatPageInner() {
             pendingAction: { message: text, attachments: files, label: actionLabel },
           },
         ]);
-      } else if (data?.status === "accepted" && data?.job_id) {
+        return;
+      }
+      if (data?.status === "accepted" && data?.job_id) {
         const jobId = String(data.job_id);
         const mirror = String(data.mirror_ack || "").trim();
         const ackAgent = agent === "assistant" ? "assistant" : String(data.agent || agent || "coordinateur");
@@ -738,40 +804,136 @@ function ChatPageInner() {
         addPendingChatJob(pendingJob);
         refreshConversations();
         watchJobInBackground(pendingJob);
-      } else {
-        const surface = toChatSurface(String(data?.response || ""));
-        const degraded = Boolean(data?.degraded) || chatTextIsDegraded(surface);
-        const claimGuard = data?.claim_guard as ChatMsg["claimGuard"] | undefined;
-        setReplyProgress(null);
-        setMessages([
-          ...history,
-          {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: surface,
-            agentKeys: [agent],
-            ...(degraded ? { degraded: true } : {}),
-            ...(claimGuard?.status ? { claimGuard } : {}),
-          },
-        ]);
+        return;
       }
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
-      const degraded = isChatTransportFailure(err);
-      const { agent: failAgent } = parseInterlocutor(who);
+      const surface = toChatSurface(String(data?.response || ""));
+      const degraded = Boolean(data?.degraded) || chatTextIsDegraded(surface);
+      const claimGuard = data?.claim_guard as ChatMsg["claimGuard"] | undefined;
+      const pendingBlueprintId =
+        String(data?.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
       setReplyProgress(null);
       setMessages([
         ...history,
         {
-          id: `e-${Date.now()}`,
+          id: `a-${Date.now()}`,
           role: "assistant",
-          content: degraded ? localDegradedChatReply(text, failAgent === "coordinateur" ? "CIO" : failAgent) : raw,
-          agentKeys: [failAgent],
+          content: surface,
+          agentKeys: [agent],
+          ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
           ...(degraded ? { degraded: true } : {}),
+          ...(claimGuard?.status ? { claimGuard } : {}),
         },
       ]);
+    };
+
+    try {
+      const { agent: parsedAgent, agentGroupId } = parseInterlocutor(who);
+      const agent = useMode === "quotidien" ? "assistant" : parsedAgent;
+      rememberInterlocutor(who);
+
+      const requestBody = {
+        message: text,
+        agent,
+        history: historyPayload,
+        chat_session_id: activeId,
+        chat_use_mode: useMode,
+        ...(parentId ? { linked_job_id: parentId } : {}),
+        ...(agentGroupId && useMode !== "quotidien" ? { agent_group_id: agentGroupId } : {}),
+        ...(files.length ? { attachments: files } : {}),
+        ...(opts?.confirmAction ? { confirm_action: true } : {}),
+        thinking_mode: loadThinkingMode(),
+      };
+
+      // Quotidien sans pièce jointe : SSE (réponse immédiate).
+      if (useMode === "quotidien" && files.length === 0 && !opts?.confirmAction) {
+        streamAbortRef.current?.abort();
+        const ac = new AbortController();
+        streamAbortRef.current = ac;
+        const streamMsgId = `a-stream-${Date.now()}`;
+        setMessages([
+          ...history,
+          { id: streamMsgId, role: "assistant", content: "", agentKeys: ["assistant"] },
+        ]);
+        setReplyProgress({ percent: 35, label: "Réponse en cours" });
+        const streamed = await postChatStream({
+          body: requestBody,
+          headers: agentHeaders(),
+          signal: ac.signal,
+          onDelta: (_chunk, full) => {
+            if (!mountedRef.current) return;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === streamMsgId ? { ...m, content: toChatSurface(full) } : m)),
+            );
+            setReplyProgress({ percent: 70, label: "Réponse en cours" });
+          },
+        });
+        if (streamed.kind === "json") {
+          applyChatData(streamed.data, agent);
+        } else {
+          const surface = toChatSurface(streamed.text || streamed.done.response || "");
+          const degraded = Boolean(streamed.done.degraded) || chatTextIsDegraded(surface);
+          const claimGuard = streamed.done.claim_guard as ChatMsg["claimGuard"] | undefined;
+          const pendingBlueprintId =
+            String(streamed.done.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
+          setReplyProgress(null);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === streamMsgId
+                ? {
+                    ...m,
+                    content: surface,
+                    ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
+                    ...(degraded ? { degraded: true } : {}),
+                    ...(claimGuard?.status ? { claimGuard } : {}),
+                  }
+                : m,
+            ),
+          );
+        }
+      } else {
+        const { data } = await requestJson("/chat", {
+          method: "POST",
+          headers: agentHeaders(),
+          timeoutMs: useMode === "quotidien" ? 90_000 : 25_000,
+          body: JSON.stringify(requestBody),
+        });
+        applyChatData(data, agent);
+      }
+    } catch (err) {
+      const aborted =
+        (err instanceof Error && (err.name === "AbortError" || /aborted|timeout/i.test(err.message))) &&
+        streamAbortRef.current?.signal.aborted;
+      if (aborted) {
+        setReplyProgress(null);
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === "assistant" && last.id.startsWith("a-stream-") && !last.content.trim()) {
+            return [
+              ...prev.slice(0, -1),
+              { ...last, id: `a-stop-${Date.now()}`, content: "Réponse arrêtée." },
+            ];
+          }
+          return prev;
+        });
+      } else {
+        const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
+        const degraded = isChatTransportFailure(err);
+        const { agent: failAgent } = parseInterlocutor(who);
+        setReplyProgress(null);
+        setMessages([
+          ...history,
+          {
+            id: `e-${Date.now()}`,
+            role: "assistant",
+            content: degraded ? localDegradedChatReply(text, failAgent === "coordinateur" ? "CIO" : failAgent) : raw,
+            agentKeys: [failAgent],
+            ...(degraded ? { degraded: true } : {}),
+          },
+        ]);
+      }
     } finally {
       setPending(false);
+      streamAbortRef.current = null;
     }
   }, [
     draft,
@@ -963,11 +1125,15 @@ function ChatPageInner() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatConversationHeader
             title={activeConv?.title || "Chat"}
-            subtitle={interlocutorName}
+            subtitle={
+              chatUseMode === "quotidien"
+                ? "Quotidien"
+                : interlocutorName
+            }
             onBack={backToMobileList}
             onOpenMore={() => setMoreSheetOpen(true)}
           />
-          {missionJobId ? (
+          {missionJobId && chatUseMode !== "quotidien" ? (
             <div className="shrink-0 border-b border-slate-100">
               <MissionContextBanner jobId={missionJobId} />
             </div>
@@ -981,7 +1147,9 @@ function ChatPageInner() {
             pending={pending}
             backgroundJobCount={activePendingCount}
             backgroundProgress={activePendingCount > 0 || pending ? replyProgress : null}
-            onStopReply={activePendingCount > 0 ? () => void stopActiveReply() : undefined}
+            onStopReply={
+              activePendingCount > 0 || pending ? () => void stopActiveReply() : undefined
+            }
             onConfirmAction={(message, attachments) => void send({ confirmAction: true, text: message, attachments })}
             onDismissAction={dismissPendingAction}
             onSubmitChoiceAnswers={submitChoiceAnswers}
@@ -1003,6 +1171,8 @@ function ChatPageInner() {
             onRemoveFile={(id) => setPendingFiles((prev) => prev.filter((f) => f.id !== id))}
             uploadBusy={uploadBusy}
             uploadError={uploadError}
+            chatUseMode={chatUseMode}
+            reformChips={CHAT_QUICK_CHIPS}
             onTeamCreated={(groupId) => {
               chooseInterlocutor(interlocutorFromGroupId(groupId));
               void qc.invalidateQueries({ queryKey: ["agent-groups"] });
@@ -1029,6 +1199,9 @@ function ChatPageInner() {
         onInterlocutorChange={chooseInterlocutor}
         interlocutorDisabled={pending}
         onHandOffToTeam={handOffToTeam}
+        chatUseMode={chatUseMode}
+        onChatUseModeChange={applyChatUseMode}
+        onOpenPerso={openPersoThread}
       />
     </div>
   );

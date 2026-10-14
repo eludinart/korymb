@@ -40,6 +40,24 @@ router = APIRouter(tags=["jobs"])
 logger = logging.getLogger(__name__)
 
 
+def _pending_blueprint_for_payload(
+    job_like: dict | None,
+    row: dict | None,
+    logs: list | None,
+) -> str | None:
+    """L'id en mémoire disparaît avec le job ; on le retrouve dans le résultat et les logs."""
+    from services.assistant_chat import resolve_pending_blueprint_id
+
+    direct = str((job_like or {}).get("pending_blueprint_id") or "").strip()
+    blobs: list[str] = []
+    for src in (job_like or {}, row or {}):
+        blobs.append(str(src.get("result_surface") or ""))
+        blobs.append(str(src.get("result") or ""))
+    if isinstance(logs, list):
+        blobs.extend(str(x) for x in logs[-80:])
+    return resolve_pending_blueprint_id(*blobs, direct=direct or None)
+
+
 def _claim_guard_for_payload(job_like: dict | None, events: list | None) -> dict | None:
     """Statut du garde-fou (ancré / partiel / inconnu) pour l'affichage chat."""
     if isinstance(job_like, dict) and isinstance(job_like.get("claim_guard"), dict):
@@ -639,7 +657,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "parent_job_id": parent_out or None,
             "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
-            "pending_blueprint_id": job.get("pending_blueprint_id"),
+            "pending_blueprint_id": _pending_blueprint_for_payload(job, row_db, logs),
             "agent_group_id": job.get("agent_group_id"),
         }
         if fb:
@@ -689,6 +707,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "parent_job_id": row.get("parent_job_id") or None,
         "chat_session_id": row.get("chat_session_id") or None,
         "hitl": hitl_block,
+        "pending_blueprint_id": _pending_blueprint_for_payload(None, row, logs),
     }
     if fb:
         out["latest_chat_followup"] = fb

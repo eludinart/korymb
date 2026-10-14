@@ -11,6 +11,7 @@ function targetPath(path: string[]) {
 function upstreamTimeoutMs(joinedPath: string): number {
   const p = joinedPath.toLowerCase();
   if (p === "health" || p === "health/live" || p === "health/database" || p === "llm") return 8_000;
+  if (p === "chat" || p === "chat/stream") return 120_000;
   if (p.startsWith("admin/reprise")) return 90_000;
   if (p.startsWith("context-guide")) return 60_000;
   if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
@@ -23,10 +24,11 @@ function upstreamTimeoutMs(joinedPath: string): number {
 
 /** Headers upstream propres — ne jamais cloner request.headers (hop-by-hop / content-length
  *  provoquent `fetch failed` côté undici sur PATCH/POST). */
-function withSessionHeaders(request: NextRequest) {
+function withSessionHeaders(request: NextRequest, joinedPath = "") {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
-  headers.set("Accept", "application/json");
+  const p = joinedPath.toLowerCase();
+  headers.set("Accept", p === "chat/stream" || p.endsWith("/stream") ? "text/event-stream" : "application/json");
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -71,7 +73,7 @@ async function proxy(request: NextRequest, path: string[]) {
     const rawBody = hasBody ? await request.text() : "";
     response = await fetch(upstream, {
       method: request.method,
-      headers: withSessionHeaders(request),
+      headers: withSessionHeaders(request, joinedPath),
       cache: "no-store",
       signal: controller.signal,
       // Chaîne vide → undefined : évite un Content-Length forcé à tort par undici
@@ -99,6 +101,17 @@ async function proxy(request: NextRequest, path: string[]) {
   }
 
   const contentType = response.headers.get("content-type") || "application/json";
+  if (contentType.includes("text/event-stream") && response.body) {
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
   const raw = await response.text();
   return new NextResponse(raw, {
     status: response.status,
