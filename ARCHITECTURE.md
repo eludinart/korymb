@@ -74,7 +74,8 @@ Every feature touching LLM execution must verify:
 - Décisions (file dirigeant, pas le courrier) : `GET /admin/inbox` — agrège HITL, clôtures, questions CIO, scheduler, qualité, apprentissage. UI : `/inbox` libellé **Décisions**.
 - Agent secret auth: honors `X-Workspace-Id` when the workspace exists; otherwise defaults to `ws-default-legacy` (Hermes compat).
 - MariaDB: connection pool (`KORYMB_DB_POOL_SIZE`, default 8). Optional Alembic: `KORYMB_DB_MIGRATE=alembic` runs `upgrade head` before `init_db()`; `_ensure_*` remains the safety net.
-- Mission events: dual-write to `mission_events` table alongside `jobs.events_json`.
+- Mission events: dual-write to `mission_events` via `persist_job_events` / `update_job(events=…)` alongside `jobs.events_json`.
+- DB split (progressive): `database_jobs.py` (HITL job columns), `database_memory.py` (enterprise memory); `database.py` remains the import façade.
 - Courrier prospection: `/gestion/courrier` · `GET /business/emails` · `POST /business/emails/sync` — sync Gmail auto (`gmail_prospect_sync`, 15 min).
 - Briefing: `GET /admin/briefing` — décisions du jour, missions actives, budget, analytics 24h.
 - Notifications in-app: table `director_notifications`, SSE `director_notification`, `GET/PATCH /admin/notifications`.

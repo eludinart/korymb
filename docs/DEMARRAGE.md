@@ -124,3 +124,16 @@ Toute page `app/**/page.tsx` qui utilise `useSearchParams` doit encapsuler son c
 | `KORYMB_ALLOW_LANGGRAPH=1` | Autorise `orchestration.engine` = `langgraph` / `shadow` (sinon forcé `legacy`) |
 
 Auth agent (`X-Agent-Secret`) : propager `X-Workspace-Id` pour cibler un espace ; sans header → `ws-default-legacy` (Hermes).
+
+### HITL wait
+- Module `services/hitl_wait.py` : `threading.Event` par `job_id` + poll de repli (défaut **2 s**, pas de busy-loop).
+- `resolve_hitl` appelle `notify_hitl_resolved(job_id)` pour réveiller le worker immédiatement.
+- Defaults : `orchestration.cio.hitl_wait_max_seconds`, `orchestration.cio.hitl_poll_interval_seconds`.
+
+### Events / Alembic / découpe DB
+- Dual-write : `persist_job_events` / `update_job(events=…)` → `jobs.events_json` **et** table `mission_events`.
+- Alembic : révision incrémentale `001_mission_events` (pas un dump schéma complet) ; `_ensure_*` reste le filet.
+- Découpe progressive : `database_jobs.py` (HITL jobs), `database_memory.py` (mémoire entreprise) ; `database.py` reste la façade d’import.
+
+### Routes `/run/*`
+Conservées (admin / fallbacks) avec en-tête `Deprecation: true` — pas de 410 pour l’instant.

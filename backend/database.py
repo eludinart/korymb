@@ -354,6 +354,21 @@ def append_mission_events_rows(job_id: str, events: list, *, workspace_id: str |
         pass
 
 
+def persist_job_events(job_id: str, events: list) -> None:
+    """Écrit jobs.events_json + dual-write mission_events (chemin unique)."""
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid or not isinstance(events, list):
+        return
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(events, ensure_ascii=False), now, jid, _ws()),
+        )
+        conn.commit()
+    append_mission_events_rows(jid, events)
+
+
 def _ensure_jobs_columns(conn) -> None:
     """Ajoute les colonnes manquantes si la DB a été créée avec une ancienne version."""
     if _is_mariadb():
@@ -2784,121 +2799,12 @@ def job_close_mission_by_user(job_id: str) -> bool:
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
-def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
-    """Suspend le job en attente de validation HITL humaine."""
-    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
-    if not jid:
-        return False
-    now = datetime.utcnow().isoformat()
-    gate_json = json.dumps(gate_payload, ensure_ascii=False)
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        cur = conn.execute(
-            "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, hitl_resolved_at = NULL, "
-            "hitl_comment = '', hitl_resolution_json = NULL, updated_at = ? "
-            "WHERE id = ? AND workspace_id = ? AND status IN ('running', 'pending')",
-            (gate_json, now, jid, _ws()),
-        )
-        conn.commit()
-        return int(getattr(cur, "rowcount", 0) or 0) > 0
-
-
-def job_resume_after_hitl(
-    job_id: str,
-    *,
-    approved: bool | None = None,
-    comment: str = "",
-    decision: str | None = None,
-    resolution: dict | None = None,
-) -> bool:
-    """Reprend ou annule un job suspendu en attente HITL.
-
-    decision : approve | reject | amend (prioritaire sur approved legacy).
-    resolution : pour amend — ex. {"amended_plan": {...}, "feedback": "..."}.
-    """
-    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
-    if not jid:
-        return False
-    dec = (decision or "").strip().lower()
-    if dec not in ("approve", "reject", "amend"):
-        if approved is False:
-            dec = "reject"
-        else:
-            dec = "approve"
-    if dec == "reject":
-        new_status = "cancelled"
-        res_blob = None
-    else:
-        new_status = "running"
-        if dec == "amend" and isinstance(resolution, dict) and resolution:
-            res_blob = json.dumps(resolution, ensure_ascii=False)
-        else:
-            res_blob = None
-    now = datetime.utcnow().isoformat()
-    comment_s = (comment or "")[:8000]
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        cur = conn.execute(
-            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
-            "updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'awaiting_validation'",
-            (new_status, now, comment_s, res_blob, now, jid, _ws()),
-        )
-        if int(getattr(cur, "rowcount", 0) or 0) > 0:
-            conn.commit()
-            return True
-        # Reprise si gate ouverte mais statut désynchronisé (cache mémoire / reprise serveur).
-        row = conn.execute(
-            "SELECT status, hitl_gate_json, hitl_resolved_at FROM jobs WHERE id = ? AND workspace_id = ?",
-            (jid, _ws()),
-        ).fetchone()
-        if not row:
-            conn.commit()
-            return False
-        d = dict(row)
-        gate_raw = (d.get("hitl_gate_json") or "").strip()
-        resolved = (d.get("hitl_resolved_at") or "").strip()
-        if not gate_raw or resolved:
-            conn.commit()
-            return False
-        cur = conn.execute(
-            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
-            "updated_at = ? WHERE id = ? AND workspace_id = ?",
-            (new_status, now, comment_s, res_blob, now, jid, _ws()),
-        )
-        conn.commit()
-        return int(getattr(cur, "rowcount", 0) or 0) > 0
-
-
-def get_hitl_gate(job_id: str) -> dict | None:
-    """Retourne le payload de la gate HITL pour un job, ou None."""
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        row = conn.execute(
-            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs "
-            "WHERE id = ? AND workspace_id = ?",
-            (job_id, _ws()),
-        ).fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    try:
-        gate = json.loads(d.get("hitl_gate_json") or "{}")
-    except json.JSONDecodeError:
-        gate = {}
-    res: dict | None = None
-    raw_res = d.get("hitl_resolution_json")
-    if raw_res:
-        try:
-            parsed = json.loads(raw_res)
-            res = parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            res = None
-    return {
-        "gate": gate,
-        "resolved_at": d.get("hitl_resolved_at"),
-        "comment": d.get("hitl_comment"),
-        "resolution": res,
-    }
+# HITL jobs : implémentation dans database_jobs.py (découpe progressive).
+from database_jobs import (  # noqa: E402
+    get_hitl_gate,
+    job_resume_after_hitl,
+    job_set_awaiting_hitl,
+)
 
 
 def _ensure_jobs_hitl_column(conn) -> None:
@@ -3135,13 +3041,16 @@ def _memory_context_allowed_keys() -> frozenset[str]:
     return _CONTEXT_KEYS_LEGACY | _SYSTEM_ENTERPRISE_CONTEXT_KEYS | frozenset(list_custom_agent_keys_raw())
 
 
-# Cache lecture enterprise_memory, par espace — invalidé à chaque écriture.
-_ENTERPRISE_MEM_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
-_ENTERPRISE_MEM_TTL_SEC = 2.0
+# Mémoire entreprise : implémentation dans database_memory.py (découpe progressive).
+from database_memory import (  # noqa: E402
+    append_recent_mission,
+    delete_enterprise_context_keys,
+    get_enterprise_memory,
+    init_enterprise_memory_row,
+    invalidate_enterprise_memory_cache,
+    merge_enterprise_contexts,
+)
 
-
-def invalidate_enterprise_memory_cache() -> None:
-    _ENTERPRISE_MEM_CACHE.clear()
 
 
 def validate_custom_agent_key(raw: str) -> tuple[str, str | None]:
@@ -3619,151 +3528,6 @@ def upsert_agent_group_memory(
         )
         conn.commit()
     return get_agent_group_memory(gid)
-
-
-def init_enterprise_memory_row() -> None:
-    """Contexte entreprise par espace Korymb. Sans espace courant : ne rien écrire."""
-    now = datetime.utcnow().isoformat()
-    wid = _ws()
-    if not wid:
-        return
-    with get_conn() as conn:
-        text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
-        conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS enterprise_memory (
-                workspace_id {text_pk} PRIMARY KEY,
-                contexts_json TEXT NOT NULL DEFAULT '{{}}',
-                recent_missions_json TEXT NOT NULL DEFAULT '[]',
-                updated_at TEXT NOT NULL
-            )
-            """
-        )
-        row = conn.execute(
-            "SELECT workspace_id FROM enterprise_memory WHERE workspace_id=?",
-            (wid,),
-        ).fetchone()
-        if not row:
-            conn.execute(
-                "INSERT INTO enterprise_memory (contexts_json, recent_missions_json, updated_at, workspace_id) "
-                "VALUES ('{}', '[]', ?, ?)",
-                (now, wid),
-            )
-        conn.commit()
-
-
-def get_enterprise_memory() -> dict:
-    wid = _ws()
-    if not wid:
-        return {"contexts": {}, "recent_missions": [], "updated_at": None}
-    init_enterprise_memory_row()
-    now_m = time.monotonic()
-    hit = _ENTERPRISE_MEM_CACHE.get(wid)
-    if hit is not None and (now_m - hit[0]) < _ENTERPRISE_MEM_TTL_SEC:
-        return copy.deepcopy(hit[1])
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE workspace_id=?",
-            (wid,),
-        ).fetchone()
-    allowed = _memory_context_allowed_keys()
-    if not row:
-        out = {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
-        _ENTERPRISE_MEM_CACHE[wid] = (now_m, copy.deepcopy(out))
-        return copy.deepcopy(out)
-    try:
-        ctx = json.loads(row["contexts_json"] or "{}")
-    except json.JSONDecodeError:
-        ctx = {}
-    if not isinstance(ctx, dict):
-        ctx = {}
-    base = {k: "" for k in allowed}
-    for k, v in ctx.items():
-        if k in allowed and isinstance(v, str):
-            base[k] = v
-    try:
-        recent = json.loads(row["recent_missions_json"] or "[]")
-    except json.JSONDecodeError:
-        recent = []
-    if not isinstance(recent, list):
-        recent = []
-    out = {
-        "contexts": base,
-        "recent_missions": recent,
-        "updated_at": row["updated_at"],
-    }
-    _ENTERPRISE_MEM_CACHE[wid] = (now_m, copy.deepcopy(out))
-    return copy.deepcopy(out)
-
-
-def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
-    """Fusionne les champs de contexte (texte libre par rôle + global)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    cur = get_enterprise_memory()
-    allowed = _memory_context_allowed_keys()
-    base = dict(cur["contexts"])
-    for k, v in (updates or {}).items():
-        if k in allowed and isinstance(v, str):
-            base[k] = v
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(base, ensure_ascii=False), now, _ws()),
-        )
-        conn.commit()
-    invalidate_enterprise_memory_cache()
-    return get_enterprise_memory()
-
-
-def delete_enterprise_context_keys(keys: list[str]) -> dict:
-    """Retire des volets mémoire éditables du JSON persisté (snapshot recommandé avant)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    deletable = _memory_user_deletable_keys()
-    to_drop = [str(k).strip() for k in (keys or []) if str(k).strip() in deletable]
-    if not to_drop:
-        return get_enterprise_memory()
-    cur = get_enterprise_memory()
-    base = dict(cur.get("contexts") or {})
-    for k in to_drop:
-        base.pop(k, None)
-    to_save = {k: v for k, v in base.items() if isinstance(v, str) and v.strip()}
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(to_save, ensure_ascii=False), now, _ws()),
-        )
-        conn.commit()
-    invalidate_enterprise_memory_cache()
-    return get_enterprise_memory()
-
-
-def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
-    """Ajoute une entrée dans l'historique des missions (mémoire opérationnelle, texte long pour le CIO)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    cur = get_enterprise_memory()
-    lst = list(cur.get("recent_missions") or [])
-    lst.append(
-        {
-            "job_id": job_id,
-            "mission": (mission or "")[:2000],
-            "preview": (preview or "")[:10000],
-            "ts": datetime.utcnow().isoformat(),
-        },
-    )
-    lst = lst[-10:]
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE enterprise_memory SET recent_missions_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(lst, ensure_ascii=False), now, _ws()),
-        )
-        conn.commit()
-    invalidate_enterprise_memory_cache()
 
 
 # ── Mission Templates ─────────────────────────────────────────────────────────
@@ -4543,13 +4307,7 @@ def mark_cio_questions_dismissed(job_id: str) -> bool:
         patched.append(ev)
     if not changed:
         return False
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return True
 
 
@@ -4580,13 +4338,7 @@ def mark_cio_questions_answered(job_id: str) -> bool:
         patched.append(ev)
     if not changed:
         return False
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return True
 
 
@@ -4640,12 +4392,7 @@ def record_cio_arbitrage_answer(job_id: str, question: str, answer: str) -> dict
         "ts": now,
         "payload": {"question": q, "answer": a},
     })
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return list_cio_arbitrage_answers(job_id)
 
 
