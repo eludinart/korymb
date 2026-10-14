@@ -27,6 +27,10 @@ class AdminSettingsPut(BaseModel):
     llm_price_input_per_million_usd: float | None = None
     llm_price_output_per_million_usd: float | None = None
     llm_tiers_json: str | None = None
+    llm_free_pool: str | None = None
+    groq_api_key: str | None = None
+    gemini_api_key: str | None = None
+    gemini_model: str | None = None
 
 
 class BudgetSettingsPut(BaseModel):

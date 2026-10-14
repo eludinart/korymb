@@ -16,6 +16,7 @@ import httpx
 
 from runtime_settings import merge_with_env
 
+from llm_free_pool import free_pool_active, post_with_failover
 from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
 from llm_tiers import resolve_llm_tier
 
@@ -208,12 +209,41 @@ def guard_llm_envelope() -> None:
 
 
 def _assert_llm_ready(cfg: dict[str, Any]) -> None:
+    if free_pool_active(cfg):
+        from llm_free_pool import configured_hops
+
+        if configured_hops(cfg):
+            return
+        raise RuntimeError(
+            "Mélange gratuit actif, mais aucune clé utilisable "
+            "(GROQ_API_KEY, GEMINI_API_KEY ou OPENROUTER_API_KEY)."
+        )
     prov = normalize_llm_provider(None, cfg)
     if is_chat_completions_provider(prov):
         chat_completions_settings(cfg, prov)
         return
     if prov == "anthropic" and not str(cfg.get("anthropic_api_key") or "").strip():
         raise RuntimeError("ANTHROPIC_API_KEY manquant (env ou fichier runtime_settings.json)")
+
+
+def post_chat_completions_request(
+    client: httpx.Client,
+    cfg: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    profile: str = "lite",
+    prefer_hop_id: str | None = None,
+    max_retries: int | None = None,
+) -> tuple[httpx.Response, dict[str, Any]]:
+    """Un POST chat/completions. Le quota gratuit change de seau sur 429."""
+    return post_with_failover(
+        client,
+        cfg,
+        body,
+        profile=profile,
+        prefer_id=prefer_hop_id,
+        max_retries=max_retries,
+    )
 
 
 def _chat_completions_chat(
@@ -228,19 +258,7 @@ def _chat_completions_chat(
     request_timeout: float | None = None,
     max_retries: int | None = None,
 ) -> tuple[str, int, int]:
-    prov = normalize_llm_provider(None, cfg)
-    cc = chat_completions_settings(cfg, prov)
-    url = _normalize_chat_completions_url(cc["base_url"])
-    headers = {
-        "Authorization": f"Bearer {cc['api_key']}",
-        "Content-Type": "application/json",
-        **cc.get("extra_headers", {}),
-    }
-
-    model, tier_key, pin, pout = resolve_llm_tier(cfg, or_profile, provider=prov)
-    model_id = _normalize_model_id(model, fallback=cc["fallback_model"])
     body: dict[str, Any] = {
-        "model": model_id,
         "messages": messages,
         "max_tokens": max_tokens,
     }
@@ -248,7 +266,13 @@ def _chat_completions_chat(
         body["temperature"] = float(temperature)
     timeout = 120.0 if request_timeout is None else max(1.0, float(request_timeout))
     with httpx.Client(timeout=timeout) as client:
-        r = openrouter_post_with_retries(client, url, headers, body, max_retries=max_retries)
+        r, meta = post_with_failover(
+            client,
+            cfg,
+            body,
+            profile=or_profile,
+            max_retries=max_retries,
+        )
     if r.status_code >= 400:
         hint = format_llm_provider_http_error(r)
         logger.warning("LLM HTTP %s — %s", r.status_code, r.text[:800])
@@ -264,13 +288,13 @@ def _chat_completions_chat(
     pt = int(usage.get("prompt_tokens") or 0)
     ct = int(usage.get("completion_tokens") or 0)
     log_llm_call_financial(
-        provider=str(cc["provider"]),
-        model=model_id,
-        tier=tier_key,
+        provider=str(meta.get("provider") or ""),
+        model=str(meta.get("model") or ""),
+        tier=str(meta.get("tier") or or_profile),
         tokens_in=pt,
         tokens_out=ct,
-        price_input_per_million=pin,
-        price_output_per_million=pout,
+        price_input_per_million=float(meta.get("price_in") or 0),
+        price_output_per_million=float(meta.get("price_out") or 0),
         job_id=usage_job_id,
         context_label=usage_context,
     )
@@ -319,7 +343,7 @@ def llm_turn(
     t0 = time.monotonic()
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(prov):
+    if free_pool_active(cfg) or is_chat_completions_provider(prov):
         messages: list[dict[str, str]] = []
         if system.strip():
             messages.append({"role": "system", "content": system})
@@ -385,7 +409,7 @@ def llm_chat(
     guard_llm_envelope()
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(prov):
+    if free_pool_active(cfg) or is_chat_completions_provider(prov):
         om: list[dict[str, str]] = []
         if system.strip():
             om.append({"role": "system", "content": system})
@@ -439,3 +463,143 @@ def llm_chat(
         context_label=usage_context,
     )
     return resp.content[0].text, tin, tout
+
+
+def llm_chat_stream_deltas(
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 2048,
+    *,
+    or_profile: str = "lite",
+    usage_job_id: Any = _UNSET,
+    usage_context: Any = _UNSET,
+    temperature: float | None = None,
+    request_timeout: float | None = None,
+):
+    """
+    Itère des tuples («delta»|«usage», payload).
+    delta → str fragment ; usage → {tokens_in, tokens_out}.
+    Sans stream natif (Anthropic), un seul delta contient la réponse complète.
+    """
+    guard_llm_envelope()
+    cfg = merge_with_env()
+    prov = normalize_llm_provider(None, cfg)
+
+    if free_pool_active(cfg):
+        text, tin, tout = llm_chat(
+            system,
+            messages,
+            max_tokens=max_tokens,
+            or_profile=or_profile,
+            usage_job_id=usage_job_id,
+            usage_context=usage_context,
+            temperature=temperature,
+            request_timeout=request_timeout,
+        )
+        if text:
+            yield "delta", text
+        yield "usage", {"tokens_in": tin, "tokens_out": tout}
+        return
+
+    if not is_chat_completions_provider(prov):
+        text, tin, tout = llm_chat(
+            system,
+            messages,
+            max_tokens=max_tokens,
+            or_profile=or_profile,
+            usage_job_id=usage_job_id,
+            usage_context=usage_context,
+            temperature=temperature,
+            request_timeout=request_timeout,
+        )
+        if text:
+            yield "delta", text
+        yield "usage", {"tokens_in": tin, "tokens_out": tout}
+        return
+
+    cc = chat_completions_settings(cfg, prov)
+    url = _normalize_chat_completions_url(cc["base_url"])
+    headers = {
+        "Authorization": f"Bearer {cc['api_key']}",
+        "Content-Type": "application/json",
+        **cc.get("extra_headers", {}),
+    }
+    model, tier_key, pin, pout = resolve_llm_tier(cfg, or_profile, provider=prov)
+    model_id = _normalize_model_id(model, fallback=cc["fallback_model"])
+    om: list[dict[str, str]] = []
+    if system.strip():
+        om.append({"role": "system", "content": system})
+    for m in messages:
+        if m.get("role") not in ("user", "assistant"):
+            continue
+        c = m.get("content")
+        if not isinstance(c, str):
+            continue
+        om.append({"role": m["role"], "content": c})
+    body: dict[str, Any] = {
+        "model": model_id,
+        "messages": om,
+        "max_tokens": max_tokens,
+        "stream": True,
+    }
+    if temperature is not None:
+        body["temperature"] = float(temperature)
+    timeout = 120.0 if request_timeout is None else max(1.0, float(request_timeout))
+    pt = ct = 0
+    with httpx.Client(timeout=timeout) as client:
+        with client.stream("POST", url, headers=headers, json=body) as r:
+            if r.status_code >= 400:
+                # Relire le corps pour le message d'erreur, puis fallback non-stream.
+                err_text = r.read().decode("utf-8", errors="replace")
+                logger.warning("LLM stream HTTP %s — fallback sync (%s)", r.status_code, err_text[:400])
+                text, tin, tout = llm_chat(
+                    system,
+                    messages,
+                    max_tokens=max_tokens,
+                    or_profile=or_profile,
+                    usage_job_id=usage_job_id,
+                    usage_context=usage_context,
+                    temperature=temperature,
+                    request_timeout=request_timeout,
+                )
+                if text:
+                    yield "delta", text
+                yield "usage", {"tokens_in": tin, "tokens_out": tout}
+                return
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8", errors="replace")
+                if not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if not data_str or data_str == "[DONE]":
+                    continue
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                usage = chunk.get("usage") or {}
+                if usage:
+                    pt = int(usage.get("prompt_tokens") or pt or 0)
+                    ct = int(usage.get("completion_tokens") or ct or 0)
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if content:
+                    yield "delta", _message_content_to_text(content)
+    log_llm_call_financial(
+        provider=str(cc["provider"]),
+        model=model_id,
+        tier=tier_key,
+        tokens_in=pt,
+        tokens_out=ct,
+        price_input_per_million=pin,
+        price_output_per_million=pout,
+        job_id=usage_job_id,
+        context_label=usage_context,
+    )
+    yield "usage", {"tokens_in": pt, "tokens_out": ct}

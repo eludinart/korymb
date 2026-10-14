@@ -102,12 +102,11 @@ import httpx
 
 from llm_client import (
     _UNSET,
-    _normalize_chat_completions_url,
     format_llm_provider_http_error,
     llm_turn,
     log_llm_call_financial,
-    openrouter_post_with_retries,
 )
+from llm_free_pool import free_pool_active
 from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
 from llm_tiers import resolve_llm_tier
 from runtime_settings import merge_with_env
@@ -1258,7 +1257,7 @@ def llm_turn_with_tools(
     prov = normalize_llm_provider(None, cfg)
     token = _activate_tool_run_ctx(usage_job_id, usage_context, tool_actor)
     try:
-        if is_chat_completions_provider(prov):
+        if free_pool_active(cfg) or is_chat_completions_provider(prov):
             return _openrouter_tool_loop(
                 system_use,
                 user_text,
@@ -1447,6 +1446,34 @@ def _anthropic_tool_loop(
     return last_text or "(Aucune réponse textuelle.)", t_in, t_out
 
 
+def _post_tool_round(
+    http: httpx.Client,
+    cfg: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    profile: str,
+    state: dict[str, Any],
+) -> httpx.Response:
+    from llm_client import post_chat_completions_request
+
+    response, meta = post_chat_completions_request(
+        http,
+        cfg,
+        body,
+        profile=profile,
+        prefer_hop_id=str(state.get("hop_id") or "") or None,
+    )
+    if meta.get("hop_id"):
+        state["hop_id"] = meta["hop_id"]
+    state["meta"] = meta
+    return response
+
+
+def _apply_round_meta(state: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    meta = state.get("meta")
+    return meta if isinstance(meta, dict) and meta.get("model") else fallback
+
+
 def _openrouter_tool_loop(
     system: str,
     user_text: str,
@@ -1461,14 +1488,13 @@ def _openrouter_tool_loop(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
-    cc = chat_completions_settings(cfg)
-    url = _normalize_chat_completions_url(cc["base_url"])
-    headers = {
-        "Authorization": f"Bearer {cc['api_key']}",
-        "Content-Type": "application/json",
-        **cc.get("extra_headers", {}),
-    }
-    provider_log = str(cc["provider"])
+    if free_pool_active(cfg):
+        model, tier_key, pin, pout = "free-pool", "heavy", 0.0, 0.0
+        provider_log = "free_pool"
+    else:
+        cc = chat_completions_settings(cfg)
+        provider_log = str(cc["provider"])
+        model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -1487,9 +1513,9 @@ def _openrouter_tool_loop(
         om.append({"role": "system", "content": system})
     om.append({"role": "user", "content": user_text})
 
-    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
+    round_state: dict[str, Any] = {}
 
     with httpx.Client(timeout=180.0) as http:
         for round_i in range(_MAX_TOOL_ROUNDS):
@@ -1502,7 +1528,16 @@ def _openrouter_tool_loop(
             }
             if temperature is not None:
                 body["temperature"] = float(temperature)
-            r = openrouter_post_with_retries(http, url, headers, body)
+            r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            meta = _apply_round_meta(
+                round_state,
+                {"provider": provider_log, "model": model, "tier": tier_key, "price_in": pin, "price_out": pout},
+            )
+            provider_log = str(meta["provider"])
+            model = str(meta["model"])
+            tier_key = str(meta["tier"])
+            pin = float(meta["price_in"])
+            pout = float(meta["price_out"])
             # Modèles gratuits / non-OpenAI (ex. Gemma sur OpenRouter) refusent souvent function calling → 400.
             if r.status_code in (400, 422) and otools and round_i == 0:
                 logger.warning(
@@ -1592,7 +1627,10 @@ def _openrouter_tool_loop(
                 "max_tokens": min(int(max_tokens), 2048),
             }
             try:
-                rf = openrouter_post_with_retries(http, url, headers, body_follow)
+                rf = _post_tool_round(http, cfg, body_follow, profile="heavy", state=round_state)
+                follow_meta = _apply_round_meta(round_state, {"provider": provider_log, "model": model})
+                provider_log = str(follow_meta.get("provider") or provider_log)
+                model = str(follow_meta.get("model") or model)
                 if rf.status_code < 400:
                     d2 = rf.json()
                     u2 = d2.get("usage") or {}
@@ -1634,8 +1672,10 @@ def llm_chat_maybe_tools(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    or_profile: str | None = None,
 ) -> tuple[str, int, int]:
     names = tool_names_for_tags(tool_tags or [])
+    profile = (or_profile or "").strip() or ("lite" if not names else "standard")
     if not names:
         from llm_client import llm_chat
 
@@ -1643,7 +1683,7 @@ def llm_chat_maybe_tools(
             system,
             messages,
             max_tokens=max_tokens,
-            or_profile="lite",
+            or_profile=profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
         )
@@ -1683,7 +1723,7 @@ def llm_chat_with_tools(
     prov = normalize_llm_provider(None, cfg)
     token = _activate_tool_run_ctx(usage_job_id, usage_context, None)
     try:
-        if is_chat_completions_provider(prov):
+        if free_pool_active(cfg) or is_chat_completions_provider(prov):
             return _openrouter_chat_tool_loop(
                 system_use,
                 messages,
@@ -1845,14 +1885,13 @@ def _openrouter_chat_tool_loop(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
 ) -> tuple[str, int, int]:
-    cc = chat_completions_settings(cfg)
-    url = _normalize_chat_completions_url(cc["base_url"])
-    headers = {
-        "Authorization": f"Bearer {cc['api_key']}",
-        "Content-Type": "application/json",
-        **cc.get("extra_headers", {}),
-    }
-    provider_log = str(cc["provider"])
+    if free_pool_active(cfg):
+        model, tier_key, pin, pout = "free-pool", "heavy", 0.0, 0.0
+        provider_log = "free_pool"
+    else:
+        cc = chat_completions_settings(cfg)
+        provider_log = str(cc["provider"])
+        model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -1870,9 +1909,9 @@ def _openrouter_chat_tool_loop(
         if isinstance(c, str):
             om.append({"role": m["role"], "content": c})
 
-    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
+    round_state: dict[str, Any] = {}
 
     with httpx.Client(timeout=180.0) as http:
         for round_i in range(_MAX_TOOL_ROUNDS):
@@ -1883,7 +1922,16 @@ def _openrouter_chat_tool_loop(
                 "tools": otools,
                 "tool_choice": "auto",
             }
-            r = openrouter_post_with_retries(http, url, headers, body)
+            r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            meta = _apply_round_meta(
+                round_state,
+                {"provider": provider_log, "model": model, "tier": tier_key, "price_in": pin, "price_out": pout},
+            )
+            provider_log = str(meta["provider"])
+            model = str(meta["model"])
+            tier_key = str(meta["tier"])
+            pin = float(meta["price_in"])
+            pout = float(meta["price_out"])
             if r.status_code in (400, 422) and otools and round_i == 0:
                 logger.warning(
                     "OpenRouter : chat+outils refusés (%s) pour %s — repli sans outils.",
@@ -1954,7 +2002,10 @@ def _openrouter_chat_tool_loop(
                 "max_tokens": min(int(max_tokens), 2048),
             }
             try:
-                rf = openrouter_post_with_retries(http, url, headers, body_follow)
+                rf = _post_tool_round(http, cfg, body_follow, profile="heavy", state=round_state)
+                follow_meta = _apply_round_meta(round_state, {"provider": provider_log, "model": model})
+                provider_log = str(follow_meta.get("provider") or provider_log)
+                model = str(follow_meta.get("model") or model)
                 if rf.status_code < 400:
                     d2 = rf.json()
                     u2 = d2.get("usage") or {}

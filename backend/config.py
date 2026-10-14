@@ -96,6 +96,12 @@ class Settings(BaseSettings):
     openrouter_http_referer: str = ""
     openrouter_app_title: str = "Korymb"
 
+    # Mélange gratuit : auto dès qu'une clé Groq ou Gemini est présente.
+    llm_free_pool: str = "auto"
+    groq_api_key: str = ""
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-flash-lite"
+
     # Estimation coût (USD / million de tokens) pour le widget /jobs ; à ajuster selon le modèle OpenRouter
     llm_price_input_per_million_usd: float = 3.0
     llm_price_output_per_million_usd: float = 15.0

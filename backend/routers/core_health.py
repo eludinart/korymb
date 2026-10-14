@@ -236,13 +236,20 @@ def _lifetime_tokens_total() -> int:
 
 
 def _runtime_sync_snapshot() -> dict:
+    from llm_free_pool import configured_hops, free_pool_active, order_hops
+
     cfg = merge_with_env()
-    provider = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(provider):
-        model, _, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
+    if free_pool_active(cfg):
+        ordered = order_hops(configured_hops(cfg), "lite")
+        provider = "free_pool"
+        model = ordered[0].model if ordered else ""
     else:
-        provider = "anthropic"
-        model = cfg.get("anthropic_model")
+        provider = normalize_llm_provider(None, cfg)
+        if is_chat_completions_provider(provider):
+            model, _, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
+        else:
+            provider = "anthropic"
+            model = cfg.get("anthropic_model")
     return {
         "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat(),
         "backend_version": BACKEND_VERSION,
@@ -327,7 +334,22 @@ def health_tools(refresh: bool = False):
 
 @router.get("/llm")
 def llm_public_info():
+    from llm_free_pool import configured_hops, free_pool_active, free_pool_public, order_hops
+
     cfg = merge_with_env()
+    if free_pool_active(cfg):
+        ordered = order_hops(configured_hops(cfg), "lite")
+        payload = {
+            "provider": "free_pool",
+            "model": ordered[0].model if ordered else "",
+            "tier": "lite",
+            "free_pool": free_pool_public(cfg),
+            "tier_labels": tier_config_public(cfg).get("tier_labels"),
+        }
+        return JSONResponse(
+            payload,
+            headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": str(BACKEND_VERSION)},
+        )
     provider = normalize_llm_provider(None, cfg)
     if is_chat_completions_provider(provider):
         model, tier_key, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)

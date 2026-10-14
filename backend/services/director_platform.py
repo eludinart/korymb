@@ -706,7 +706,17 @@ def _llm_readiness() -> dict[str, Any]:
         from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
         from runtime_settings import merge_with_env
 
+        from llm_free_pool import configured_hops, free_pool_active
+
         cfg = merge_with_env()
+        if free_pool_active(cfg):
+            if configured_hops(cfg):
+                return {"ready": True, "provider": "free_pool", "blocker": None}
+            return {
+                "ready": False,
+                "provider": "free_pool",
+                "blocker": "Quota gratuit activé, mais aucune clé Groq, Gemini ou OpenRouter.",
+            }
         provider = normalize_llm_provider(None, cfg)
         if is_chat_completions_provider(provider, cfg):
             try:
