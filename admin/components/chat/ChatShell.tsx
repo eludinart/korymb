@@ -396,40 +396,24 @@ export default function ChatShell({
   useEffect(() => setPortalReady(true), []);
 
   useEffect(() => {
-    const scrollComposerVisible = () => {
-      bottomRef.current?.scrollIntoView({ block: "end", behavior: "auto" });
-    };
-    const onFocusIn = (e: FocusEvent) => {
-      const t = e.target;
-      if (!(t instanceof HTMLTextAreaElement) && !(t instanceof HTMLInputElement)) return;
-      if (!t.closest("form")) return;
-      window.setTimeout(scrollComposerVisible, 50);
-      window.setTimeout(scrollComposerVisible, 280);
-    };
-    const onVv = () => {
-      if (document.documentElement.dataset.keyboardOpen === "1") scrollComposerVisible();
-    };
-    document.addEventListener("focusin", onFocusIn);
-    window.visualViewport?.addEventListener("resize", onVv);
-    return () => {
-      document.removeEventListener("focusin", onFocusIn);
-      window.visualViewport?.removeEventListener("resize", onVv);
-    };
-  }, []);
-
-  useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    // Style WhatsApp : 1 ligne au repos, croissance auto plafonnée (~5 lignes mobile / plus haut desktop).
-    const minH = Math.max(40, userMinHeightRef.current);
-    const desktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
-    const maxH = desktop ? 280 : 120;
-    el.style.height = "0px";
-    const needed = Math.max(el.scrollHeight, 40);
-    const next = Math.min(Math.max(needed, minH), maxH);
-    el.style.height = `${next}px`;
-    el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
-    if (!draft.trim()) userMinHeightRef.current = 0;
+    // 1 ligne au repos. Sur mobile clavier ouvert, 2 lignes max pour laisser le fil lisible.
+    const fit = () => {
+      const minH = Math.max(40, userMinHeightRef.current);
+      const desktop = window.matchMedia("(min-width: 1024px)").matches;
+      const keyboard = document.documentElement.dataset.keyboardOpen === "1";
+      const maxH = desktop ? 280 : keyboard ? 72 : 120;
+      el.style.height = "0px";
+      const needed = Math.max(el.scrollHeight, 40);
+      const next = Math.min(Math.max(needed, minH), maxH);
+      el.style.height = `${next}px`;
+      el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
+      if (!draft.trim()) userMinHeightRef.current = 0;
+    };
+    fit();
+    window.visualViewport?.addEventListener("resize", fit);
+    return () => window.visualViewport?.removeEventListener("resize", fit);
   }, [draft]);
 
   useEffect(() => {
@@ -936,7 +920,7 @@ export default function ChatShell({
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
         {!isQuotidien && teamOffer && onHandOffToTeam ? (
-          <div className="mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
             <button
               type="button"
               onClick={onHandOffToTeam}
@@ -956,7 +940,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {isQuotidien && reformChips.length > 0 && !pending && hasAssistantReply ? (
-          <div className="mx-auto flex max-w-3xl flex-wrap gap-1.5 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl flex-wrap gap-1.5 px-1 pb-1">
             {reformChips.map((chip) => (
               <button
                 key={chip.label}
@@ -971,7 +955,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {!isQuotidien && canConvertToMission && onConvertToMission && convertBrief == null ? (
-          <div className="mx-auto max-w-3xl px-1 pb-1">
+          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
             <button
               type="button"
               onClick={onConvertToMission}

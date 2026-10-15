@@ -119,9 +119,22 @@ html.dark .pull-refresh-cue {
   }
 
   @media (max-width: 1023px) {
-    html.chat-immersion,
-    html.chat-immersion body {
+    html.chat-immersion {
       overflow: hidden;
+      height: var(--app-visual-height, 100dvh);
+      max-height: var(--app-visual-height, 100dvh);
+      min-height: 0;
+    }
+
+    /* Colle le chat à la zone visible : le focus du champ ne fait plus défiler le fil sous le clavier. */
+    html.chat-immersion body {
+      position: fixed;
+      top: var(--app-visual-offset-top, 0px);
+      left: 0;
+      right: 0;
+      width: 100%;
+      overflow: hidden;
+      min-height: 0;
       height: var(--app-visual-height, 100dvh);
       max-height: var(--app-visual-height, 100dvh);
     }
@@ -148,6 +161,15 @@ html.dark .pull-refresh-cue {
 
     html.chat-immersion[data-keyboard-open="1"] .chat-thinking-picker {
       display: none;
+    }
+
+    /* Clavier ouvert : le fil reste la zone principale, la saisie tient sur deux lignes. */
+    html.chat-immersion[data-keyboard-open="1"] .chat-composer-extra {
+      display: none;
+    }
+
+    html.chat-immersion[data-keyboard-open="1"] .chat-composer-shell textarea {
+      max-height: 4.5rem;
     }
 
     .app-carte-main {
