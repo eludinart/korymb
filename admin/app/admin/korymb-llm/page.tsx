@@ -172,7 +172,7 @@ function syncDraftsFromSettings(d: Settings) {
   };
 }
 
-type FreeHop = { id?: string; provider?: string; model?: string; role?: string };
+type FreeHop = { id?: string; provider?: string; model?: string; role?: string; billing?: string; quota?: string };
 
 function readFreePool(d: Settings | null): { active?: boolean; mode?: string; hops?: FreeHop[]; blocker?: string } | null {
   const raw = (d as Record<string, unknown> | null)?.free_pool;
