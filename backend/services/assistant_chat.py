@@ -16,7 +16,7 @@ from services.chat_surface import surface_chat_result
 from services.chat_topic_guard import is_guard_fallback, user_asks_product_ops
 from services.memory import compress_chat_session
 from services.mission import _add_daily as _add_daily_svc
-from services.llm_degraded import degraded_chat_reply, llm_outage_kind, llm_outage_reason
+from services.llm_degraded import DEGRADED_MARKER, degraded_chat_reply, llm_outage_kind, llm_outage_reason
 from services.mission import _user_visible_job_failure_markdown
 from state import active_jobs
 from tenant_context import spawn_thread
@@ -39,13 +39,26 @@ def history_limit_for_mode(chat_use_mode: Any) -> int:
     return 24 if normalize_chat_use_mode(chat_use_mode) == CHAT_USE_MODE_QUOTIDIEN else 12
 
 
+def _is_degraded_replay(content: str) -> bool:
+    """Le mode dégradé recopié fait croire au modèle que le service est encore coupé."""
+    text = content or ""
+    if DEGRADED_MARKER in text or "Mode dégradé" in text:
+        return True
+    folded = text.lower()
+    if "modèle est indisponible" in folded or "modele est indisponible" in folded:
+        return True
+    service_down = "service n'est pas disponible" in folded or "service n’est pas disponible" in folded
+    asks_retry = "modèle sera" in folded or "modele sera" in folded or "conversation est enregistrée" in folded
+    return service_down and asks_retry
+
+
 def messages_for_assistant(
     history: list[dict] | None,
     message: str,
     *,
     limit: int | None = None,
 ) -> list[dict]:
-    """Historique modèle sans les refus anti-dérive, qui sinon se recopient."""
+    """Historique modèle sans les refus anti-dérive ni le mode dégradé, qui sinon se recopient."""
     hist_limit = 12 if limit is None else max(1, int(limit))
     messages: list[dict] = []
     for item in (history or [])[-hist_limit:]:
@@ -53,7 +66,7 @@ def messages_for_assistant(
         if role not in ("user", "assistant"):
             continue
         content = str(item.get("content") or "")
-        if is_guard_fallback(content):
+        if is_guard_fallback(content) or _is_degraded_replay(content):
             continue
         messages.append({"role": role, "content": content})
     messages.append({"role": "user", "content": message})

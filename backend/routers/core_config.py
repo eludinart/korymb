@@ -31,6 +31,8 @@ class AdminSettingsPut(BaseModel):
     groq_api_key: str | None = None
     gemini_api_key: str | None = None
     gemini_model: str | None = None
+    deepseek_api_key: str | None = None
+    llm_prefer_hop_id: str | None = None
 
 
 class BudgetSettingsPut(BaseModel):

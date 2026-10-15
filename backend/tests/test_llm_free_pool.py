@@ -5,8 +5,10 @@ import httpx
 
 from llm_tiers import resolve_llm_tier
 from llm_free_pool import (
+    _fit_groq_messages,
     configured_hops,
     free_pool_active,
+    free_pool_public,
     order_hops,
     post_with_failover,
 )
@@ -18,6 +20,7 @@ def _cfg(**extra):
         "groq_api_key": "",
         "gemini_api_key": "",
         "openrouter_api_key": "",
+        "deepseek_api_key": "",
         "openrouter_base_url": "https://openrouter.ai/api/v1",
         "gemini_model": "gemini-3.1-flash-lite",
         "llm_provider": "mistral",
@@ -112,22 +115,100 @@ def _ok(content: str = "ok") -> httpx.Response:
     )
 
 
-def test_tpm_413_on_every_groq_model_reaches_gemini():
+def test_tpm_413_skips_the_other_groq_models():
     cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test", gemini_api_key="gem-test")
     too_big = (
         "Request too large for model on tokens per minute (TPM): "
         "Limit 8000, Requested 8525. https://console.groq.com/settings/billing"
     )
-    client = _Scripted([_json(413, too_big), _json(413, too_big), _json(413, too_big), _ok("gem")])
+    client = _Scripted([_json(413, too_big), _ok("gem")])
     response, meta = post_with_failover(client, cfg, {"messages": [], "max_tokens": 100}, profile="lite")
     assert response.status_code == 200
-    assert [model for _, model in client.calls] == [
-        "openai/gpt-oss-20b",
-        "qwen/qwen3.8-27b",
-        "openai/gpt-oss-120b",
-        "gemini-3.1-flash-lite",
-    ]
+    assert [model for _, model in client.calls] == ["openai/gpt-oss-20b", "gemini-3.1-flash-lite"]
     assert meta["provider"] == "gemini"
+
+
+def test_openrouter_free_slots_and_optional_deepseek():
+    cfg = _cfg(llm_free_pool="on", openrouter_api_key="or-test", groq_api_key="gsk-test")
+    models = [hop.model for hop in order_hops(configured_hops(cfg), "lite")]
+    assert "deepseek/deepseek-v4-flash:free" in models
+    assert models.index("deepseek/deepseek-v4-flash:free") < models.index(
+        "nvidia/nemotron-3-ultra-550b-a55b:free"
+    )
+    assert all(hop.id != "deepseek-paid" for hop in configured_hops(cfg))
+    paid = _cfg(
+        llm_free_pool="on",
+        openrouter_api_key="or-test",
+        groq_api_key="gsk-test",
+        deepseek_api_key="sk-test",
+    )
+    ordered = order_hops(configured_hops(paid), "lite")
+    assert ordered[-1].id == "deepseek-paid"
+    assert ordered[-1].provider == "deepseek"
+    assert ordered[-1].paid is True
+
+
+def test_prefer_hop_starts_there_and_publishes_quota():
+    cfg = _cfg(
+        llm_free_pool="on",
+        groq_api_key="gsk-test",
+        gemini_api_key="gem-test",
+        openrouter_api_key="or-test",
+        llm_prefer_hop_id="gemini",
+    )
+    public = free_pool_public(cfg)
+    assert public["prefer_hop_id"] == "gemini"
+    assert public["hops"][0]["id"] == "gemini"
+    assert public["hops"][0]["start"] is True
+    assert public["hops"][0]["billing"] == "gratuit"
+    assert "Google" in public["hops"][0]["quota"]
+    groq = next(hop for hop in public["hops"] if hop["id"] == "groq-20b")
+    assert groq["billing"] == "gratuit"
+    assert "8 000" in groq["quota"]
+    client = _Scripted([_json(429, "Rate limit reached"), _ok("suite")])
+    response, meta = post_with_failover(client, cfg, {"messages": [], "max_tokens": 20}, profile="lite")
+    assert response.status_code == 200
+    assert [model for _, model in client.calls][:2] == ["gemini-3.1-flash-lite", "openai/gpt-oss-20b"]
+    assert meta["model"] == "openai/gpt-oss-20b"
+
+
+def test_configured_paid_models_join_the_menu():
+    cfg = _cfg(
+        llm_free_pool="on",
+        groq_api_key="gsk-test",
+        openrouter_api_key="or-test",
+        anthropic_api_key="sk-ant-test",
+        mistral_models="mistral-small-latest,mistral-large-latest",
+        anthropic_models="claude-sonnet-4-6",
+        openrouter_models="openai/gpt-4o-mini,google/gemma-3-27b-it:free",
+        openrouter_model="openai/gpt-4o-mini",
+    )
+    public = free_pool_public(cfg)
+    by_model = {hop["model"]: hop for hop in public["hops"]}
+    assert by_model["mistral-large-latest"]["billing"] == "payant"
+    assert by_model["mistral-large-latest"]["provider"] == "mistral"
+    assert "Mistral" in by_model["mistral-large-latest"]["quota"]
+    assert by_model["openai/gpt-4o-mini"]["billing"] == "payant"
+    assert by_model["claude-sonnet-4-6"]["billing"] == "payant"
+    assert by_model["google/gemma-3-27b-it:free"]["billing"] == "gratuit"
+    assert public["hops"][0]["provider"] == "groq"
+    assert public["hops"][-1]["id"] != "mistral-mistral-large-latest"
+
+
+def test_groq_prompt_keeps_the_latest_turn_under_the_budget():
+    huge = "x" * 40000
+    fitted = _fit_groq_messages(
+        [
+            {"role": "system", "content": "consigne"},
+            {"role": "user", "content": huge},
+            {"role": "assistant", "content": huge},
+            {"role": "user", "content": "question courte"},
+        ],
+        None,
+    )
+    assert fitted[0]["content"] == "consigne"
+    assert fitted[-1]["content"] == "question courte"
+    assert len(fitted) < 4
 
 
 def test_invalid_model_id_switches_bucket():

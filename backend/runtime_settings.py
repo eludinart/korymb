@@ -42,6 +42,8 @@ _KEYS = frozenset({
     "groq_api_key",
     "gemini_api_key",
     "gemini_model",
+    "deepseek_api_key",
+    "llm_prefer_hop_id",
     "token_alert_threshold",
     "daily_budget_usd",
 })
@@ -159,6 +161,8 @@ def merge_with_env() -> dict[str, Any]:
         "groq_api_key": settings.groq_api_key,
         "gemini_api_key": settings.gemini_api_key,
         "gemini_model": settings.gemini_model,
+        "deepseek_api_key": settings.deepseek_api_key,
+        "llm_prefer_hop_id": settings.llm_prefer_hop_id,
         "token_alert_threshold": settings.token_alert_threshold,
         "daily_budget_usd": 0.0,
     }
@@ -174,7 +178,14 @@ def _merge_updates(current: dict[str, Any], updates: dict[str, Any]) -> dict[str
     for k, v in updates.items():
         if k not in _KEYS:
             continue
-        if k in ("anthropic_api_key", "openrouter_api_key", "mistral_api_key", "groq_api_key", "gemini_api_key"):
+        if k in (
+            "anthropic_api_key",
+            "openrouter_api_key",
+            "mistral_api_key",
+            "groq_api_key",
+            "gemini_api_key",
+            "deepseek_api_key",
+        ):
             if isinstance(v, str) and v.strip():
                 current[k] = v.strip()
             continue
@@ -227,6 +238,18 @@ def _merge_updates(current: dict[str, Any], updates: dict[str, Any]) -> dict[str
                 if not isinstance(parsed, list):
                     raise ValueError("llm_free_pool_json doit être une liste")
             current[k] = raw
+            continue
+        if k == "llm_prefer_hop_id":
+            hop_id = str(v or "").strip()[:64]
+            if not hop_id or hop_id == "auto":
+                current[k] = ""
+                continue
+            from llm_free_pool import configured_hops
+
+            known = {hop.id for hop in configured_hops(merge_with_env())}
+            if hop_id not in known:
+                raise ValueError("Ce modèle n'est pas dans le mélange actif")
+            current[k] = hop_id
             continue
         if k == "gemini_model":
             model = str(v or "").strip()

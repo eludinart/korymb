@@ -14,7 +14,7 @@ type Settings = Record<string, string | number | boolean | undefined> & {
   free_pool?: {
     active?: boolean;
     mode?: string;
-    hops?: { id: string; provider: string; model: string; role: string }[];
+    hops?: { id: string; provider: string; model: string; role: string; billing?: string; quota?: string }[];
   };
 };
 
@@ -372,6 +372,8 @@ export default function KorymbLlmAdminPage() {
     if (gk) body.groq_api_key = gk;
     const geminiKey = String(fd.get("gemini_api_key") || "").trim();
     if (geminiKey) body.gemini_api_key = geminiKey;
+    const deepseekKey = String(fd.get("deepseek_api_key") || "").trim();
+    if (deepseekKey) body.deepseek_api_key = deepseekKey;
 
     const pin = priceIn.trim();
     const pout = priceOut.trim();
@@ -491,7 +493,7 @@ export default function KorymbLlmAdminPage() {
           <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 shadow-sm sm:p-6">
             <h2 className="text-base font-semibold text-slate-900">Quota gratuit</h2>
             <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
-              Trois modèles Groq (trois compteurs), puis Gemini, puis OpenRouter gratuit. Un quota journalier plein passe au seau suivant. Mistral n’est plus appelé tant que ce mélange est actif.
+              Trois modèles Groq, puis Gemini, DeepSeek gratuit et Nemotron. Un plafond ou un délai passe au seau suivant. DeepSeek payant ne part que si sa clé est enregistrée.
             </p>
             <label className={`${labelClass} mb-1.5 mt-4 block`} htmlFor="llm_free_pool">
               Mélange
@@ -542,12 +544,31 @@ export default function KorymbLlmAdminPage() {
                   className={`${inputClass} font-mono`}
                 />
               </div>
+              <div className="sm:col-span-2">
+                <label className={`${labelClass} mb-1.5 block`} htmlFor="deepseek_api_key">
+                  Clé DeepSeek — secours payant
+                </label>
+                <p className="mb-1.5 text-xs text-slate-500">
+                  {data?.deepseek_api_key_set
+                    ? "Déjà enregistrée. Dernier seau, après tous les gratuits. Laissez vide pour conserver."
+                    : "Optionnel. platform.deepseek.com — quelques euros suffisent pour le dernier recours."}
+                </p>
+                <input
+                  id="deepseek_api_key"
+                  name="deepseek_api_key"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={data?.deepseek_api_key_set ? "Laisser vide pour conserver" : "sk-…"}
+                  className={`${inputClass} font-mono`}
+                />
+              </div>
             </div>
             {(readFreePool(data)?.hops || []).length ? (
               <ul className="mt-4 space-y-1 text-xs text-slate-700">
                 {(readFreePool(data)?.hops || []).map((hop) => (
                   <li key={hop.id} className="font-mono">
-                    {hop.role} · {hop.provider} · {hop.model}
+                    {hop.role} · {hop.billing || "gratuit"} · {hop.provider} · {hop.model}
+                    {hop.quota ? <span className="ml-2 font-sans text-slate-500">{hop.quota}</span> : null}
                   </li>
                 ))}
               </ul>

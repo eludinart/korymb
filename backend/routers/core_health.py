@@ -236,11 +236,11 @@ def _lifetime_tokens_total() -> int:
 
 
 def _runtime_sync_snapshot() -> dict:
-    from llm_free_pool import configured_hops, free_pool_active, order_hops
+    from llm_free_pool import configured_hops, free_pool_active, order_hops, preferred_hop_id
 
     cfg = merge_with_env()
     if free_pool_active(cfg):
-        ordered = order_hops(configured_hops(cfg), "lite")
+        ordered = order_hops(configured_hops(cfg), "lite", prefer_id=preferred_hop_id(cfg))
         provider = "free_pool"
         model = ordered[0].model if ordered else ""
     else:
@@ -332,13 +332,13 @@ def health_tools(refresh: bool = False):
     return _web_tools_probe_json(refresh=refresh)
 
 
-@router.get("/llm")
+@router.get("/llm", dependencies=[Depends(resolve_tenant)])
 def llm_public_info():
-    from llm_free_pool import configured_hops, free_pool_active, free_pool_public, order_hops
+    from llm_free_pool import configured_hops, free_pool_active, free_pool_public, order_hops, preferred_hop_id
 
     cfg = merge_with_env()
     if free_pool_active(cfg):
-        ordered = order_hops(configured_hops(cfg), "lite")
+        ordered = order_hops(configured_hops(cfg), "lite", prefer_id=preferred_hop_id(cfg))
         payload = {
             "provider": "free_pool",
             "model": ordered[0].model if ordered else "",

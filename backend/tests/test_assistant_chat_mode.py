@@ -31,6 +31,30 @@ def test_messages_for_assistant_respects_limit():
     assert out[0]["content"] == "m6"
 
 
+def test_degraded_reply_is_not_replayed():
+    out = messages_for_assistant(
+        [
+            {"role": "user", "content": "Bonjour"},
+            {
+                "role": "assistant",
+                "content": (
+                    "[[korymb-degraded]]\n**Mode dégradé** — quota. "
+                    "Je ne peux pas traiter cette demande tant que le modèle est indisponible."
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": (
+                    "Je suis désolé, mais je ne peux pas poursuivre tant que le service n'est pas disponible. "
+                    "La conversation est enregistrée ; envoyez votre demande dès que le modèle sera de nouveau en ligne."
+                ),
+            },
+        ],
+        "On reprend ?",
+    )
+    assert [m["content"] for m in out] == ["Bonjour", "On reprend ?"]
+
+
 def test_turn_needs_team_tools_on_short_confirmation():
     from services.chat_intelligence import chat_turn_needs_team_tools, strip_unbacked_team_button
 

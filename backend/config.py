@@ -101,6 +101,9 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.1-flash-lite"
+    # Dernier seau, seulement si la clé est posée. deepseek-flash est payant et peu cher.
+    deepseek_api_key: str = ""
+    llm_prefer_hop_id: str = ""
 
     # Estimation coût (USD / million de tokens) pour le widget /jobs ; à ajuster selon le modèle OpenRouter
     llm_price_input_per_million_usd: float = 3.0

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -41,6 +42,8 @@ _MODEL_ERROR_MARKERS = (
     "model_not_found",
     "no endpoints",
 )
+# Groq gratuit : 8 000 jetons/minute pour la requête entière. On garde la place du max_tokens.
+_GROQ_INPUT_TOKEN_BUDGET = 5600
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class PoolHop:
     max_completion: int
     price_in: float = 0.0
     price_out: float = 0.0
+    paid: bool = False
 
 
 def pool_mode(cfg: dict[str, Any] | None) -> str:
@@ -78,7 +82,7 @@ def _catalog(cfg: dict[str, Any]) -> list[dict[str, Any]]:
             return [row for row in data if isinstance(row, dict)]
     gemini_model = str(cfg.get("gemini_model") or os.getenv("GEMINI_MODEL") or "gemini-3.1-flash-lite").strip()
     openrouter_free = str(
-        os.getenv("OPENROUTER_FREE_MODEL") or "cohere/north-mini-code:free"
+        os.getenv("OPENROUTER_FREE_MODEL") or "deepseek/deepseek-v4-flash:free"
     ).strip()
     openrouter_free_backup = str(
         os.getenv("OPENROUTER_FREE_MODEL_BACKUP") or "nvidia/nemotron-3-ultra-550b-a55b:free"
@@ -144,6 +148,17 @@ def _catalog(cfg: dict[str, Any]) -> list[dict[str, Any]]:
             "overflow": True,
             "max_completion": 8192,
         },
+        {
+            "id": "deepseek-paid",
+            "provider": "deepseek",
+            "key": "deepseek",
+            "base_url": os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+            "model": os.getenv("DEEPSEEK_MODEL", "deepseek-flash"),
+            "tiers": [],
+            "overflow": True,
+            "paid": True,
+            "max_completion": 8192,
+        },
     ]
 
 
@@ -153,6 +168,9 @@ def _api_key(cfg: dict[str, Any], name: str) -> str:
         "groq": ("groq_api_key", "GROQ_API_KEY"),
         "gemini": ("gemini_api_key", "GEMINI_API_KEY"),
         "openrouter": ("openrouter_api_key", "OPENROUTER_API_KEY"),
+        "deepseek": ("deepseek_api_key", "DEEPSEEK_API_KEY"),
+        "mistral": ("mistral_api_key", "MISTRAL_API_KEY"),
+        "anthropic": ("anthropic_api_key", "ANTHROPIC_API_KEY"),
     }
     field, env_name = fields.get(name, ("", ""))
     if not field:
@@ -162,9 +180,72 @@ def _api_key(cfg: dict[str, Any], name: str) -> str:
     return str(os.getenv(env_name) or "").strip()
 
 
+def _split_models(*raws: Any) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in raws:
+        for part in str(raw or "").split(","):
+            model = part.strip()
+            if model and model not in seen:
+                seen.add(model)
+                out.append(model)
+    return out
+
+
+def _extra_model_rows(cfg: dict[str, Any], existing: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Modèles des clés déjà enregistrées (Mistral, Anthropic, OpenRouter), absents du mélange gratuit."""
+    from llm_tiers import model_fits_provider
+
+    taken = {(str(row.get("provider") or ""), str(row.get("model") or "")) for row in existing}
+    rows: list[dict[str, Any]] = []
+
+    def add(provider: str, key: str, base: str, model: str, *, paid: bool) -> None:
+        if not model or (provider, model) in taken:
+            return
+        taken.add((provider, model))
+        slug = re.sub(r"[^a-z0-9]+", "-", model.lower()).strip("-")[:40]
+        rows.append(
+            {
+                "id": f"{provider}-{slug}"[:64],
+                "provider": provider,
+                "key": key,
+                "base_url": base,
+                "model": model,
+                "tiers": [],
+                "overflow": True,
+                "paid": paid,
+                "max_completion": 8192,
+            }
+        )
+
+    if _api_key(cfg, "mistral"):
+        base = str(cfg.get("mistral_base_url") or "https://api.mistral.ai/v1").strip()
+        for model in _split_models(cfg.get("mistral_models"), cfg.get("mistral_model")):
+            if model_fits_provider(model, "mistral"):
+                add("mistral", "mistral", base, model, paid=True)
+    if _api_key(cfg, "openrouter"):
+        base = str(cfg.get("openrouter_base_url") or "https://openrouter.ai/api/v1").strip()
+        for model in _split_models(cfg.get("openrouter_models"), cfg.get("openrouter_model")):
+            if model_fits_provider(model, "openrouter"):
+                add("openrouter", "openrouter", base, model, paid=":free" not in model)
+    if _api_key(cfg, "anthropic"):
+        for model in _split_models(cfg.get("anthropic_models"), cfg.get("anthropic_model")):
+            if model_fits_provider(model, "anthropic"):
+                add("anthropic", "anthropic", "https://api.anthropic.com/v1", model, paid=True)
+    return rows
+
+
+def _catalog_rows(cfg: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = list(_catalog(cfg))
+    tail = [row for row in rows if row.get("id") == "deepseek-paid"]
+    head = [row for row in rows if row.get("id") != "deepseek-paid"]
+    head.extend(_extra_model_rows(cfg, head))
+    return head + tail
+
+
 def configured_hops(cfg: dict[str, Any]) -> list[PoolHop]:
     hops: list[PoolHop] = []
-    for row in _catalog(cfg):
+    for row in _catalog_rows(cfg):
         key_name = str(row.get("key") or row.get("provider") or "").strip().lower()
         api_key = _api_key(cfg, key_name)
         model = str(row.get("model") or "").strip()
@@ -187,6 +268,7 @@ def configured_hops(cfg: dict[str, Any]) -> list[PoolHop]:
                 tiers=tiers,
                 overflow=bool(row.get("overflow")),
                 max_completion=max(256, cap),
+                paid=bool(row.get("paid")),
             )
         )
     return hops
@@ -233,6 +315,55 @@ def _headers(hop: PoolHop, cfg: dict[str, Any]) -> dict[str, str]:
     return headers
 
 
+def _estimate_tokens(value: Any) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        return (len(value) + 3) // 4
+    try:
+        raw = json.dumps(value, ensure_ascii=False)
+    except TypeError:
+        raw = str(value)
+    return (len(raw) + 3) // 4
+
+
+def _fit_groq_messages(messages: list[Any], tools: Any, budget: int = _GROQ_INPUT_TOKEN_BUDGET) -> list[dict[str, Any]]:
+    """Garde le système et le dernier message. Retire les tours les plus anciens au-dessus du plafond Groq."""
+    rows = [dict(item) for item in messages if isinstance(item, dict)]
+    tool_cost = _estimate_tokens(tools)
+
+    def cost(items: list[dict[str, Any]]) -> int:
+        return tool_cost + sum(_estimate_tokens(item.get("content")) + 4 for item in items)
+
+    if cost(rows) <= budget:
+        return rows
+    systems: list[dict[str, Any]] = []
+    rest: list[dict[str, Any]] = []
+    for item in rows:
+        if item.get("role") == "system" and not rest:
+            systems.append(item)
+        else:
+            rest.append(item)
+    if not rest:
+        rest = systems
+        systems = []
+    tail = [rest[-1]]
+    middle = rest[:-1]
+    while middle and cost(systems + middle + tail) > budget:
+        middle.pop(0)
+    fitted = systems + middle + tail
+    if cost(fitted) > budget:
+        last = dict(fitted[-1])
+        content = str(last.get("content") or "")
+        overhead = cost(fitted[:-1])
+        room = max(200, (budget - overhead) * 4)
+        if len(content) > room:
+            last["content"] = content[-room:]
+            fitted[-1] = last
+    logger.warning("LLM mélange : prompt Groq réduit sous %s jetons estimés", budget)
+    return fitted
+
+
 def _body_for(hop: PoolHop, body: dict[str, Any], profile: str) -> dict[str, Any]:
     out = dict(body)
     out["model"] = hop.model
@@ -243,6 +374,7 @@ def _body_for(hop: PoolHop, body: dict[str, Any], profile: str) -> dict[str, Any
     if asked > hop.max_completion:
         out["max_tokens"] = hop.max_completion
     if hop.provider == "groq":
+        out["messages"] = _fit_groq_messages(list(out.get("messages") or []), out.get("tools"))
         out.setdefault("reasoning_effort", "medium" if profile == "heavy" else "low")
     return out
 
@@ -271,6 +403,14 @@ def _response_text(response: httpx.Response) -> str:
         return response.text or ""
     except Exception:
         return ""
+
+
+def request_too_large_for_provider(response: httpx.Response) -> bool:
+    """413 Groq : la requête dépasse le plafond du modèle. Les autres modèles du même fournisseur échoueront pareil."""
+    if response.status_code != 413:
+        return False
+    text = _response_text(response).lower()
+    return "request too large" in text or "tokens per minute" in text or "rate_limit_exceeded" in text
 
 
 def is_daily_quota(response: httpx.Response) -> bool:
@@ -316,6 +456,70 @@ def _single_meta(cfg: dict[str, Any], body: dict[str, Any], profile: str) -> tup
     return _chat_url(str(cc["base_url"])), headers, payload, meta
 
 
+def _anthropic_as_chat_response(hop: PoolHop, payload: dict[str, Any]) -> httpx.Response:
+    """Traduit un tour Anthropic vers la forme chat/completions attendue par le mélange."""
+    if payload.get("tools"):
+        return httpx.Response(
+            400,
+            json={"error": {"message": "tool calling is not supported on this anthropic hop"}},
+        )
+    system_parts: list[str] = []
+    messages: list[dict[str, str]] = []
+    for item in payload.get("messages") or []:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "")
+        content = item.get("content")
+        text = content if isinstance(content, str) else str(content or "")
+        if role == "system":
+            if text.strip():
+                system_parts.append(text.strip())
+        elif role in ("user", "assistant") and text.strip():
+            messages.append({"role": role, "content": text})
+    if not messages:
+        messages = [{"role": "user", "content": "\n".join(system_parts) or "."}]
+        system_parts = []
+    try:
+        import anthropic
+    except ImportError:
+        return httpx.Response(503, json={"error": {"message": "anthropic SDK missing"}})
+    try:
+        max_tokens = int(payload.get("max_tokens") or 1024)
+    except (TypeError, ValueError):
+        max_tokens = 1024
+    kwargs: dict[str, Any] = {
+        "model": hop.model,
+        "max_tokens": max(1, max_tokens),
+        "messages": messages,
+    }
+    system = "\n".join(system_parts).strip()
+    if system:
+        kwargs["system"] = system
+    if payload.get("temperature") is not None:
+        kwargs["temperature"] = float(payload["temperature"])
+    try:
+        resp = anthropic.Anthropic(api_key=hop.api_key).messages.create(**kwargs)
+    except Exception as exc:
+        status = getattr(exc, "status_code", None) or 502
+        try:
+            status = int(status)
+        except (TypeError, ValueError):
+            status = 502
+        return httpx.Response(status, json={"error": {"message": str(exc)}})
+    text = "".join(getattr(block, "text", "") for block in (resp.content or []))
+    usage = getattr(resp, "usage", None)
+    return httpx.Response(
+        200,
+        json={
+            "choices": [{"message": {"content": text}}],
+            "usage": {
+                "prompt_tokens": int(getattr(usage, "input_tokens", 0) or 0),
+                "completion_tokens": int(getattr(usage, "output_tokens", 0) or 0),
+            },
+        },
+    )
+
+
 def post_with_failover(
     client: httpx.Client,
     cfg: dict[str, Any],
@@ -336,6 +540,8 @@ def post_with_failover(
         )
         return response, meta
 
+    if not prefer_id:
+        prefer_id = preferred_hop_id(cfg)
     hops = order_hops(configured_hops(cfg), prof, prefer_id=prefer_id)
     if not hops:
         raise RuntimeError(
@@ -346,17 +552,25 @@ def post_with_failover(
     last: httpx.Response | None = None
     last_meta: dict[str, Any] = _meta(hops[-1], prof)
     skipped_keys: set[str] = set()
+    skipped_providers: set[str] = set()
     usable = [h for h in hops]
     for index, hop in enumerate(usable):
-        if hop.api_key in skipped_keys:
+        if hop.api_key in skipped_keys or hop.provider in skipped_providers:
             continue
         payload = _body_for(hop, body, prof)
         headers = _headers(hop, cfg)
         url = _chat_url(hop.base_url)
         meta = _meta(hop, prof)
-        remaining = [h for h in usable[index + 1 :] if h.api_key not in skipped_keys]
+        remaining = [
+            h
+            for h in usable[index + 1 :]
+            if h.api_key not in skipped_keys and h.provider not in skipped_providers
+        ]
         try:
-            response = client.post(url, json=payload, headers=headers)
+            if hop.provider == "anthropic":
+                response = _anthropic_as_chat_response(hop, payload)
+            else:
+                response = client.post(url, json=payload, headers=headers)
             if (
                 response.status_code in (400, 422)
                 and "reasoning_effort" in payload
@@ -384,7 +598,19 @@ def post_with_failover(
             skipped_keys.add(hop.api_key)
             logger.warning("LLM mélange : %s HTTP %s — clé ignorée", hop.id, response.status_code)
             continue
-        remaining = [h for h in usable[index + 1 :] if h.api_key not in skipped_keys]
+        if request_too_large_for_provider(response):
+            skipped_providers.add(hop.provider)
+            logger.warning(
+                "LLM mélange : %s HTTP 413 — fournisseur %s écarté",
+                hop.id,
+                hop.provider,
+            )
+            continue
+        remaining = [
+            h
+            for h in usable[index + 1 :]
+            if h.api_key not in skipped_keys and h.provider not in skipped_providers
+        ]
         last_hop = not remaining
         if should_advance(response) and not last_hop:
             logger.warning(
@@ -422,12 +648,43 @@ def _retry_last(
     return response
 
 
+def preferred_hop_id(cfg: dict[str, Any] | None) -> str | None:
+    """Modèle de départ choisi dans le bandeau. Vide = ordre automatique."""
+    raw = str((cfg or {}).get("llm_prefer_hop_id") or "").strip()
+    if not raw or raw == "auto":
+        return None
+    return raw[:64]
+
+
+def _hop_billing(hop: PoolHop) -> tuple[str, str]:
+    if hop.provider == "mistral":
+        return "payant", "Décompté sur le crédit Mistral"
+    if hop.provider == "anthropic":
+        return "payant", "Décompté sur le crédit Anthropic"
+    if hop.paid or hop.provider == "deepseek":
+        return "payant", "Solde du compte, hors quotas gratuits"
+    if hop.provider == "groq":
+        return "gratuit", "8 000 jetons/min · 200 000/jour · compteur à part"
+    if hop.provider == "gemini":
+        return "gratuit", "Quota Google, séparé de Groq"
+    if hop.provider == "openrouter" and ":free" in hop.model:
+        return "gratuit", "Plafond partagé entre les modèles gratuits OpenRouter"
+    if hop.provider == "openrouter":
+        return "payant", "Décompté sur le crédit OpenRouter"
+    return "gratuit", "Quota du fournisseur"
+
+
 def free_pool_public(cfg: dict[str, Any]) -> dict[str, Any]:
     """Résumé sans secrets pour l'admin et /health."""
-    hops = configured_hops(cfg)
+    prefer = preferred_hop_id(cfg)
+    hops = order_hops(configured_hops(cfg), "lite", prefer_id=prefer)
     visible: list[dict[str, Any]] = []
     for hop in hops:
-        if hop.overflow:
+        if hop.provider in ("mistral", "anthropic") or (hop.paid and hop.provider == "openrouter"):
+            role = "configuré"
+        elif hop.paid:
+            role = "garanti"
+        elif hop.overflow:
             role = "secours"
         elif "lite" in hop.tiers:
             role = "courant"
@@ -437,18 +694,25 @@ def free_pool_public(cfg: dict[str, Any]) -> dict[str, Any]:
             role = "expert"
         else:
             role = "seau"
+        billing, quota = _hop_billing(hop)
         visible.append(
             {
                 "id": hop.id,
                 "provider": hop.provider,
                 "model": hop.model,
                 "role": role,
+                "billing": billing,
+                "quota": quota,
                 "tiers": list(hop.tiers),
+                "start": False,
             }
         )
+    if visible:
+        visible[0]["start"] = True
     return {
         "mode": pool_mode(cfg),
         "active": free_pool_active(cfg),
+        "prefer_hop_id": prefer or "",
         "hops": visible,
     }
 
@@ -462,6 +726,8 @@ def hop_attempts(
 ) -> list[tuple[str, dict[str, str], dict[str, Any], dict[str, Any]]]:
     """URL, en-têtes, corps, méta — pour le flux qui ouvre lui-même le stream."""
     prof = (profile or "lite").strip().lower()
+    if not prefer_id:
+        prefer_id = preferred_hop_id(cfg)
     hops = order_hops(configured_hops(cfg), prof, prefer_id=prefer_id)
     out: list[tuple[str, dict[str, str], dict[str, Any], dict[str, Any]]] = []
     for hop in hops:
