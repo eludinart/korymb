@@ -38,7 +38,10 @@ class _Scripted:
         self.calls.append((url, str(json.get("model"))))
         if not self._responses:
             raise AssertionError("appel inattendu")
-        return self._responses.pop(0)
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 def _json(status: int, message: str) -> httpx.Response:
@@ -100,6 +103,49 @@ def test_bad_groq_key_skips_the_other_groq_buckets():
     assert [model for _, model in client.calls] == ["openai/gpt-oss-120b", "gemini-3.1-flash-lite"]
     assert meta["provider"] == "gemini"
     assert "generativelanguage.googleapis.com" in client.calls[1][0]
+
+
+def _ok(content: str = "ok") -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={"choices": [{"message": {"content": content}}], "usage": {}},
+    )
+
+
+def test_tpm_413_on_every_groq_model_reaches_gemini():
+    cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test", gemini_api_key="gem-test")
+    too_big = (
+        "Request too large for model on tokens per minute (TPM): "
+        "Limit 8000, Requested 8525. https://console.groq.com/settings/billing"
+    )
+    client = _Scripted([_json(413, too_big), _json(413, too_big), _json(413, too_big), _ok("gem")])
+    response, meta = post_with_failover(client, cfg, {"messages": [], "max_tokens": 100}, profile="lite")
+    assert response.status_code == 200
+    assert [model for _, model in client.calls] == [
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
+        "openai/gpt-oss-120b",
+        "gemini-3.1-flash-lite",
+    ]
+    assert meta["provider"] == "gemini"
+
+
+def test_invalid_model_id_switches_bucket():
+    cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test")
+    client = _Scripted([_json(400, "ministral-8b-latest is not a valid model ID"), _ok()])
+    response, meta = post_with_failover(client, cfg, {"messages": [], "max_tokens": 50}, profile="lite")
+    assert response.status_code == 200
+    assert [model for _, model in client.calls] == ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+    assert meta["model"] == "qwen/qwen3.8-27b"
+
+
+def test_timeout_on_first_hop_tries_the_next():
+    cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test", gemini_api_key="gem-test")
+    client = _Scripted([httpx.ReadTimeout("timed out"), _ok("suite")])
+    response, meta = post_with_failover(client, cfg, {"messages": [], "max_tokens": 50}, profile="lite")
+    assert response.status_code == 200
+    assert [model for _, model in client.calls] == ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+    assert meta["model"] == "qwen/qwen3.8-27b"
 
 
 def test_openrouter_ignores_leftover_mistral_tier():

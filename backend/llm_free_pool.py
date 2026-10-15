@@ -1,8 +1,9 @@
 """
 Mélange de quotas gratuits (Groq par modèle, Gemini, OpenRouter :free).
 
-Un 429 de quota journalier change de seau tout de suite : chaque modèle Groq
-a son propre compteur. Les clés viennent de l'env ou des réglages runtime.
+Un 429 de quota journalier, un 413 (plafond de jetons) ou un modèle
+injoignable change de seau : chaque modèle Groq a son propre compteur.
+Les clés viennent de l'env ou des réglages runtime.
 """
 from __future__ import annotations
 
@@ -25,12 +26,15 @@ _DAILY_MARKERS = (
     "tpd",
     "rpd",
 )
-_ADVANCE_STATUSES = frozenset({401, 402, 403, 404, 408, 409, 429, 500, 502, 503, 529})
+_ADVANCE_STATUSES = frozenset({401, 402, 403, 404, 408, 409, 413, 429, 500, 502, 503, 529})
 _MODEL_ERROR_MARKERS = (
     "tool",
     "function",
     "not found",
     "does not exist",
+    "not a valid model",
+    "invalid model",
+    "unknown model",
     "unsupported",
     "not supported",
     "decommissioned",
@@ -321,7 +325,7 @@ def post_with_failover(
     prefer_id: str | None = None,
     max_retries: int | None = None,
 ) -> tuple[httpx.Response, dict[str, Any]]:
-    """POST /chat/completions. Hors mélange : le fournisseur actif. Dedans : seau suivant sur 429."""
+    """POST /chat/completions. Hors mélange : le fournisseur actif. Dedans : seau suivant si le modèle refuse ou ne répond pas."""
     prof = (profile or "lite").strip().lower()
     if not free_pool_active(cfg):
         from llm_client import openrouter_post_with_retries
@@ -350,15 +354,27 @@ def post_with_failover(
         headers = _headers(hop, cfg)
         url = _chat_url(hop.base_url)
         meta = _meta(hop, prof)
-        response = client.post(url, json=payload, headers=headers)
-        if (
-            response.status_code in (400, 422)
-            and "reasoning_effort" in payload
-            and "reasoning" in _response_text(response).lower()
-        ):
-            payload = dict(payload)
-            payload.pop("reasoning_effort", None)
+        remaining = [h for h in usable[index + 1 :] if h.api_key not in skipped_keys]
+        try:
             response = client.post(url, json=payload, headers=headers)
+            if (
+                response.status_code in (400, 422)
+                and "reasoning_effort" in payload
+                and "reasoning" in _response_text(response).lower()
+            ):
+                payload = dict(payload)
+                payload.pop("reasoning_effort", None)
+                response = client.post(url, json=payload, headers=headers)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            logger.warning(
+                "LLM mélange : %s injoignable (%s) — %s",
+                hop.id,
+                type(exc).__name__,
+                "seau suivant" if remaining else "dernier seau",
+            )
+            if remaining:
+                continue
+            raise
         last, last_meta = response, meta
         if response.status_code < 400:
             if index:
