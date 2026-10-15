@@ -1,4 +1,5 @@
 import type { ChatMsg } from "../components/chat/ChatShell";
+import { CHAT_PERSO_TITLE } from "./chatUseMode";
 import {
   deleteChatConversationOnServer,
   fetchChatConversationsFromServer,
@@ -104,6 +105,15 @@ export function createConversation(opts?: {
     linkedParentJobId: opts?.linkedParentJobId,
     interlocutor: opts?.interlocutor,
   };
+}
+
+/** Fil vide réutilisable au démarrage : pas de message, pas de mission, pas le fil Perso. */
+export function isBlankConversation(c: ChatConversation): boolean {
+  if (c.linkedParentJobId) return false;
+  if (c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === CHAT_PERSO_TITLE) return false;
+  return !(c.messages || []).some(
+    (m) => Boolean((m.content || "").trim()) || Boolean(m.attachments?.length),
+  );
 }
 
 /** Fil « Perso » — conversation longue ancrée pour le mode quotidien. */

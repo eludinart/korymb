@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
+import ChatHistoryDrawer from "../../components/chat/ChatHistoryDrawer";
 import ChatConversationHeader from "../../components/chat/ChatConversationHeader";
 import {
   describeInterlocutor,
@@ -33,6 +34,7 @@ import {
   deleteConversation,
   ensurePersoConversation,
   getActiveConversationId,
+  isBlankConversation,
   hydrateConversationsFromServer,
   loadConversations,
   setActiveConversationId,
@@ -122,9 +124,7 @@ function ChatPageInner() {
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [backgroundJobs, setBackgroundJobs] = useState<PendingChatJob[]>([]);
-  const [mobilePane, setMobilePane] = useState<"list" | "thread">(() =>
-    urlSessionId || linkedParentJobId || highlightJobId ? "thread" : "list",
-  );
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [replyProgress, setReplyProgress] = useState<ChatReplyProgress | null>(null);
   const [teamOfferDismissedId, setTeamOfferDismissedId] = useState("");
@@ -203,7 +203,7 @@ function ChatPageInner() {
     setActiveConversationId(perso.id);
     setActiveId(perso.id);
     setMessages(perso.messages || []);
-    setMobilePane("thread");
+    setHistoryOpen(false);
     interlocutorRef.current = "assistant";
     setInterlocutor("assistant");
     refreshConversations();
@@ -268,11 +268,20 @@ function ChatPageInner() {
         active = conv.id;
       }
 
-      if (loadChatUseMode() === "quotidien" && !linkedParentJobId && !urlSessionId) {
-        const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
-        list = loadConversations();
-        if (!active || !list.some((c) => c.id === active)) {
-          active = perso.id;
+      const openedFromLink = Boolean(urlSessionId || linkedParentJobId || highlightJobId);
+      if (!openedFromLink) {
+        if (loadChatUseMode() === "quotidien") {
+          ensurePersoConversation(CHAT_PERSO_TITLE);
+          list = loadConversations();
+        }
+        const fresh = list.find((c) => isBlankConversation(c));
+        if (fresh) {
+          active = fresh.id;
+        } else {
+          const conv = createConversation({ interlocutor: "assistant" });
+          upsertConversation(conv);
+          list = loadConversations();
+          active = conv.id;
         }
       }
 
@@ -294,13 +303,16 @@ function ChatPageInner() {
       }
       setBackgroundJobs(loadPendingChatJobs());
       setHydrated(true);
+      if (!urlSessionId && !linkedParentJobId && !highlightJobId) {
+        router.replace(`/chat?session=${encodeURIComponent(current.id)}`, { scroll: false });
+      }
     })();
-  }, [linkedParentJobId, urlSessionId]);
+  }, [highlightJobId, linkedParentJobId, router, urlSessionId]);
 
   const selectConversation = useCallback(
     (id: string) => {
       if (id === activeId) {
-        setMobilePane("thread");
+        setHistoryOpen(false);
         return;
       }
       if (activeId) {
@@ -319,7 +331,7 @@ function ChatPageInner() {
       setDraft("");
       setPendingFiles([]);
       setUploadError("");
-      setMobilePane("thread");
+      setHistoryOpen(false);
       refreshConversations();
       router.replace(`/chat?session=${encodeURIComponent(id)}`, { scroll: false });
     },
@@ -339,15 +351,15 @@ function ChatPageInner() {
     setDraft("");
     setPendingFiles([]);
     setUploadError("");
-    setMobilePane("thread");
+    setHistoryOpen(false);
     refreshConversations();
     router.replace(`/chat?session=${encodeURIComponent(conv.id)}`, { scroll: false });
   }, [activeId, messages, persistActiveConversation, refreshConversations, router]);
 
-  const backToMobileList = useCallback(() => {
+  const openHistory = useCallback(() => {
     if (activeId) persistActiveConversation(messages);
-    setMobilePane("list");
     setMoreSheetOpen(false);
+    setHistoryOpen(true);
   }, [activeId, messages, persistActiveConversation]);
 
   const eraseConversation = useCallback(
@@ -1088,28 +1100,7 @@ function ChatPageInner() {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950 lg:border-x lg:border-slate-200 dark:lg:border-slate-800">
-      {/* Mobile inbox */}
-      <div className={`min-h-0 flex-1 lg:hidden ${mobilePane === "list" ? "flex" : "hidden"}`}>
-        <ChatSidebar
-          variant="inbox"
-          conversations={conversations}
-          activeId={activeId}
-          pendingJobs={backgroundJobs}
-          onSelect={selectConversation}
-          onNew={newConversation}
-          onDelete={(id) => void removeConversation(id)}
-          onDeleteMany={(ids) => removeConversations(ids)}
-          interlocutorLabel={interlocutorLabel}
-          className="flex"
-        />
-      </div>
-
-      {/* Thread : mobile (si ouvert) + desktop toujours */}
-      <div
-        className={`relative min-h-0 flex-1 overflow-hidden ${
-          mobilePane === "thread" ? "flex" : "hidden lg:flex"
-        }`}
-      >
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <ChatSidebar
           conversations={conversations}
           activeId={activeId}
@@ -1130,7 +1121,12 @@ function ChatPageInner() {
                 ? "Quotidien"
                 : interlocutorName
             }
-            onBack={backToMobileList}
+            onOpenHistory={openHistory}
+            historyOpen={historyOpen}
+            historyAttention={
+              conversations.some((c) => c.unread && c.id !== activeId) ||
+              backgroundJobs.some((j) => j.conversationId !== activeId)
+            }
             onOpenMore={() => setMoreSheetOpen(true)}
           />
           {missionJobId && chatUseMode !== "quotidien" ? (
@@ -1181,6 +1177,26 @@ function ChatPageInner() {
           />
         </div>
       </div>
+
+      <ChatHistoryDrawer
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        conversations={conversations}
+        activeId={activeId}
+        pendingJobs={backgroundJobs}
+        onSelect={selectConversation}
+        onNew={newConversation}
+        onDelete={(id) => void removeConversation(id)}
+        onDeleteMany={(ids) => removeConversations(ids)}
+        interlocutorLabel={interlocutorLabel}
+        chatUseMode={chatUseMode}
+        onChatUseModeChange={applyChatUseMode}
+        onOpenPerso={openPersoThread}
+        onOpenSettings={() => {
+          setHistoryOpen(false);
+          setMoreSheetOpen(true);
+        }}
+      />
 
       <ChatThreadMoreSheet
         open={moreSheetOpen}

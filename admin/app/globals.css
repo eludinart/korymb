@@ -741,6 +741,20 @@ html.dark .pull-refresh-cue {
     border-color: #e2e8f0 !important;
   }
 
+  .chat-history-drawer {
+    @apply absolute inset-y-0 left-0 flex w-[min(88vw,22rem)] flex-col overflow-hidden pt-safe shadow-2xl;
+    animation: chat-history-in 180ms ease-out;
+  }
+
+  @keyframes chat-history-in {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+
   .chat-sidebar-muted {
     background-color: #f8fafc !important;
   }

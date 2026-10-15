@@ -15,8 +15,8 @@ type Props = {
   onDeleteMany: (ids: string[]) => Promise<boolean | void> | boolean | void;
   interlocutorLabel?: (conv: ChatConversation) => string | null;
   className?: string;
-  /** Mobile plein écran : pas de chrome desktop. */
-  variant?: "sidebar" | "inbox";
+  /** Mobile plein écran, tiroir, ou colonne desktop. */
+  variant?: "sidebar" | "inbox" | "drawer";
 };
 
 function formatRelative(ts: number): string {
@@ -64,7 +64,10 @@ export default function ChatSidebar({
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [selecting, setSelecting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState("");
   const inbox = variant === "inbox";
+  const drawer = variant === "drawer";
+  const roomy = inbox || drawer;
   const sorted = useMemo(
     () =>
       [...conversations].sort((a, b) => {
@@ -78,6 +81,14 @@ export default function ChatSidebar({
       }),
     [conversations],
   );
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!drawer || !q) return sorted;
+    return sorted.filter((c) => {
+      const fleet = interlocutorLabel?.(c) || "";
+      return `${c.title} ${fleet}`.toLowerCase().includes(q);
+    });
+  }, [sorted, query, drawer, interlocutorLabel]);
 
   useEffect(() => {
     if (inbox) return;
@@ -94,7 +105,8 @@ export default function ChatSidebar({
   }, [activeId, sorted, inbox]);
 
   const pickedIds = sorted.filter((c) => picked[c.id]).map((c) => c.id);
-  const allChecked = sorted.length > 0 && pickedIds.length === sorted.length;
+  const visiblePicked = visible.filter((c) => picked[c.id]).length;
+  const allChecked = visible.length > 0 && visiblePicked === visible.length;
 
   useEffect(() => {
     const live = new Set(sorted.map((c) => c.id));
@@ -114,13 +126,15 @@ export default function ChatSidebar({
   }, [pickedIds.length, allChecked]);
 
   const toggleAll = () => {
-    if (allChecked) {
-      setPicked({});
-      return;
-    }
-    const next: Record<string, boolean> = {};
-    for (const c of sorted) next[c.id] = true;
-    setPicked(next);
+    setPicked((prev) => {
+      const next = { ...prev };
+      if (allChecked) {
+        for (const c of visible) delete next[c.id];
+      } else {
+        for (const c of visible) next[c.id] = true;
+      }
+      return next;
+    });
   };
 
   const removePicked = async () => {
@@ -141,18 +155,20 @@ export default function ChatSidebar({
     pendingByConv.set(j.conversationId, list);
   }
 
+  const Root = drawer ? "div" : "aside";
+
   return (
-    <aside
+    <Root
       className={
-        inbox
+        roomy
           ? `chat-sidebar flex h-full min-h-0 w-full flex-col ${className}`
           : `chat-sidebar flex h-full min-h-0 w-[min(20rem,86vw)] flex-col border-r lg:w-72 lg:shrink-0 ${className}`
       }
-      aria-label="Conversations"
+      aria-label={drawer ? undefined : "Conversations"}
     >
       <div
         data-pull-refresh={inbox ? "" : undefined}
-        className={`shrink-0 border-b border-slate-200 dark:border-slate-800 ${inbox ? "px-4 py-3" : "px-3 py-2"}`}
+        className={`shrink-0 border-b border-slate-200 dark:border-slate-800 ${roomy ? "px-4 py-3" : "px-3 py-2"}`}
       >
         {inbox ? (
           <div className="mb-3 flex items-center justify-between gap-2">
@@ -161,21 +177,34 @@ export default function ChatSidebar({
               href="/briefing"
               className="rounded-full px-3 py-1.5 text-xs font-bold text-violet-800 active:bg-violet-50 dark:text-violet-300 dark:active:bg-violet-950"
             >
-              Accueil
+              Aujourd&apos;hui
             </Link>
           </div>
         ) : null}
         <button
           type="button"
-          onClick={onNew}
+          onClick={() => {
+            setQuery("");
+            onNew();
+          }}
           className={
-            inbox
+            roomy
               ? "w-full rounded-2xl bg-violet-700 px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm active:bg-violet-800"
               : "w-full rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
           }
         >
           Nouvelle conversation
         </button>
+        {drawer ? (
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Rechercher un fil"
+            aria-label="Rechercher un fil"
+            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-950"
+          />
+        ) : null}
         {sorted.length > 0 ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
@@ -220,8 +249,12 @@ export default function ChatSidebar({
           <li className="px-3 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
             Aucune conversation. Lancez la première.
           </li>
+        ) : visible.length === 0 ? (
+          <li className="px-3 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+            Aucun fil pour cette recherche.
+          </li>
         ) : (
-          sorted.map((c) => {
+          visible.map((c) => {
             const active = !inbox && c.id === activeId;
             const pending = pendingByConv.get(c.id) || [];
             const working = pending.length > 0;
@@ -235,7 +268,7 @@ export default function ChatSidebar({
                       ? "border-violet-400 bg-violet-50 shadow-sm ring-2 ring-violet-200 dark:border-violet-500 dark:bg-violet-950 dark:ring-violet-700"
                       : unread
                         ? "border-emerald-200 bg-emerald-50/80 active:bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40"
-                        : inbox
+                        : roomy
                           ? "border-slate-200 bg-slate-50 active:bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
                           : "border-transparent bg-transparent hover:border-slate-200 hover:bg-slate-50 dark:hover:border-slate-700 dark:hover:bg-slate-900"
                   }`}
@@ -253,13 +286,13 @@ export default function ChatSidebar({
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
-                    className={`min-w-0 flex-1 text-left ${inbox ? "px-3.5 py-3.5" : "px-3 py-2.5"}`}
+                    className={`min-w-0 flex-1 text-left ${roomy ? "px-3.5 py-3.5" : "px-3 py-2.5"}`}
                     aria-current={active ? "true" : undefined}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <p
                         className={`line-clamp-2 font-semibold leading-snug text-slate-900 dark:text-slate-100 ${
-                          inbox ? "text-[15px]" : "text-sm"
+                          roomy ? "text-[15px]" : "text-sm"
                         }`}
                       >
                         {c.title}
@@ -269,7 +302,7 @@ export default function ChatSidebar({
                         className="shrink-0 text-right text-[10px] leading-tight tabular-nums text-slate-400 dark:text-slate-500"
                         title={formatDateTime(c.updatedAt)}
                       >
-                        {inbox ? formatRelative(c.updatedAt) : formatDateTime(c.updatedAt)}
+                        {roomy ? formatRelative(c.updatedAt) : formatDateTime(c.updatedAt)}
                       </time>
                     </div>
                     {fleet ? (
@@ -307,7 +340,7 @@ export default function ChatSidebar({
                     type="button"
                     onClick={() => onDelete(c.id)}
                     className={`touch-target shrink-0 rounded-lg px-2 text-base text-slate-400 transition-colors hover:bg-red-50 hover:text-red-700 ${
-                      inbox ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+                      roomy ? "opacity-100" : "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
                     }`}
                     aria-label={`Supprimer ${c.title}`}
                     title="Supprimer"
@@ -320,6 +353,6 @@ export default function ChatSidebar({
           })
         )}
       </ul>
-    </aside>
+    </Root>
   );
 }
