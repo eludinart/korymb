@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isPersoConversation, type ChatConversation } from "../../lib/chatSessions";
+import { isPersoConversation, showConversationInList, type ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
 
 type Props = {
@@ -81,9 +81,9 @@ export default function ChatSidebar({
       }),
     [conversations],
   );
-  const unreadCount = sorted.filter((c) => c.unread).length;
+  const unreadCount = sorted.filter((c) => c.unread && showConversationInList(c)).length;
   const visible = useMemo(() => {
-    let list = sorted;
+    let list = sorted.filter(showConversationInList);
     if (drawer && unreadOnly) list = list.filter((c) => c.unread);
     const q = query.trim().toLowerCase();
     if (!drawer || !q) return list;
@@ -264,13 +264,11 @@ export default function ChatSidebar({
       </div>
 
       <ul ref={listRef} className="min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain p-2 sm:p-2">
-        {sorted.length === 0 ? (
+        {visible.length === 0 ? (
           <li className="px-3 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-            Aucune conversation. Lancez la première.
-          </li>
-        ) : visible.length === 0 ? (
-          <li className="px-3 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-            Aucun fil pour cette recherche.
+            {query.trim() || unreadOnly
+              ? "Aucun fil pour cette recherche."
+              : "Aucune conversation. Lancez la première."}
           </li>
         ) : (
           visible.map((c) => {

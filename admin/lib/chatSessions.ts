@@ -115,13 +115,23 @@ export function createConversation(opts?: {
   };
 }
 
+export function conversationHasContent(c: ChatConversation): boolean {
+  return (c.messages || []).some(
+    (m) => Boolean((m.content || "").trim()) || Boolean(m.attachments?.length),
+  );
+}
+
 /** Fil vide réutilisable au démarrage : pas de message, pas de mission, pas le fil Perso. */
 export function isBlankConversation(c: ChatConversation): boolean {
   if (c.linkedParentJobId || c.titleCustom || c.pinned) return false;
   if (isPersoConversation(c)) return false;
-  return !(c.messages || []).some(
-    (m) => Boolean((m.content || "").trim()) || Boolean(m.attachments?.length),
-  );
+  return !conversationHasContent(c);
+}
+
+/** Un fil sans échange n'apparaît pas : le bouton « Nouvelle conversation » suffit. */
+export function showConversationInList(c: ChatConversation): boolean {
+  if (c.linkedParentJobId || c.titleCustom || c.pinned) return true;
+  return conversationHasContent(c);
 }
 
 /** Fil « Perso » — conversation longue ancrée pour le mode quotidien. */

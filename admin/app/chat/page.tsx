@@ -34,8 +34,10 @@ import {
   deleteConversation,
   ensurePersoConversation,
   getActiveConversationId,
+  conversationHasContent,
   isBlankConversation,
   isPersoConversation,
+  showConversationInList,
   hydrateConversationsFromServer,
   loadConversations,
   setActiveConversationId,
@@ -279,10 +281,6 @@ function ChatPageInner() {
 
       const openedFromLink = Boolean(urlSessionId || linkedParentJobId || highlightJobId);
       if (!openedFromLink) {
-        if (loadChatUseMode() === "quotidien") {
-          ensurePersoConversation(CHAT_PERSO_TITLE);
-          list = loadConversations();
-        }
         const fresh = list.find((c) => isBlankConversation(c));
         if (fresh) {
           active = fresh.id;
@@ -437,7 +435,8 @@ function ChatPageInner() {
       const jobs = loadPendingChatJobs().filter((j) => !removed.has(j.conversationId));
       savePendingChatJobs(jobs);
       if (activeId && removed.has(activeId)) {
-        if (remaining.length) selectConversation(remaining[0].id);
+        const next = remaining.find((c) => showConversationInList(c));
+        if (next) selectConversation(next.id);
         else newConversation();
       } else {
         refreshConversations();
@@ -449,7 +448,9 @@ function ChatPageInner() {
 
   const removeConversation = useCallback(
     async (id: string) => {
-      if (!confirmDeleteChatConversation()) return;
+      const target = loadConversations().find((c) => c.id === id);
+      const empty = Boolean(target && !conversationHasContent(target) && !target.linkedParentJobId);
+      if (!empty && !confirmDeleteChatConversation()) return;
       try {
         await eraseConversation(id);
       } catch (err) {
