@@ -480,7 +480,8 @@ export default function ChatShell({
       setReplyingTo(null);
       return;
     }
-    if (e.key !== "Enter" || e.shiftKey) return;
+    // Entrée passe à la ligne. Ctrl ou Cmd + Entrée envoie.
+    if (e.key !== "Enter" || e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
     if (uploadBusy) return;
     if (!draft.trim() && attachments.length === 0) return;
     e.preventDefault();
@@ -1039,9 +1040,10 @@ export default function ChatShell({
               }}
               rows={1}
               placeholder={replyingTo ? "Répondre à ce message" : "Message"}
+              title="Entrée : nouvelle ligne · Ctrl+Entrée : envoyer"
               className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
               style={{ height: 40 }}
-              enterKeyHint="send"
+              enterKeyHint="enter"
               autoComplete="off"
               autoCorrect="on"
             />
@@ -1051,6 +1053,7 @@ export default function ChatShell({
             disabled={pending || uploadBusy || (!draft.trim() && attachments.length === 0)}
             className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-700 text-white transition-colors active:bg-violet-800 disabled:bg-slate-300 disabled:text-white"
             aria-label="Envoyer"
+            title="Envoyer (Ctrl+Entrée)"
           >
             <SendIcon />
           </button>
