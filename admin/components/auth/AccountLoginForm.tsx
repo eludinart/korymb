@@ -46,7 +46,7 @@ export function AccountLoginForm({
       const slug = String(data.workspace?.slug || workspace || "");
       let dest = "/";
       if (isOperator) {
-        dest = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/a/") && !next.startsWith("/p/") ? next : "/briefing";
+        dest = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/a/") && !next.startsWith("/p/") ? next : "/chat";
       } else if (next.startsWith("/a/")) {
         dest = next;
       } else if (slug) {
@@ -70,7 +70,7 @@ export function AccountLoginForm({
         <h1 className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-slate-50">Connexion</h1>
         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           {isOperator
-            ? "Aujourd’hui, personnes, calendrier et messages."
+            ? "Conversation, personnes, calendrier et messages."
             : "Rendez-vous et ressources qui vous sont destinés."}
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>

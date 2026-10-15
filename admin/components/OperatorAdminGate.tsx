@@ -15,7 +15,7 @@ export default function OperatorAdminGate({ children }: { children: React.ReactN
 
   useEffect(() => {
     if (!blocked) return;
-    const target = pathname.startsWith("/administration") ? ESSENTIAL_ADMIN_ENTRY : "/briefing";
+    const target = pathname.startsWith("/administration") ? ESSENTIAL_ADMIN_ENTRY : "/chat";
     router.replace(target);
   }, [blocked, pathname, router]);
 

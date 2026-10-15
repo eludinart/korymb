@@ -53,8 +53,7 @@ export default function RegisterPage() {
         setError(formatHttpApiErrorPayload(data) || "Inscription impossible.");
         return;
       }
-      const packQs = starterPackId && starterPackId !== "blank" ? `&pack=${encodeURIComponent(starterPackId)}` : "";
-      router.replace(`/briefing?welcome=1${packQs}`);
+      router.replace("/chat");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau.");

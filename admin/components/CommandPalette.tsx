@@ -78,6 +78,7 @@ function CommandPaletteInner() {
         ]
       : [];
     const nav: Command[] = [
+      { id: "chat", label: "Conversation", href: "/chat", group: "Navigation" },
       { id: "briefing", label: "Aujourd'hui", href: "/briefing", group: "Navigation" },
     ];
     if (!essential) {
@@ -114,7 +115,6 @@ function CommandPaletteInner() {
             { id: "missions", label: "Travaux", href: "/missions", group: "Navigation" },
             { id: "mission-new", label: "Nouveau travail", href: "/missions?create=1", group: "Actions IA" },
           ]),
-      { id: "chat", label: "Conversation", href: "/chat", group: "Navigation" },
       ...(essential
         ? []
         : [

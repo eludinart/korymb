@@ -66,7 +66,7 @@ export default function SubscriberShell({ children }: { children: React.ReactNod
               </Link>
               <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 {isOperator ? (
-                  <Link href="/briefing" className="hidden rounded-full bg-violet-700 px-3 py-2 text-sm font-bold text-white hover:bg-violet-800 sm:inline">
+                  <Link href="/chat" className="hidden rounded-full bg-violet-700 px-3 py-2 text-sm font-bold text-white hover:bg-violet-800 sm:inline">
                     Cockpit
                   </Link>
                 ) : null}

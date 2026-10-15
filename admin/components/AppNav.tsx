@@ -23,12 +23,21 @@ import { UX_COPY } from "../lib/uxCopy";
 
 type NavPrimaryItem = { href: string; label: string; priority?: boolean; tone?: "amber" | "sky"; hint?: string };
 
+const NAV_CHAT: NavPrimaryItem = {
+  href: "/chat",
+  label: UX_COPY.chat.label,
+  priority: true,
+  hint: UX_COPY.chat.hint,
+};
+
 const NAV_BEFORE_GESTION_FULL: NavPrimaryItem[] = [
+  NAV_CHAT,
   { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
   { href: "/carte", label: "Carte", priority: true, tone: "sky" },
 ];
 
 const NAV_BEFORE_GESTION_ESSENTIAL: NavPrimaryItem[] = [
+  NAV_CHAT,
   { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
 ];
 
@@ -40,22 +49,12 @@ const NAV_QUEUE: NavPrimaryItem = {
   hint: DIRECTOR_QUEUE_HINT,
 };
 
-const NAV_CHAT: NavPrimaryItem = {
-  href: "/chat",
-  label: UX_COPY.chat.label,
-  hint: UX_COPY.chat.hint,
-};
-
 const NAV_AFTER_GESTION_FULL: NavPrimaryItem[] = [
   NAV_QUEUE,
   { href: "/missions", label: UX_COPY.missions.label, priority: true, hint: UX_COPY.missions.hint },
-  NAV_CHAT,
 ];
 
-const NAV_AFTER_GESTION_ESSENTIAL: NavPrimaryItem[] = [
-  NAV_QUEUE,
-  { ...NAV_CHAT, priority: true },
-];
+const NAV_AFTER_GESTION_ESSENTIAL: NavPrimaryItem[] = [NAV_QUEUE];
 
 const NAV_MORE = [
   { href: "/dashboard", label: "Vue agents" },

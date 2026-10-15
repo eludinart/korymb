@@ -38,7 +38,7 @@ Sur l’instance Élude, le workspace historique `ws-default-legacy` porte le pa
 
 | Univers | Qui | Contenu |
 | --- | --- | --- |
-| Cockpit | Admin / équipe | `/briefing`, missions, `/inbox` (décisions HITL), gestion |
+| Cockpit | Admin / équipe | `/chat` (ouverture), `/briefing`, missions, `/inbox` (décisions HITL), gestion |
 | Participant | Inscrit vitrine | `/a/{slug}` — séances, ressources, compte |
 | Vitrine | Public | `/p/{slug}` |
 

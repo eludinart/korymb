@@ -8,6 +8,6 @@ export const dynamic = "force-dynamic";
 /** Sans cookie : 200 + écran d'ouverture. Une 307 vers /login bloque le splash sur téléphone. */
 export default async function BriefingPage() {
   const token = (await cookies()).get(KORYMB_TOKEN_COOKIE)?.value?.trim();
-  if (!token) return <PwaLaunch assumeLoggedOut />;
+  if (!token) return <PwaLaunch assumeLoggedOut next="/briefing" />;
   return <BriefingScreen />;
 }

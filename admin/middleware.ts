@@ -51,8 +51,9 @@ export function middleware(request: NextRequest) {
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
-  /* /briefing est le start_url historique de l'icône. Sans cookie, la page
-   * répond 200 (écran d'ouverture) au lieu d'une 307 qui fige le splash. */
+  /* Ancien start_url d'icône. Sans cookie, la page répond 200 (écran
+   * d'ouverture) au lieu d'une 307 qui fige le splash. L'ouverture actuelle
+   * est /ouvrir, puis la conversation. */
   if (pathname === "/briefing") {
     return NextResponse.next();
   }

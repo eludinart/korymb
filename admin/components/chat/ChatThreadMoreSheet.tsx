@@ -188,7 +188,7 @@ export default function ChatThreadMoreSheet({
         ) : null}
 
         <Link href="/briefing" className={`${row} text-slate-800 dark:text-slate-100`} onClick={onClose}>
-          Accueil
+          Aujourd&apos;hui
         </Link>
 
         {onDelete ? (

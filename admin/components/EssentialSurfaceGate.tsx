@@ -6,7 +6,7 @@ import { isOperatorAdminPath } from "../lib/adminNav";
 import { isEssentialAllowedPath } from "../lib/essentialSurface";
 import { useUiMode } from "../lib/uiMode";
 
-/** En mode Essentiel, une adresse avancée ne s'affiche pas : retour à Aujourd'hui. */
+/** En mode Essentiel, une adresse avancée ne s'affiche pas : retour à la conversation. */
 export default function EssentialSurfaceGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const router = useRouter();
@@ -16,13 +16,13 @@ export default function EssentialSurfaceGate({ children }: { children: React.Rea
 
   useEffect(() => {
     if (loading || !isEssential || !blocked) return;
-    router.replace("/briefing");
+    router.replace("/chat");
   }, [blocked, isEssential, loading, router]);
 
   if (hidePage) {
     return (
       <p className="text-sm font-medium text-slate-500">
-        {isEssential ? "Retour à Aujourd'hui…" : "Chargement…"}
+        {isEssential ? "Retour à la conversation…" : "Chargement…"}
       </p>
     );
   }

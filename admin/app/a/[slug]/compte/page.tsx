@@ -158,7 +158,7 @@ export default function SubscriberComptePage() {
           </Link>
         ) : null}
         {isOperator ? (
-          <Link href="/briefing" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">
+          <Link href="/chat" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">
             Cockpit dirigeant
           </Link>
         ) : null}

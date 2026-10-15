@@ -11,15 +11,24 @@ import { PracticePoweredBy, PracticeTheme } from "./practice/PracticeTheme";
 export default function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const [me, setMe] = useState<AuthMeResponse | null>(null);
+  const [homeSettled, setHomeSettled] = useState(pathname !== "/");
 
   const load = useCallback(async () => {
+    const onHome = pathname === "/";
+    if (onHome) setHomeSettled(false);
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
-      setMe(res.ok ? ((await res.json()) as AuthMeResponse) : null);
+      const data = res.ok ? ((await res.json()) as AuthMeResponse) : null;
+      setMe(data);
+      if (onHome && (data?.role === "admin" || data?.role === "member")) {
+        window.location.replace("/chat");
+        return;
+      }
     } catch {
       setMe(null);
     }
-  }, []);
+    if (onHome) setHomeSettled(true);
+  }, [pathname]);
 
   useEffect(() => {
     void load();
@@ -76,7 +85,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
                   </div>
                 ) : null}
                 {isOperator ? (
-                  <Link href="/briefing" className="rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
+                  <Link href="/chat" className="rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
                     Cockpit dirigeant
                   </Link>
                 ) : null}
@@ -103,7 +112,13 @@ export default function PublicShell({ children }: { children: React.ReactNode })
           </nav>
         </div>
       </header>
-      <main className={isVitrine ? "flex-1" : undefined}>{children}</main>
+      <main className={isVitrine ? "flex-1" : undefined}>
+        {pathname === "/" && !homeSettled ? (
+          <p className="px-4 py-16 text-center text-sm font-medium text-slate-500">Ouverture…</p>
+        ) : (
+          children
+        )}
+      </main>
       {isVitrine ? (
         <PracticePoweredBy />
       ) : (

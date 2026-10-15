@@ -3,7 +3,7 @@ import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/au
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 import { formatHttpApiErrorPayload } from "../../../../lib/api";
 
-const ALLOWED_NEXT = new Set(["/briefing", "/inbox"]);
+const ALLOWED_NEXT = new Set(["/chat", "/briefing", "/inbox"]);
 
 function cookieOpts(maxAgeSec: number) {
   return {
@@ -17,7 +17,7 @@ function cookieOpts(maxAgeSec: number) {
 
 function safeNext(raw: unknown): string {
   const value = String(raw || "").trim();
-  return ALLOWED_NEXT.has(value) ? value : "/briefing";
+  return ALLOWED_NEXT.has(value) ? value : "/chat";
 }
 
 export async function POST(request: NextRequest) {

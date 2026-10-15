@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
  * une redirection au démarrage laisse l'app installée sur le splash.
  */
 export default function PwaLaunch({
-  next = "/briefing",
+  next = "/chat",
   assumeLoggedOut = false,
 }: {
   next?: string;

@@ -74,7 +74,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
           }`}
         >
           <div className="min-w-0 shrink-0">
-            <Link href="/briefing" className="app-brand">
+            <Link href="/chat" className="app-brand">
               Korymb
             </Link>
             <p
@@ -142,7 +142,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
                 href="/briefing"
                 className="flex h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 dark:text-violet-200 dark:active:bg-violet-950 lg:hidden"
               >
-                Accueil
+                Aujourd&apos;hui
               </Link>
             ) : null}
           </div>

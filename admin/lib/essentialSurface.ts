@@ -14,7 +14,7 @@ function matches(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Pages ouvrables en mode Essentiel. Toute autre adresse renvoie à Aujourd'hui. */
+/** Pages ouvrables en mode Essentiel. Toute autre adresse renvoie à la conversation. */
 export function isEssentialAllowedPath(pathname: string): boolean {
   const path = pathOnly(pathname);
   if (ACCOUNT_PREFIXES.some((href) => matches(path, href))) return true;

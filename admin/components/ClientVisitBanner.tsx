@@ -22,13 +22,13 @@ export default function ClientVisitBanner() {
       const res = await fetch("/api/auth/switch-workspace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspace_id: homeWorkspaceId, next: "/briefing" }),
+        body: JSON.stringify({ workspace_id: homeWorkspaceId, next: "/chat" }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(formatHttpApiErrorPayload(data) || "Retour impossible.");
       }
-      window.location.assign(String(data.redirect || "/briefing"));
+      window.location.assign(String(data.redirect || "/chat"));
     } catch (err) {
       setBusy(false);
       setError(err instanceof Error ? err.message : "Retour impossible.");
