@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ChatConversation } from "../../lib/chatSessions";
+import { isPersoConversation, type ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
 
 type Props = {
@@ -65,14 +65,14 @@ export default function ChatSidebar({
   const [selecting, setSelecting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState("");
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const inbox = variant === "inbox";
   const drawer = variant === "drawer";
   const roomy = inbox || drawer;
   const sorted = useMemo(
     () =>
       [...conversations].sort((a, b) => {
-        const pin = (c: typeof a) =>
-          c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === "Perso" ? 1 : 0;
+        const pin = (c: typeof a) => (isPersoConversation(c) ? 2 : c.pinned ? 1 : 0);
         const pinDiff = pin(b) - pin(a);
         if (pinDiff !== 0) return pinDiff;
         const byDate = Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
@@ -81,14 +81,17 @@ export default function ChatSidebar({
       }),
     [conversations],
   );
+  const unreadCount = sorted.filter((c) => c.unread).length;
   const visible = useMemo(() => {
+    let list = sorted;
+    if (drawer && unreadOnly) list = list.filter((c) => c.unread);
     const q = query.trim().toLowerCase();
-    if (!drawer || !q) return sorted;
-    return sorted.filter((c) => {
+    if (!drawer || !q) return list;
+    return list.filter((c) => {
       const fleet = interlocutorLabel?.(c) || "";
       return `${c.title} ${fleet}`.toLowerCase().includes(q);
     });
-  }, [sorted, query, drawer, interlocutorLabel]);
+  }, [sorted, query, drawer, unreadOnly, interlocutorLabel]);
 
   useEffect(() => {
     if (inbox) return;
@@ -196,16 +199,32 @@ export default function ChatSidebar({
           Nouvelle conversation
         </button>
         {drawer ? (
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Rechercher un fil"
-            aria-label="Rechercher un fil"
-            className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-950"
-          />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Rechercher un fil"
+              aria-label="Rechercher un fil"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-violet-400 focus:bg-white dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:bg-slate-950"
+            />
+            {unreadCount > 0 ? (
+              <button
+                type="button"
+                aria-pressed={unreadOnly}
+                onClick={() => setUnreadOnly((on) => !on)}
+                className={
+                  unreadOnly
+                    ? "shrink-0 rounded-xl bg-emerald-700 px-2.5 py-2 text-[11px] font-bold text-white"
+                    : "shrink-0 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[11px] font-bold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+                }
+              >
+                À lire ({unreadCount})
+              </button>
+            ) : null}
+          </div>
         ) : null}
-        {sorted.length > 0 ? (
+        {sorted.length > 0 && !drawer ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -305,6 +324,11 @@ export default function ChatSidebar({
                         {roomy ? formatRelative(c.updatedAt) : formatDateTime(c.updatedAt)}
                       </time>
                     </div>
+                    {c.pinned && !isPersoConversation(c) ? (
+                      <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600 dark:text-violet-300">
+                        Épinglé
+                      </p>
+                    ) : null}
                     {fleet ? (
                       <p className="mt-0.5 truncate text-[11px] font-semibold text-violet-700/90 dark:text-violet-300/90">{fleet}</p>
                     ) : null}

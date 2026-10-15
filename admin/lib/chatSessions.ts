@@ -16,7 +16,15 @@ export type ChatConversation = {
   interlocutor?: string;
   unread?: boolean;
   unreadPreview?: string;
+  /** Titre saisi à la main : les nouveaux messages ne le remplacent pas. */
+  titleCustom?: boolean;
+  /** Reste en tête de liste, avec le fil Perso. */
+  pinned?: boolean;
 };
+
+export function isPersoConversation(c: { id: string; title?: string }): boolean {
+  return c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === CHAT_PERSO_TITLE;
+}
 
 const INDEX_KEY = "korymb-chat-conversations-v1";
 const ACTIVE_KEY = "korymb-chat-active-conversation-v1";
@@ -109,8 +117,8 @@ export function createConversation(opts?: {
 
 /** Fil vide réutilisable au démarrage : pas de message, pas de mission, pas le fil Perso. */
 export function isBlankConversation(c: ChatConversation): boolean {
-  if (c.linkedParentJobId) return false;
-  if (c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === CHAT_PERSO_TITLE) return false;
+  if (c.linkedParentJobId || c.titleCustom || c.pinned) return false;
+  if (isPersoConversation(c)) return false;
   return !(c.messages || []).some(
     (m) => Boolean((m.content || "").trim()) || Boolean(m.attachments?.length),
   );
@@ -119,9 +127,7 @@ export function isBlankConversation(c: ChatConversation): boolean {
 /** Fil « Perso » — conversation longue ancrée pour le mode quotidien. */
 export function ensurePersoConversation(persoTitle = "Perso"): ChatConversation {
   const list = loadConversations();
-  const existing = list.find(
-    (c) => c.title === persoTitle || c.id === "conv-perso" || c.id.startsWith("conv-perso-"),
-  );
+  const existing = list.find((c) => isPersoConversation(c) || c.title === persoTitle);
   if (existing) {
     if (existing.title !== persoTitle || existing.interlocutor !== "assistant") {
       const patched = { ...existing, title: persoTitle, interlocutor: "assistant" as const };
@@ -182,6 +188,9 @@ export function mergeConversations(local: ChatConversation[], server: ChatConver
       ...row,
       interlocutor: row.interlocutor || prev?.interlocutor,
       linkedParentJobId: row.linkedParentJobId || prev?.linkedParentJobId,
+      pinned: prev?.pinned,
+      titleCustom: prev?.titleCustom,
+      title: prev?.titleCustom && prev.title ? prev.title : row.title,
     });
   }
   for (const conv of local) {

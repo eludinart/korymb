@@ -59,7 +59,7 @@ export default function ChatThreadMoreSheet({
     <ChatBottomSheet open={open} onClose={onClose} title="Conversation">
       <div className="space-y-1 pb-2">
         {onChatUseModeChange ? (
-          <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mb-2 hidden rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900 lg:block">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mode</p>
             <div className="mt-2 grid grid-cols-2 gap-1.5">
               {CHAT_USE_MODE_OPTIONS.map((opt) => {
@@ -98,7 +98,7 @@ export default function ChatThreadMoreSheet({
         ) : null}
 
         {!isQuotidien ? (
-        <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
+        <div className="mb-2 hidden rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900 lg:block">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Interlocuteur</p>
           <div className="mt-2">
             <ChatInterlocutorSelect

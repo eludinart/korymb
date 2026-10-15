@@ -35,6 +35,7 @@ import {
   ensurePersoConversation,
   getActiveConversationId,
   isBlankConversation,
+  isPersoConversation,
   hydrateConversationsFromServer,
   loadConversations,
   setActiveConversationId,
@@ -218,22 +219,30 @@ function ChatPageInner() {
       const messagesChanged =
         previous.length !== nextMessages.length ||
         previous.some((m, i) => m.id !== nextMessages[i]?.id || m.content !== nextMessages[i]?.content);
-      const pinnedTitle =
+      const perso =
         existing?.id === "conv-perso" ||
         existing?.id.startsWith("conv-perso-") ||
-        existing?.title === CHAT_PERSO_TITLE
-          ? CHAT_PERSO_TITLE
-          : conversationTitleFromMessages(nextMessages);
+        existing?.title === CHAT_PERSO_TITLE;
+      const title =
+        extra && "title" in extra && extra.title
+          ? extra.title
+          : perso
+            ? CHAT_PERSO_TITLE
+            : existing?.titleCustom
+              ? existing.title
+              : conversationTitleFromMessages(nextMessages);
       const conv: ChatConversation = {
         id,
-        title: pinnedTitle,
         messages: nextMessages,
         updatedAt: messagesChanged ? Date.now() : existing?.updatedAt || Date.now(),
         linkedParentJobId: extra && "linkedParentJobId" in extra ? extra.linkedParentJobId : existing?.linkedParentJobId,
         interlocutor: extra?.interlocutor ?? interlocutorRef.current ?? existing?.interlocutor,
         unread: extra?.unread ?? false,
         unreadPreview: extra?.unreadPreview,
+        pinned: existing?.pinned,
+        titleCustom: existing?.titleCustom,
         ...extra,
+        title,
       };
       upsertConversation(conv);
       refreshConversations();
@@ -355,6 +364,42 @@ function ChatPageInner() {
     refreshConversations();
     router.replace(`/chat?session=${encodeURIComponent(conv.id)}`, { scroll: false });
   }, [activeId, messages, persistActiveConversation, refreshConversations, router]);
+
+  const renameActiveConversation = useCallback(
+    (title: string) => {
+      const id = activeIdRef.current;
+      const clean = title.trim().replace(/\s+/g, " ").slice(0, 80);
+      if (!id || !clean) return;
+      const existing = loadConversations().find((c) => c.id === id);
+      if (!existing || isPersoConversation(existing)) return;
+      upsertConversation({ ...existing, title: clean, titleCustom: true });
+      refreshConversations();
+    },
+    [refreshConversations],
+  );
+
+  const togglePinActiveConversation = useCallback(() => {
+    const id = activeIdRef.current;
+    if (!id) return;
+    const existing = loadConversations().find((c) => c.id === id);
+    if (!existing || isPersoConversation(existing)) return;
+    upsertConversation({ ...existing, pinned: !existing.pinned, updatedAt: existing.updatedAt });
+    refreshConversations();
+  }, [refreshConversations]);
+
+  const copyActiveConversation = useCallback(async () => {
+    const text = messages
+      .map((m) => {
+        const body = (m.content || "").trim();
+        if (!body) return "";
+        return `${m.role === "user" ? "Vous" : "Korymb"}\n${body}`;
+      })
+      .filter(Boolean)
+      .join("\n\n");
+    if (!text) return false;
+    await navigator.clipboard.writeText(text);
+    return true;
+  }, [messages]);
 
   const openHistory = useCallback(() => {
     if (activeId) persistActiveConversation(messages);
@@ -1196,6 +1241,29 @@ function ChatPageInner() {
           setHistoryOpen(false);
           setMoreSheetOpen(true);
         }}
+        activeTitle={activeConv?.title || "Chat"}
+        pinned={Boolean(activeConv?.pinned)}
+        onRename={renameActiveConversation}
+        onTogglePin={togglePinActiveConversation}
+        onCopy={copyActiveConversation}
+        canConvert={canConvertToMission && chatUseMode !== "quotidien"}
+        onConvert={() => {
+          setHistoryOpen(false);
+          openConvertPreview();
+        }}
+        missionJobId={missionJobId || undefined}
+        onOpenMission={
+          missionJobId
+            ? () => {
+                setHistoryOpen(false);
+                router.push(`/missions?job=${encodeURIComponent(missionJobId)}`);
+              }
+            : undefined
+        }
+        interlocutor={interlocutor}
+        groups={groupsList as GroupOpt[]}
+        onInterlocutorChange={chooseInterlocutor}
+        interlocutorDisabled={pending}
       />
 
       <ChatThreadMoreSheet
