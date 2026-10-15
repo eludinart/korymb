@@ -398,22 +398,18 @@ export default function ChatShell({
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
-    // 1 ligne au repos. Sur mobile clavier ouvert, 2 lignes max pour laisser le fil lisible.
-    const fit = () => {
-      const minH = Math.max(40, userMinHeightRef.current);
-      const desktop = window.matchMedia("(min-width: 1024px)").matches;
-      const keyboard = document.documentElement.dataset.keyboardOpen === "1";
-      const maxH = desktop ? 280 : keyboard ? 72 : 120;
-      el.style.height = "0px";
-      const needed = Math.max(el.scrollHeight, 40);
-      const next = Math.min(Math.max(needed, minH), maxH);
-      el.style.height = `${next}px`;
-      el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
-      if (!draft.trim()) userMinHeightRef.current = 0;
-    };
-    fit();
-    window.visualViewport?.addEventListener("resize", fit);
-    return () => window.visualViewport?.removeEventListener("resize", fit);
+    // Ne pas toucher la hauteur pendant la frappe ou la dictée : height=0 casse Gboard.
+    if (document.activeElement === el && draft.trim()) return;
+    const minH = Math.max(40, userMinHeightRef.current);
+    const desktop = window.matchMedia("(min-width: 1024px)").matches;
+    const keyboard = document.documentElement.dataset.keyboardOpen === "1";
+    const maxH = desktop ? 280 : keyboard ? 72 : 120;
+    el.style.height = "0px";
+    const needed = Math.max(el.scrollHeight, 40);
+    const next = Math.min(Math.max(needed, minH), maxH);
+    el.style.height = `${next}px`;
+    el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
+    if (!draft.trim()) userMinHeightRef.current = 0;
   }, [draft]);
 
   useEffect(() => {

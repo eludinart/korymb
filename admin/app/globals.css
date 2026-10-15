@@ -119,7 +119,8 @@ html.dark .pull-refresh-cue {
   }
 
   @media (max-width: 1023px) {
-    html.chat-immersion {
+    /* Android (.chat-android) : pas de position:fixed. Gboard a besoin d'un champ stable pour la dictée. */
+    html.chat-immersion:not(.chat-android) {
       overflow: hidden;
       height: var(--app-visual-height, 100dvh);
       max-height: var(--app-visual-height, 100dvh);
@@ -127,7 +128,7 @@ html.dark .pull-refresh-cue {
     }
 
     /* Colle le chat à la zone visible : le focus du champ ne fait plus défiler le fil sous le clavier. */
-    html.chat-immersion body {
+    html.chat-immersion:not(.chat-android) body {
       position: fixed;
       top: var(--app-visual-offset-top, 0px);
       left: 0;
