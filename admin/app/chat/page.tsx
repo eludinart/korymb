@@ -46,6 +46,7 @@ import {
 } from "../../lib/chatSessions";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { chatTextIsDegraded, isChatTransportFailure, localDegradedChatReply } from "../../lib/chatDegraded";
+import { chatTextWithReply, type ChatReplyTarget } from "../../lib/chatReply";
 import { toChatSurface } from "../../lib/chatSurface";
 import { useActionToast } from "../../lib/actionToast";
 import { fetchJobAgentKeys, type ChatJobDelivery } from "../../lib/chatJobAgents";
@@ -778,6 +779,7 @@ function ChatPageInner() {
     messagesOverride?: ChatMsg[];
     attachments?: ChatFile[];
     reuseLastUser?: boolean;
+    replyTo?: ChatReplyTarget | null;
   }) => {
     const text = (opts?.text ?? draft).trim();
     const files = (opts?.confirmAction || opts?.reuseLastUser ? opts.attachments || [] : pendingFiles).slice(0, CHAT_FILE_MAX);
@@ -785,11 +787,16 @@ function ChatPageInner() {
 
     const baseMessages = opts?.messagesOverride ?? messages;
     const keepTurn = Boolean(opts?.confirmAction || opts?.reuseLastUser);
+    const carriedReply = keepTurn
+      ? [...baseMessages].reverse().find((m) => m.role === "user" && m.content.trim() === text)?.replyTo
+      : undefined;
+    const replyTo = opts?.replyTo || carriedReply || undefined;
     const userMsg: ChatMsg = {
       id: `u-${Date.now()}`,
       role: "user",
       content: text,
       ...(files.length ? { attachments: files } : {}),
+      ...(replyTo ? { replyTo } : {}),
     };
     const history = keepTurn
       ? baseMessages.map((m) => (m.pendingAction ? { ...m, pendingAction: undefined } : m))
@@ -815,12 +822,15 @@ function ChatPageInner() {
     const useMode = chatUseModeRef.current;
     const histLimit = chatHistoryLimit(useMode);
     const historyPayload = payloadSource
-      .map(({ role, content, attachments }) => ({
-        role,
-        content: attachments?.length
-          ? `${content}\n[Fichiers: ${attachments.map((a) => a.filename).join(", ")}]`.trim()
-          : content,
-      }))
+      .map((item) => {
+        const body = chatTextWithReply(item.content, item.replyTo);
+        return {
+          role: item.role,
+          content: item.attachments?.length
+            ? `${body}\n[Fichiers: ${item.attachments.map((a) => a.filename).join(", ")}]`.trim()
+            : body,
+        };
+      })
       .slice(-histLimit);
 
     const who = useMode === "quotidien" ? "assistant" : interlocutorRef.current;
@@ -890,7 +900,7 @@ function ChatPageInner() {
       rememberInterlocutor(who);
 
       const requestBody = {
-        message: text,
+        message: chatTextWithReply(text, replyTo),
         agent,
         history: historyPayload,
         chat_session_id: activeId,
@@ -1114,7 +1124,7 @@ function ChatPageInner() {
     const text = (lastUser?.content || "").trim();
     setTeamOfferDismissedId(lastUser?.id || "dismissed");
     if (!text) return;
-    void send({ text, reuseLastUser: true, attachments: lastUser?.attachments });
+    void send({ text, reuseLastUser: true, attachments: lastUser?.attachments, replyTo: lastUser?.replyTo });
   }, [chooseInterlocutor, messages, send]);
 
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -1184,7 +1194,7 @@ function ChatPageInner() {
             messages={messages}
             draft={draft}
             onDraftChange={setDraft}
-            onSend={() => void send()}
+            onSend={(replyTo) => void send(replyTo ? { replyTo } : undefined)}
             onQuickSend={(text) => void send({ text })}
             pending={pending}
             backgroundJobCount={activePendingCount}

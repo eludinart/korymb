@@ -17,6 +17,7 @@ import {
   stripChoiceQuestionnaireFences,
 } from "../../lib/choiceQuestionnaire";
 import { resourceFileUrl } from "../../lib/business";
+import { chatReplyExcerpt, type ChatReplyTarget } from "../../lib/chatReply";
 import type { DriveArtifact } from "../../lib/types";
 import {
   CHAT_ACCEPT_CAMERA,
@@ -54,7 +55,11 @@ export type ChatMsg = {
   pendingAction?: { message: string; attachments?: ChatFile[]; label?: string };
   /** QCM déjà répondu (résumé affiché à la place du formulaire). */
   choiceAnsweredSummary?: string;
+  /** Message du fil auquel celui-ci répond (citation affichée, contexte envoyé à l'agent). */
+  replyTo?: ChatReplyTarget;
 };
+
+export type { ChatReplyTarget };
 
 function claimGuardLabel(guard: ChatMsg["claimGuard"]): { label: string; title: string; className: string } | null {
   const status = String(guard?.status || "");
@@ -86,7 +91,7 @@ type Props = {
   messages: ChatMsg[];
   draft: string;
   onDraftChange: (v: string) => void;
-  onSend: () => void;
+  onSend: (replyTo?: ChatReplyTarget | null) => void;
   pending: boolean;
   backgroundJobCount?: number;
   /** Progression réelle agrégée des jobs en arrière-plan (0–100). */
@@ -139,6 +144,77 @@ function splitLead(text: string, maxLines = 5): { lead: string; rest: string } {
   const lines = text.split("\n");
   if (lines.length <= maxLines) return { lead: text, rest: "" };
   return { lead: lines.slice(0, maxLines).join("\n"), rest: lines.slice(maxLines).join("\n") };
+}
+
+function focusQuotedMessage(id: string) {
+  const el = document.getElementById(`chat-msg-${id}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+async function copyPlainText(text: string): Promise<boolean> {
+  const value = text.trim();
+  if (!value) return false;
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = value;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function ChatQuoteChip({
+  reply,
+  onSurface,
+}: {
+  reply: ChatReplyTarget;
+  /** Bulle utilisateur violette : le contraste s'inverse. */
+  onSurface: "user" | "assistant";
+}) {
+  const who = reply.role === "assistant" ? "Agent" : "Vous";
+  return (
+    <button
+      type="button"
+      onClick={() => focusQuotedMessage(reply.id)}
+      className={
+        onSurface === "user"
+          ? "mb-1.5 block w-full rounded-md border-l-2 border-white/80 bg-white/15 px-2 py-1 text-left"
+          : "mb-1.5 block w-full rounded-md border-l-2 border-violet-500 bg-white/80 px-2 py-1 text-left dark:bg-slate-900/50"
+      }
+    >
+      <span
+        className={
+          onSurface === "user"
+            ? "block text-[10px] font-semibold uppercase tracking-wide text-white/80"
+            : "block text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-300"
+        }
+      >
+        {who}
+      </span>
+      <span
+        className={
+          onSurface === "user"
+            ? "line-clamp-2 text-[12px] leading-snug text-white/95"
+            : "line-clamp-2 text-[12px] leading-snug text-slate-600 dark:text-slate-300"
+        }
+      >
+        {reply.excerpt}
+      </span>
+    </button>
+  );
 }
 
 function ChatReplyPending({
@@ -223,6 +299,24 @@ function SendIcon() {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path strokeLinecap="round" d="M5 15V5h10" />
+    </svg>
+  );
+}
+
+function ReplyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 14 4 9l5-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 9h8a8 8 0 0 1 8 8v2" />
+    </svg>
+  );
+}
+
 export default function ChatShell({
   messages,
   draft,
@@ -272,6 +366,8 @@ export default function ChatShell({
   const [dragging, setDragging] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [portalReady, setPortalReady] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<ChatReplyTarget | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
   const hasAssistantReply = messages.some(
@@ -365,18 +461,50 @@ export default function ChatShell({
     }
   }, [messages, localAgents, onPatchMessage]);
 
+  useEffect(() => {
+    if (!replyingTo) return;
+    if (!messages.some((m) => m.id === replyingTo.id)) setReplyingTo(null);
+  }, [messages, replyingTo]);
+
+  const dispatchSend = () => {
+    if (uploadBusy || pending) return;
+    if (!draft.trim() && attachments.length === 0) return;
+    const reply = replyingTo;
+    setReplyingTo(null);
+    onSend(reply);
+  };
+
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape" && replyingTo) {
+      e.preventDefault();
+      setReplyingTo(null);
+      return;
+    }
     if (e.key !== "Enter" || e.shiftKey) return;
     if (uploadBusy) return;
     if (!draft.trim() && attachments.length === 0) return;
     e.preventDefault();
-    onSend();
+    dispatchSend();
   };
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (uploadBusy) return;
-    onSend();
+    dispatchSend();
+  };
+
+  const beginReply = (target: ChatReplyTarget) => {
+    setReplyingTo(target);
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
+
+  const copyMessage = (id: string, text: string) => {
+    void copyPlainText(text).then((ok) => {
+      if (!ok) return;
+      setCopiedId(id);
+      window.setTimeout(() => {
+        setCopiedId((current) => (current === id ? null : current));
+      }, 1600);
+    });
   };
 
   const takeFiles = (list: File[]) => {
@@ -485,7 +613,12 @@ export default function ChatShell({
             const folded = m.role === "assistant" ? splitLead(displaySource) : { lead: displaySource, rest: "" };
             const replyOpen = Boolean(expandedReply[m.id]);
             const shownSource = replyOpen || !folded.rest.trim() ? displaySource : folded.lead;
+            const copySource =
+              (m.role === "assistant" ? displaySource : m.content).trim() ||
+              (m.attachments?.map((file) => file.filename).join(", ") || "");
+            const quotable = chatReplyExcerpt(copySource);
             const actionLabel = m.pendingAction?.label || "Confirmer";
+            const quoted = replyingTo?.id === m.id;
             return (
               <div
                 key={m.id}
@@ -504,11 +637,12 @@ export default function ChatShell({
                       m.role === "user"
                         ? "chat-bubble-user rounded-[1.15rem] rounded-br-md px-3.5 py-2 sm:rounded-3xl sm:px-5 sm:py-3"
                         : "chat-bubble-assistant rounded-[1.15rem] rounded-bl-md px-3.5 py-2.5 sm:px-5 sm:py-3"
-                    }`}
+                    }${quoted ? " ring-2 ring-violet-400 ring-offset-2 ring-offset-white dark:ring-offset-slate-950" : ""}`}
                     style={{ fontSize: "var(--chat-text-size, 1rem)" }}
                   >
                     {m.role === "user" ? (
                       <>
+                        {m.replyTo ? <ChatQuoteChip reply={m.replyTo} onSurface="user" /> : null}
                         {m.content.trim() ? <span className="whitespace-pre-wrap">{m.content}</span> : null}
                         <ChatMessageFiles files={m.attachments} />
                       </>
@@ -527,6 +661,7 @@ export default function ChatShell({
                             {claim.label}
                           </p>
                         ) : null}
+                        {m.replyTo ? <ChatQuoteChip reply={m.replyTo} onSurface="assistant" /> : null}
                         {shownSource.trim() ? <AgentMessageMarkdown source={shownSource} /> : null}
                         {folded.rest.trim() ? (
                           <button
@@ -540,6 +675,28 @@ export default function ChatShell({
                       </>
                     )}
                   </div>
+                  {quotable ? (
+                    <div className={`mt-1 flex gap-0.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <button
+                        type="button"
+                        onClick={() => copyMessage(m.id, copySource)}
+                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                        aria-label={copiedId === m.id ? "Copié" : "Copier le message"}
+                      >
+                        <CopyIcon />
+                        {copiedId === m.id ? "Copié" : "Copier"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => beginReply({ id: m.id, role: m.role, excerpt: quotable })}
+                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                        aria-label="Répondre à ce message"
+                      >
+                        <ReplyIcon />
+                        Répondre
+                      </button>
+                    </div>
+                  ) : null}
                   {m.role === "assistant" && agents.length > 0 ? (
                     <details className="mt-1">
                       <summary className="cursor-pointer text-[11px] font-semibold text-slate-500 dark:text-slate-400">
@@ -824,6 +981,28 @@ export default function ChatShell({
             </button>
           </div>
         ) : null}
+        {replyingTo ? (
+          <div className="mx-auto mb-1.5 flex max-w-3xl items-stretch gap-2 rounded-xl border-l-4 border-violet-500 bg-violet-50 px-2.5 py-1.5 dark:bg-violet-950/40">
+            <button
+              type="button"
+              onClick={() => focusQuotedMessage(replyingTo.id)}
+              className="min-w-0 flex-1 text-left"
+            >
+              <p className="text-[11px] font-semibold text-violet-800 dark:text-violet-200">
+                {replyingTo.role === "assistant" ? "Réponse à l'agent" : "Réponse à votre message"}
+              </p>
+              <p className="truncate text-xs text-slate-600 dark:text-slate-300">{replyingTo.excerpt}</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setReplyingTo(null)}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-violet-100 dark:hover:bg-violet-900"
+              aria-label="Annuler la réponse"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         <div className="mx-auto flex max-w-3xl items-end gap-1">
           {onAddFiles ? (
             <button
@@ -859,7 +1038,7 @@ export default function ChatShell({
                 if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
               }}
               rows={1}
-              placeholder="Message"
+              placeholder={replyingTo ? "Répondre à ce message" : "Message"}
               className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
               style={{ height: 40 }}
               enterKeyHint="send"
