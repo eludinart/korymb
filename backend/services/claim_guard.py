@@ -15,7 +15,7 @@ ABSTAIN = (
     "Je ne la complète pas avec une valeur estimée."
 )
 PARTIAL_NOTE = (
-    "Certaines précisions (e-mail, téléphone, lien, montant ou date) ont été retirées : "
+    "Certaines précisions (nom, e-mail, téléphone, lien, montant ou date) ont été retirées : "
     "elles ne figurent pas dans les données de ce tour."
 )
 
@@ -40,6 +40,19 @@ _PERCENT = re.compile(r"(?<!\w)(\d+(?:[.,]\d+)?)\s*%")
 _DATE_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 _DATE_FR = re.compile(r"\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b")
 _TRAIL = ".,);]>"
+_PERSON = re.compile(
+    r"\b([A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëïîôùûüç'’-]{2,}"
+    r"(?:\s+[A-ZÀÂÄÉÈÊËÎÏÔÖÙÛÜÇ][a-zàâäéèêëïîôùûüç'’-]{2,}){1,2})\b"
+)
+_NAME_STOP = frozenset({
+    "le", "la", "les", "un", "une", "des", "du", "au", "ce", "cette", "ces",
+    "son", "sa", "ses", "mon", "ma", "mes", "pour", "avec", "dans", "sur",
+    "chez", "entre", "par", "sans", "sous", "vers",
+})
+_REMOVAL = re.compile(
+    r"\b(retir\w*|supprim\w*|enlev\w*|effac\w*|ôte\w*|oter\w*|sans|plus\s+de)\b",
+    re.I,
+)
 
 
 @dataclass
@@ -193,6 +206,8 @@ def _supported(kind: str, raw: str, corpus: str, dates: set[str]) -> bool:
         ) is not None
     if kind == "date":
         return raw in dates
+    if kind == "nom":
+        return _phrase_in_corpus(raw, corpus)
     return True
 
 
@@ -241,6 +256,107 @@ def _collect(text: str) -> list[tuple[int, int, str, str]]:
     return kept
 
 
+def _fold(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").casefold())
+
+
+def _phrase_in_corpus(phrase: str, corpus: str) -> bool:
+    folded = _fold(phrase)
+    return bool(folded) and folded in _fold(corpus)
+
+
+def _sentence_bounds(text: str, start: int, end: int) -> tuple[int, int]:
+    left = 0
+    for mark in ".!?\n":
+        pos = text.rfind(mark, 0, start)
+        if pos + 1 > left:
+            left = pos + 1
+    right = len(text)
+    for mark in ".!?\n":
+        pos = text.find(mark, end)
+        if pos != -1 and pos < right:
+            right = pos
+    return left, right
+
+
+def _mention_supported(phrase: str, corpus: str) -> bool:
+    """Présent comme fait. Une mention seulement pour le retirer ne compte pas."""
+    if not _phrase_in_corpus(phrase, corpus):
+        return False
+    as_fact = False
+    for match in re.finditer(re.escape(phrase), corpus, flags=re.I):
+        sent_start, sent_end = _sentence_bounds(corpus, match.start(), match.end())
+        sentence = corpus[sent_start:sent_end]
+        rel = match.start() - sent_start
+        verbs = list(_REMOVAL.finditer(sentence))
+        if not verbs:
+            as_fact = True
+            continue
+        verb = min(verbs, key=lambda item: abs(item.start() - rel))
+        if verb.end() <= rel:
+            gap = sentence[verb.end() : rel]
+        else:
+            gap = sentence[match.end() - sent_start : verb.start()]
+        if _PERSON.search(gap):
+            as_fact = True
+    return as_fact
+
+
+def _person_spans(text: str) -> list[tuple[int, int, str]]:
+    found: list[tuple[int, int, str]] = []
+    for match in _PERSON.finditer(text or ""):
+        phrase = match.group(1)
+        first = phrase.split()[0].casefold()
+        if first in _NAME_STOP:
+            continue
+        found.append((match.start(1), match.end(1), phrase))
+    return found
+
+
+def ground_stored_text(text: str, corpus: str) -> tuple[str, list[str]]:
+    """Retire d'un texte à enregistrer les précisions absentes du corpus, ou citées seulement pour suppression."""
+    raw = text or ""
+    if not raw.strip():
+        return raw, []
+    dates = _dates_in(corpus)
+    cuts: list[tuple[int, int, str]] = []
+    occupied: list[tuple[int, int]] = []
+    for start, end, kind, key in _collect(raw):
+        shown = raw[start:end]
+        if _supported(kind, key, corpus, dates) and _mention_supported(shown, corpus):
+            occupied.append((start, end))
+            continue
+        cuts.append((start, end, kind))
+        occupied.append((start, end))
+    for start, end, phrase in _person_spans(raw):
+        if any(start < right and end > left for left, right in occupied):
+            continue
+        if _mention_supported(phrase, corpus):
+            continue
+        cuts.append((start, end, "nom"))
+    if not cuts:
+        return raw, []
+    cuts.sort()
+    pieces: list[str] = []
+    dropped: list[str] = []
+    cursor = 0
+    last_end = -1
+    for start, end, kind in cuts:
+        if start < last_end:
+            continue
+        pieces.append(raw[cursor:start])
+        dropped.append(f"{kind}:{raw[start:end].strip()}")
+        cursor = end
+        last_end = end
+    pieces.append(raw[cursor:])
+    cleaned = "".join(pieces)
+    cleaned = re.sub(r"(?i)\b[\wÀ-ÿ'’-]{2,}(?:\s+[\wÀ-ÿ'’-]{2,}){0,5}\s*:\s*\.", "", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = re.sub(r"\s+\.", ".", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip(" \t\n.")
+    return cleaned, dropped
+
+
 def guard_unverified_claims(text: str, ctx: ClaimContext) -> ClaimGuardResult:
     raw = (text or "").strip()
     if not raw:
@@ -248,6 +364,13 @@ def guard_unverified_claims(text: str, ctx: ClaimContext) -> ClaimGuardResult:
     corpus = "\n".join(p for p in (ctx.evidence, ctx.user_corpus, _ALLOWLIST) if p)
     dates = _dates_in(corpus)
     spans = _collect(raw)
+    occupied = [(start, end) for start, end, _kind, _key in spans]
+    for start, end, phrase in _person_spans(raw):
+        if any(start < right and end > left for left, right in occupied):
+            continue
+        spans.append((start, end, "nom", phrase))
+        occupied.append((start, end))
+    spans.sort()
     dropped: list[str] = []
     pieces: list[str] = []
     cursor = 0

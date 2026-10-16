@@ -92,6 +92,51 @@ def test_product_url_is_allowlisted():
     assert out.status == "anchored"
 
 
+def test_invented_person_is_removed_from_a_reply():
+    out = guard_unverified_claims(
+        "Le responsable du projet est Alexandre Martin, comme convenu pour la suite du dossier.",
+        _ctx(user_corpus="Crée le projet Pizza Lucio."),
+    )
+    assert "Alexandre Martin" not in out.text
+    assert out.status == "partial"
+    assert PLACEHOLDER in out.text
+
+
+def test_person_named_by_the_user_is_kept():
+    out = guard_unverified_claims(
+        "Le responsable est Camille Bernard.",
+        _ctx(user_corpus="Le client est Camille Bernard."),
+    )
+    assert "Camille Bernard" in out.text
+    assert out.status == "anchored"
+
+
+def test_stored_text_drops_a_name_the_user_asked_to_remove_and_an_invented_date():
+    from services.claim_guard import ground_stored_text
+
+    cleaned, dropped = ground_stored_text(
+        "Responsable du projet : Alexandre Martin. Objectif : livrer le MVP d'ici le 28/11/2024. Projet Pizza Lucio.",
+        "retirer le nom Alexandre Martin du projet Pizza Lucio",
+    )
+    assert "Alexandre" not in cleaned
+    assert "28/11/2024" not in cleaned
+    assert "Pizza Lucio" in cleaned
+    assert any(item.startswith("nom:") for item in dropped)
+    assert any(item.startswith("date:") for item in dropped)
+
+
+def test_stored_text_keeps_a_name_given_as_a_fact():
+    from services.claim_guard import ground_stored_text
+
+    cleaned, dropped = ground_stored_text(
+        "Suivi : Camille Bernard. Retirer Jean Dupont du dossier.",
+        "Le client est Camille Bernard. Retire Jean Dupont.",
+    )
+    assert "Camille Bernard" in cleaned
+    assert "Jean Dupont" not in cleaned
+    assert not any("Camille" in item for item in dropped)
+
+
 def test_lookup_question_loads_crm_evidence(monkeypatch):
     import services.chat_intelligence as ci
 

@@ -68,6 +68,7 @@ def _activate_tool_run_ctx(
     *,
     chat_mode: bool | None = None,
     force_write: bool = False,
+    user_corpus: str = "",
 ) -> contextvars.Token:
     job_id = ""
     if usage_job_id is not _UNSET and usage_job_id is not None:
@@ -79,7 +80,106 @@ def _activate_tool_run_ctx(
         "agent_key": agent_key,
         "chat_mode": "1" if inferred else "",
         "force_write": "1" if force_write else "",
+        "user_corpus": (user_corpus or "")[:12000],
+        "tool_evidence": "",
     })
+
+
+_CHAT_WRITE_FIELDS: dict[str, tuple[str, ...]] = {
+    "korymb_create_project": ("title", "description"),
+    "korymb_update_project": ("title", "new_title", "description"),
+    "korymb_save_mission_template": ("name", "description", "mission_text"),
+    "korymb_save_playbook": ("name", "description", "mission"),
+}
+
+
+def _user_corpus_from_messages(messages: list[dict] | None) -> str:
+    parts: list[str] = []
+    for item in messages or []:
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            parts.append(content)
+    return "\n".join(parts)
+
+
+def _ground_chat_write(name: str, inp: dict[str, Any]) -> dict[str, Any]:
+    """Retire d'une écriture chat les noms, dates et coordonnées que le tour n'a pas établis."""
+    fields = _CHAT_WRITE_FIELDS.get(name)
+    ctx = _tool_run_ctx.get()
+    if not fields or not str(ctx.get("chat_mode") or ""):
+        return inp
+    from services.claim_guard import ground_stored_text
+
+    corpus = "\n".join(
+        part for part in (str(ctx.get("user_corpus") or ""), str(ctx.get("tool_evidence") or "")) if part.strip()
+    )
+    out = dict(inp)
+    stripped: list[str] = []
+
+    def apply(value: str) -> str:
+        cleaned, dropped = ground_stored_text(value, corpus)
+        stripped.extend(dropped)
+        return cleaned
+
+    for key in fields:
+        if isinstance(out.get(key), str):
+            original = str(out[key])
+            cleaned = apply(original)
+            if original.strip() and not cleaned.strip() and key in {"description", "new_title", "mission", "mission_text"}:
+                out.pop(key, None)
+            else:
+                out[key] = cleaned
+    for key in ("tasks", "add_tasks", "update_tasks", "rename_tasks"):
+        items = out.get(key)
+        if isinstance(items, str):
+            try:
+                items = json.loads(items)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(items, list):
+            continue
+        rewritten: list[Any] = []
+        for item in items:
+            if not isinstance(item, dict):
+                rewritten.append(item)
+                continue
+            row = dict(item)
+            for sub in ("title", "detail", "description", "new_title"):
+                if isinstance(row.get(sub), str):
+                    row[sub] = apply(str(row[sub]))
+            rewritten.append(row)
+        out[key] = rewritten
+    if stripped:
+        out["_grounding_stripped"] = stripped[:12]
+    return out
+
+
+def _annotate_grounding(raw: str, stripped: list[str]) -> str:
+    if not stripped:
+        return raw
+    note = (
+        "Précisions retirées avant écriture (absentes du message, ou citées seulement pour être supprimées) : "
+        + ", ".join(stripped[:8])
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return f"{raw}\n{note}"
+    if not isinstance(data, dict):
+        return f"{raw}\n{note}"
+    data["grounding_stripped"] = stripped[:8]
+    data["grounding_note"] = note
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _remember_tool_evidence(raw: str) -> None:
+    ctx = _tool_run_ctx.get()
+    if not str(ctx.get("chat_mode") or ""):
+        return
+    previous = str(ctx.get("tool_evidence") or "")
+    ctx["tool_evidence"] = (previous + "\n" + (raw or ""))[:12000]
 
 
 def _is_chat_write_gated() -> bool:
@@ -799,7 +899,11 @@ def _execute_tool(name: str, inp: Any, *, _from_journal: bool = False) -> str:
         from services.mission_journal import run_tool_once
 
         ctx_job = str((_tool_run_ctx.get() or {}).get("job_id") or "")
-        return run_tool_once(ctx_job, name, inp, lambda: _execute_tool(name, inp, _from_journal=True))
+        inp = _ground_chat_write(name, inp)
+        stripped = list(inp.pop("_grounding_stripped", []) or [])
+        out = run_tool_once(ctx_job, name, inp, lambda: _execute_tool(name, inp, _from_journal=True))
+        _remember_tool_evidence(out)
+        return _annotate_grounding(out, stripped)
     ctx = _tool_run_ctx.get()
     try:
         from services.tool_policy import apply_tool_policy
@@ -1755,7 +1859,12 @@ def llm_chat_with_tools(
     system_use = system + extra
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    token = _activate_tool_run_ctx(usage_job_id, usage_context, None)
+    token = _activate_tool_run_ctx(
+        usage_job_id,
+        usage_context,
+        None,
+        user_corpus=_user_corpus_from_messages(messages),
+    )
     try:
         if free_pool_active(cfg) or is_chat_completions_provider(prov):
             return _openrouter_chat_tool_loop(

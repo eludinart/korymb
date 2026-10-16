@@ -40,6 +40,8 @@ WORKSPACE_SETUP_CONTEXT = (
     "liste d'abord l'existant, puis **écris** les fiches. "
     "Interdit de dire que tu ne peux pas créer d'environnement, "
     "ou de te limiter à un markdown à copier dans Drive.\n"
+    "N'écris aucun nom, date, montant, e-mail ou téléphone qui n'est pas dans le message "
+    "du dirigeant ou dans un outil déjà lu. Une demande de retrait n'autorise pas à réécrire le nom.\n"
     "Après écriture, cite les noms et les pages (`/gestion/projets`, `/missions`, "
     "`/administration/templates`, `/gestion/playbooks`). "
     "Ne lance pas les agents : les tâches restent « à faire » jusqu'au bouton Lancer. "

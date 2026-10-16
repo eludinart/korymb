@@ -243,9 +243,6 @@ def _maybe_seal(
     job_logs: list[str] | None,
     job_id: str | None,
 ) -> tuple[str, str, dict | None]:
-    mode = normalize_chat_use_mode(chat_use_mode)
-    if mode == CHAT_USE_MODE_QUOTIDIEN and not user_asks_product_ops(message):
-        return reply, surface, None
     from services.claim_guard import seal_chat_texts
 
     reply2, surface2, claims = seal_chat_texts(
