@@ -23,6 +23,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     links: [
       { href: "/administration/equipes", label: "Équipes" },
       { href: "/administration/agents", label: "Fiches agents", operatorOnly: true },
+      { href: "/administration/classique", label: "Agents connectés", operatorOnly: true },
     ],
   },
   {
@@ -94,6 +95,7 @@ export const OPERATOR_ADMIN_PREFIXES = [
   "/administration/agent-groups",
   "/administration/portefeuille",
   "/administration/enveloppes",
+  "/administration/classique",
   "/configuration",
 ] as const;
 
