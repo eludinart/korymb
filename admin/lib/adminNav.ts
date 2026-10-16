@@ -31,6 +31,7 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
     links: [
       { href: "/administration/dashboard", label: "Santé système", operatorOnly: true },
       { href: "/administration/integrations", label: "Intégrations" },
+      { href: "/administration/apify", label: "Robots Apify", operatorOnly: true },
       { href: "/administration/recommandations", label: "Recommandations", operatorOnly: true },
       { href: "/administration/budget", label: "Budget & coûts", operatorOnly: true },
       { href: "/administration/reprise", label: "Audit reprise", operatorOnly: true },
@@ -84,6 +85,7 @@ export const OPERATOR_ADMIN_PREFIXES = [
   "/administration/recommandations",
   "/administration/budget",
   "/administration/reprise",
+  "/administration/apify",
   "/administration/templates",
   "/administration/orchestration",
   "/administration/comportements",

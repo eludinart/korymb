@@ -76,6 +76,7 @@ from routers.core_orchestration_prompts import router as core_orchestration_prom
 from routers.core_behavior_settings import router as core_behavior_settings_router
 from routers.core_config_suggestions import router as core_config_suggestions_router
 from routers.core_admin import router as core_admin_router
+from routers.core_apify import router as core_apify_router
 from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
 from routers.core_auth import router as core_auth_router
@@ -204,6 +205,7 @@ app.include_router(core_orchestration_prompts_router)
 app.include_router(core_behavior_settings_router)
 app.include_router(core_config_suggestions_router)
 app.include_router(core_admin_router)
+app.include_router(core_apify_router)
 app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
 app.include_router(core_auth_router)
