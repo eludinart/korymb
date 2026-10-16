@@ -24,8 +24,9 @@
 
 ## Chat → projet
 - Depuis le chat, « crée le projet … » écrit un vrai dossier (`/gestion/projets`) et une carte « À faire » par tâche (Missions, kanban, carte, briefing).
+- « Modifie / renomme / coche / retire » un projet ou une tâche appelle `korymb_update_project`. Un playbook ou un template se corrige avec `korymb_save_*` et son id.
 - Les tâches ne lancent pas les agents toutes seules : bouton **Lancer**.
-- Interdit de dire que le chat ne peut pas créer de projet, ou de renvoyer vers Projets → +.
+- Interdit de dire que le chat ne peut pas créer ou modifier un projet, ou de renvoyer vers Projets → +.
 
 ## Chat & QCM
 - Question « ce qui marche / ce qui bloque » : deux blocs courts tirés de ce fichier. Pas de roadmap.

@@ -15,7 +15,9 @@ WORKSPACE_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
         "korymb_save_mission_template",
         "korymb_list_playbooks",
         "korymb_save_playbook",
+        "korymb_list_projects",
         "korymb_create_project",
+        "korymb_update_project",
     ),
 }
 
@@ -27,7 +29,11 @@ WORKSPACE_SETUP_CONTEXT = (
     "à partir de la conversation : appelle `korymb_create_project` dans ce tour. "
     "Ça écrit le dossier Gestion, les étapes, et une mission « à faire » par tâche "
     "(Missions, kanban, carte, briefing). "
-    "Interdit de dire que tu n'as pas l'outil, ou de renvoyer le dirigeant "
+    "S'il demande de **modifier** un projet, une tâche, une étape ou une carte "
+    "(titre, description, statut, ajout, renommage, fait, retrait) : "
+    "`korymb_list_projects` puis `korymb_update_project` dans ce tour. "
+    "Un playbook ou un template existant se corrige avec `korymb_save_*` et son id. "
+    "Interdit de dire que tu n'as pas d'outil d'édition, ou de renvoyer le dirigeant "
     "cliquer Projets → +.\n"
     "Si le dirigeant demande de mettre en place, enregistrer, installer un dispositif "
     "(prompts stratégiques, fiches SWOT, communication, process) : "
@@ -140,6 +146,93 @@ WORKSPACE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 },
             },
             "required": ["title"],
+        },
+    },
+    {
+        "name": "korymb_list_projects",
+        "description": (
+            "Liste les projets du workspace avec leurs tâches (titre, fait ou non, carte mission). "
+            "À appeler avant de modifier un projet dont tu n'as pas l'id."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "korymb_update_project",
+        "description": (
+            "Modifie un projet Korymb déjà créé, et ses tâches / cartes « à faire ». "
+            "Retrouve-le par project_id ou par title (titre actuel). "
+            "new_title renomme le dossier. description, status et project_type mettent à jour la fiche. "
+            "add_tasks ajoute des cartes. complete_tasks coche une tâche et sort la carte « à faire ». "
+            "reopen_tasks la rouvre. remove_tasks retire une tâche pas encore lancée. "
+            "rename_tasks et update_tasks corrigent le titre ou le détail. "
+            "N'utilise pas cet outil pour un contact, un devis, un e-mail ou un post."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string", "description": "Id du projet si connu"},
+                "title": {"type": "string", "description": "Titre actuel, pour retrouver le projet"},
+                "new_title": {"type": "string", "description": "Nouveau titre, seulement en cas de renommage"},
+                "description": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "description": "active | on_hold | draft | completed | cancelled",
+                },
+                "project_type": {
+                    "type": "string",
+                    "description": "seance | stage | module_pro | accompagnement | sivana | autre",
+                },
+                "add_tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "detail": {"type": "string"},
+                        },
+                        "required": ["title"],
+                    },
+                },
+                "complete_tasks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Titres de tâches à marquer faites",
+                },
+                "reopen_tasks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Titres de tâches à rouvrir",
+                },
+                "remove_tasks": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Titres de tâches à retirer",
+                },
+                "rename_tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "new_title": {"type": "string"},
+                        },
+                        "required": ["title", "new_title"],
+                    },
+                },
+                "update_tasks": {
+                    "type": "array",
+                    "description": "Nouveau détail d'une tâche existante",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "detail": {"type": "string"},
+                        },
+                        "required": ["title", "detail"],
+                    },
+                },
+            },
+            "required": [],
         },
     },
 ]
@@ -427,13 +520,319 @@ def run_create_project(inp: dict[str, Any]) -> str:
     )
 
 
+_STATUS_ALIASES = {
+    "active": "active",
+    "actif": "active",
+    "en cours": "active",
+    "on_hold": "on_hold",
+    "pause": "on_hold",
+    "en pause": "on_hold",
+    "draft": "draft",
+    "brouillon": "draft",
+    "completed": "completed",
+    "termine": "completed",
+    "fait": "completed",
+    "cloture": "completed",
+    "cancelled": "cancelled",
+    "annule": "cancelled",
+}
+
+
+def _name_list(raw: Any) -> list[str]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            raw = [ln.strip(" -\t") for ln in text.splitlines() if ln.strip()]
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    for item in raw:
+        title = ""
+        if isinstance(item, str):
+            title = item.strip()
+        elif isinstance(item, dict):
+            title = str(item.get("title") or item.get("label") or "").strip()
+        if title:
+            out.append(title[:180])
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _project_snapshot(row: dict[str, Any]) -> dict[str, Any]:
+    tasks = []
+    for milestone in row.get("milestones") or []:
+        if not isinstance(milestone, dict):
+            continue
+        tasks.append(
+            {
+                "title": str(milestone.get("label") or ""),
+                "done": bool(milestone.get("done")),
+                "job_id": str(milestone.get("job_id") or ""),
+            }
+        )
+    pid = str(row.get("id") or "")
+    return {
+        "id": pid,
+        "title": row.get("title"),
+        "status": row.get("status"),
+        "project_type": row.get("project_type"),
+        "description": str(row.get("description") or "")[:500],
+        "href": f"/gestion/projets/{pid}",
+        "tasks": tasks,
+    }
+
+
+def _resolve_project(inp: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    from services.business_db import get_project, list_projects
+
+    pid = str(inp.get("project_id") or "").strip()
+    if pid:
+        row = get_project(pid)
+        if not row:
+            return None, f"Projet introuvable : {pid}"
+        return row, None
+    title = str(inp.get("title") or "").strip()
+    if not title:
+        return None, "project_id ou title est requis."
+    wanted = _fold_title(title)
+    rows = list_projects(limit=200)
+    exact = [r for r in rows if _fold_title(str(r.get("title") or "")) == wanted]
+    hits = exact or [r for r in rows if wanted in _fold_title(str(r.get("title") or ""))]
+    if len(hits) == 1:
+        return hits[0], None
+    if not hits:
+        return None, f"Aucun projet ne correspond à « {title} »."
+    names = ", ".join(f"{r.get('title')} ({r.get('id')})" for r in hits[:6])
+    return None, f"Plusieurs projets correspondent. Précise project_id : {names}"
+
+
+def _milestone_index(milestones: list[dict[str, Any]], title: str) -> int:
+    wanted = _fold_title(title)
+    for idx, milestone in enumerate(milestones):
+        if _fold_title(str(milestone.get("label") or "")) == wanted:
+            return idx
+    return -1
+
+
+def _append_planned_tasks(
+    *,
+    project_id: str,
+    project_title: str,
+    description: str,
+    milestones: list[dict[str, Any]],
+    linked: list[str],
+    tasks: list[dict[str, str]],
+) -> list[dict[str, str]]:
+    from database import insert_planned_job
+
+    made: list[dict[str, str]] = []
+    for task in tasks:
+        jid = uuid.uuid4().hex[:8]
+        insert_planned_job(
+            jid,
+            "coordinateur",
+            _planned_mission_text(
+                project_title=project_title,
+                task_title=task["title"],
+                detail=task["detail"],
+                description=description,
+            ),
+            source="project",
+            mission_config={"mode": "cio", "project_id": project_id, "origin": "chat"},
+        )
+        milestones.append({"label": task["title"], "done": False, "job_id": jid})
+        linked.append(jid)
+        made.append({"job_id": jid, "title": task["title"], "href": f"/missions?job={jid}"})
+    return made
+
+
+def run_list_projects() -> str:
+    from services.business_db import list_projects
+
+    rows = [_project_snapshot(row) for row in list_projects(limit=40)]
+    return _json({"ok": True, "href": "/gestion/projets", "projects": rows})
+
+
+def run_update_project(inp: dict[str, Any]) -> str:
+    from database import delete_job_cascade, get_job, set_job_status_quick, update_job_mission_text
+    from services.business_db import PROJECT_STATUSES, PROJECT_TYPES, get_project, update_project
+
+    project, err = _resolve_project(inp)
+    if err or not project:
+        return _json({"ok": False, "error": err or "Projet introuvable."})
+    pid = str(project.get("id") or "")
+    milestones = [dict(m) for m in (project.get("milestones") or []) if isinstance(m, dict)]
+    linked = [str(x) for x in (project.get("linked_job_ids") or []) if str(x).strip()]
+    title = str(project.get("title") or "")
+    description = str(project.get("description") or "")
+    notes: list[str] = []
+    fields: dict[str, Any] = {}
+
+    new_title = str(inp.get("new_title") or "").strip()[:200]
+    if new_title and _fold_title(new_title) != _fold_title(title):
+        fields["title"] = new_title
+        for milestone in milestones:
+            jid = str(milestone.get("job_id") or "")
+            job = get_job(jid) if jid else None
+            if job and str(job.get("status") or "") == "planned":
+                mission = str(job.get("mission") or "")
+                first, sep, rest = mission.partition("\n")
+                prefix = f" — {title}"
+                if first.endswith(prefix):
+                    first = first[: -len(prefix)] + f" — {new_title}"
+                    update_job_mission_text(jid, first + (sep + rest if sep else ""))
+        title = new_title
+        notes.append("titre")
+
+    if "description" in inp:
+        description = str(inp.get("description") or "").strip()[:8000]
+        fields["description"] = description
+        notes.append("description")
+
+    if inp.get("status"):
+        status = _STATUS_ALIASES.get(_fold_title(str(inp.get("status") or "")), "")
+        if status not in PROJECT_STATUSES:
+            return _json({"ok": False, "error": "status invalide.", "project": _project_snapshot(project)})
+        fields["status"] = status
+        notes.append("statut")
+
+    if inp.get("project_type"):
+        kind = str(inp.get("project_type") or "").strip().lower()
+        if kind not in PROJECT_TYPES:
+            return _json({"ok": False, "error": "project_type invalide.", "project": _project_snapshot(project)})
+        fields["project_type"] = kind
+        notes.append("type")
+
+    added = _append_planned_tasks(
+        project_id=pid,
+        project_title=title,
+        description=description,
+        milestones=milestones,
+        linked=linked,
+        tasks=[
+            task
+            for task in _parse_tasks(inp.get("add_tasks"))
+            if _milestone_index(milestones, task["title"]) < 0
+        ],
+    )
+    if added:
+        notes.append(f"{len(added)} tâche(s) ajoutée(s)")
+
+    for old_name in _name_list(inp.get("complete_tasks")):
+        idx = _milestone_index(milestones, old_name)
+        if idx < 0:
+            notes.append(f"introuvable : {old_name}")
+            continue
+        milestones[idx]["done"] = True
+        jid = str(milestones[idx].get("job_id") or "")
+        job = get_job(jid) if jid else None
+        if job and str(job.get("status") or "") == "planned":
+            set_job_status_quick(jid, "completed")
+        notes.append(f"faite : {milestones[idx].get('label')}")
+
+    for old_name in _name_list(inp.get("reopen_tasks")):
+        idx = _milestone_index(milestones, old_name)
+        if idx < 0:
+            notes.append(f"introuvable : {old_name}")
+            continue
+        milestones[idx]["done"] = False
+        jid = str(milestones[idx].get("job_id") or "")
+        job = get_job(jid) if jid else None
+        if job and str(job.get("status") or "") == "completed" and str(job.get("source") or "") == "project":
+            set_job_status_quick(jid, "planned")
+        notes.append(f"rouverte : {milestones[idx].get('label')}")
+
+    rename_raw = inp.get("rename_tasks") or []
+    if isinstance(rename_raw, str):
+        try:
+            rename_raw = json.loads(rename_raw)
+        except json.JSONDecodeError:
+            rename_raw = []
+    for item in rename_raw if isinstance(rename_raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        old_name = str(item.get("title") or "").strip()
+        renamed = str(item.get("new_title") or "").strip()[:180]
+        idx = _milestone_index(milestones, old_name)
+        if idx < 0 or not renamed:
+            notes.append(f"introuvable : {old_name or renamed}")
+            continue
+        milestones[idx]["label"] = renamed
+        jid = str(milestones[idx].get("job_id") or "")
+        job = get_job(jid) if jid else None
+        if job and str(job.get("status") or "") == "planned":
+            mission = str(job.get("mission") or "")
+            _first, sep, rest = mission.partition("\n")
+            update_job_mission_text(jid, f"{renamed} — {title}" + (sep + rest if sep else ""))
+        notes.append(f"renommée : {renamed}")
+
+    for task in _parse_tasks(inp.get("update_tasks")):
+        idx = _milestone_index(milestones, task["title"])
+        if idx < 0:
+            notes.append(f"introuvable : {task['title']}")
+            continue
+        jid = str(milestones[idx].get("job_id") or "")
+        job = get_job(jid) if jid else None
+        if job and str(job.get("status") or "") == "planned":
+            update_job_mission_text(
+                jid,
+                _planned_mission_text(
+                    project_title=title,
+                    task_title=str(milestones[idx].get("label") or task["title"]),
+                    detail=task["detail"],
+                    description=description,
+                ),
+            )
+            notes.append(f"détail : {milestones[idx].get('label')}")
+        else:
+            notes.append(f"détail non réécrit (tâche déjà lancée) : {task['title']}")
+
+    for old_name in _name_list(inp.get("remove_tasks")):
+        idx = _milestone_index(milestones, old_name)
+        if idx < 0:
+            notes.append(f"introuvable : {old_name}")
+            continue
+        jid = str(milestones[idx].pop("job_id", "") or "")
+        label = str(milestones[idx].get("label") or old_name)
+        milestones.pop(idx)
+        linked = [x for x in linked if x != jid]
+        job = get_job(jid) if jid else None
+        if job and str(job.get("status") or "") == "planned":
+            delete_job_cascade(jid)
+            notes.append(f"retirée : {label}")
+        else:
+            notes.append(f"retirée du projet, mission conservée : {label}")
+
+    fields["milestones"] = milestones
+    fields["linked_job_ids"] = linked
+    updated = update_project(pid, **fields) or get_project(pid) or project
+    return _json(
+        {
+            "ok": True,
+            "project": _project_snapshot(updated),
+            "added_tasks": added,
+            "notes": notes,
+            "href": f"/gestion/projets/{pid}",
+            "missions_href": "/missions?view=kanban",
+            "message": "Projet mis à jour." if notes else "Aucune modification demandée.",
+        }
+    )
+
+
 def dispatch_workspace_tool(name: str, inp: dict[str, Any]) -> str | None:
     handlers: dict[str, Callable[[], str]] = {
         "korymb_list_mission_templates": run_list_mission_templates,
         "korymb_save_mission_template": lambda: run_save_mission_template(inp),
         "korymb_list_playbooks": run_list_playbooks,
         "korymb_save_playbook": lambda: run_save_playbook(inp),
+        "korymb_list_projects": run_list_projects,
         "korymb_create_project": lambda: run_create_project(inp),
+        "korymb_update_project": lambda: run_update_project(inp),
     }
     fn = handlers.get(name)
     if fn is None:

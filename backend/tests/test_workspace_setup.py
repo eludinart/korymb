@@ -64,6 +64,8 @@ def test_workspace_tools_exposed_for_assistant_tag(client):
     assert "korymb_save_mission_template" in names
     assert "korymb_save_playbook" in names
     assert "korymb_create_project" in names
+    assert "korymb_list_projects" in names
+    assert "korymb_update_project" in names
     assert "korymb_list_mission_templates" in names
 
 
@@ -118,3 +120,61 @@ def test_create_project_writes_tasks_and_reuses_title(client):
     refreshed = get_project(created["id"])
     assert refreshed is not None
     assert len(refreshed["milestones"]) == 4
+
+
+def test_update_project_renames_completes_and_removes(client):
+    from database import get_job
+    from services.business_db import get_project
+    from tools.workspace_setup import run_create_project, run_list_projects, run_update_project
+
+    created = json.loads(
+        run_create_project(
+            {
+                "title": "Atelier Sivana",
+                "description": "Week-end.",
+                "tasks": [{"title": "Accueil"}, {"title": "Clôture"}],
+            }
+        )
+    )
+    assert created["ok"] is True
+    listed = json.loads(run_list_projects())
+    assert any(p["title"] == "Atelier Sivana" for p in listed["projects"])
+
+    updated = json.loads(
+        run_update_project(
+            {
+                "title": "Atelier Sivana",
+                "new_title": "Atelier Sivana été",
+                "description": "Week-end révisé.",
+                "add_tasks": [{"title": "Matériel"}],
+                "complete_tasks": ["Accueil"],
+                "rename_tasks": [{"title": "Clôture", "new_title": "Bilan"}],
+            }
+        )
+    )
+    assert updated["ok"] is True
+    assert updated["project"]["title"] == "Atelier Sivana été"
+    assert updated["project"]["description"].startswith("Week-end révisé")
+    labels = {t["title"]: t for t in updated["project"]["tasks"]}
+    assert labels["Accueil"]["done"] is True
+    assert "Bilan" in labels
+    assert "Matériel" in labels
+    assert "Clôture" not in labels
+
+    accueil = get_job(labels["Accueil"]["job_id"])
+    assert accueil is not None
+    assert accueil["status"] == "completed"
+    bilan = get_job(labels["Bilan"]["job_id"])
+    assert bilan is not None
+    assert str(bilan["mission"]).startswith("Bilan — Atelier Sivana été")
+
+    removed = json.loads(
+        run_update_project({"project_id": created["id"], "remove_tasks": ["Matériel"]})
+    )
+    assert removed["ok"] is True
+    left = {t["title"] for t in removed["project"]["tasks"]}
+    assert "Matériel" not in left
+    assert get_job(labels["Matériel"]["job_id"]) is None
+    stored = get_project(created["id"])
+    assert stored is not None
+    assert stored["title"] == "Atelier Sivana été"

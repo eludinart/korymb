@@ -142,6 +142,8 @@ def test_confirmation_only_for_irreversible_actions():
     assert chat_message_needs_confirmation("crée la fiche de Martin") is True
     assert chat_message_needs_confirmation("crée le projet Pizza Lucio") is False
     assert chat_message_needs_action("crée le projet Pizza Lucio à partir de la discussion") is True
+    assert chat_message_needs_action("modifie le projet Pizza Lucio") is True
+    assert chat_message_needs_confirmation("modifie le projet Pizza Lucio") is False
     assert chat_message_needs_confirmation("Ajoute le coach Dupont au CRM") is True
     assert irreversible_action_label("envoie le devis à Martin") == "Envoyer le devis à Martin"
 

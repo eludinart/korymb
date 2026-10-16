@@ -1870,6 +1870,21 @@ def insert_planned_job(
         conn.commit()
 
 
+def update_job_mission_text(job_id: str, mission: str) -> bool:
+    """Remplace la consigne d'une mission sans changer son statut."""
+    jid = (job_id or "").strip()
+    if not jid:
+        return False
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE jobs SET mission=?, updated_at=? WHERE id=? AND workspace_id=?",
+            ((mission or "")[:8000], now, jid, _ws()),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
+
+
 def save_job(
     job_id: str,
     agent: str,

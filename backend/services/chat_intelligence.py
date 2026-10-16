@@ -275,6 +275,9 @@ def strip_unbacked_team_button(text: str) -> str:
 _PROJECT_WRITE_RE = re.compile(
     r"("
     r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|ouvre|materialise|genere)\b.{0,80}\bprojets?\b|"
+    r"\b(modifie|modifier|change|changer|renomme|renommer|supprime|supprimer|retire|retirer|"
+    r"marque|met a jour|mets a jour|corrige|corriger|cloture|cloturer)\b.{0,80}"
+    r"\b(projets?|taches?|cartes?|etapes?|playbooks?|templates?)\b|"
     r"\bprojets?\b.{0,80}\b(a partir|depuis (la |cette )?(discussion|conversation)|depuis (le |ce )?chat)\b|"
     r"\b(cartes?|taches?)\b.{0,40}\b(kanban|a faire|projet)\b"
     r")",
