@@ -10,6 +10,7 @@ import BriefingCommercialPanel, {
   type CommercialMorningSnapshot,
 } from "../../components/director/BriefingCommercialPanel";
 import BriefingEssential from "../../components/director/BriefingEssential";
+import JarvisHome, { type JarvisHomeData } from "../../components/director/JarvisHome";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import WorkSurfaceSwitcher from "../../components/director/WorkSurfaceSwitcher";
@@ -93,6 +94,7 @@ function BriefingPageContent() {
           href?: string;
         } | null;
         inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
+        jarvis?: JarvisHomeData | null;
         llm_envelope?: LlmEnvelope | null;
         unconsulted_results?: Array<{
           job_id: string;
@@ -156,6 +158,7 @@ function BriefingPageContent() {
           memoryDigest={b?.memory_digest || null}
           dayAnticipation={b?.day_anticipation || null}
           inboxSeverity={b?.inbox_severity || null}
+          jarvis={b?.jarvis || null}
         />
       </PageShell>
     );
@@ -198,6 +201,7 @@ function BriefingPageContent() {
 
         {b ? (
           <>
+            <JarvisHome data={b.jarvis} />
             <ExecutiveBriefHero data={b} userName={userName} />
             <WorkSurfaceSwitcher
               runningCount={(b.missions_running || []).length}

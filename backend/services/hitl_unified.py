@@ -44,15 +44,33 @@ def resolve_hitl(
         return _attach_cio_chain(result, orphan_scheduled=False, inline_waiter=inline_waiter)
     dec = str(result.get("decision") or decision or "").strip().lower()
     orphan_scheduled = False
+    try:
+        from services.mission_journal import note_mission
+
+        note_mission(
+            str(result.get("job_id") or job_id),
+            kind="hitl",
+            agent="dirigeant",
+            excerpt=dec or ("approve" if approved is not False else "reject"),
+        )
+    except Exception:
+        logger.exception("journal validation %s", job_id)
     if langgraph_resume:
         try:
-            from graph.engine import use_langgraph_execution
             from graph.runner import resume_mission_graph
 
-            if use_langgraph_execution():
-                payload = {"decision": dec or ("approve" if approved is not False else "reject"), "amended_plan": amended_plan}
-                resume_mission_graph(job_id, payload)
+            payload = {"decision": dec or ("approve" if approved is not False else "reject"), "amended_plan": amended_plan}
+            resumed = resume_mission_graph(str(result.get("job_id") or job_id), payload)
+            if resumed is not None:
                 inline_waiter = True
+                from services.mission_journal import note_mission
+
+                note_mission(
+                    str(result.get("job_id") or job_id),
+                    kind="reprise",
+                    agent="dirigeant",
+                    excerpt="reprise depuis le carnet",
+                )
         except Exception as exc:
             logger.warning("LangGraph resume after HITL failed for %s: %s", job_id, exc)
     if result.get("success") and dec in ("approve", "amend") and not inline_waiter:
@@ -66,6 +84,14 @@ def resolve_hitl(
                 name=f"hitl-resume-{resume_id[:8]}",
             )
             orphan_scheduled = True
+            from services.mission_journal import note_mission
+
+            note_mission(
+                resume_id,
+                kind="reprise",
+                agent="dirigeant",
+                excerpt="reprise depuis le plan enregistré",
+            )
         except Exception:
             logger.exception("HITL orphan resume schedule failed for %s", job_id)
     return _attach_cio_chain(result, orphan_scheduled=orphan_scheduled, inline_waiter=inline_waiter)

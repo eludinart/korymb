@@ -5,6 +5,7 @@ import json
 import uuid as _uuid
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 # Réponses chat : déjà visibles dans /chat — pas d'archive cloche ni d'email/webhook.
 EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
@@ -753,6 +754,182 @@ def _recent_error_jobs(jobs: list[dict], *, limit: int = 3) -> list[dict]:
     return out
 
 
+def _jarvis_action_label(kind: str) -> str:
+    if kind in {"action_ticket", "hitl"}:
+        return "Valider"
+    if kind in {"cio_question", "closure"}:
+        return "Décider"
+    return "Ouvrir"
+
+
+def _session_from_conversations(entry: dict, conversations: list[dict]) -> str:
+    """Retrouve le fil dont le message ou le job correspond à la note affichée."""
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    needle = " ".join(str(entry.get("mission") or "").split()).casefold()[:72]
+    if job_id:
+        for conv in conversations:
+            if not isinstance(conv, dict):
+                continue
+            cid = str(conv.get("id") or "").strip()[:64]
+            if not cid:
+                continue
+            if str(conv.get("linked_parent_job_id") or "").strip() == job_id:
+                return cid
+            msgs = conv.get("messages") if isinstance(conv.get("messages"), list) else []
+            for msg in msgs:
+                if not isinstance(msg, dict):
+                    continue
+                mid = str(msg.get("id") or "")
+                if mid in {f"a-{job_id}", f"e-{job_id}", f"ack-{job_id}"}:
+                    return cid
+    if len(needle) < 24:
+        return ""
+    for conv in conversations:
+        if not isinstance(conv, dict):
+            continue
+        cid = str(conv.get("id") or "").strip()[:64]
+        if not cid:
+            continue
+        msgs = conv.get("messages") if isinstance(conv.get("messages"), list) else []
+        for msg in msgs:
+            if not isinstance(msg, dict) or str(msg.get("role") or "") != "user":
+                continue
+            text = " ".join(str(msg.get("content") or "").split()).casefold()
+            if text.startswith(needle) or (len(text) >= 24 and needle.startswith(text[:72])):
+                return cid
+            break
+    return ""
+
+
+def _lookup_chat_session_for_recent(entry: dict) -> str:
+    """Session du job, sinon le fil dont le premier message reprend la note."""
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    try:
+        if job_id:
+            from database import get_job
+
+            row = get_job(job_id) or {}
+            session = str(row.get("chat_session_id") or "").strip()[:64]
+            if session:
+                return session
+        from database import list_chat_conversations
+
+        return _session_from_conversations(entry, list_chat_conversations(limit=40))
+    except Exception:
+        return ""
+
+
+def _chat_resume_href(entry: dict) -> str:
+    """Ouvre le fil concerné. /chat seul crée une conversation vide."""
+    session = str(entry.get("chat_session_id") or "").strip()[:64]
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    mission = " ".join(str(entry.get("mission") or "").split())
+    if not session and (job_id or len(mission) >= 24):
+        session = _lookup_chat_session_for_recent(entry)
+    if session:
+        return f"/chat?session={quote(session, safe='')}"
+    if job_id:
+        return f"/chat?job={quote(job_id, safe='')}"
+    return "/chat"
+
+
+def build_jarvis_home(
+    *,
+    decisions: list[dict] | None = None,
+    running: list[dict] | None = None,
+    recent_missions: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Phrase du matin, note d'hier, une action, et la suite visible."""
+    decisions = [d for d in (decisions or []) if isinstance(d, dict)]
+    running = [r for r in (running or []) if isinstance(r, dict)]
+    recent = [m for m in (recent_missions or []) if isinstance(m, dict)]
+    bits: list[str] = []
+    if decisions:
+        n = len(decisions)
+        bits.append(f"{n} chose{'s' if n > 1 else ''} à valider")
+    if running:
+        n = len(running)
+        bits.append(f"{n} en cours")
+    yesterday = None
+    if recent:
+        last = recent[-1]
+        title = " ".join(str(last.get("mission") or "").split())[:90]
+        excerpt = " ".join(str(last.get("preview") or "").split())[:180]
+        spans = last.get("span_ids") if isinstance(last.get("span_ids"), list) else []
+        if title or excerpt:
+            yesterday = {
+                "title": title or "Note d'hier",
+                "excerpt": excerpt,
+                "span_count": len([s for s in spans if s]),
+                "href": _chat_resume_href(last),
+            }
+            bits.append("la suite d'hier")
+    if not bits:
+        line = "Rien d'urgent. Vous pouvez demander quelque chose, ou laisser la journée tranquille."
+    elif len(bits) == 1:
+        line = f"Aujourd'hui : {bits[0]}."
+    else:
+        line = "Aujourd'hui : " + ", ".join(bits[:-1]) + " et " + bits[-1] + "."
+
+    first = decisions[0] if decisions else None
+    if first:
+        next_action = {
+            "label": _jarvis_action_label(str(first.get("kind") or "")),
+            "detail": str(first.get("title") or first.get("mission") or "À valider")[:140],
+            "href": str(first.get("href") or "/inbox"),
+        }
+    elif running:
+        mission = " ".join(str(running[0].get("mission") or "").split())[:120]
+        next_action = {
+            "label": "Voir ce qui avance",
+            "detail": mission or "Un travail est en cours",
+            "href": "/chat",
+        }
+    else:
+        next_action = {
+            "label": "Demander",
+            "detail": "Une phrase suffit.",
+            "href": "/chat",
+        }
+
+    suite = [
+        {
+            "id": "source",
+            "label": "Voir d'où vient une réponse",
+            "detail": "Dans la conversation, ouvrez « D'où ça vient ».",
+            "href": "/chat",
+            "ready": True,
+        },
+        {
+            "id": "validate",
+            "label": "Rien ne part sans votre oui",
+            "detail": "Un envoi s'arrête ici, jusqu'au clic.",
+            "href": "/inbox",
+            "ready": True,
+        },
+        {
+            "id": "voice",
+            "label": "Parler à voix haute",
+            "detail": "Plus tard.",
+            "href": "",
+            "ready": False,
+        },
+        {
+            "id": "one-screen",
+            "label": "Un seul écran, sans menus",
+            "detail": "Plus tard.",
+            "href": "",
+            "ready": False,
+        },
+    ]
+    return {
+        "line": line,
+        "yesterday": yesterday,
+        "next_action": next_action,
+        "suite": suite,
+    }
+
+
 def _build_executive_summary(
     *,
     inbox_total: int,
@@ -955,11 +1132,27 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     except Exception:
         thinking_modes_list = []
 
+    recent_missions: list[dict] = []
+    try:
+        from database import get_enterprise_memory
+
+        mem = get_enterprise_memory()
+        raw_recent = mem.get("recent_missions") if isinstance(mem, dict) else []
+        recent_missions = [m for m in (raw_recent or []) if isinstance(m, dict)]
+    except Exception:
+        recent_missions = []
+    jarvis = build_jarvis_home(
+        decisions=list(inbox.get("items") or [])[:5],
+        running=running[:10],
+        recent_missions=recent_missions,
+    )
+
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
         "llm_envelope": llm_envelope,
         "executive_summary": executive_summary,
+        "jarvis": jarvis,
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
         "memory_highlights": memory_highlights,
         "memory_digest": _memory_digest(pending_count=pending_memory, highlights=memory_highlights),

@@ -1,8 +1,7 @@
-"""Sélection moteur orchestration : legacy | langgraph | shadow."""
+"""Sélection moteur : langgraph (second cerveau) | legacy | shadow."""
 from __future__ import annotations
 
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 
@@ -10,8 +9,8 @@ _ENGINES = frozenset({"legacy", "langgraph", "shadow"})
 
 
 def langgraph_allowed() -> bool:
-    """Prod : langgraph/shadow bloqués sauf KORYMB_ALLOW_LANGGRAPH=1."""
-    return str(os.getenv("KORYMB_ALLOW_LANGGRAPH") or "").strip().lower() in {"1", "true", "yes", "on"}
+    """Le second cerveau est le chemin normal tant que l'application n'est pas lancée aux clients."""
+    return True
 
 
 def get_orchestration_engine() -> str:
@@ -22,18 +21,13 @@ def get_orchestration_engine() -> str:
         raw = get_behavior_setting("orchestration.engine")
         if raw is None:
             raw = behavior_default_value("orchestration.engine")
-        engine = str(raw or "legacy").strip().lower()
+        engine = str(raw or "langgraph").strip().lower()
         if engine not in _ENGINES:
-            return "legacy"
-        if engine in {"langgraph", "shadow"} and not langgraph_allowed():
-            logger.warning(
-                "orchestration.engine=%s ignoré (gelé) — définir KORYMB_ALLOW_LANGGRAPH=1 pour activer",
-                engine,
-            )
-            return "legacy"
+            return "langgraph"
         return engine
     except Exception:
-        return "legacy"
+        logger.exception("lecture du moteur d'orchestration")
+        return "langgraph"
 
 
 def use_langgraph_execution() -> bool:

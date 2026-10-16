@@ -20,11 +20,11 @@ BEHAVIOR_DEFAULTS: dict[str, dict[str, Any]] = {
         "type": "string",
         "label": "Moteur orchestration mission",
         "description": (
-            "legacy = pipeline historique (moteur opérationnel). "
-            "langgraph / shadow = gelés en production ; nécessitent KORYMB_ALLOW_LANGGRAPH=1 "
-            "(checkpointer SQLite local, nœuds encore wrappers du legacy)."
+            "langgraph = second cerveau, chemin normal de tous les espaces. "
+            "legacy = ancien moteur, aussi utilisé automatiquement si le graphe casse. "
+            "shadow = le graphe tourne en plus de l'ancien moteur (la réponse servie reste l'ancienne)."
         ),
-        "value": "legacy",
+        "value": "langgraph",
     },
     "orchestration.tools.sandbox_execute": {
         "category": "orchestration",

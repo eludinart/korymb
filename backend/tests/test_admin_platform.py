@@ -138,6 +138,72 @@ def test_admin_briefing(client):
     assert isinstance(body["unconsulted_results"], list)
     assert "commercial" in body
     assert "counts" in body["commercial"]
+    assert "jarvis" in body
+    assert isinstance(body["jarvis"].get("line"), str)
+    assert body["jarvis"]["line"]
+    assert isinstance(body["jarvis"].get("suite"), list)
+    assert any(item.get("ready") is False for item in body["jarvis"]["suite"])
+
+
+def test_jarvis_home_sentence():
+    from services.director_platform import build_jarvis_home
+
+    quiet = build_jarvis_home()
+    assert quiet["line"].startswith("Rien d'urgent")
+    assert quiet["next_action"]["label"] == "Demander"
+    assert quiet["yesterday"] is None
+
+    busy = build_jarvis_home(
+        decisions=[{"kind": "action_ticket", "title": "Envoyer à Camille", "href": "/inbox"}],
+        running=[{"mission": "Préparer le devis"}],
+        recent_missions=[{"mission": "Studio hier", "preview": "Trois pistes.", "span_ids": ["abc", "def"]}],
+    )
+    assert "à valider" in busy["line"]
+    assert "en cours" in busy["line"]
+    assert "suite d'hier" in busy["line"]
+    assert busy["yesterday"]["span_count"] == 2
+    assert busy["yesterday"]["href"] == "/chat"
+    assert busy["next_action"]["label"] == "Valider"
+
+    anchored = build_jarvis_home(
+        recent_missions=[
+            {
+                "mission": "Emmener le patient vers l'arrêt du tabac",
+                "preview": "Décision : un récit.",
+                "job_id": "jobtabac",
+                "chat_session_id": "conv-patient",
+            }
+        ],
+    )
+    assert anchored["yesterday"]["href"] == "/chat?session=conv-patient"
+
+
+def test_jarvis_resume_finds_the_conversation_of_the_note(monkeypatch):
+    from services import director_platform as dp
+
+    note = {
+        "job_id": "jobtabac",
+        "mission": "J'aimerais emmener mon patient dans une exploration de type boîte à changer",
+    }
+    conversations = [
+        {
+            "id": "conv-autre",
+            "messages": [{"id": "u-1", "role": "user", "content": "Autre sujet entièrement différent ici"}],
+        },
+        {
+            "id": "conv-patient",
+            "messages": [
+                {"id": "u-2", "role": "user", "content": note["mission"] + ", une belle histoire"},
+                {"id": "a-jobtabac", "role": "assistant", "content": "Décision : lire le texte en séance."},
+            ],
+        },
+    ]
+    assert dp._session_from_conversations(note, conversations) == "conv-patient"
+    assert dp._chat_resume_href({**note, "chat_session_id": "conv-patient"}) == "/chat?session=conv-patient"
+    monkeypatch.setattr(dp, "_lookup_chat_session_for_recent", lambda _entry: "")
+    assert dp._chat_resume_href({"job_id": "abcd1234", "mission": "court"}) == "/chat?job=abcd1234"
+    monkeypatch.setattr(dp, "_lookup_chat_session_for_recent", lambda _entry: "conv-patient")
+    assert dp._chat_resume_href(note) == "/chat?session=conv-patient"
 
 
 def test_severity_band_and_memory_digest():

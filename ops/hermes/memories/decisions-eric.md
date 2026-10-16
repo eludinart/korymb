@@ -42,6 +42,10 @@ Document **prioritaire**. Ne pas contredire sans confirmation explicite d'Éric.
 - Coût LLM >5 USD / 24h (seuil actuel)
 - Smoke post-deploy en échec
 
+## LLM
+
+- 15 octobre 2026 : Éric a demandé de sortir Hermes de Mistral payant. Modèle principal : `gemini-3.1-flash-lite`. Bascule ensuite vers Nemotron Ultra `:free`, Nemotron Lightning `:free`, Gemma 4 31B `:free`, puis Groq `openai/gpt-oss-120b`, puis `mistral-small-latest` seulement si tous les gratuits échouent. Ne pas remettre `mistral-medium` ni `mistral-large` en modèle principal. Gemini d'abord, pour ne pas manger le quota Groq de Korymb.
+
 ## Secrets
 
 - `KORYMB_AGENT_SECRET` dans `/opt/data/.env` = `AGENT_API_SECRET` backend Korymb (pour `korymb-api.sh`).

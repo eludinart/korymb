@@ -48,6 +48,55 @@ def test_overview_map_links_project_to_mission(client):
     assert mission.get("cta", {}).get("href")
 
 
+def test_overview_map_brain_marks_guesses_and_gaps(client):
+    from services.knowledge import upsert_entity
+
+    upsert_entity(
+        name="Fleur Test Cerveau",
+        entity_type="project",
+        attributes={"type": "Cible du lien confirmé"},
+        relations={},
+    )
+    upsert_entity(
+        name="Atelier Test Cerveau",
+        entity_type="project",
+        attributes={"type": "Atelier pour vérifier le ciel"},
+        relations={"supports": ["Fleur Test Cerveau"]},
+    )
+    upsert_entity(
+        name="Orphelin Cerveau",
+        entity_type="other",
+        attributes={"type": "Fiche sans relation"},
+        relations={},
+    )
+    prj = create_project(title="Atelier Test Cerveau — été", project_type="stage", status="active")
+    assert prj and prj.get("id")
+
+    body = client.get("/overview/map").json()
+    fiche = next(n for n in body["nodes"] if n["label"] == "Atelier Test Cerveau")
+    assert fiche["kind"] == "knowledge"
+    assert fiche["detail"] == "Atelier pour vérifier le ciel"
+    assert fiche.get("updated_at")
+    assert fiche.get("cta", {}).get("href") == "/administration/contexte"
+
+    confirmed = [
+        e
+        for e in body["edges"]
+        if not e.get("inferred") and (e["source"] == fiche["id"] or e["target"] == fiche["id"])
+    ]
+    assert confirmed, body["edges"]
+    guessed = [
+        e
+        for e in body["edges"]
+        if e.get("inferred") is True
+        and e.get("kind") == "related"
+        and {e["source"], e["target"]} == {fiche["id"], f"project:{prj['id']}"}
+    ]
+    assert guessed, body["edges"]
+    assert any(g["reason"] == "isolated" and g["label"] == "Orphelin Cerveau" for g in body["gaps"])
+    assert any(g["reason"] == "inferred" and "Atelier Test Cerveau" in g["label"] for g in body["gaps"])
+
+
 def test_overview_map_hitl_plan_meta(client):
     save_job("maphitl01", "coordinateur", "Valider le plan de rentrée", source="mission")
     update_job("maphitl01", "running")

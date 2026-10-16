@@ -6,6 +6,7 @@ import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import ChoiceQuestionnaire from "../ChoiceQuestionnaire";
 import ChatAgentMacaron from "./ChatAgentMacaron";
 import ChatMessageDeliverables from "./ChatMessageDeliverables";
+import ChatSourceNote from "./ChatSourceNote";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
@@ -711,6 +712,9 @@ export default function ChatShell({
                     </div>
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
+                  {m.role === "assistant" && (m.jobId || extractJobIdFromMessageId(m.id)) ? (
+                    <ChatSourceNote jobId={m.jobId || extractJobIdFromMessageId(m.id) || ""} />
+                  ) : null}
                   {m.role === "assistant" && m.pendingAction ? (
                     <div className="mt-2 hidden flex-wrap items-center gap-2 lg:flex">
                       {m.pendingAction.attachments?.length ? (

@@ -281,7 +281,7 @@ def test_new_workspace_engine_settings_are_generic_and_isolated(client):
     settings = {s["setting_key"]: s["value"] for s in behaviors.json()["settings"]}
     assert "LEGACY_ONLY_SANDBOX" not in behaviors.text
     assert set(settings) == set(BEHAVIOR_DEFAULTS)
-    assert settings["orchestration.engine"] == "legacy"
+    assert settings["orchestration.engine"] == "langgraph"
     assert settings["orchestration.tools.sandbox_execute"] is True
     assert settings["orchestration.strict_lazy_delegation"] is True
     assert settings["learning.auto_apply_mode"] == "safe"

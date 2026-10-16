@@ -500,6 +500,9 @@ def _ensure_platform_tables(conn) -> None:
             cost_usd REAL DEFAULT 0,
             latency_ms INTEGER DEFAULT 0,
             behavior_snapshot_hash TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT '',
+            excerpt TEXT NOT NULL DEFAULT '',
+            ref_key TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         )
     """)
@@ -660,6 +663,88 @@ def _ensure_platform_tables(conn) -> None:
             created_at TEXT NOT NULL
         )
     """)
+    ensure_lg_checkpoint_tables(conn)
+    _ensure_mission_trace_columns(conn)
+
+
+def _ensure_mission_trace_columns(conn) -> None:
+    """Colonnes du journal (type, extrait, empreinte d'outil) sur une base déjà créée."""
+    try:
+        if _is_mariadb():
+            rows = conn.execute("SHOW COLUMNS FROM mission_traces").fetchall()
+            cols = {str(dict(r).get("Field") or "") for r in rows or []}
+        else:
+            rows = conn.execute("PRAGMA table_info(mission_traces)").fetchall()
+            cols = {str(r[1]) for r in rows or []}
+    except Exception:
+        return
+    for name in ("kind", "excerpt", "ref_key"):
+        if name in cols:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE mission_traces ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+
+
+def ensure_lg_checkpoint_tables(conn=None) -> None:
+    """Tables de progression LangGraph, dans la même base que les missions."""
+    from workspace_db import _DEFAULT_WORKSPACE_ID
+
+    own = conn is None
+    if own:
+        conn = get_conn()
+    wid = _DEFAULT_WORKSPACE_ID if re.fullmatch(r"ws-[A-Za-z0-9_-]{1,80}", _DEFAULT_WORKSPACE_ID) else "ws-default-legacy"
+    blob = "LONGBLOB" if _is_mariadb() else "BLOB"
+    thread = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    ns = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    cid = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    kind = "VARCHAR(64)" if _is_mariadb() else "TEXT"
+    wscol = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    try:
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS lg_checkpoints (
+                thread_id {thread} NOT NULL,
+                checkpoint_ns {ns} NOT NULL DEFAULT '',
+                checkpoint_id {cid} NOT NULL,
+                parent_checkpoint_id {cid},
+                type {kind},
+                checkpoint {blob},
+                metadata {blob},
+                workspace_id {wscol} NOT NULL DEFAULT '{wid}',
+                PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS lg_checkpoint_writes (
+                thread_id {thread} NOT NULL,
+                checkpoint_ns {ns} NOT NULL DEFAULT '',
+                checkpoint_id {cid} NOT NULL,
+                task_id {cid} NOT NULL,
+                idx INTEGER NOT NULL,
+                channel {ns} NOT NULL,
+                type {kind},
+                value {blob},
+                workspace_id {wscol} NOT NULL DEFAULT '{wid}',
+                PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+            )
+        """)
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            _release_db_conn(conn)
+
+
+def _release_db_conn(conn) -> None:
+    """Rend une connexion au pool, ou ferme le fichier SQLite des tests."""
+    if _is_mariadb():
+        conn.__exit__(None, None, None)
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
 def _ensure_chat_conversations_columns(conn) -> None:
@@ -1331,6 +1416,19 @@ def _bare_behavior_key(stored_key: str) -> str:
     return key
 
 
+def promote_brain_engine_once() -> None:
+    """Passe les espaces encore sur l'ancien moteur par défaut vers le second cerveau.
+
+    Une fois le passage fait, un choix explicite « legacy » est conservé.
+    """
+    if get_behavior_setting("_brain_promoted") is True:
+        return
+    current = str(get_behavior_setting("orchestration.engine") or "").strip().lower()
+    if current in {"", "legacy"}:
+        upsert_behavior_setting("orchestration.engine", "langgraph")
+    upsert_behavior_setting("_brain_promoted", True)
+
+
 def seed_behavior_defaults() -> None:
     from services.behavior_defaults import BEHAVIOR_DEFAULTS
 
@@ -1351,6 +1449,7 @@ def seed_behavior_defaults() -> None:
                 (stored, payload, now, wid),
             )
         conn.commit()
+    promote_brain_engine_once()
 
 
 def get_behavior_setting(setting_key: str) -> Any | None:
@@ -2193,19 +2292,26 @@ def insert_mission_trace(
     cost_usd: float = 0,
     latency_ms: int = 0,
     behavior_snapshot_hash: str = "",
+    kind: str = "",
+    excerpt: str = "",
+    ref_key: str = "",
 ) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        _ensure_mission_trace_columns(conn)
         conn.execute(
             """
             INSERT INTO mission_traces (
                 job_id, span_id, graph_node, agent, provider, model,
-                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, created_at, workspace_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash,
+                kind, excerpt, ref_key, created_at, workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, span_id, graph_node, agent, provider, model,
-                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, now, _ws(),
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash,
+                str(kind or "")[:32], str(excerpt or "")[:800], str(ref_key or "")[:64],
+                now, _ws(),
             ),
         )
         conn.commit()
@@ -4009,6 +4115,8 @@ def delete_job_cascade(job_id: str) -> bool:
         for table, col in (
             ("mission_traces", "job_id"),
             ("mission_checkpoints", "job_id"),
+            ("lg_checkpoints", "thread_id"),
+            ("lg_checkpoint_writes", "thread_id"),
             ("hitl_plan_snapshots", "job_id"),
             ("quality_verdicts", "job_id"),
             ("learning_suggestions", "job_id"),
@@ -5157,10 +5265,48 @@ def upsert_playbook(
 
 
 def list_mission_traces(job_id: str, *, limit: int = 200) -> list[dict]:
+    return search_mission_traces(job_id=job_id, limit=limit)
+
+
+def search_mission_traces(
+    *,
+    job_id: str | None = None,
+    agent: str = "",
+    kind: str = "",
+    ref_key: str = "",
+    since: str = "",
+    until: str = "",
+    limit: int = 200,
+) -> list[dict]:
+    """Retrouve des lignes du journal par mission, agent, type et période."""
     lim = max(1, min(int(limit), 500))
+    clauses = ["workspace_id=?"]
+    params: list[Any] = [_ws()]
+    if job_id:
+        clauses.append("job_id=?")
+        params.append(str(job_id)[:64])
+    if agent:
+        clauses.append("agent=?")
+        params.append(str(agent)[:64])
+    if kind:
+        clauses.append("kind=?")
+        params.append(str(kind)[:32])
+    if ref_key:
+        clauses.append("ref_key=?")
+        params.append(str(ref_key)[:64])
+    if since:
+        clauses.append("created_at>=?")
+        params.append(str(since)[:40])
+    if until:
+        clauses.append("created_at<=?")
+        params.append(str(until)[:40])
+    params.append(lim)
+    sql = (
+        "SELECT * FROM mission_traces WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at ASC LIMIT ?"
+    )
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM mission_traces WHERE job_id=? AND workspace_id=? ORDER BY created_at ASC LIMIT ?",
-            (job_id, _ws(), lim),
-        ).fetchall()
+        _ensure_mission_trace_columns(conn)
+        rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows or []]

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import MapHitlPanel from "./MapHitlPanel";
-import type { MapEdge, MapNode } from "../../lib/operationalMap";
+import type { MapEdge, MapGap, MapNode } from "../../lib/operationalMap";
 import {
   MAP_KIND_LABELS,
   MAP_URGENCY_LABELS,
@@ -27,7 +27,10 @@ type Props = {
     active?: number;
     waiting?: number;
     projects?: number;
+    knowledge?: number;
   };
+  brain?: boolean;
+  gaps?: MapGap[];
   layout?: "dock" | "sheet";
   deleteBusy?: boolean;
   linkBusy?: boolean;
@@ -41,9 +44,11 @@ type Props = {
 
 function RowButton({
   node,
+  note,
   onSelect,
 }: {
   node: MapNode;
+  note?: string;
   onSelect: (id: string) => void;
 }) {
   const when = formatMapTime(node.updated_at);
@@ -63,7 +68,7 @@ function RowButton({
         </span>
       ) : null}
       <span className="mt-1 block text-[11px] text-slate-400">
-        {(node.who || []).slice(0, 2).join(" · ") || MAP_KIND_LABELS[node.kind]}
+        {note || (node.who || []).slice(0, 2).join(" · ") || MAP_KIND_LABELS[node.kind]}
         {when ? ` · ${when}` : ""}
       </span>
     </button>
@@ -126,12 +131,77 @@ function Situation({
   );
 }
 
+function BrainOverview({
+  gaps,
+  ficheCount,
+  onSelect,
+}: {
+  gaps: MapGap[];
+  ficheCount: number;
+  onSelect: (id: string) => void;
+}) {
+  const isolated = gaps.filter((gap) => gap.reason === "isolated");
+  const inferred = gaps.filter((gap) => gap.reason === "inferred");
+  return (
+    <div className="space-y-4">
+      <section>
+        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Ciel</p>
+        <p className="mt-1 text-sm leading-relaxed text-slate-700">
+          {ficheCount} fiche{ficheCount > 1 ? "s" : ""} de contexte. Le ciel montre aussi les équipes et les dossiers. Les trous sont le travail qui reste.
+        </p>
+      </section>
+      {isolated.length ? (
+        <section>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">Sans lien sûr</p>
+          <ul className="mt-1.5 space-y-1">
+            {isolated.map((gap) => (
+              <li key={gap.id}>
+                <button type="button" className="w-full rounded-xl px-2 py-2 text-left hover:bg-amber-50" onClick={() => onSelect(gap.node_id)}>
+                  <span className="block text-sm font-semibold text-slate-800">{gap.label}</span>
+                  <span className="mt-0.5 block text-[12px] text-slate-500">{gap.detail}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {inferred.length ? (
+        <section>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Rapprochements à confirmer</p>
+          <ul className="mt-1.5 space-y-1">
+            {inferred.map((gap) => (
+              <li key={gap.id}>
+                <button type="button" className="w-full rounded-xl px-2 py-2 text-left hover:bg-slate-50" onClick={() => onSelect(gap.node_id)}>
+                  <span className="block text-sm font-semibold text-slate-800">{gap.label}</span>
+                  <span className="mt-0.5 block text-[12px] text-slate-500">{gap.detail}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      {!isolated.length && !inferred.length ? (
+        <p className="text-sm leading-relaxed text-slate-500">
+          {ficheCount === 0
+            ? "Aucune fiche de contexte pour l’instant. Elles apparaîtront ici dès qu’une fiche est confirmée."
+            : "Aucun trou visible. Les fiches sont reliées entre elles."}
+        </p>
+      ) : null}
+      <Link href="/administration/contexte" className="btn-primary flex w-full justify-center text-sm">
+        Enrichir le contexte
+      </Link>
+    </div>
+  );
+}
+
 export default function MapInspector({
   node,
   nodes,
   edges,
   nodesById,
   stats,
+  brain = false,
+  gaps = [],
   layout = "dock",
   deleteBusy,
   linkBusy,
@@ -154,8 +224,8 @@ export default function MapInspector({
         <header className="border-b border-slate-100 px-4 py-3">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Vue d’ensemble</p>
-              <h2 className="text-sm font-semibold text-slate-900">Où en est le QG</h2>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{brain ? "Second cerveau" : "Vue d’ensemble"}</p>
+              <h2 className="text-sm font-semibold text-slate-900">{brain ? "Ce que le cerveau sait" : "Où en est le QG"}</h2>
             </div>
             {sheet ? (
               <button
@@ -169,7 +239,11 @@ export default function MapInspector({
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 pb-safe">
-          <Situation nodes={nodes} stats={stats} onSelect={(id) => onSelect(id)} />
+          {brain ? (
+            <BrainOverview gaps={gaps} ficheCount={stats.knowledge ?? nodes.filter((n) => n.kind === "knowledge").length} onSelect={(id) => onSelect(id)} />
+          ) : (
+            <Situation nodes={nodes} stats={stats} onSelect={(id) => onSelect(id)} />
+          )}
         </div>
       </aside>
     );
@@ -216,6 +290,9 @@ export default function MapInspector({
             </span>
           ) : null}
           {when ? <span className="text-[11px] font-medium text-slate-400">{when}</span> : null}
+          <span className="text-[11px] font-medium text-slate-400">
+            {neighbors.length} lien{neighbors.length > 1 ? "s" : ""}
+          </span>
         </div>
       </header>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3 text-sm">
@@ -226,14 +303,17 @@ export default function MapInspector({
             <p className="mt-1 leading-relaxed text-slate-800">{node.detail}</p>
           </section>
         ) : null}
+        {node.detail && node.detail === node.where ? null : (
         <section>
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Où j’en suis</p>
           <p className="mt-1 leading-relaxed text-slate-800">{node.where || "—"}</p>
         </section>
+        )}
         <section>
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Prochaine étape</p>
           <p className="mt-1 leading-relaxed text-slate-800">{node.next || "Rien de planifié."}</p>
         </section>
+        {node.kind === "knowledge" ? null : (
         <section>
           <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Qui travaille</p>
           {(node.who || []).length ? (
@@ -248,6 +328,7 @@ export default function MapInspector({
             <p className="mt-1 text-sm text-slate-500">Aucun agent identifié.</p>
           )}
         </section>
+        )}
         {node.kind === "mission" && onLinkProject && projects.length ? (
           <section>
             <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Dossier client</p>
@@ -282,7 +363,11 @@ export default function MapInspector({
             <ul className="mt-1 space-y-0.5">
               {neighbors.slice(0, 10).map(({ edge, other }) => (
                 <li key={`${edge.id}:${other.id}`}>
-                  <RowButton node={other} onSelect={(id) => onSelect(id)} />
+                  <RowButton
+                    node={other}
+                    note={edge.inferred ? "Rapprochement à confirmer" : edge.label || MAP_KIND_LABELS[other.kind]}
+                    onSelect={(id) => onSelect(id)}
+                  />
                 </li>
               ))}
             </ul>

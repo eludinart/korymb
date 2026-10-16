@@ -33,6 +33,7 @@ import {
   createConversation,
   deleteConversation,
   ensurePersoConversation,
+  findConversationByJobId,
   getActiveConversationId,
   conversationHasContent,
   isBlankConversation,
@@ -738,10 +739,28 @@ function ChatPageInner() {
       selectConversation(job.conversationId);
       return;
     }
-    const conv = loadConversations().find((c) =>
-      c.messages.some((m) => m.id === `a-${highlightJobId}` || m.id === `e-${highlightJobId}`),
-    );
-    if (conv) selectConversation(conv.id);
+    const conv = findConversationByJobId(highlightJobId);
+    if (conv) {
+      selectConversation(conv.id);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data } = await requestJson(`/jobs/${encodeURIComponent(highlightJobId)}`, {
+          headers: agentHeaders(),
+          retries: 0,
+          timeoutMs: 15_000,
+        });
+        const session = String((data as { chat_session_id?: string })?.chat_session_id || "").trim();
+        if (!cancelled && session) selectConversation(session);
+      } catch {
+        /* le fil déjà ouvert reste en place */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [hydrated, highlightJobId, selectConversation]);
 
   const addChatFiles = useCallback(async (files: File[]) => {

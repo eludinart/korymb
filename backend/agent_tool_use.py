@@ -767,7 +767,7 @@ def _filter_openai_tools(allowed: set[str]) -> list[dict[str, Any]]:
     return out
 
 
-def _execute_tool(name: str, inp: Any) -> str:
+def _execute_tool(name: str, inp: Any, *, _from_journal: bool = False) -> str:
     _EXECUTE_GATED = frozenset({
         "send_email",
         "send_newsletter",
@@ -794,6 +794,11 @@ def _execute_tool(name: str, inp: Any) -> str:
             inp = json.loads(inp) if isinstance(inp, str) else {}
         except json.JSONDecodeError:
             inp = {}
+    if not _from_journal:
+        from services.mission_journal import run_tool_once
+
+        ctx_job = str((_tool_run_ctx.get() or {}).get("job_id") or "")
+        return run_tool_once(ctx_job, name, inp, lambda: _execute_tool(name, inp, _from_journal=True))
     ctx = _tool_run_ctx.get()
     try:
         from services.tool_policy import apply_tool_policy

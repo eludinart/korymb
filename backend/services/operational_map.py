@@ -215,7 +215,7 @@ def build_operational_map() -> dict[str, Any]:
         nodes[nid] = node
         return nid
 
-    def add_edge(source: str, target: str, kind: str, label: str = "") -> None:
+    def add_edge(source: str, target: str, kind: str, label: str = "", *, inferred: bool = False) -> None:
         if not source or not target or source == target:
             return
         if source not in nodes or target not in nodes:
@@ -223,6 +223,13 @@ def build_operational_map() -> dict[str, Any]:
         key = (source, target, kind)
         if key in edge_seen:
             return
+        if inferred:
+            pair = tuple(sorted((source, target)))
+            for existing in edges:
+                if existing.get("inferred"):
+                    continue
+                if tuple(sorted((existing["source"], existing["target"]))) == pair:
+                    return
         edge_seen.add(key)
         edges.append(
             {
@@ -231,6 +238,7 @@ def build_operational_map() -> dict[str, Any]:
                 "target": target,
                 "kind": kind,
                 "label": label or _REL_FR.get(kind, kind),
+                "inferred": inferred,
             }
         )
 
@@ -504,19 +512,22 @@ def build_operational_map() -> dict[str, Any]:
         eid_raw = str(ent.get("entity_id") or _fold(name) or name)
         attrs = ent.get("attributes") if isinstance(ent.get("attributes"), dict) else {}
         etype = str(ent.get("entity_type") or "project")
-        summary = str(attrs.get("type") or attrs.get("role") or attrs.get("posture") or etype)
+        summary = _entity_sentence(attrs, etype)
         kid = add_node(
             {
                 "id": _nid("knowledge", eid_raw),
                 "kind": "knowledge",
                 "label": name,
-                "subtitle": etype,
+                "subtitle": _TYPE_FR.get(etype, etype),
                 "status": "knowledge",
                 "urgency": "idle",
-                "href": "",
-                "where": _clip(summary, 140) or "Entité du graphe de connaissance",
-                "next": "",
+                "href": "/administration/contexte",
+                "where": summary,
+                "next": "Enrichir la fiche dans le contexte",
+                "detail": summary,
                 "who": [],
+                "cta": {"label": "Enrichir la fiche", "href": "/administration/contexte"},
+                "updated_at": ent.get("updated_at"),
                 "meta": {"entity_id": eid_raw, "entity_type": etype},
             }
         )
@@ -546,7 +557,53 @@ def build_operational_map() -> dict[str, Any]:
             if len(kn) < 4:
                 continue
             if kn in folded or folded in kn:
-                add_edge(node["id"], kid, "related")
+                add_edge(node["id"], kid, "related", "rapprochement", inferred=True)
+
+    confirmed_ids: set[str] = set()
+    touched_ids: set[str] = set()
+    for edge in edges:
+        touched_ids.add(edge["source"])
+        touched_ids.add(edge["target"])
+        if edge.get("inferred"):
+            continue
+        confirmed_ids.add(edge["source"])
+        confirmed_ids.add(edge["target"])
+
+    gaps: list[dict[str, Any]] = []
+    for node in nodes.values():
+        if node.get("kind") != "knowledge":
+            continue
+        if node["id"] in confirmed_ids:
+            continue
+        node["next"] = "Aucun lien confirmé. Enrichir la fiche, ou confirmer un rapprochement."
+        if node["id"] in touched_ids:
+            continue
+        gaps.append(
+            {
+                "id": f"gap:{node['id']}",
+                "node_id": node["id"],
+                "label": node["label"],
+                "reason": "isolated",
+                "detail": "Cette fiche n'est reliée à rien de sûr.",
+            }
+        )
+    for edge in edges:
+        if not edge.get("inferred"):
+            continue
+        src = nodes.get(edge["source"])
+        tgt = nodes.get(edge["target"])
+        if not src or not tgt:
+            continue
+        focus = src if src.get("kind") == "knowledge" else tgt
+        gaps.append(
+            {
+                "id": f"gap:{edge['id']}",
+                "node_id": focus["id"],
+                "label": f"{src['label']} ↔ {tgt['label']}",
+                "reason": "inferred",
+                "detail": "Rapprochement par le nom, pas encore confirmé.",
+            }
+        )
 
     stats = {
         "teams": sum(1 for n in nodes.values() if n["kind"] == "team"),
@@ -560,6 +617,28 @@ def build_operational_map() -> dict[str, Any]:
     return {
         "nodes": list(nodes.values()),
         "edges": edges,
+        "gaps": gaps[:16],
         "stats": stats,
         "generated_at": datetime.utcnow().isoformat() + "Z",
     }
+
+
+_TYPE_FR = {
+    "person": "Personne",
+    "project": "Projet",
+    "place": "Lieu",
+    "activity": "Activité",
+    "offer": "Offre",
+    "other": "Fiche",
+}
+
+_SENTENCE_KEYS = ("posture", "role", "type", "role_strategique", "contrainte")
+
+
+def _entity_sentence(attrs: dict[str, Any], etype: str) -> str:
+    for key in _SENTENCE_KEYS:
+        val = str(attrs.get(key) or "").strip()
+        if val:
+            return _clip(val, 180)
+    label = _TYPE_FR.get(etype, "Fiche")
+    return f"{label} du second cerveau"

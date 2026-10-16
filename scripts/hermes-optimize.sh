@@ -30,35 +30,32 @@ run hermes-host-sync.sh
 echo "=== 3. Layout espaces WebUI ==="
 run hermes-workspace-layout.sh
 
-echo "=== 4. Config modèle Mistral ==="
+echo "=== 4. Config modèle (bascule gratuite, Mistral en dernier seulement) ==="
 python3 <<'PY'
 from pathlib import Path
-import re
 
 path = Path("/docker/hermes-agent-aoxw/data/config.yaml")
 text = path.read_text(encoding="utf-8")
-orig = text
-
-# provider custom + base_url Mistral (évite custom:mistral + base_url vide)
-text = re.sub(
-    r"(\nmodel:\n\s+provider:\s*)custom:mistral(\s*\n\s+base_url:\s*)''",
-    r"\1custom\2'https://api.mistral.ai/v1'",
-    text,
-    count=1,
-)
-if "base_url: ''" in text and "model:" in text:
-    text = re.sub(
-        r"(model:\n\s+provider:\s*custom\n\s+base_url:\s*)''",
-        r"\1'https://api.mistral.ai/v1'",
-        text,
-        count=1,
-    )
-
-if text != orig:
-    path.write_text(text, encoding="utf-8")
-    print("config.yaml: modèle Mistral corrigé (provider custom + base_url)")
+provider = ""
+default = ""
+section = ""
+for line in text.splitlines():
+    if line and not line.startswith(" "):
+        section = line.split(":", 1)[0]
+    if section != "model":
+        continue
+    stripped = line.strip()
+    if stripped.startswith("provider:"):
+        provider = stripped.split(":", 1)[1].strip()
+    elif stripped.startswith("default:"):
+        default = stripped.split(":", 1)[1].strip()
+print(f"config.yaml: provider={provider or '?'} model={default or '?'}")
+if "mistral-medium" in default or "mistral-large" in default or provider.startswith("custom:mistral"):
+    print("WARN: le modèle principal est encore Mistral payant — la bascule gratuite n'est pas active")
+elif "fallback_providers:" not in text:
+    print("WARN: fallback_providers absent")
 else:
-    print("config.yaml: modèle déjà OK")
+    print("config.yaml: bascule gratuite présente")
 PY
 
 echo "=== 5. Sessions WebUI → livrables ==="

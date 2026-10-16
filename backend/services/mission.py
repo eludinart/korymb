@@ -3268,6 +3268,17 @@ def _schedule_mission_execution(
                 "mission_config": cfg,
             },
         )
+        try:
+            from services.mission_journal import note_mission
+
+            note_mission(
+                job_id,
+                kind="mission_start",
+                agent=agent_key,
+                excerpt=(mission_plain or "")[:240],
+            )
+        except Exception:
+            logger.exception("journal départ mission %s", job_id)
         t_in_total = t_out_total = 0
         result = ""
         graph_completed = False
@@ -3279,16 +3290,40 @@ def _schedule_mission_execution(
             engine_mode = get_orchestration_engine()
             if engine_mode in ("langgraph", "shadow"):
                 behavior_snap = snapshot_behavior_settings()
-                graph_out = run_mission_graph(
-                    job_id=job_id,
-                    agent_key=agent_key,
-                    mission_plain=mission_plain,
-                    context=context,
-                    source_tag=source_tag,
-                    mission_config=cfg,
-                    behavior_snapshot=behavior_snap,
-                )
-                if engine_mode == "langgraph" and graph_out is not None:
+                graph_out = None
+                try:
+                    graph_out = run_mission_graph(
+                        job_id=job_id,
+                        agent_key=agent_key,
+                        mission_plain=mission_plain,
+                        context=context,
+                        source_tag=source_tag,
+                        mission_config=cfg,
+                        behavior_snapshot=behavior_snap,
+                    )
+                except (HitlParked, KorymbJobCancelled):
+                    raise
+                except Exception as exc:
+                    logger.exception("Graphe en échec pour %s — repli sur l'ancien moteur", job_id)
+                    try:
+                        from services.mission_journal import note_mission
+
+                        note_mission(
+                            job_id,
+                            kind="repli",
+                            agent=agent_key,
+                            excerpt=str(exc)[:400],
+                        )
+                    except Exception:
+                        logger.exception("journal repli %s", job_id)
+                    graph_out = None
+                    engine_mode = "legacy"
+                else:
+                    from graph.runner import graph_is_waiting
+
+                    if graph_is_waiting(job_id):
+                        raise HitlParked()
+                if engine_mode == "langgraph" and isinstance(graph_out, dict):
                     result = str(graph_out.get("result") or "")
                     t_in_total = int(graph_out.get("tokens_in") or 0)
                     t_out_total = int(graph_out.get("tokens_out") or 0)
@@ -3455,10 +3490,22 @@ def _schedule_mission_execution(
                 mission_config=cfg,
             )
             try:
+                from services.mission_journal import note_mission, span_ids_for
+
+                note_mission(
+                    job_id,
+                    kind="mission_done",
+                    agent=agent_key,
+                    excerpt=(str(result or "")[:240]),
+                )
+                snap = active_jobs.get(job_id) if isinstance(active_jobs, dict) else None
+                session = str(snap.get("chat_session_id") or "").strip() if isinstance(snap, dict) else ""
                 append_recent_mission(
                     job_id,
                     mission_plain,
                     (result or "") if isinstance(result, str) else "",
+                    span_ids=span_ids_for(job_id),
+                    chat_session_id=session or None,
                 )
             except Exception:
                 logger.exception("append_recent_mission")
@@ -3487,6 +3534,12 @@ def _schedule_mission_execution(
             job_logs.append(
                 "[korymb] Mission en pause — le plan est en base. Le fil d'exécution est libéré.",
             )
+            try:
+                from services.mission_journal import note_mission
+
+                note_mission(job_id, kind="hitl", agent=agent_key, excerpt="validation demandée")
+            except Exception:
+                logger.exception("journal pause %s", job_id)
             if job_id in active_jobs:
                 active_jobs[job_id]["status"] = "awaiting_validation"
             logger.info("Job [%s] en pause HITL (plan CIO).", job_id)

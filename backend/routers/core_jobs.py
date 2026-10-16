@@ -989,9 +989,49 @@ def delete_job(job_id: str):
 
 
 @router.get("/jobs/{job_id}/traces", dependencies=[Depends(resolve_tenant)])
-def job_traces(job_id: str, limit: int = 200):
-    from database import list_mission_traces
-    return {"job_id": job_id, "traces": list_mission_traces(job_id, limit=limit)}
+def job_traces(
+    job_id: str,
+    limit: int = 200,
+    agent: str = "",
+    kind: str = "",
+    since: str = "",
+    until: str = "",
+):
+    from database import search_mission_traces
+    from services.mission_journal import with_citation
+
+    rows = search_mission_traces(
+        job_id=job_id,
+        agent=agent,
+        kind=kind,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return {"job_id": job_id, "traces": [with_citation(row) for row in rows]}
+
+
+@router.get("/traces", dependencies=[Depends(resolve_tenant)])
+def search_traces(
+    job_id: str = "",
+    agent: str = "",
+    kind: str = "",
+    since: str = "",
+    until: str = "",
+    limit: int = 200,
+):
+    from database import search_mission_traces
+    from services.mission_journal import with_citation
+
+    rows = search_mission_traces(
+        job_id=job_id or None,
+        agent=agent,
+        kind=kind,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return {"traces": [with_citation(row) for row in rows]}
 
 
 @router.get("/jobs/{job_id}/audit-bundle", dependencies=[Depends(resolve_tenant)])

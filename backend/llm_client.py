@@ -9,6 +9,7 @@ import os
 import random
 import time
 import json
+import uuid
 from typing import Any
 
 import anthropic
@@ -73,7 +74,8 @@ def log_llm_call_financial(
             except Exception:
                 pass
             insert_mission_trace(
-                job_id=str(jid)[:16],
+                job_id=str(jid)[:64],
+                span_id=uuid.uuid4().hex[:16],
                 graph_node=str(ctx or "")[:64],
                 agent=str(ctx or "").split(":")[0][:64] if ctx else "",
                 provider=provider[:24],
@@ -83,6 +85,8 @@ def log_llm_call_financial(
                 cost_usd=float(cost),
                 latency_ms=int(latency_ms or 0),
                 behavior_snapshot_hash=bhash,
+                kind="llm",
+                excerpt=str(ctx or "")[:240],
             )
     except Exception:
         logger.exception("log_llm_call_financial")

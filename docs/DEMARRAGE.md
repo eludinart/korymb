@@ -33,10 +33,10 @@ copy backend\.env.example backend\.env
 
 Vérifier que les secrets correspondent entre les deux fichiers :
 
-| Fichier | Variable |
-|---|---|
-| `backend/.env` | `AGENT_API_SECRET` |
-| `.env.local` | `KORYMB_AGENT_SECRET` et `NEXT_PUBLIC_KORYMB_AGENT_SECRET` |
+| Fichier        | Variable                                                   |
+| -------------- | ---------------------------------------------------------- |
+| `backend/.env` | `AGENT_API_SECRET`                                         |
+| `.env.local`   | `KORYMB_AGENT_SECRET` et `NEXT_PUBLIC_KORYMB_AGENT_SECRET` |
 
 La base de données est configurée dans `backend/.env.local` (`KORYMB_DB_ENGINE=mariadb`, `KORYMB_DB_PORT=3307`). En mode MariaDB, le backend passe par un tunnel SSH vers le VPS — d'où l'option `-MariaDbTunnel` ci-dessous.
 
@@ -58,11 +58,11 @@ Le démarrage complet prend environ 1 à 2 minutes (compilation Next incluse).
 
 ### Options du script
 
-| Option | Effet |
-|---|---|
+| Option           | Effet                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------- |
 | `-MariaDbTunnel` | Ouvre le tunnel SSH MariaDB au démarrage. **Requis** si `KORYMB_DB_ENGINE=mariadb`. |
-| `-SkipVerify` | Ne pas attendre `/health` avant de lancer le frontend (dépannage). |
-| `-Reload` | Active `uvicorn --reload` (désactivé par défaut car instable sous Windows). |
+| `-SkipVerify`    | Ne pas attendre `/health` avant de lancer le frontend (dépannage).                  |
+| `-Reload`        | Active `uvicorn --reload` (désactivé par défaut car instable sous Windows).         |
 
 ## Vérifier que tout tourne
 
@@ -83,11 +83,11 @@ Attendu : `/health/database` retourne `"connected": true` avec `engine: mariadb`
 
 Les logs sont écrits dans `.dev-logs/` à la racine :
 
-| Fichier | Contenu |
-|---|---|
-| `backend.log` | stdout du backend (uvicorn) |
-| `backend.err.log` | stderr du backend (tracebacks Python) |
-| `frontend.out.log` / `frontend.err.log` | logs Next.js |
+| Fichier                                 | Contenu                               |
+| --------------------------------------- | ------------------------------------- |
+| `backend.log`                           | stdout du backend (uvicorn)           |
+| `backend.err.log`                       | stderr du backend (tracebacks Python) |
+| `frontend.out.log` / `frontend.err.log` | logs Next.js                          |
 
 Problèmes courants :
 
@@ -117,23 +117,27 @@ Toute page `app/**/page.tsx` qui utilise `useSearchParams` doit encapsuler son c
 
 ## Backend — fiabilité (réf. courte)
 
-| Variable | Effet |
-|---|---|
-| `KORYMB_DB_POOL_SIZE` | Taille du pool MariaDB (défaut `8`) |
-| `KORYMB_DB_MIGRATE=alembic` | Au boot : `alembic upgrade head` puis `init_db()` / `_ensure_*` |
-| `KORYMB_ALLOW_LANGGRAPH=1` | Autorise `orchestration.engine` = `langgraph` / `shadow` (sinon forcé `legacy`) |
+| Variable                    | Effet                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `KORYMB_DB_POOL_SIZE`       | Taille du pool MariaDB (défaut `8`)                                             |
+| `KORYMB_DB_MIGRATE=alembic` | Au boot : `alembic upgrade head` puis `init_db()` / `_ensure_*`                 |
+
+Le moteur des missions est `langgraph` pour tous les espaces. `legacy` reste un choix explicite dans les réglages, et le repli automatique si le graphe casse.
 
 Auth agent (`X-Agent-Secret`) : propager `X-Workspace-Id` pour cibler un espace ; sans header → `ws-default-legacy` (Hermes).
 
 ### HITL wait
+
 - Module `services/hitl_wait.py` : `threading.Event` par `job_id` + poll de repli (défaut **2 s**, pas de busy-loop).
 - `resolve_hitl` appelle `notify_hitl_resolved(job_id)` pour réveiller le worker immédiatement.
 - Defaults : `orchestration.cio.hitl_wait_max_seconds`, `orchestration.cio.hitl_poll_interval_seconds`.
 
 ### Events / Alembic / découpe DB
+
 - Dual-write : `persist_job_events` / `update_job(events=…)` → `jobs.events_json` **et** table `mission_events`.
-- Alembic : révision incrémentale `001_mission_events` (pas un dump schéma complet) ; `_ensure_*` reste le filet.
+- Alembic : révisions incrémentales `001_mission_events` et `002_lg_checkpoints` (pas un dump schéma complet) ; `_ensure_*` reste le filet.
 - Découpe progressive : `database_jobs.py` (HITL jobs), `database_memory.py` (mémoire entreprise) ; `database.py` reste la façade d’import.
 
 ### Routes `/run/*`
+
 Conservées (admin / fallbacks) avec en-tête `Deprecation: true` — pas de 410 pour l’instant.

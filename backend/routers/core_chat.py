@@ -374,7 +374,12 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         except Exception:
                             logger.exception("compress_chat_session (chat)")
                     try:
-                        append_recent_mission(job_id, msg_snap, surface or text or "")
+                        append_recent_mission(
+                            job_id,
+                            msg_snap,
+                            surface or text or "",
+                            chat_session_id=session_id or None,
+                        )
                     except Exception:
                         logger.exception("append_recent_mission (chat)")
                     try:

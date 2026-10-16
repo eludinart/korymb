@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { AlertBox, LoadingLine } from "../../components/ui/PageChrome";
+import BrainSky from "../../components/carte/BrainSky";
 import MapBoard from "../../components/carte/MapBoard";
 import MapInspector from "../../components/carte/MapInspector";
 import { agentHeaders, requestJson } from "../../lib/api";
@@ -14,6 +15,7 @@ import {
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
 import {
+  buildBrainSky,
   buildMapBoard,
   canDeleteMapNode,
   loadHiddenMapIds,
@@ -21,6 +23,7 @@ import {
   mapNodeProjectId,
   matchesMapQuery,
   saveHiddenMapIds,
+  type BrainAltitude,
   type MapNode,
   type OperationalMapPayload,
 } from "../../lib/operationalMap";
@@ -33,6 +36,7 @@ export default function CartePage() {
   const router = useRouter();
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterId>("work");
+  const [altitude, setAltitude] = useState<BrainAltitude>("fiches");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [situationOpen, setSituationOpen] = useState(false);
@@ -71,12 +75,13 @@ export default function CartePage() {
     const missions = nodes.filter((n) => n.kind === "mission" && !hidden.has(n.id));
     const projects = nodes.filter((n) => n.kind === "project" && !hidden.has(n.id));
     const knowledge = nodes.filter((n) => n.kind === "knowledge" && !hidden.has(n.id));
+    const teams = nodes.filter((n) => n.kind === "team" && !hidden.has(n.id));
     return {
       work: missions.length + projects.length,
       live: missions.filter((n) => n.urgency === "active" || n.urgency === "waiting").length,
       waiting: missions.filter((n) => n.urgency === "waiting" || n.urgency === "blocked").length,
       crm: projects.length,
-      knowledge: knowledge.length,
+      knowledge: knowledge.length + teams.length + projects.length,
     };
   }, [hidden, nodes]);
 
@@ -85,7 +90,7 @@ export default function CartePage() {
     { id: "live", label: "En cours", count: counts.live },
     { id: "waiting", label: "À valider", count: counts.waiting },
     { id: "crm", label: "Clients", count: counts.crm },
-    { id: "knowledge", label: "Univers", count: counts.knowledge },
+    { id: "knowledge", label: "Cerveau", count: counts.knowledge },
   ];
 
   const visibleNodes = useMemo(() => {
@@ -104,6 +109,13 @@ export default function CartePage() {
     });
     return [...teams, ...cards];
   }, [nodes, filter, hidden]);
+
+  const brain = filter === "knowledge";
+  const sky = useMemo(
+    () => buildBrainSky(nodes, edges, hidden, altitude),
+    [altitude, edges, hidden, nodes],
+  );
+  const gaps = mapQ.data?.gaps || [];
 
   const visibleIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
   const visibleEdges = useMemo(
@@ -147,6 +159,8 @@ export default function CartePage() {
       closeSheet();
       return;
     }
+    const picked = nodes.find((n) => n.id === id);
+    if (filter === "knowledge" && picked && picked.kind !== "knowledge") setAltitude("autour");
     setSelectedId(id);
     setSituationOpen(false);
   };
@@ -280,12 +294,19 @@ export default function CartePage() {
     setActionOk("Décision enregistrée.");
   };
 
+  const inspectorNodes = brain ? nodes.filter((n) => !hidden.has(n.id)) : visibleNodes;
+  const inspectorEdges = brain
+    ? edges.filter((e) => !hidden.has(e.source) && !hidden.has(e.target))
+    : visibleEdges;
+
   const inspectorProps = {
     node: selected,
-    nodes: visibleNodes,
-    edges: visibleEdges,
+    nodes: inspectorNodes,
+    edges: inspectorEdges,
     nodesById,
     stats,
+    brain,
+    gaps,
     deleteBusy,
     linkBusy,
     onSelect: selectNode,
@@ -360,7 +381,7 @@ export default function CartePage() {
 
       {mapQ.isLoading ? (
         <div className="px-4 py-3">
-          <LoadingLine label="Construction du tableau…" />
+          <LoadingLine label={brain ? "Construction du ciel…" : "Construction du tableau…"} />
         </div>
       ) : null}
       {mapQ.isError ? (
@@ -386,16 +407,29 @@ export default function CartePage() {
       ) : null}
 
       <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:overflow-hidden">
-        <MapBoard
-          board={board}
-          edges={visibleEdges}
-          selectedId={selectedId}
-          query={query}
-          launchBusy={launchBusy}
-          onSelect={selectNode}
-          onLaunch={launchMission}
-          onLinkMission={linkMissionToProject}
-        />
+        {brain ? (
+          <BrainSky
+            nodes={sky.nodes}
+            edges={sky.edges}
+            gaps={gaps}
+            altitude={altitude}
+            selectedId={selectedId}
+            query={query}
+            onAltitude={setAltitude}
+            onSelect={selectNode}
+          />
+        ) : (
+          <MapBoard
+            board={board}
+            edges={visibleEdges}
+            selectedId={selectedId}
+            query={query}
+            launchBusy={launchBusy}
+            onSelect={selectNode}
+            onLaunch={launchMission}
+            onLinkMission={linkMissionToProject}
+          />
+        )}
         <div className="hidden min-h-0 lg:block">
           <MapInspector {...inspectorProps} />
         </div>

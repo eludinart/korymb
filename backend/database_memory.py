@@ -147,7 +147,13 @@ def delete_enterprise_context_keys(keys: list[str]) -> dict:
     return get_enterprise_memory()
 
 
-def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
+def append_recent_mission(
+    job_id: str,
+    mission: str,
+    preview: str,
+    span_ids: list[str] | None = None,
+    chat_session_id: str | None = None,
+) -> None:
     """Ajoute une entrée dans l'historique des missions (mémoire opérationnelle, texte long pour le CIO)."""
     import database as db
 
@@ -155,14 +161,18 @@ def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
     invalidate_enterprise_memory_cache()
     cur = get_enterprise_memory()
     lst = list(cur.get("recent_missions") or [])
-    lst.append(
-        {
-            "job_id": job_id,
-            "mission": (mission or "")[:2000],
-            "preview": (preview or "")[:10000],
-            "ts": datetime.utcnow().isoformat(),
-        },
-    )
+    entry = {
+        "job_id": job_id,
+        "mission": (mission or "")[:2000],
+        "preview": (preview or "")[:10000],
+        "ts": datetime.utcnow().isoformat(),
+    }
+    session = str(chat_session_id or "").strip()[:64]
+    if session:
+        entry["chat_session_id"] = session
+    if span_ids:
+        entry["span_ids"] = [str(item) for item in span_ids if item][:12]
+    lst.append(entry)
     lst = lst[-10:]
     now = datetime.utcnow().isoformat()
     with db.get_conn() as conn:

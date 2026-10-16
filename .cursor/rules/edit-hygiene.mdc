@@ -1,0 +1,26 @@
+---
+description: Édition chirurgicale, typage et tests du dépôt
+alwaysApply: true
+---
+
+# Édition
+
+- Avant d'ajouter une dépendance, confirme son absence dans `admin/package.json` (front) ou `backend/requirements.txt` (API). Il n'y a pas de `pyproject.toml`.
+- Réutilise les utilitaires, types et schémas déjà présents (`admin/lib/`, modèles Pydantic, services `backend/`).
+- Modifie uniquement le bloc concerné. N'imprime pas un fichier dont seules quelques lignes changent.
+- Toute suppression de code, d'import ou de gestion d'erreur est nommée dans la réponse, avec la raison.
+
+## Imports et types
+
+- Front : alias `@/*` vers la racine `admin/` (`import { x } from "@/lib/types"`). `strict` est activé dans `admin/tsconfig.json`.
+- API : `from __future__ import annotations`, puis la stdlib, puis les modules du projet, dans l'ordre du fichier voisin.
+- Pas de nouveau `any` / `Any` quand un type du projet couvre la valeur. `Any` reste acceptable à une frontière JSON ou LLM ; la raison tient en une phrase.
+
+## Tests
+
+- Logique métier backend : mets à jour ou ajoute `backend/tests/test_<sujet>.py`.
+- L'admin n'a pas de tests unitaires. Un changement d'UI se vérifie dans le navigateur. Les parcours Playwright existants sont dans `admin/e2e/`. N'ajoute pas un nouveau runner de tests.
+
+## Ambiguïté
+
+Si deux comportements produit sont plausibles et qu'un défaut serait faux, pose une seule question fermée avant d'éditer. Sinon, tranche depuis le code et avance.

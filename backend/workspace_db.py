@@ -1119,6 +1119,8 @@ _PURGE_WORKSPACE_TABLES: tuple[str, ...] = (
     "biz_projects",
     "biz_contacts",
     "mission_events",
+    "lg_checkpoints",
+    "lg_checkpoint_writes",
     *_WORKSPACE_TABLES_WITH_COLUMN,
     "korymb_memberships",
 )

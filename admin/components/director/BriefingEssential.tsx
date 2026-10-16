@@ -5,6 +5,7 @@ import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_SUBTITLE } from "../../lib/director
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { SectionCard } from "../ui/PageChrome";
 import IntentionLaunch from "../missions/IntentionLaunch";
+import JarvisHome, { type JarvisHomeData } from "./JarvisHome";
 
 type DecisionItem = {
   id?: string;
@@ -42,6 +43,7 @@ type Props = {
   memoryDigest?: MemoryDigest | null;
   dayAnticipation?: DayAnticipation | null;
   inboxSeverity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
+  jarvis?: JarvisHomeData | null;
   onDismissWelcome?: () => void;
 };
 
@@ -78,6 +80,7 @@ export default function BriefingEssential({
   memoryDigest,
   dayAnticipation,
   inboxSeverity,
+  jarvis,
 }: Props) {
   const greet = userName ? `Bonjour ${userName}` : "Bonjour";
   const topDecisions = decisions.slice(0, 5);
@@ -99,6 +102,8 @@ export default function BriefingEssential({
           </Link>
         </p>
       </header>
+
+      <JarvisHome data={jarvis} />
 
       {showWelcome ? (
         <section className="rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 dark:border-emerald-800 dark:bg-emerald-950 sm:px-6">

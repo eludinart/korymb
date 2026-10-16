@@ -30,11 +30,23 @@ export type MapEdge = {
   target: string;
   kind: string;
   label?: string;
+  inferred?: boolean;
 };
+
+export type MapGap = {
+  id: string;
+  node_id: string;
+  label: string;
+  reason: "isolated" | "inferred";
+  detail?: string;
+};
+
+export type BrainAltitude = "fiches" | "autour";
 
 export type OperationalMapPayload = {
   nodes: MapNode[];
   edges: MapEdge[];
+  gaps?: MapGap[];
   stats?: {
     teams?: number;
     missions?: number;
@@ -53,7 +65,7 @@ export const MAP_KIND_LABELS: Record<MapNodeKind, string> = {
   mission: "Mission",
   project: "Projet",
   contact: "Contact",
-  knowledge: "Univers",
+  knowledge: "Fiche",
 };
 
 export const MAP_URGENCY_LABELS: Record<MapUrgency, string> = {
@@ -115,6 +127,54 @@ export function sortMapNodes(nodes: MapNode[]): MapNode[] {
     if (ua !== ub) return ua - ub;
     return (a.label || "").localeCompare(b.label || "", "fr");
   });
+}
+
+/** 0 = oublié, 1 = touché récemment. La taille des cercles du ciel en dépend. */
+export function nodeAttention(node: MapNode, degree: number): number {
+  const t = node.updated_at ? Date.parse(node.updated_at) : NaN;
+  let recency = 0.42;
+  if (Number.isFinite(t)) {
+    const days = (Date.now() - t) / 86_400_000;
+    if (days < 2) recency = 1;
+    else if (days < 14) recency = 0.78;
+    else if (days < 60) recency = 0.52;
+    else recency = 0.3;
+  }
+  if (node.urgency === "active" || node.urgency === "waiting") recency = Math.max(recency, 0.92);
+  const links = Math.min(0.28, Math.max(0, degree) * 0.05);
+  return Math.min(1, recency * 0.78 + links);
+}
+
+const SKY_KINDS = new Set<MapNodeKind>(["knowledge", "team", "project"]);
+
+export function buildBrainSky(
+  nodes: MapNode[],
+  edges: MapEdge[],
+  hidden: Set<string>,
+  altitude: BrainAltitude,
+): { nodes: MapNode[]; edges: MapEdge[] } {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const skyIds = new Set(
+    nodes.filter((n) => SKY_KINDS.has(n.kind) && !hidden.has(n.id)).map((n) => n.id),
+  );
+  const visible = new Set(skyIds);
+  if (altitude === "autour") {
+    for (const edge of edges) {
+      const srcOn = skyIds.has(edge.source);
+      const tgtOn = skyIds.has(edge.target);
+      if (srcOn === tgtOn) continue;
+      const otherId = srcOn ? edge.target : edge.source;
+      const other = byId.get(otherId);
+      if (!other || hidden.has(other.id) || other.kind === "agent") continue;
+      if (other.kind === "mission" && other.urgency !== "active" && other.urgency !== "waiting" && other.urgency !== "blocked") {
+        continue;
+      }
+      if (other.kind === "mission" || other.kind === "contact") visible.add(other.id);
+    }
+  }
+  const skyNodes = nodes.filter((n) => visible.has(n.id));
+  const skyEdges = edges.filter((e) => visible.has(e.source) && visible.has(e.target));
+  return { nodes: skyNodes, edges: skyEdges };
 }
 
 export function neighborsOf(id: string, edges: MapEdge[]): Set<string> {
@@ -330,8 +390,8 @@ export function buildMapBoard(
     const size = clusterSize(knowledge.length, columns);
     pushCluster(clusters, {
       id: "cluster:knowledge",
-      title: "Univers",
-      hint: "Graphe de connaissance",
+      title: "Cerveau",
+      hint: "Fiches du second cerveau",
       kind: "knowledge",
       w: size.w,
       h: size.h,
@@ -395,8 +455,8 @@ function buildProjectBoard(
     const size = clusterSize(knowledge.length, columns);
     pushCluster(clusters, {
       id: "cluster:knowledge",
-      title: "Univers",
-      hint: "Graphe de connaissance",
+      title: "Cerveau",
+      hint: "Fiches du second cerveau",
       kind: "knowledge",
       w: size.w,
       h: size.h,
