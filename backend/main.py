@@ -71,6 +71,7 @@ from routers.core_missions import router as core_missions_router
 from routers.core_chat import router as core_chat_router
 from routers.core_templates import router as core_templates_router
 from routers.core_scheduler import router as core_scheduler_router
+from routers.core_classique import router as core_classique_router
 from routers.core_social import router as core_social_router
 from routers.core_orchestration_prompts import router as core_orchestration_prompts_router
 from routers.core_behavior_settings import router as core_behavior_settings_router
@@ -149,6 +150,21 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             logger.exception("Rappel Studio (file de publication) non enregistré")
+        try:
+            from services.calendar_sync import interval_minutes, is_enabled, scheduled_sync
+
+            if is_enabled():
+                _scheduler.add_job(
+                    scheduled_sync,
+                    "interval",
+                    minutes=interval_minutes(),
+                    id="korymb-gcal-sync",
+                    replace_existing=True,
+                    max_instances=1,
+                    coalesce=True,
+                )
+        except Exception:
+            logger.exception("Synchro Google Agenda non enregistrée")
         _scheduler.start()
         logger.info("Scheduler autonome démarré")
     logger.info("Korymb backend démarré — build %s", BACKEND_VERSION)
@@ -216,6 +232,7 @@ app.include_router(core_telegram_router)
 app.include_router(core_storefront_router)
 app.include_router(core_studio_router)
 app.include_router(core_context_guide_router)
+app.include_router(core_classique_router)
 
 
 @app.middleware("http")

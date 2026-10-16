@@ -1044,6 +1044,16 @@ def _init_db_seeds() -> None:
         ensure_sandbox_execute_on()
     except Exception:
         pass
+    try:
+        from services.classique_bridge import init_classique_tables
+        from services.calendar_sync import init_calendar_sync_tables
+
+        init_classique_tables()
+        init_calendar_sync_tables()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Tables Classique / synchro agenda non initialisées")
 
 
 def seed_scheduled_task_defaults() -> None:
