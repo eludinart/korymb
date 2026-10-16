@@ -36,7 +36,7 @@ Vérifier que les secrets correspondent entre les deux fichiers :
 | Fichier        | Variable                                                   |
 | -------------- | ---------------------------------------------------------- |
 | `backend/.env` | `AGENT_API_SECRET`                                         |
-| `.env.local`   | `KORYMB_AGENT_SECRET` et `NEXT_PUBLIC_KORYMB_AGENT_SECRET` |
+| `.env.local`   | `KORYMB_AGENT_SECRET` (serveur uniquement, jamais `NEXT_PUBLIC_`) |
 
 La base de données est configurée dans `backend/.env.local` (`KORYMB_DB_ENGINE=mariadb`, `KORYMB_DB_PORT=3307`). En mode MariaDB, le backend passe par un tunnel SSH vers le VPS — d'où l'option `-MariaDbTunnel` ci-dessous.
 

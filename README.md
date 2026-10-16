@@ -28,7 +28,7 @@ Then fill required secrets and keep them aligned:
 
 - `backend/.env` -> `AGENT_API_SECRET=...`
 - **`admin/.env.local`** -> `KORYMB_AGENT_SECRET=...` (obligatoire pour Next : missions, configuration LLM)
-- `admin/.env.local` -> `NEXT_PUBLIC_KORYMB_AGENT_SECRET=...` (meme valeur)
+- `admin/.env.local` -> `KORYMB_AGENT_SECRET=...` (meme valeur, jamais de prefixe `NEXT_PUBLIC_`)
 
 #### Dev branché sur MariaDB du VPS
 

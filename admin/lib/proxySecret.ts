@@ -4,19 +4,10 @@
  * sans cookie de session, la requête est refusée. Hermes et les scripts appellent
  * l'API FastAPI directement avec `X-Agent-Secret`.
  * En production : KORYMB_AGENT_SECRET ou AGENT_API_SECRET.
- * En dev local : repli sur NEXT_PUBLIC_KORYMB_AGENT_SECRET (jamais en prod).
+ * Jamais de préfixe NEXT_PUBLIC_ : il serait intégré au JavaScript du navigateur.
  */
 export function resolveProxySecret(): string {
-  const primary =
-    process.env.KORYMB_AGENT_SECRET?.trim() ||
-    process.env.AGENT_API_SECRET?.trim() ||
-    "";
-  if (primary) return primary;
-
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd) return "";
-
-  return process.env.NEXT_PUBLIC_KORYMB_AGENT_SECRET?.trim() || "";
+  return process.env.KORYMB_AGENT_SECRET?.trim() || process.env.AGENT_API_SECRET?.trim() || "";
 }
 
 export const PROXY_UNPROTECTED = new Set(["health", "health/live", "health/database", "llm"]);
