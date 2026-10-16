@@ -271,6 +271,7 @@ def run_assistant_turn(
     max_tokens: int = 3072,
     job_id: str | None = None,
     job_logs: list[str] | None = None,
+    request_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Tour Assistant partagé (sync, stream final, ou job)."""
     mode = normalize_chat_use_mode(chat_use_mode)
@@ -315,6 +316,7 @@ def run_assistant_turn(
             usage_context="chat_sync:assistant",
             usage_job_id=job_id,
             or_profile=or_profile,
+            request_timeout=request_timeout,
         )
     else:
         from llm_client import llm_chat
@@ -346,6 +348,7 @@ def run_assistant_turn(
                 usage_context="chat_sync:assistant",
                 usage_job_id=job_id,
                 or_profile=or_profile,
+                request_timeout=request_timeout,
             )
         else:
             from llm_client import llm_chat
@@ -603,7 +606,7 @@ def start_assistant_chat_job(
         "logs": job_logs,
         "tokens_in": 0,
         "tokens_out": 0,
-        "team": [{"key": "assistant", "label": "Assistant", "status": "running", "phase": "chat"}],
+        "team": [{"key": "assistant", "label": "Assistant", "status": "running", "phase": "llm"}],
         "events": [],
         "plan": {},
         "source": "chat",
@@ -626,6 +629,7 @@ def start_assistant_chat_job(
                 max_tokens=3072,
                 job_id=job_id,
                 job_logs=job_logs,
+                request_timeout=25,
             )
             reply = turn["reply"]
             surface = turn["surface"]
@@ -683,6 +687,18 @@ def start_assistant_chat_job(
             except Exception:
                 logger.exception("emit_director_notification (assistant)")
         except Exception as e:
+            from state import KorymbJobCancelled
+
+            if isinstance(e, KorymbJobCancelled):
+                stopped = "Réponse arrêtée."
+                if job_id in active_jobs:
+                    active_jobs[job_id].update({
+                        "status": "cancelled",
+                        "result": stopped,
+                        "result_surface": stopped,
+                    })
+                update_job(job_id, "cancelled", stopped, job_logs, 0, 0, source="chat", result_surface=stopped)
+                return
             outage = llm_outage_kind(e)
             if outage:
                 user_result = degraded_chat_reply(

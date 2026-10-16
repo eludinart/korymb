@@ -410,6 +410,24 @@ def _find_project_by_title(title: str) -> dict[str, Any] | None:
     return None
 
 
+def _with_project_context(mission: str, description: str) -> str:
+    """Remplace le bloc « Contexte du projet » collé dans une mission, sans toucher la consigne."""
+    marker = "\n\nContexte du projet :\n"
+    text = mission or ""
+    if marker in text:
+        head = text.split(marker, 1)[0].rstrip()
+    elif text.startswith("Contexte du projet :\n"):
+        head = ""
+    else:
+        return text
+    desc = (description or "").strip()
+    if not head:
+        return f"Contexte du projet :\n{desc}"[:8000] if desc else ""
+    if not desc:
+        return head[:8000]
+    return f"{head}{marker}{desc}"[:8000]
+
+
 def _planned_mission_text(*, project_title: str, task_title: str, detail: str, description: str) -> str:
     lines = [f"{task_title} — {project_title}"]
     if detail.strip():
@@ -693,6 +711,16 @@ def run_update_project(inp: dict[str, Any]) -> str:
         description = str(inp.get("description") or "").strip()[:8000]
         fields["description"] = description
         notes.append("description")
+        for milestone in milestones:
+            jid = str(milestone.get("job_id") or "")
+            job = get_job(jid) if jid else None
+            if not job:
+                continue
+            mission = str(job.get("mission") or "")
+            rewritten = _with_project_context(mission, description)
+            if rewritten != mission:
+                update_job_mission_text(jid, rewritten)
+        notes.append("contexte des tâches")
 
     if inp.get("status"):
         status = _STATUS_ALIASES.get(_fold_title(str(inp.get("status") or "")), "")

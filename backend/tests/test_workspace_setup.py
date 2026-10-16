@@ -167,6 +167,8 @@ def test_update_project_renames_completes_and_removes(client):
     bilan = get_job(labels["Bilan"]["job_id"])
     assert bilan is not None
     assert str(bilan["mission"]).startswith("Bilan — Atelier Sivana été")
+    assert "Contexte du projet :\nWeek-end révisé." in str(bilan["mission"])
+    assert "Contexte du projet :\nWeek-end." not in str(bilan["mission"])
 
     removed = json.loads(
         run_update_project({"project_id": created["id"], "remove_tasks": ["Matériel"]})

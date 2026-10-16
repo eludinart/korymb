@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import contextvars
 from typing import Any, Callable
 
@@ -1678,6 +1679,7 @@ def llm_chat_maybe_tools(
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
     or_profile: str | None = None,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
     names = tool_names_for_tags(tool_tags or [])
     profile = (or_profile or "").strip() or ("lite" if not names else "standard")
@@ -1691,6 +1693,7 @@ def llm_chat_maybe_tools(
             or_profile=profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            request_timeout=request_timeout,
         )
     return llm_chat_with_tools(
         system,
@@ -1700,7 +1703,32 @@ def llm_chat_maybe_tools(
         max_tokens,
         usage_job_id=usage_job_id,
         usage_context=usage_context,
+        request_timeout=request_timeout,
     )
+
+
+def _workspace_write_confirmation(job_logs: list[str] | None) -> str:
+    """Phrase courte quand l'écriture projet a réussi et que le modèle ne rédige pas la suite."""
+    title = ""
+    kind = ""
+    for line in job_logs or []:
+        if "korymb_update_project" in line:
+            kind_here = "update"
+        elif "korymb_create_project" in line:
+            kind_here = "create"
+        else:
+            continue
+        if '"ok": true' not in line and '"ok":true' not in line.replace(" ", ""):
+            continue
+        kind = kind_here
+        match = re.search(r'"title"\s*:\s*"([^"\\]{1,160})"', line)
+        if match:
+            title = match.group(1)
+    if kind == "create":
+        return f"Le projet « {title} » est créé." if title else "Le projet est créé."
+    if kind == "update":
+        return f"C'est fait. Le projet « {title} » est à jour." if title else "C'est fait. Le projet est à jour."
+    return ""
 
 
 def llm_chat_with_tools(
@@ -1712,6 +1740,7 @@ def llm_chat_with_tools(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
     from llm_client import guard_llm_envelope
 
@@ -1738,6 +1767,7 @@ def llm_chat_with_tools(
                 cfg,
                 usage_job_id=usage_job_id,
                 usage_context=usage_context,
+                request_timeout=request_timeout,
             )
         return _anthropic_chat_tool_loop(
             system_use,
@@ -1889,6 +1919,7 @@ def _openrouter_chat_tool_loop(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
     if free_pool_active(cfg):
         model, tier_key, pin, pout = "free-pool", "heavy", 0.0, 0.0
@@ -1917,9 +1948,13 @@ def _openrouter_chat_tool_loop(
     t_in = t_out = 0
     last_text = ""
     round_state: dict[str, Any] = {}
+    round_timeout = 180.0 if request_timeout is None else max(8.0, float(request_timeout))
 
-    with httpx.Client(timeout=180.0) as http:
+    with httpx.Client(timeout=round_timeout) as http:
         for round_i in range(_MAX_TOOL_ROUNDS):
+            from state import raise_if_job_cancelled
+
+            raise_if_job_cancelled(None if usage_job_id is _UNSET else str(usage_job_id or ""))
             body = {
                 "model": model,
                 "messages": om,
@@ -1927,7 +1962,15 @@ def _openrouter_chat_tool_loop(
                 "tools": otools,
                 "tool_choice": "auto",
             }
-            r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            try:
+                r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            except (httpx.TimeoutException, httpx.TransportError):
+                written = _workspace_write_confirmation(job_logs)
+                if not written:
+                    raise
+                logger.warning("Chat outils : fournisseur trop lent — confirmation locale")
+                last_text = written
+                break
             meta = _apply_round_meta(
                 round_state,
                 {"provider": provider_log, "model": model, "tier": tier_key, "price_in": pin, "price_out": pout},
@@ -1947,6 +1990,14 @@ def _openrouter_chat_tool_loop(
 
                 return llm_chat(system, messages, max_tokens=max_tokens, or_profile="standard")
             if r.status_code >= 400:
+                written = _workspace_write_confirmation(job_logs) if round_i else ""
+                if written:
+                    logger.warning(
+                        "Chat outils : HTTP %s après écriture — confirmation locale",
+                        r.status_code,
+                    )
+                    last_text = written
+                    break
                 logger.warning("OpenRouter chat+tools HTTP %s — %s", r.status_code, r.text[:600])
                 hint = format_llm_provider_http_error(r)
                 raise RuntimeError(
@@ -1992,6 +2043,8 @@ def _openrouter_chat_tool_loop(
                 _log_tool(job_logs, name, out)
                 om.append({"role": "tool", "tool_call_id": tid, "content": out})
 
+        if not (last_text or "").strip():
+            last_text = _workspace_write_confirmation(job_logs)
         if not (last_text or "").strip():
             om_follow = list(om)
             om_follow.append({
