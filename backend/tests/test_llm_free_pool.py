@@ -195,6 +195,58 @@ def test_configured_paid_models_join_the_menu():
     assert public["hops"][-1]["id"] != "mistral-mistral-large-latest"
 
 
+def test_groq_prompt_keeps_the_user_query_behind_a_tool_result():
+    huge = "x" * 40000
+    query = "retirer le nom Alexandre Martin du projet Pizza Lucio"
+    fitted = _fit_groq_messages(
+        [
+            {"role": "system", "content": "consigne " + huge},
+            {"role": "user", "content": query},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "1", "function": {"name": "korymb_update_project"}}],
+            },
+            {"role": "tool", "tool_call_id": "1", "content": huge},
+        ],
+        [{"type": "function", "function": {"name": "korymb_update_project"}}],
+    )
+    user = next(item for item in fitted if item["role"] == "user")
+    assert user["content"] == query
+    assert fitted[-1]["role"] == "tool"
+    assert len(fitted[-1]["content"]) < len(huge)
+
+
+def test_template_without_user_query_switches_bucket():
+    cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test")
+    client = _Scripted(
+        [
+            _json(
+                400,
+                "failed to template request: failed to render text output: "
+                "minijinja: rendering failed: raise_exception: No user query found in messages.",
+            ),
+            _ok("projet mis à jour"),
+        ]
+    )
+    response, meta = post_with_failover(
+        client,
+        cfg,
+        {
+            "messages": [
+                {"role": "system", "content": "consigne"},
+                {"role": "user", "content": "retirer le nom Alexandre Martin du projet"},
+            ],
+            "max_tokens": 50,
+            "tools": [{"type": "function", "function": {"name": "korymb_update_project"}}],
+        },
+        profile="heavy",
+    )
+    assert response.status_code == 200
+    assert [model for _, model in client.calls] == ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"]
+    assert meta["model"] == "qwen/qwen3.8-27b"
+
+
 def test_groq_prompt_keeps_the_latest_turn_under_the_budget():
     huge = "x" * 40000
     fitted = _fit_groq_messages(

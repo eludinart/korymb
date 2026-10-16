@@ -41,6 +41,13 @@ _MODEL_ERROR_MARKERS = (
     "decommissioned",
     "model_not_found",
     "no endpoints",
+    # gpt-oss (Groq) : le gabarit minijinja lève cette exception s'il ne voit
+    # aucun tour user — outils, reasoning_effort, ou prompt réduit trop fort.
+    "no user query",
+    "minijinja",
+    "failed to template",
+    "failed to render",
+    "rendering failed",
 )
 # Groq gratuit : 8 000 jetons/minute pour la requête entière. On garde la place du max_tokens.
 _GROQ_INPUT_TOKEN_BUDGET = 5600
@@ -328,40 +335,94 @@ def _estimate_tokens(value: Any) -> int:
 
 
 def _fit_groq_messages(messages: list[Any], tools: Any, budget: int = _GROQ_INPUT_TOKEN_BUDGET) -> list[dict[str, Any]]:
-    """Garde le système et le dernier message. Retire les tours les plus anciens au-dessus du plafond Groq."""
+    """Garde le système, la dernière question utilisateur, et la suite d'outils.
+
+    Le gabarit Groq gpt-oss refuse la requête (« No user query found ») si le
+    tour user a été retiré pour faire tenir un résultat d'outil.
+    """
     rows = [dict(item) for item in messages if isinstance(item, dict)]
     tool_cost = _estimate_tokens(tools)
 
     def cost(items: list[dict[str, Any]]) -> int:
-        return tool_cost + sum(_estimate_tokens(item.get("content")) + 4 for item in items)
+        return tool_cost + sum(
+            _estimate_tokens(item.get("content")) + _estimate_tokens(item.get("tool_calls")) + 4
+            for item in items
+        )
 
-    if cost(rows) <= budget:
+    if cost(rows) <= budget and _last_user_index(rows) >= 0:
         return rows
     systems: list[dict[str, Any]] = []
     rest: list[dict[str, Any]] = []
     for item in rows:
         if item.get("role") == "system" and not rest:
-            systems.append(item)
+            systems.append(dict(item))
         else:
-            rest.append(item)
+            empty_assistant = (
+                item.get("role") == "assistant"
+                and not str(item.get("content") or "").strip()
+                and not item.get("tool_calls")
+            )
+            if empty_assistant:
+                continue
+            rest.append(dict(item))
     if not rest:
         rest = systems
         systems = []
-    tail = [rest[-1]]
-    middle = rest[:-1]
-    while middle and cost(systems + middle + tail) > budget:
-        middle.pop(0)
-    fitted = systems + middle + tail
+    user_at = _last_user_index(rest)
+    if user_at >= 0:
+        older = rest[:user_at]
+        protected = rest[user_at:]
+    else:
+        older = rest[:-1]
+        protected = rest[-1:]
+    while older and cost(systems + older + protected) > budget:
+        older.pop(0)
+    fitted = systems + older + protected
     if cost(fitted) > budget:
-        last = dict(fitted[-1])
-        content = str(last.get("content") or "")
-        overhead = cost(fitted[:-1])
-        room = max(200, (budget - overhead) * 4)
-        if len(content) > room:
-            last["content"] = content[-room:]
-            fitted[-1] = last
-    logger.warning("LLM mélange : prompt Groq réduit sous %s jetons estimés", budget)
+        protect = {_last_user_index(fitted)}
+        _shrink_contents(fitted, budget, protect_indexes=protect, cost=cost)
+    if _last_user_index(fitted) < 0 and user_at >= 0:
+        fitted.append(dict(rest[user_at]))
+    if cost(rows) > budget:
+        logger.warning("LLM mélange : prompt Groq réduit sous %s jetons estimés", budget)
     return fitted
+
+
+def _last_user_index(items: list[dict[str, Any]]) -> int:
+    found = -1
+    for index, item in enumerate(items):
+        if item.get("role") == "user" and str(item.get("content") or "").strip():
+            found = index
+    return found
+
+
+def _shrink_contents(
+    items: list[dict[str, Any]],
+    budget: int,
+    *,
+    protect_indexes: set[int],
+    cost: Any,
+) -> None:
+    """Raccourcit le système puis les résultats d'outils. La question utilisateur reste entière tant qu'elle tient."""
+    for index, item in enumerate(items):
+        if cost(items) <= budget or index in protect_indexes:
+            continue
+        content = item.get("content")
+        if not isinstance(content, str) or len(content) < 80:
+            continue
+        overhead = cost(items) - _estimate_tokens(content)
+        room = max(80, (budget - overhead) * 4)
+        if len(content) > room:
+            item["content"] = content[:room]
+    user_at = _last_user_index(items)
+    if cost(items) <= budget or user_at < 0:
+        return
+    last = items[user_at]
+    content = str(last.get("content") or "")
+    overhead = cost(items) - _estimate_tokens(content)
+    room = max(200, (budget - overhead) * 4)
+    if len(content) > room:
+        last["content"] = content[-room:]
 
 
 def _body_for(hop: PoolHop, body: dict[str, Any], profile: str) -> dict[str, Any]:
