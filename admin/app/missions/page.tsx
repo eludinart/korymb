@@ -76,6 +76,7 @@ function MissionsContent() {
   const [archiveDeleteBusy, setArchiveDeleteBusy] = useState(false);
   const [deleteMissionBusyId, setDeleteMissionBusyId] = useState<string | null>(null);
   const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
+  const [launchBusyId, setLaunchBusyId] = useState<string | null>(null);
   const [detailMode, setDetailMode] = useState<"daily" | "dossier">("daily");
   const urlTeam = (searchParams.get("team") || "").trim();
   const [teamFilter, setTeamFilter] = useState(() => urlTeam || "all");
@@ -316,6 +317,27 @@ function MissionsContent() {
     setMobileDetailPane("resultats");
     setDetailMode("daily");
   }, [selected]);
+
+  const launchPlannedMission = async (jobId: string) => {
+    setLaunchBusyId(jobId);
+    setError("");
+    setFeedback("");
+    try {
+      await requestJson(`/jobs/${encodeURIComponent(jobId)}/start`, {
+        method: "POST",
+        headers: agentHeaders(),
+        timeoutMs: 20_000,
+      });
+      setFeedback("Tâche lancée. L'équipe s'en occupe.");
+      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+      void qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLaunchBusyId(null);
+    }
+  };
 
   const approveTicketForMission = async (ticketId: string) => {
     setTicketBusyId(ticketId);
@@ -782,8 +804,9 @@ function MissionsContent() {
                 inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
                 busy={busyId === j.job_id}
                 deleteBusy={deleteMissionBusyId === j.job_id}
-                actionBusy={Boolean(ticketBusyId)}
+                actionBusy={Boolean(ticketBusyId) || launchBusyId === j.job_id}
                 onSelect={(id) => openMission(id)}
+                onStart={(id) => void launchPlannedMission(id)}
                 onFinish={(id) => {
                   const job = sortedRows.find((x) => x.job_id === id);
                   void onValidate(id, job?.mission);
@@ -1099,8 +1122,11 @@ function MissionsContent() {
                 inboxItems={inboxItemsForJob(inboxItems, String(selected || detail.data.job_id || ""))}
                 hasPendingQuestions={hasPendingCioQuestions}
                 busy={Boolean(ticketBusyId)}
-                finishBusy={busyId === selected}
+                finishBusy={busyId === selected || launchBusyId === selected}
                 onFinish={() => void onValidate(String(selected), detail.data?.mission)}
+                onStart={() => {
+                  if (selected) void launchPlannedMission(String(selected));
+                }}
                 onShelve={() => void onShelveMission(String(selected), detail.data?.mission)}
                 onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
                 onFocusDecide={() => {

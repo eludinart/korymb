@@ -168,7 +168,7 @@ _IRREVERSIBLE_SEND_RE = re.compile(
 _IRREVERSIBLE_RECORD_RE = re.compile(
     r"("
     r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|upsert)\b.{0,48}"
-    r"\b(fiche|devis|contact|evenement|facture|projet|crm)|"
+    r"\b(fiche|devis|contact|evenement|facture|crm)|"
     r"\bau crm\b"
     r")",
     re.I,
@@ -272,6 +272,21 @@ def strip_unbacked_team_button(text: str) -> str:
     return "\n".join(kept).strip()
 
 
+_PROJECT_WRITE_RE = re.compile(
+    r"("
+    r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|ouvre|materialise|genere)\b.{0,80}\bprojets?\b|"
+    r"\bprojets?\b.{0,80}\b(a partir|depuis (la |cette )?(discussion|conversation)|depuis (le |ce )?chat)\b|"
+    r"\b(cartes?|taches?)\b.{0,40}\b(kanban|a faire|projet)\b"
+    r")",
+    re.I,
+)
+
+
+def chat_turn_needs_project_write(text: str) -> bool:
+    """Vrai si ce tour doit pouvoir écrire un projet et ses tâches."""
+    return bool(_PROJECT_WRITE_RE.search(_fold(text or "")))
+
+
 def chat_message_needs_action(text: str) -> bool:
     """Vrai si le message demande un travail (recherche, rédaction, envoi, livrable)."""
     raw = (text or "").strip()
@@ -289,6 +304,8 @@ def chat_message_needs_action(text: str) -> bool:
     if intent in {INTENT_MISSION, INTENT_PLATFORM}:
         return True
     if _ACTION_RE.search(folded):
+        return True
+    if chat_turn_needs_project_write(raw):
         return True
     return bool(
         re.search(

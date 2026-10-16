@@ -28,6 +28,7 @@ type Props = {
   /** Identifiant du groupe — or pour le patron, ciel pour les équipes projet. */
   teamGroupId?: string | null;
   onSelect: (jobId: string) => void;
+  onStart?: (jobId: string) => void;
   onFinish: (jobId: string, mission?: string | null) => void;
   onDelete: (jobId: string, mission?: string | null) => void;
   onApproveTicket?: (ticketId: string) => void;
@@ -38,6 +39,7 @@ function PrimaryButton({
   busy,
   disabled,
   onSelect,
+  onStart,
   onFinish,
   onApproveTicket,
   jobId,
@@ -47,6 +49,7 @@ function PrimaryButton({
   busy: boolean;
   disabled: boolean;
   onSelect: (id: string) => void;
+  onStart?: (id: string) => void;
   onFinish: (id: string, mission?: string | null) => void;
   onApproveTicket?: (ticketId: string) => void;
   jobId: string;
@@ -96,6 +99,23 @@ function PrimaryButton({
     );
   }
 
+  if (action.type === "start") {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onStart) onStart(jobId);
+          else onSelect(jobId);
+        }}
+        className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-40 sm:w-auto"
+      >
+        {busy ? "Lancement…" : action.label}
+      </button>
+    );
+  }
+
   if (action.type === "finish") {
     return (
       <button
@@ -137,6 +157,7 @@ export default function MissionListCard({
   teamLabel,
   teamGroupId,
   onSelect,
+  onStart,
   onFinish,
   onDelete,
   onApproveTicket,
@@ -156,9 +177,11 @@ export default function MissionListCard({
       ? "border-emerald-400 ring-2 ring-emerald-200/80"
       : phase.id === "decide"
         ? "border-violet-400 ring-2 ring-violet-200/70"
-        : phase.id === "running"
-          ? "border-amber-300 ring-1 ring-amber-100"
-          : "border-slate-200";
+        : phase.id === "todo"
+          ? "border-violet-300 ring-1 ring-violet-100"
+          : phase.id === "running"
+            ? "border-amber-300 ring-1 ring-amber-100"
+            : "border-slate-200";
 
   return (
     <div
@@ -209,6 +232,7 @@ export default function MissionListCard({
             busy={busy || actionBusy}
             disabled={disabled}
             onSelect={onSelect}
+            onStart={onStart}
             onFinish={onFinish}
             onApproveTicket={onApproveTicket}
             jobId={j.job_id}

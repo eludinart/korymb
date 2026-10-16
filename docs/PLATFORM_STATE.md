@@ -4,7 +4,7 @@
 > Mise à jour : après chaque chantier utile (commit + deploy + smoke).  
 > Sync mémoire DB : `.\scripts\sync-platform-state-memory.ps1`
 
-**Dernière MAJ :** 2026-09-30 · commits récents `3a40137` (UX toasts/Modèles), `ea314c6`/`f2ffc99` (QCM + mirror ack)
+**Dernière MAJ :** 2026-10-16 · le chat crée un projet et des tâches « À faire » (Missions, Gestion, briefing)
 
 ## Produit
 - QG IA multi-tenant : missions HITL, chat, inbox Décisions, Gestion, Administration.
@@ -21,6 +21,11 @@
 - **Pas** de section produit « Rapports ».
 - Instance (propriétaire) : **Mes clients** `/administration/portefeuille` (signaux, ouvrir, créer, renommer, pause, file À traiter, archiver puis supprimer) et Enveloppes IA.
 - Visite client : bandeau **Profil Élude** + **Revenir à mon espace**. Le moteur (santé, orchestration, budget, configuration LLM, fiches agents) n'apparaît que pour ce profil. Un admin client garde équipes, intégrations, page publique, activité et science de l'entreprise.
+
+## Chat → projet
+- Depuis le chat, « crée le projet … » écrit un vrai dossier (`/gestion/projets`) et une carte « À faire » par tâche (Missions, kanban, carte, briefing).
+- Les tâches ne lancent pas les agents toutes seules : bouton **Lancer**.
+- Interdit de dire que le chat ne peut pas créer de projet, ou de renvoyer vers Projets → +.
 
 ## Chat & QCM
 - Question « ce qui marche / ce qui bloque » : deux blocs courts tirés de ce fichier. Pas de roadmap.
@@ -41,8 +46,7 @@
 - WordPress = publication de posts après HITL, **pas** formulaire `/old-contact.php`.
 
 ## Déploiements à surveiller
-- Front : UX toasts + Modèles Essentiel + QCM surface (`3a40137` et précédents chat).
-- Back : QCM promote + mirror ack + stub tests.
+- Front + back : création de projet depuis le chat — dossier Gestion, cartes « À faire », bouton Lancer.
 
 ## Interdits (hallucinations fréquentes)
 - Métriques inventées (% abandon, tests 5s).

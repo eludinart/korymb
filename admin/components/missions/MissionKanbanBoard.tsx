@@ -4,9 +4,10 @@ import Link from "next/link";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import type { Job } from "../../lib/types";
 
-export type KanbanColumnId = "running" | "validate" | "done" | "blocked";
+export type KanbanColumnId = "todo" | "running" | "validate" | "done" | "blocked";
 
 const COLUMNS: { id: KanbanColumnId; label: string; tone: string }[] = [
+  { id: "todo", label: "À faire", tone: "border-violet-200 bg-violet-50/70" },
   { id: "running", label: "En cours", tone: "border-sky-200 bg-sky-50/60" },
   { id: "validate", label: "À valider", tone: "border-amber-200 bg-amber-50/70" },
   { id: "done", label: "Livré", tone: "border-emerald-200 bg-emerald-50/60" },
@@ -15,6 +16,7 @@ const COLUMNS: { id: KanbanColumnId; label: string; tone: string }[] = [
 
 export function kanbanColumnForJob(job: Job): KanbanColumnId {
   const st = String(job.status || "").toLowerCase();
+  if (st === "planned") return "todo";
   if (st.startsWith("error") || st === "quality_blocked" || st.includes("cancelled")) {
     return "blocked";
   }
@@ -35,6 +37,7 @@ type Props = {
 
 export default function MissionKanbanBoard({ jobs, onSelect, className = "" }: Props) {
   const byCol: Record<KanbanColumnId, Job[]> = {
+    todo: [],
     running: [],
     validate: [],
     done: [],
@@ -45,7 +48,7 @@ export default function MissionKanbanBoard({ jobs, onSelect, className = "" }: P
   }
 
   return (
-    <div className={`grid gap-3 md:grid-cols-2 xl:grid-cols-4 ${className}`}>
+    <div className={`grid gap-3 md:grid-cols-2 xl:grid-cols-5 ${className}`}>
       {COLUMNS.map((col) => (
         <section key={col.id} className={`rounded-2xl border p-3 ${col.tone}`}>
           <header className="mb-2 flex items-center justify-between gap-2">

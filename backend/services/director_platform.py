@@ -837,16 +837,21 @@ def build_jarvis_home(
     *,
     decisions: list[dict] | None = None,
     running: list[dict] | None = None,
+    planned: list[dict] | None = None,
     recent_missions: list[dict] | None = None,
 ) -> dict[str, Any]:
     """Phrase du matin, note d'hier, une action, et la suite visible."""
     decisions = [d for d in (decisions or []) if isinstance(d, dict)]
     running = [r for r in (running or []) if isinstance(r, dict)]
+    planned = [p for p in (planned or []) if isinstance(p, dict)]
     recent = [m for m in (recent_missions or []) if isinstance(m, dict)]
     bits: list[str] = []
     if decisions:
         n = len(decisions)
         bits.append(f"{n} chose{'s' if n > 1 else ''} à valider")
+    if planned:
+        n = len(planned)
+        bits.append(f"{n} à faire")
     if running:
         n = len(running)
         bits.append(f"{n} en cours")
@@ -877,6 +882,13 @@ def build_jarvis_home(
             "label": _jarvis_action_label(str(first.get("kind") or "")),
             "detail": str(first.get("title") or first.get("mission") or "À valider")[:140],
             "href": str(first.get("href") or "/inbox"),
+        }
+    elif planned:
+        mission = " ".join(str(planned[0].get("mission") or "").split())[:120]
+        next_action = {
+            "label": "Voir les tâches",
+            "detail": mission or "Un projet attend",
+            "href": "/missions?view=kanban",
         }
     elif running:
         mission = " ".join(str(running[0].get("mission") or "").split())[:120]
@@ -935,6 +947,7 @@ def _build_executive_summary(
     inbox_total: int,
     hitl_count: int,
     running_count: int,
+    todo_count: int = 0,
     budget: dict,
     analytics: dict,
     llm_blocker: str | None = None,
@@ -956,6 +969,8 @@ def _build_executive_summary(
         parts.append(dec + " bloquent l'avancement")
     elif running_count > 0:
         parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
+    elif todo_count > 0:
+        parts.append(f"{todo_count} tâche{'s' if todo_count > 1 else ''} à faire")
     elif not llm_blocker:
         parts.append("Aucune action urgente — votre file est vide")
 
@@ -1009,6 +1024,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     jobs = list_jobs_summary(limit=100)
     inbox = build_enriched_inbox(limit=50, jobs=jobs)
     running = [j for j in jobs if str(j.get("status") or "") == "running" and str(j.get("source") or "") != "chat"]
+    planned = [j for j in jobs if str(j.get("status") or "") == "planned" and str(j.get("source") or "") != "chat"]
     hitl_pending = [j for j in jobs if str(j.get("status") or "") == "awaiting_validation"]
     closures = [i for i in inbox["items"] if i.get("kind") == "closure"]
     scheduler_pending = [i for i in inbox["items"] if i.get("kind") == "scheduler_output"]
@@ -1105,6 +1121,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         inbox_total=inbox["total"],
         hitl_count=len(hitl_pending),
         running_count=len(running),
+        todo_count=len(planned),
         budget=budget_block,
         analytics=analytics,
         llm_blocker=str(llm_readiness.get("blocker") or "") or None,
@@ -1144,6 +1161,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     jarvis = build_jarvis_home(
         decisions=list(inbox.get("items") or [])[:5],
         running=running[:10],
+        planned=planned[:10],
         recent_missions=recent_missions,
     )
 
@@ -1172,6 +1190,10 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "missions_running": [
             {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
             for j in running[:10]
+        ],
+        "missions_todo": [
+            {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
+            for j in planned[:12]
         ],
         "unconsulted_results": unconsulted,
         "unconsulted_results_count": len(unconsulted),

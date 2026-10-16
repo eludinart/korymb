@@ -340,7 +340,7 @@ export default function GestionProjetEditPage() {
                 <Link href={`/missions?job=${encodeURIComponent(j.job_id)}`} className="font-semibold text-slate-900 hover:underline">
                   {missionTitleLabel(j.mission, 80) || j.job_id}
                 </Link>
-                <p className="text-xs text-slate-500">{j.status || "—"}</p>
+                <p className="text-xs text-slate-500">{j.status === "planned" ? "À faire" : j.status || "—"}</p>
               </div>
               <Link
                 href={`/missions?job=${encodeURIComponent(j.job_id)}`}

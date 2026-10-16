@@ -86,6 +86,7 @@ function BriefingPageContent() {
         decisions_today?: Array<{ id?: string; kind?: string; title?: string; mission?: string; href?: string; severity?: string }>;
         inbox_total?: number;
         missions_running?: Array<{ job_id: string; mission?: string }>;
+        missions_todo?: Array<{ job_id: string; mission?: string }>;
         commercial?: CommercialMorningSnapshot | null;
         memory_digest?: { lines?: string[]; pending_count?: number; href?: string } | null;
         day_anticipation?: {
@@ -246,6 +247,26 @@ function BriefingPageContent() {
                         className="btn-link-primary shrink-0"
                       >
                         Reprendre →
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </SectionCard>
+            ) : null}
+
+            {(b.missions_todo || []).length > 0 ? (
+              <SectionCard title="Tâches à faire">
+                <ul className="space-y-3">
+                  {(b.missions_todo || []).map((m) => (
+                    <li
+                      key={m.job_id}
+                      className="flex flex-col gap-2 rounded-xl border-2 border-violet-200 bg-violet-50/60 p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <span className="min-w-0 text-base font-bold text-slate-900">
+                        {missionTitleLabel(m.mission, 100) || m.job_id}
+                      </span>
+                      <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary shrink-0">
+                        Ouvrir
                       </Link>
                     </li>
                   ))}

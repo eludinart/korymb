@@ -63,4 +63,58 @@ def test_workspace_tools_exposed_for_assistant_tag(client):
     names = tool_names_for_tags(["workspace"])
     assert "korymb_save_mission_template" in names
     assert "korymb_save_playbook" in names
+    assert "korymb_create_project" in names
     assert "korymb_list_mission_templates" in names
+
+
+def test_create_project_writes_tasks_and_reuses_title(client):
+    from services.business_db import get_project
+    from tools.workspace_setup import run_create_project
+
+    created = json.loads(
+        run_create_project(
+            {
+                "title": "Pizza Lucio B2B",
+                "description": "Commande B2B, paiement et livraison.",
+                "tasks": [
+                    {"title": "Architecture", "detail": "Découper front, API, paiement."},
+                    {"title": "Stripe", "detail": "Encaissement."},
+                    "Tests",
+                ],
+            }
+        )
+    )
+    assert created["ok"] is True
+    assert created["created"] is True
+    assert created["href"].startswith("/gestion/projets/")
+    assert len(created["tasks"]) == 3
+
+    project = get_project(created["id"])
+    assert project is not None
+    assert project["status"] == "active"
+    assert len(project["milestones"]) == 3
+    assert set(project["linked_job_ids"]) == {t["job_id"] for t in created["tasks"]}
+
+    from database import get_job
+
+    job = get_job(created["tasks"][0]["job_id"])
+    assert job is not None
+    assert job["status"] == "planned"
+    assert job["source"] == "project"
+    assert "Architecture" in str(job["mission"])
+
+    again = json.loads(
+        run_create_project(
+            {
+                "title": "Pizza Lucio B2B",
+                "tasks": [{"title": "Architecture"}, {"title": "CI/CD"}],
+            }
+        )
+    )
+    assert again["ok"] is True
+    assert again["created"] is False
+    assert again["id"] == created["id"]
+    assert [t["title"] for t in again["tasks"]] == ["CI/CD"]
+    refreshed = get_project(created["id"])
+    assert refreshed is not None
+    assert len(refreshed["milestones"]) == 4

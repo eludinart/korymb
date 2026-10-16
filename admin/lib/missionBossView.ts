@@ -108,6 +108,8 @@ export function missionStatusMeta(
     return { label: "Terminée", className: "bg-emerald-100 text-emerald-950 ring-1 ring-emerald-200" };
   if (s === "cancelled")
     return { label: "Interrompue", className: "bg-orange-100 text-orange-950 ring-1 ring-orange-200" };
+  if (s === "planned")
+    return { label: "À faire", className: "bg-sky-100 text-sky-950 ring-1 ring-sky-200" };
   if (s === "pending" || s === "accepted")
     return { label: "En attente", className: "bg-slate-100 text-slate-800 ring-1 ring-slate-200" };
   if (s === "awaiting_validation")
@@ -136,6 +138,7 @@ export function sortJobsForBossView<T extends BossJobLike>(rows: T[]): T[] {
     const canValidate = j.status === "completed" && !closed;
     if (canValidate) return 0;
     if (j.status === "awaiting_validation") return 0.5;
+    if (j.status === "planned") return 0.75;
     if (j.status === "running" || j.status === "in_progress") return 1;
     if (String(j.result || "").trim()) return 2;
     if (j.status === "completed") return 3;

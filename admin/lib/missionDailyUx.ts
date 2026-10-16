@@ -6,9 +6,9 @@
 import { missionTitleLabel } from "./missionLabel";
 import { normalizeJobId } from "./missionBossView";
 
-export type MissionPhaseId = "running" | "decide" | "act" | "ready" | "done" | "error";
+export type MissionPhaseId = "todo" | "running" | "decide" | "act" | "ready" | "done" | "error";
 
-export type MissionOriginId = "studio" | "playbook" | "libre" | "chat";
+export type MissionOriginId = "studio" | "playbook" | "libre" | "chat" | "project";
 
 export type InboxHint = {
   kind?: string;
@@ -25,6 +25,7 @@ export type MissionPrimaryAction =
   | { type: "open_decide"; label: string }
   | { type: "finish"; label: string }
   | { type: "open_href"; label: string; href: string }
+  | { type: "start"; label: string }
   | { type: "none"; label: string };
 
 type JobLike = {
@@ -43,6 +44,7 @@ export function missionOrigin(source?: string | null): { id: MissionOriginId; la
   const s = String(source || "mission").toLowerCase();
   if (s.startsWith("studio:")) return { id: "studio", label: "Studio" };
   if (s.startsWith("playbook:")) return { id: "playbook", label: "Playbook" };
+  if (s.startsWith("project")) return { id: "project", label: "Projet" };
   if (s.startsWith("chat")) return { id: "chat", label: "Chat" };
   return { id: "libre", label: "Libre" };
 }
@@ -55,6 +57,7 @@ export function missionPhase(
   const closed = Boolean(job.user_validated_at || job.mission_closed_by_user);
 
   if (closed) return { id: "done", label: "Terminé" };
+  if (st === "planned") return { id: "todo", label: "À faire" };
   if (st.startsWith("error") || st === "failed") return { id: "error", label: "Échec" };
   if (st === "cancelled") return { id: "done", label: "Interrompu" };
 
@@ -75,6 +78,8 @@ export function missionPhase(
 
 export function phaseBadgeClass(phase: MissionPhaseId): string {
   switch (phase) {
+    case "todo":
+      return "bg-sky-100 text-sky-950 ring-1 ring-sky-200 dark:bg-sky-900 dark:text-sky-100 dark:ring-sky-700";
     case "running":
       return "bg-amber-100 text-amber-950 ring-1 ring-amber-200 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-700";
     case "decide":
@@ -100,6 +105,8 @@ export function originBadgeClass(origin: MissionOriginId): string {
       return "bg-sky-50 text-sky-900 ring-1 ring-sky-200 dark:bg-sky-950 dark:text-sky-100 dark:ring-sky-800";
     case "chat":
       return "bg-indigo-50 text-indigo-900 ring-1 ring-indigo-200 dark:bg-indigo-950 dark:text-indigo-100 dark:ring-indigo-800";
+    case "project":
+      return "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200 dark:bg-emerald-950 dark:text-emerald-100 dark:ring-emerald-800";
     default:
       return "bg-slate-50 text-slate-700 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-600";
   }
@@ -165,6 +172,10 @@ export function resolveMissionPrimaryAction(
 
   if (origin.id === "studio" && (st === "completed" || st === "awaiting_validation")) {
     return { type: "open_href", label: "Ouvrir le Studio", href: "/gestion/studio" };
+  }
+
+  if (st === "planned") {
+    return { type: "start", label: "Lancer" };
   }
 
   if (st === "completed") {

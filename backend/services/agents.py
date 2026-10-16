@@ -211,6 +211,8 @@ BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
             "Pour une évolution de l'app : `propose_platform_change` (spec à valider) — jamais de git.\n"
             "Pour installer un dispositif de travail (prompts stratégiques, playbooks) : "
             "`korymb_save_mission_template` / `korymb_save_playbook` — écriture réelle, pas un copier-coller.\n"
+            "Pour créer un projet et ses tâches à partir de la demande : `korymb_create_project` "
+            "(dossier + cartes « à faire », sans lancer les agents).\n"
             "Si une mission est ambiguë ou nécessite des arbitrages importants, tu peux poser des questions au dirigeant "
             "via le champ 'clarifying_questions' du plan JSON — la mission continue à s'exécuter pendant qu'il répond. "
             "Préfère des questions à options (objets avec prompt + options + selection multi|single) pour que le dirigeant "

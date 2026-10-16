@@ -20,6 +20,7 @@ type Props = {
   busy?: boolean;
   finishBusy?: boolean;
   onFinish: () => void;
+  onStart?: () => void;
   onShelve?: () => void;
   onApproveTicket?: (ticketId: string) => void;
   onFocusDecide?: () => void;
@@ -35,6 +36,7 @@ export default function MissionNextActionPanel({
   busy = false,
   finishBusy = false,
   onFinish,
+  onStart,
   onShelve,
   onApproveTicket,
   onFocusDecide,
@@ -113,6 +115,17 @@ export default function MissionNextActionPanel({
             >
               {action.label}
             </Link>
+          ) : null}
+
+          {!tickets.length && action.type === "start" ? (
+            <button
+              type="button"
+              disabled={finishBusy}
+              onClick={onStart}
+              className="w-full rounded-xl bg-violet-800 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-900 disabled:opacity-40"
+            >
+              {finishBusy ? "Lancement…" : "Lancer cette tâche"}
+            </button>
           ) : null}
 
           {!tickets.length && action.type === "finish" ? (

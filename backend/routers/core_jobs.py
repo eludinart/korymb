@@ -818,6 +818,39 @@ def pause_running_job(job_id: str):
     }
 
 
+@router.post("/jobs/{job_id}/start", dependencies=[Depends(resolve_tenant)])
+def start_planned_job(job_id: str, background_tasks: BackgroundTasks):
+    """Démarre une tâche « à faire » créée depuis le chat, sans en dupliquer une autre."""
+    jid = _norm_job_id(job_id)
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = db_get_job(jid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    if str(row.get("status") or "") != "planned":
+        raise HTTPException(status_code=409, detail="Seule une tâche à faire peut être lancée.")
+    mission = str(row.get("mission") or "").strip()
+    if not mission:
+        raise HTTPException(status_code=400, detail="Consigne vide.")
+    from services.agents import agents_def
+    from services.mission import _schedule_mission_execution
+
+    agent_key = str(row.get("agent") or "coordinateur")
+    if agent_key not in agents_def():
+        agent_key = "coordinateur"
+    cfg = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else None
+    _schedule_mission_execution(
+        background_tasks,
+        jid,
+        agent_key,
+        mission,
+        None,
+        str(row.get("source") or "project"),
+        mission_config=cfg,
+    )
+    return {"ok": True, "job_id": jid, "status": "accepted"}
+
+
 @router.post("/jobs/{job_id}/resume-work", dependencies=[Depends(resolve_tenant)])
 def resume_paused_job(job_id: str):
     jid = (job_id or "").strip()

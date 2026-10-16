@@ -1848,6 +1848,28 @@ def append_job_mission_thread(
         conn.commit()
 
 
+def insert_planned_job(
+    job_id: str,
+    agent: str,
+    mission: str,
+    *,
+    source: str = "project",
+    mission_config: dict | None = None,
+) -> None:
+    """Mission visible (kanban, briefing) sans démarrer l'orchestration."""
+    now = datetime.utcnow().isoformat()
+    cfg_json = json.dumps(mission_config if isinstance(mission_config, dict) else {}, ensure_ascii=False)
+    wid = _ws()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, agent, mission, status, logs, team_trace, "
+            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, chat_session_id, workspace_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'planned', '[]', '[]', ?, '{}', '[]', ?, '[]', NULL, NULL, ?, ?, ?)",
+            (job_id, agent, mission, source, cfg_json, wid, now, now),
+        )
+        conn.commit()
+
+
 def save_job(
     job_id: str,
     agent: str,

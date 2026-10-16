@@ -15,6 +15,7 @@ WORKSPACE_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
         "korymb_save_mission_template",
         "korymb_list_playbooks",
         "korymb_save_playbook",
+        "korymb_create_project",
     ),
 }
 
@@ -22,15 +23,22 @@ WORKSPACE_SETUP_CONTEXT = (
     "\n\n### Dispositifs de travail Korymb (écriture réelle)\n"
     "Tu peux **créer** des templates de mission et des playbooks dans l'app "
     "(`korymb_save_mission_template`, `korymb_save_playbook`).\n"
+    "Si le dirigeant demande de **créer un projet**, des tâches ou des cartes "
+    "à partir de la conversation : appelle `korymb_create_project` dans ce tour. "
+    "Ça écrit le dossier Gestion, les étapes, et une mission « à faire » par tâche "
+    "(Missions, kanban, carte, briefing). "
+    "Interdit de dire que tu n'as pas l'outil, ou de renvoyer le dirigeant "
+    "cliquer Projets → +.\n"
     "Si le dirigeant demande de mettre en place, enregistrer, installer un dispositif "
     "(prompts stratégiques, fiches SWOT, communication, process) : "
     "liste d'abord l'existant, puis **écris** les fiches. "
     "Interdit de dire que tu ne peux pas créer d'environnement, "
     "ou de te limiter à un markdown à copier dans Drive.\n"
-    "Après écriture, cite les noms et oriente vers `/administration/templates` "
-    "et `/gestion/playbooks`. "
+    "Après écriture, cite les noms et les pages (`/gestion/projets`, `/missions`, "
+    "`/administration/templates`, `/gestion/playbooks`). "
+    "Ne lance pas les agents : les tâches restent « à faire » jusqu'au bouton Lancer. "
     "Une équipe d'agents reste une proposition (`propose_team_blueprint`) à valider dans le chat. "
-    "CRM, e-mails et posts restent en file Décisions.\n"
+    "Fiches contact, devis, e-mails et posts restent en file Décisions.\n"
 )
 
 WORKSPACE_TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -95,6 +103,43 @@ WORKSPACE_TOOL_SCHEMAS: list[dict[str, Any]] = [
                 "agent": {"type": "string", "description": "Agent par défaut (coordinateur)"},
             },
             "required": ["name", "mission"],
+        },
+    },
+    {
+        "name": "korymb_create_project",
+        "description": (
+            "Crée vraiment un projet Korymb à partir de la conversation : dossier dans Gestion → Projets, "
+            "une étape par tâche, et une carte mission « à faire » par tâche (Missions, kanban, carte, briefing). "
+            "N'appelle pas cet outil pour un simple template ou playbook. "
+            "Ne lance pas les agents : le dirigeant clique Lancer quand il veut exécuter une tâche. "
+            "Si un projet du même titre existe déjà, les nouvelles tâches y sont ajoutées."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "Titre du projet, tel que le dirigeant le nomme"},
+                "description": {
+                    "type": "string",
+                    "description": "Synthèse utile de la discussion (objectif, contraintes, hors-périmètre)",
+                },
+                "project_type": {
+                    "type": "string",
+                    "description": "seance | stage | module_pro | accompagnement | sivana | autre (défaut autre)",
+                },
+                "tasks": {
+                    "type": "array",
+                    "description": "Tâches à faire. Chaque élément : titre, et détail optionnel.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "detail": {"type": "string"},
+                        },
+                        "required": ["title"],
+                    },
+                },
+            },
+            "required": ["title"],
         },
     },
 ]
@@ -221,12 +266,174 @@ def run_save_playbook(inp: dict[str, Any]) -> str:
     )
 
 
+def _fold_title(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip()).casefold()
+
+
+def _parse_tasks(raw: Any) -> list[dict[str, str]]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            raw = json.loads(text)
+        except json.JSONDecodeError:
+            raw = [ln.strip(" -\t") for ln in text.splitlines() if ln.strip()]
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        title = ""
+        detail = ""
+        if isinstance(item, str):
+            title = item.strip()
+        elif isinstance(item, dict):
+            title = str(item.get("title") or item.get("label") or "").strip()
+            detail = str(item.get("detail") or item.get("description") or "").strip()
+        if not title:
+            continue
+        key = _fold_title(title)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"title": title[:180], "detail": detail[:2000]})
+        if len(out) >= 12:
+            break
+    return out
+
+
+def _find_project_by_title(title: str) -> dict[str, Any] | None:
+    from services.business_db import list_projects
+
+    wanted = _fold_title(title)
+    if not wanted:
+        return None
+    for row in list_projects(limit=200):
+        if str(row.get("status") or "") in {"completed", "cancelled"}:
+            continue
+        if _fold_title(str(row.get("title") or "")) == wanted:
+            return row
+    return None
+
+
+def _planned_mission_text(*, project_title: str, task_title: str, detail: str, description: str) -> str:
+    lines = [f"{task_title} — {project_title}"]
+    if detail.strip():
+        lines.extend(["", detail.strip()])
+    if description.strip():
+        lines.extend(["", "Contexte du projet :", description.strip()])
+    return "\n".join(lines)[:8000]
+
+
+def run_create_project(inp: dict[str, Any]) -> str:
+    from services.business_db import PROJECT_TYPES, create_project, update_project
+
+    title = str(inp.get("title") or "").strip()[:200]
+    if not title:
+        return _json({"ok": False, "error": "title est requis."})
+    description = str(inp.get("description") or "").strip()[:8000]
+    project_type = str(inp.get("project_type") or "autre").strip().lower() or "autre"
+    if project_type not in PROJECT_TYPES:
+        project_type = "autre"
+    tasks = _parse_tasks(inp.get("tasks"))
+    if not tasks:
+        tasks = [{"title": title, "detail": description[:2000]}]
+
+    existing = _find_project_by_title(title)
+    known = {
+        _fold_title(str(m.get("label") or m.get("title") or ""))
+        for m in (existing.get("milestones") if existing else []) or []
+        if isinstance(m, dict)
+    }
+    fresh = [t for t in tasks if _fold_title(t["title"]) not in known]
+    if existing and not fresh:
+        pid = str(existing.get("id") or "")
+        return _json(
+            {
+                "ok": True,
+                "created": False,
+                "reused": True,
+                "id": pid,
+                "title": existing.get("title") or title,
+                "href": f"/gestion/projets/{pid}",
+                "missions_href": "/missions?view=kanban",
+                "tasks": [],
+                "message": "Ce projet existe déjà, avec ces tâches.",
+            }
+        )
+
+    if existing:
+        project = existing
+        created = False
+        milestones = [m for m in (existing.get("milestones") or []) if isinstance(m, dict)]
+        linked = [str(x) for x in (existing.get("linked_job_ids") or []) if str(x).strip()]
+        if description and not str(existing.get("description") or "").strip():
+            update_project(str(existing["id"]), description=description)
+    else:
+        project = create_project(
+            title=title,
+            description=description,
+            project_type=project_type,
+            status="active",
+            milestones=[],
+            linked_job_ids=[],
+        )
+        created = True
+        milestones = []
+        linked = []
+
+    pid = str(project.get("id") or "")
+    from database import insert_planned_job
+
+    made: list[dict[str, str]] = []
+    for task in fresh:
+        jid = uuid.uuid4().hex[:8]
+        mission = _planned_mission_text(
+            project_title=title,
+            task_title=task["title"],
+            detail=task["detail"],
+            description=description or str(project.get("description") or ""),
+        )
+        insert_planned_job(
+            jid,
+            "coordinateur",
+            mission,
+            source="project",
+            mission_config={"mode": "cio", "project_id": pid, "origin": "chat"},
+        )
+        milestones.append({"label": task["title"], "done": False, "job_id": jid})
+        linked.append(jid)
+        made.append({"job_id": jid, "title": task["title"], "href": f"/missions?job={jid}"})
+
+    update_project(pid, milestones=milestones, linked_job_ids=linked, status="active")
+    return _json(
+        {
+            "ok": True,
+            "created": created,
+            "reused": not created,
+            "id": pid,
+            "title": title,
+            "href": f"/gestion/projets/{pid}",
+            "missions_href": "/missions?view=kanban",
+            "tasks": made,
+            "message": (
+                "Projet créé. Les tâches sont dans Missions, colonne À faire. "
+                "Elles ne démarrent pas toutes seules : le dirigeant clique Lancer."
+                if created
+                else "Tâches ajoutées au projet existant. Elles sont à faire, pas lancées."
+            ),
+        }
+    )
+
+
 def dispatch_workspace_tool(name: str, inp: dict[str, Any]) -> str | None:
     handlers: dict[str, Callable[[], str]] = {
         "korymb_list_mission_templates": run_list_mission_templates,
         "korymb_save_mission_template": lambda: run_save_mission_template(inp),
         "korymb_list_playbooks": run_list_playbooks,
         "korymb_save_playbook": lambda: run_save_playbook(inp),
+        "korymb_create_project": lambda: run_create_project(inp),
     }
     fn = handlers.get(name)
     if fn is None:
