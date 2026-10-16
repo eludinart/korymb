@@ -11,6 +11,30 @@ def test_business_overview(client):
     assert "contacts_active" in body["stats"]
 
 
+def test_disqualify_contact_logs_history(client):
+    create = client.post(
+        "/business/contacts",
+        json={"name": "Jean Dupont - Test Disqualification", "email": "jean.dupont.test@example.com"},
+    )
+    assert create.status_code == 200, create.text
+    cid = create.json()["id"]
+
+    done = client.post(f"/business/contacts/{cid}/disqualify")
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["contact"]["status"] == "disqualified"
+    summary = body["interaction"]["summary"]
+    assert summary.startswith("Disqualifié le ")
+    assert summary.endswith(" par Korymb")
+
+    listed = client.get("/business/interactions", params={"contact_id": cid})
+    assert listed.status_code == 200
+    assert any(row["summary"] == summary for row in listed.json()["interactions"])
+
+    again = client.post(f"/business/contacts/{cid}/disqualify")
+    assert again.status_code == 409
+
+
 def test_business_contacts_crud(client):
     create = client.post(
         "/business/contacts",

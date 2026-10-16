@@ -52,7 +52,8 @@ export function describeInterlocutor(value: string, groups: GroupOpt[]): Interlo
       mode: "Conversation libre",
       who: "Copilote pour clarifier et préparer",
       team: "Aucune — exploration & cadrage",
-      context: "Répond à tes questions, brainstorm, plans. Propose une équipe seulement si tu le demandes.",
+      context:
+        "Répond aux questions. Propose une flotte déjà en place si la situation mérite une analyse poussée, et reste l'interlocuteur.",
       kind,
     };
   }

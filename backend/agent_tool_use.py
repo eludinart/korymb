@@ -1854,7 +1854,12 @@ def llm_chat_with_tools(
         "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), PDF, RSS, "
         "recherche LinkedIn, analyse d'images (describe_image), génération d'images, insights/planification réseaux, "
         "brouillon email, newsletter, traduction, création fichier Drive. "
-        "Utilise-les si la question exige des données à jour, des sources ou des visuels."
+        "Utilise-les si la question exige des données à jour, des sources ou des visuels. "
+        "Si `korymb_save_mission_template` ou `korymb_save_playbook` est disponible, "
+        "un modèle ou une consigne à garder s'enregistre avec cet outil dans ce tour. "
+        "Si `gestion_upsert_contact`, `gestion_create_quote` ou `gestion_schedule_event` est disponible, "
+        "appelle-le : en chat l'écriture devient une proposition à valider, pas un refus. "
+        "Interdit de dire qu'un outil de la liste est absent."
     )
     system_use = system + extra
     cfg = merge_with_env()

@@ -17,7 +17,7 @@ from workspace_db import ws_id
 # ── Constantes métier ─────────────────────────────────────────────────────────
 
 CONTACT_TYPES = ("prospect", "client", "partenaire", "autre")
-CONTACT_STATUSES = ("active", "inactive", "archived")
+CONTACT_STATUSES = ("active", "inactive", "archived", "disqualified")
 PROJECT_TYPES = ("seance", "stage", "module_pro", "accompagnement", "sivana", "autre")
 PROJECT_STATUSES = ("draft", "active", "on_hold", "completed", "cancelled")
 QUOTE_STATUSES = ("draft", "sent", "accepted", "refused", "expired")
@@ -43,6 +43,32 @@ CONTACT_PROFILE_FIELDS = (
 
 def _now() -> str:
     return datetime.utcnow().isoformat()
+
+
+_FR_MONTHS = (
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+)
+
+
+def paris_stamp() -> str:
+    """Date lisible pour l'historique CRM (Europe/Paris)."""
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo("Europe/Paris"))
+    return f"{now.day} {_FR_MONTHS[now.month - 1]} {now.year} à {now.hour}h{now.minute:02d}"
+
+
+def actor_label(auth: dict | None) -> str:
+    """Nom affiché de l'utilisateur connecté, ou « Korymb » hors session."""
+    if not isinstance(auth, dict) or auth.get("mode") != "user":
+        return "Korymb"
+    from workspace_db import get_user_by_id
+
+    user = get_user_by_id(str(auth.get("user_id") or "")) or {}
+    name = str(user.get("display_name") or "").strip()
+    email = str(user.get("email") or "").strip()
+    return (name or email or "Korymb")[:120]
 
 
 def _new_id(prefix: str) -> str:
@@ -1177,6 +1203,25 @@ def update_contact(contact_id: str, **fields: Any) -> dict | None:
         )
         conn.commit()
     return get_contact(contact_id)
+
+
+def disqualify_contact(contact_id: str, *, actor: str) -> dict | None:
+    """Passe le contact en disqualifié et note l'action dans l'historique."""
+    contact = get_contact(contact_id)
+    if not contact:
+        return None
+    if str(contact.get("status") or "") == "disqualified":
+        return {"already": True, "contact": contact, "interaction": None}
+    updated = update_contact(contact_id, status="disqualified")
+    who = (actor or "").strip() or "Korymb"
+    summary = f"Disqualifié le {paris_stamp()} par {who}"[:500]
+    interaction = log_interaction(
+        contact_id=contact_id,
+        interaction_type="note",
+        summary=summary,
+        details=summary,
+    )
+    return {"already": False, "contact": updated, "interaction": interaction}
 
 
 def create_enrichment_proposal(

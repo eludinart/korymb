@@ -95,6 +95,80 @@ def test_resolve_pending_blueprint_only_when_proposed(monkeypatch):
     assert resolve_pending_blueprint_id(direct="bp-cccccccccccc") == "bp-cccccccccccc"
 
 
+def test_assistant_tools_cover_templates_agenda_and_calendar():
+    from agent_tool_use import tool_names_for_tags
+    from services.agent_groups import ASSISTANT_SYSTEM
+    from services.agents import ASSISTANT_TOOL_TAGS, BUILTIN_AGENT_DEFINITIONS
+
+    names = set(tool_names_for_tags(ASSISTANT_TOOL_TAGS))
+    for required in (
+        "korymb_save_mission_template",
+        "korymb_save_playbook",
+        "gestion_upsert_contact",
+        "gestion_create_quote",
+        "gestion_schedule_event",
+        "gestion_list_events",
+        "create_calendar_event",
+        "list_calendar_events",
+        "korymb_overview",
+    ):
+        assert required in names
+    assert BUILTIN_AGENT_DEFINITIONS["assistant"]["tools"] == ASSISTANT_TOOL_TAGS
+    folded = ASSISTANT_SYSTEM.lower()
+    assert "korymb_save_mission_template" in folded
+    assert "décisions" in folded
+    assert "n'écris pas de fiche" not in folded
+
+
+def test_existing_fleet_only_for_deep_analysis():
+    from services.chat_intelligence import message_warrants_existing_fleet, turn_offers_existing_fleet
+
+    assert message_warrants_existing_fleet("bonjour") is False
+    assert message_warrants_existing_fleet("qui es-tu ?") is False
+    assert message_warrants_existing_fleet("Fais une analyse poussée de la situation commerciale.") is True
+    assert message_warrants_existing_fleet("Passe ça à la flotte.") is True
+    assert message_warrants_existing_fleet("oui") is False
+    assert (
+        turn_offers_existing_fleet(
+            "oui",
+            [{"role": "user", "content": "Fais un diagnostic de la situation."}],
+        )
+        is True
+    )
+    assert turn_offers_existing_fleet("oui", []) is False
+
+
+def test_quotidien_prompt_lists_real_fleet_for_analysis(monkeypatch):
+    monkeypatch.setattr(
+        "services.agent_groups.list_groups",
+        lambda include_archived=False: [
+            {
+                "id": "entreprise",
+                "label": "Entreprise",
+                "description": "Flotte métier",
+                "status": "active",
+                "members": [{"label": "Commercial"}],
+            }
+        ],
+    )
+    plain = build_assistant_system_prompt("bonjour", chat_use_mode="quotidien", tools_enabled=False)
+    assert "analyse de flotte" not in plain.lower()
+    deep = build_assistant_system_prompt(
+        "Fais une analyse poussée de la situation.",
+        chat_use_mode="quotidien",
+        tools_enabled=False,
+    )
+    assert "entreprise" in deep.lower()
+    assert "missions" in deep.lower()
+    assert "interlocuteur" in deep.lower()
+    assert "crée l'équipe" not in deep.lower()
+    ops = build_assistant_system_prompt(
+        "Fais une analyse poussée de la situation.",
+        chat_use_mode="operationnel",
+    )
+    assert "analyse de flotte (ce tour)" not in ops.lower()
+
+
 def test_quotidien_prompt_skips_lead_shape():
     ops = build_assistant_system_prompt("bonjour", chat_use_mode="operationnel")
     daily = build_assistant_system_prompt("bonjour", chat_use_mode="quotidien")

@@ -38,7 +38,11 @@ def execute_ticket(ticket: dict[str, Any]) -> tuple[str, dict[str, Any] | None]:
         return result, chain
     if kind == "wordpress":
         result = _execute_wordpress(payload)
-        chain = complete_wordpress_outcome(ticket, payload) if result_is_success(result) else None
+        chain = (
+            complete_wordpress_outcome(ticket, payload, result)
+            if result_is_success(result)
+            else None
+        )
         return result, chain
     raise RuntimeError(f"Exécuteur non disponible pour kind={kind!r}.")
 
@@ -72,13 +76,22 @@ def complete_social_outcome(ticket: dict[str, Any], payload: dict[str, Any]) -> 
     return chain
 
 
-def complete_wordpress_outcome(ticket: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+def complete_wordpress_outcome(
+    ticket: dict[str, Any],
+    payload: dict[str, Any],
+    result: str = "",
+) -> dict[str, Any]:
     title = str(payload.get("title") or "article").strip()
     chain: dict[str, Any] = {
         "published": True,
         "follow_up": None,
         "steps": [f"Article WordPress publié — {title[:80]}"],
     }
+    from tools.wordpress import parse_wordpress_result
+
+    link = str(parse_wordpress_result(result or "").get("link") or "").strip()
+    if link:
+        chain["link"] = link
     follow = _schedule_content_follow_up(
         ticket,
         title=f"Relayer l'article — {title[:80]}",

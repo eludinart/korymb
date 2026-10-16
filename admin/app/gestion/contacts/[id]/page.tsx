@@ -10,12 +10,14 @@ import ContactOutreachSuggestionsField from "../../../../components/gestion/Cont
 import ContactProfileView from "../../../../components/gestion/ContactProfileView";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
+import { useActionToast } from "../../../../lib/actionToast";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../../_shared";
 
 export default function GestionContactEditPage() {
   const { id } = useParams<{ id: string }>();
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -107,6 +109,22 @@ export default function GestionContactEditPage() {
     onError: (e: Error) => setError(e.message),
   });
 
+  const disqualify = useMutation({
+    mutationFn: () => businessApi.disqualifyContact(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["business-contacts"] });
+      void qc.invalidateQueries({ queryKey: ["business-contact", id] });
+      void qc.invalidateQueries({ queryKey: ["business-interactions", id] });
+      void qc.invalidateQueries({ queryKey: ["business-overview"] });
+      setError("");
+      pushToast("Contact disqualifié.");
+    },
+    onError: (e: Error) => {
+      setError(e.message);
+      pushToast(e.message || "Disqualification impossible", "error");
+    },
+  });
+
   if (contact.isLoading) {
     return (
       <PageShell size="wide">
@@ -146,6 +164,20 @@ export default function GestionContactEditPage() {
                 Modifier la fiche
               </button>
             )}
+            {contact.data.status !== "disqualified" ? (
+              <button
+                type="button"
+                className="btn-danger"
+                disabled={disqualify.isPending}
+                onClick={() => {
+                  const label = contact.data?.name || "ce contact";
+                  if (!window.confirm(`Disqualifier ${label} ? L’action sera notée dans l’historique.`)) return;
+                  disqualify.mutate();
+                }}
+              >
+                {disqualify.isPending ? "Disqualification…" : "Disqualifier"}
+              </button>
+            ) : null}
             <Link href="/gestion/contacts" className="btn-link-secondary">
               ← Retour à la liste
             </Link>
@@ -291,15 +323,19 @@ export default function GestionContactEditPage() {
           <p className="text-sm text-slate-500">Aucune interaction enregistrée.</p>
         ) : (
           <ul className="space-y-2">
-            {(interactions.data || []).map((row) => (
+            {(interactions.data || []).map((row) => {
+              const disqualifyLog = (row.summary || "").startsWith("Disqualifié le ");
+              return (
               <li key={row.id} className="border-l-2 border-emerald-100 pl-3 text-sm">
                 <p className="font-medium text-slate-800">
-                  {INTERACTION_TYPE_LABELS[row.interaction_type] || row.interaction_type}
-                  {row.summary ? ` — ${row.summary}` : ""}
+                  {disqualifyLog
+                    ? row.summary
+                    : `${INTERACTION_TYPE_LABELS[row.interaction_type] || row.interaction_type}${row.summary ? ` — ${row.summary}` : ""}`}
                 </p>
                 <p className="text-xs text-slate-500">{formatDateTime(row.created_at)}</p>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </SectionCard>

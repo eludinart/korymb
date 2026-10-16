@@ -11,6 +11,8 @@ export type PendingChatJob = {
   progressPercent?: number;
   progressLabel?: string;
   progressStatus?: string;
+  /** Relais quotidien : l'assistant reste l'interlocuteur, la flotte travaille derrière. */
+  relayFleet?: { groupId: string; label: string };
 };
 
 const STORAGE_KEY = "korymb-chat-pending-jobs-v1";

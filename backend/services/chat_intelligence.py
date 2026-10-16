@@ -239,6 +239,67 @@ _FAKE_TEAM_BUTTON_RE = re.compile(
 )
 
 
+_FLEET_ANALYSIS_RE = re.compile(
+    r"("
+    r"analyse poussee|analyse approfondie|analyse (de la |la |cette |notre )?situation|"
+    r"analyser (la |cette |notre )?situation|"
+    r"\bdiagnostic\b|etat des lieux|\baudit\b|"
+    r"vision d ensemble|plusieurs angles|situation (globale|actuelle|complexe)|"
+    r"\bapprofondi[rs]\b|\bcreuse[rz]?\b|va au fond|"
+    r"\barbitrage\b|comparer .{0,48}(options|scenarios|pistes|angles)|"
+    r"mobilise[rz]? (la |une )?(flotte|equipe)|"
+    r"passe[rz]? .{0,32}(a la |aux )?(flotte|equipe)|"
+    r"confie[rz]? .{0,40}(flotte|equipe)|"
+    r"demande[rz]? a (la |l )?(flotte|equipe)"
+    r")",
+    re.I,
+)
+_FLEET_ANALYSIS_SOFT_RE = re.compile(
+    r"\b(strategie|priorit|decid|situation|scenario|enjeu)\b",
+    re.I,
+)
+_FLEET_CONFIRM_RE = re.compile(
+    r"^("
+    r"oui|ouais|ok|okay|d accord|daccord|vas[- ]y|go|"
+    r"valide|valider|c est bon|parfait|fais[- ]le|"
+    r"je valide|confirme|confirmer|lance|lancer"
+    r")( la flotte| l equipe)?$"
+)
+_SIMPLE_ASSISTANT_RE = re.compile(
+    r"\b(qui es[- ]tu|qui est[- ]tu|tu es qui|qui etes[- ]vous|presente[- ]toi)\b",
+    re.I,
+)
+
+
+def message_warrants_existing_fleet(text: str) -> bool:
+    """Vrai si le sujet mérite une flotte déjà en place (analyse poussée), pas un échange court."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    folded = _fold(raw)
+    if _SIMPLE_ASSISTANT_RE.search(folded):
+        return False
+    if _FLEET_ANALYSIS_RE.search(folded):
+        return True
+    return len(folded) >= 280 and bool(_FLEET_ANALYSIS_SOFT_RE.search(folded))
+
+
+def turn_offers_existing_fleet(message: str, history: list | None = None) -> bool:
+    """Ce tour, ou un « oui » qui suit une demande d'analyse."""
+    if message_warrants_existing_fleet(message):
+        return True
+    folded = _fold(message).replace("'", " ").replace("’", " ")
+    folded = re.sub(r"\s+", " ", folded).strip()
+    folded = re.sub(r"[.!?]+$", "", folded).strip()
+    if not folded or len(folded) > 80 or not _FLEET_CONFIRM_RE.search(folded):
+        return False
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        return message_warrants_existing_fleet(str(item.get("content") or ""))
+    return False
+
+
 def chat_turn_needs_team_tools(message: str, history: list | None = None) -> bool:
     """Vrai si ce tour doit passer par les outils d'équipe (blueprint + bouton)."""
     folded = _fold(message).strip()

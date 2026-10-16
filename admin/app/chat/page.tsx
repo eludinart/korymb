@@ -18,7 +18,15 @@ import { businessApi } from "../../lib/business";
 import { CHAT_FILE_MAX, type ChatFile } from "../../lib/chatAttachments";
 import MissionContextBanner from "../../components/MissionContextBanner";
 import { progressFromJob, type ChatReplyProgress } from "../../lib/chatProgress";
-import { messageWantsTeam } from "../../lib/chatTeamOffer";
+import {
+  activeChatFleets,
+  fleetNamedInText,
+  fleetOfferAnchor,
+  isFleetConfirm,
+  messageAsksExistingFleet,
+  messageWantsTeam,
+  type FleetPick,
+} from "../../lib/chatTeamOffer";
 import {
   addPendingChatJob,
   loadPendingChatJobs,
@@ -133,6 +141,7 @@ function ChatPageInner() {
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [replyProgress, setReplyProgress] = useState<ChatReplyProgress | null>(null);
   const [teamOfferDismissedId, setTeamOfferDismissedId] = useState("");
+  const [fleetOfferDismissedId, setFleetOfferDismissedId] = useState("");
   const [convertBusy, setConvertBusy] = useState(false);
   const [convertBrief, setConvertBrief] = useState<string | null>(null);
   const [pendingFiles, setPendingFiles] = useState<ChatFile[]>([]);
@@ -148,6 +157,10 @@ function ChatPageInner() {
   const interlocutorRef = useRef(interlocutor);
   const chatUseModeRef = useRef(chatUseMode);
   const streamAbortRef = useRef<AbortController | null>(null);
+  const fleetCandidatesRef = useRef<FleetPick[]>([]);
+  const relayToFleetRef = useRef<
+    (groupId: string, brief: string, history: ChatMsg[], label: string) => void
+  >(() => {});
   const initRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -586,13 +599,15 @@ function ChatPageInner() {
 
       let agentKeys: string[] | undefined;
       let pendingBlueprintId: string | undefined;
+      let voiced = surface;
+      const relay = job.relayFleet;
       if (!isError) {
         try {
           const { data: jobData } = await requestJson(`/jobs/${encodeURIComponent(job.jobId)}`, { retries: 1 });
           pendingBlueprintId = jobData?.pending_blueprint_id || deliveredBlueprintId || blueprintIdFromText(surface);
           const keys = await fetchJobAgentKeys(job.jobId);
           const agent = String(jobData?.agent || "");
-          if (agent === "assistant" || keys.includes("assistant")) {
+          if (relay || agent === "assistant" || keys.includes("assistant")) {
             agentKeys = ["assistant"];
           } else {
             const delegated = keys.filter((k) => k !== "coordinateur");
@@ -603,13 +618,17 @@ function ChatPageInner() {
           pendingBlueprintId = deliveredBlueprintId || blueprintIdFromText(surface);
         }
       }
+      if (relay && !isError) {
+        agentKeys = ["assistant"];
+        voiced = `Voici ce que la flotte « ${relay.label} » a produit. Je reste votre interlocuteur.\n\n${surface}`;
+      }
 
       const nextMessages: ChatMsg[] = [
         ...conv.messages,
         {
           id: assistantId,
           role: "assistant",
-          content: surface,
+          content: voiced,
           jobId: job.jobId,
           ...(driveArtifacts ? { driveArtifacts: driveArtifacts as ChatMsg["driveArtifacts"] } : {}),
           ...(deliverablesMarkdown ? { deliverablesMarkdown } : {}),
@@ -617,6 +636,9 @@ function ChatPageInner() {
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
           ...(degraded ? { degraded: true } : {}),
           ...(claimGuard?.status ? { claimGuard } : {}),
+          ...(relay && !isError
+            ? { fleetRelay: { groupId: relay.groupId, label: relay.label, jobId: job.jobId } }
+            : {}),
         },
       ];
       const preview = stripMarkdownPreview(surface);
@@ -679,6 +701,102 @@ function ChatPageInner() {
     },
     [pollJob, deliverJobResult],
   );
+
+  const relayToFleet = useCallback(
+    (groupId: string, brief: string, history: ChatMsg[], label: string) => {
+      const sessionId = activeIdRef.current;
+      const ask = brief.trim();
+      if (!ask || !sessionId || pending) return;
+      setPending(true);
+      setReplyProgress({ percent: 18, label: `Je transmets à ${label}` });
+      let cut = history.length;
+      for (let i = history.length - 1; i >= 0; i -= 1) {
+        if (history[i].role === "user" && history[i].content.trim() === ask) {
+          cut = i;
+          break;
+        }
+      }
+      const conv = loadConversations().find((c) => c.id === sessionId);
+      const parentId = conv?.linkedParentJobId || undefined;
+      const historyPayload = history
+        .slice(0, cut)
+        .filter((item) => !item.pendingAction)
+        .map((item) => {
+          const body = chatTextWithReply(item.content, item.replyTo);
+          return {
+            role: item.role,
+            content: item.attachments?.length
+              ? `${body}\n[Fichiers: ${item.attachments.map((a) => a.filename).join(", ")}]`.trim()
+              : body,
+          };
+        })
+        .slice(-chatHistoryLimit("quotidien"));
+      void (async () => {
+        try {
+          const { data } = await requestJson("/chat", {
+            method: "POST",
+            headers: agentHeaders(),
+            timeoutMs: 25_000,
+            body: JSON.stringify({
+              message: ask,
+              agent: "coordinateur",
+              history: historyPayload,
+              chat_session_id: sessionId,
+              agent_group_id: groupId,
+              chat_use_mode: "quotidien",
+              ...(parentId ? { linked_job_id: parentId } : {}),
+              thinking_mode: loadThinkingMode(),
+            }),
+          });
+          if (!mountedRef.current) return;
+          if (data?.status === "accepted" && data?.job_id) {
+            const jobId = String(data.job_id);
+            const ack: ChatMsg = {
+              id: `ack-${jobId}`,
+              role: "assistant",
+              content: `Je transmets votre demande à la flotte « ${label} ». Je reste votre interlocuteur et je vous rapporte ici ce qu'elle produit.`,
+              agentKeys: ["assistant"],
+              jobId,
+              fleetRelay: { groupId, label, jobId },
+            };
+            setMessages((prev) => [...prev, ack]);
+            const pendingJob: PendingChatJob = {
+              jobId,
+              conversationId: sessionId,
+              startedAt: Date.now(),
+              linkedParentJobId: parentId,
+              userPreview: stripMarkdownPreview(ask, 80),
+              relayFleet: { groupId, label },
+            };
+            addPendingChatJob(pendingJob);
+            refreshConversations();
+            watchJobInBackground(pendingJob);
+            return;
+          }
+          const surface = toChatSurface(String(data?.response || "La flotte n'a pas pu démarrer."));
+          setReplyProgress(null);
+          setMessages((prev) => [
+            ...prev,
+            { id: `a-${Date.now()}`, role: "assistant", content: surface, agentKeys: ["assistant"] },
+          ]);
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
+          setReplyProgress(null);
+          setMessages((prev) => [
+            ...prev,
+            { id: `e-${Date.now()}`, role: "assistant", content: raw, agentKeys: ["assistant"] },
+          ]);
+        } finally {
+          if (mountedRef.current) setPending(false);
+        }
+      })();
+    },
+    [pending, refreshConversations, watchJobInBackground],
+  );
+
+  useEffect(() => {
+    relayToFleetRef.current = relayToFleet;
+  }, [relayToFleet]);
 
   const stopActiveReply = useCallback(async () => {
     if (!window.confirm("Arrêter la réponse en cours ?")) return;
@@ -820,6 +938,43 @@ function ChatPageInner() {
     const history = keepTurn
       ? baseMessages.map((m) => (m.pendingAction ? { ...m, pendingAction: undefined } : m))
       : [...baseMessages, userMsg];
+    if (chatUseModeRef.current === "quotidien" && !keepTurn && text) {
+      const fleets = fleetCandidatesRef.current;
+      const anchor = fleetOfferAnchor(baseMessages);
+      const named = fleetNamedInText(text, fleets);
+      const explicit = messageAsksExistingFleet(text);
+      const confirm = isFleetConfirm(text);
+      const target = explicit
+        ? named || (fleets.length === 1 ? fleets[0] : null)
+        : anchor && confirm
+          ? named || (fleets.length === 1 ? fleets[0] : null)
+          : null;
+      if (target) {
+        const brief = anchor?.text || text;
+        setMessages(history);
+        setDraft("");
+        setPendingFiles([]);
+        setUploadError("");
+        relayToFleetRef.current(target.id, brief, history, target.label);
+        return;
+      }
+      if (explicit && fleets.length > 0) {
+        setMessages([
+          ...history,
+          {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content:
+              "Plusieurs flottes peuvent prendre cette analyse. Choisissez laquelle : je reste votre interlocuteur.",
+            agentKeys: ["assistant"],
+          },
+        ]);
+        setDraft("");
+        setPendingFiles([]);
+        setUploadError("");
+        return;
+      }
+    }
     if (!keepTurn) {
       setMessages(history);
       setDraft("");
@@ -1110,6 +1265,15 @@ function ChatPageInner() {
     queryFn: async () => (await requestJson("/agent-groups", { retries: 1 })).data.groups || [],
   });
 
+  const fleetCandidates = useMemo(
+    () => activeChatFleets((groupsList || []) as GroupOpt[]),
+    [groupsList],
+  );
+
+  useEffect(() => {
+    fleetCandidatesRef.current = fleetCandidates;
+  }, [fleetCandidates]);
+
   const chooseInterlocutor = useCallback(
     (value: string) => {
       interlocutorRef.current = value;
@@ -1152,6 +1316,12 @@ function ChatPageInner() {
     Boolean(lastUserMessage) &&
     messageWantsTeam(lastUserMessage?.content || "") &&
     teamOfferDismissedId !== lastUserMessage?.id &&
+    !pending;
+  const fleetAnchor = chatUseMode === "quotidien" ? fleetOfferAnchor(messages) : null;
+  const showFleetOffer =
+    Boolean(fleetAnchor) &&
+    fleetCandidates.length > 0 &&
+    fleetOfferDismissedId !== fleetAnchor?.id &&
     !pending;
 
   if (!hydrated || !activeId) {
@@ -1227,6 +1397,16 @@ function ChatPageInner() {
             teamOffer={showTeamOffer}
             onHandOffToTeam={handOffToTeam}
             onDismissTeamOffer={() => setTeamOfferDismissedId(lastUserMessage?.id || "dismissed")}
+            fleetOffer={
+              showFleetOffer ? fleetCandidates.map((fleet) => ({ id: fleet.id, label: fleet.label })) : []
+            }
+            onRelayToFleet={(groupId) => {
+              const anchor = fleetOfferAnchor(messages);
+              const fleet = fleetCandidates.find((item) => item.id === groupId);
+              if (!anchor || !fleet) return;
+              relayToFleet(groupId, anchor.text, messages, fleet.label);
+            }}
+            onDismissFleetOffer={() => setFleetOfferDismissedId(fleetAnchor?.id || "dismissed")}
             className="h-full max-w-none min-h-0 flex-1"
             agentLabels={agentLabels}
             onPatchMessage={patchMessage}

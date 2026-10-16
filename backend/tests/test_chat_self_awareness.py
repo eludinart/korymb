@@ -55,6 +55,24 @@ def test_chat_upsert_creates_proposal_not_contact(client):
     assert any(s.get("kind") == "crm_write" for s in pending)
 
 
+def test_chat_schedule_event_stays_a_proposal(client):
+    from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
+    from services.business_db import list_calendar_events
+
+    token = _activate_tool_run_ctx("jobchat03", "chat_sync:assistant", "assistant", chat_mode=True)
+    try:
+        out = _execute_tool(
+            "gestion_schedule_event",
+            {"title": "Séance devis modèle", "starts_at": "2026-11-02T09:00:00"},
+        )
+    finally:
+        _tool_run_ctx.reset(token)
+    data = json.loads(out)
+    assert data.get("proposal") is True
+    titles = [str(ev.get("title") or "") for ev in list_calendar_events()]
+    assert "Séance devis modèle" not in titles
+
+
 def test_apply_crm_write_proposal(client):
     from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
     from services.business_db import search_contacts

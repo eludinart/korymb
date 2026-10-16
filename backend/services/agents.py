@@ -100,11 +100,23 @@ SUB_AGENT_COORDINATION_FR = (
 )
 
 # ── Définitions intégrées (génériques — marque via workspace_brand) ───────────
+# Outils du chat Assistant. Les écritures CRM et le calendrier Google
+# passent par Décisions ou la file d'actions ; templates et playbooks s'écrivent tout de suite.
+ASSISTANT_TOOL_TAGS: list[str] = [
+    "web",
+    "drive",
+    "teams",
+    "workspace",
+    "gestion",
+    "knowledge",
+    "google",
+]
+
 BUILTIN_AGENT_DEFINITIONS: dict[str, dict] = {
     "assistant": {
         "label": "Assistant",
         "role": "Copilote conversationnel — exploration & cadrage",
-        "tools": ["web", "drive", "teams", "workspace"],
+        "tools": list(ASSISTANT_TOOL_TAGS),
         "is_manager": True,
         "system": (
             "Tu es l'Assistant Korymb (pas le CIO) : chatbot généraliste. "

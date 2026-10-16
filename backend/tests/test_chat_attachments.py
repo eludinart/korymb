@@ -58,11 +58,15 @@ def test_chat_accepts_attachment(client, tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    def fake_orchestrate(mission_txt, *args, **kwargs):
+    def fake_runner(mission_txt, *args, **kwargs):
         captured["mission"] = mission_txt
         return "Lu le fichier.", 1, 1
 
-    monkeypatch.setattr("routers.core_chat.orchestrate_coordinateur_mission", fake_orchestrate)
+    # « Lis ce document » ne demande pas d'action : le tour part dans
+    # answer_chat_turn_without_tools. Une consigne d'action passerait
+    # par orchestrate_coordinateur_mission. Les deux doivent voir le fichier.
+    monkeypatch.setattr("routers.core_chat.orchestrate_coordinateur_mission", fake_runner)
+    monkeypatch.setattr("services.mission.answer_chat_turn_without_tools", fake_runner)
     monkeypatch.setattr(
         "routers.core_chat.generate_mirror_ack_result",
         lambda *a, **k: ("ok", None),

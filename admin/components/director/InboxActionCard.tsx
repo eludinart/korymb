@@ -8,6 +8,7 @@ import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { useActionToast } from "../../lib/actionToast";
 import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
 import type { QuestionSpecMap } from "../../lib/choiceQuestionnaire";
 import { specsFromQuestionItems } from "../../lib/choiceQuestionnaire";
@@ -112,7 +113,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   );
   const [hidden, setHidden] = useState(false);
   const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
+  const [chainLink, setChainLink] = useState("");
   const [doneFlash, setDoneFlash] = useState("");
+  const { pushToast } = useActionToast();
   const jobId = item.job_id || "";
 
   const jobAnswersQuery = useQuery({
@@ -154,11 +157,15 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     setDoneFlash(message);
     window.setTimeout(() => hideFromInbox(), 1400);
   };
-  const showChainThenHide = (data: { chain?: { steps?: string[] } } | undefined) => {
+  const showChainThenHide = (data: { chain?: { steps?: string[]; link?: string } } | undefined) => {
     const steps = data?.chain?.steps;
+    const link = String(data?.chain?.link || "").trim();
+    if (link) setChainLink(link);
     if (Array.isArray(steps) && steps.length) {
       setChainFeedback(steps.map(String));
-      window.setTimeout(() => hideFromInbox(), 1600);
+      if (!link) window.setTimeout(() => hideFromInbox(), 1600);
+    } else if (link) {
+      setChainFeedback(["Article publié avec succès"]);
     } else {
       flashDoneThenHide("Action effectuée.");
     }
@@ -195,7 +202,20 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     if (!item.ticket_id) return;
     actionResolve.mutate(
       { ticketId: item.ticket_id, decision: "approve" },
-      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+      {
+        onSuccess: (data) => {
+          const resolved = data as { chain?: { steps?: string[]; link?: string } };
+          if (item.action_kind === "wordpress") {
+            const link = String(resolved.chain?.link || "").trim();
+            pushToast(link ? `Article publié avec succès — ${link}` : "Article publié avec succès");
+          }
+          showChainThenHide(resolved);
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Action impossible";
+          pushToast(/^échec\s*:/i.test(msg) ? msg : `Échec : ${msg}`, "error");
+        },
+      },
     );
   };
 
@@ -285,9 +305,12 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   }
   if (hidden) return null;
   if (chainFeedback) {
+    const published = item.action_kind === "wordpress";
     return (
       <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
-        <p className="text-sm font-bold text-emerald-900">Fait — chaîne terminée</p>
+        <p className="text-sm font-bold text-emerald-900">
+          {published ? "Article publié avec succès" : "Fait — chaîne terminée"}
+        </p>
         <ul className="mt-2 space-y-1">
           {chainFeedback.map((step) => (
             <li key={step} className="text-sm font-medium text-emerald-800">
@@ -295,6 +318,18 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </li>
           ))}
         </ul>
+        {chainLink ? (
+          <a href={chainLink} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold text-emerald-900 underline">
+            Voir l’article
+          </a>
+        ) : null}
+        {chainLink ? (
+          <div className="mt-3">
+            <button type="button" className="btn-secondary" onClick={() => hideFromInbox()}>
+              Fermer
+            </button>
+          </div>
+        ) : null}
       </li>
     );
   }
@@ -866,11 +901,15 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
           {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, configMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
-            .map((err, i) => (
-              <p key={i} className="mt-2 text-xs text-red-700">
-                {err instanceof Error ? err.message : String(err)}
+            .map((err, i) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              const label = /^échec\s*:/i.test(msg) ? msg : `Échec : ${msg}`;
+              return (
+              <p key={i} className="mt-2 text-sm font-semibold text-red-700">
+                {label}
               </p>
-            ))}
+              );
+            })}
         </div>
       ) : null}
     </li>

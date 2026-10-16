@@ -47,6 +47,7 @@ export const CONTACT_STATUS_LABELS: Record<string, string> = {
   active: "Actif",
   inactive: "Inactif",
   archived: "Archivé",
+  disqualified: "Disqualifié",
 };
 
 export const EVENT_STATUS_LABELS: Record<string, string> = {

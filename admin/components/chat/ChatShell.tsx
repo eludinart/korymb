@@ -9,6 +9,7 @@ import ChatMessageDeliverables from "./ChatMessageDeliverables";
 import ChatSourceNote from "./ChatSourceNote";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
+import ChatFleetRelayNote from "./ChatFleetRelayNote";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
 import { chatTextIsDegraded } from "../../lib/chatDegraded";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
@@ -58,6 +59,8 @@ export type ChatMsg = {
   choiceAnsweredSummary?: string;
   /** Message du fil auquel celui-ci répond (citation affichée, contexte envoyé à l'agent). */
   replyTo?: ChatReplyTarget;
+  /** Relais vers une flotte déjà en place : l'assistant reste le locuteur du fil. */
+  fleetRelay?: { groupId: string; label: string; jobId?: string };
 };
 
 export type { ChatReplyTarget };
@@ -120,6 +123,10 @@ type Props = {
   teamOffer?: boolean;
   onHandOffToTeam?: () => void;
   onDismissTeamOffer?: () => void;
+  /** Flottes déjà en place, proposées en mode quotidien. */
+  fleetOffer?: { id: string; label: string }[];
+  onRelayToFleet?: (groupId: string) => void;
+  onDismissFleetOffer?: () => void;
   onDismissAction?: (messageId: string) => void;
   onStopReply?: () => void;
   /** Envoie une réponse QCM comme message utilisateur. */
@@ -350,6 +357,9 @@ export default function ChatShell({
   teamOffer = false,
   onHandOffToTeam,
   onDismissTeamOffer,
+  fleetOffer = [],
+  onRelayToFleet,
+  onDismissFleetOffer,
   chatUseMode = "operationnel",
   reformChips = [],
 }: Props) {
@@ -712,6 +722,9 @@ export default function ChatShell({
                     </div>
                   ) : null}
                   {m.role === "assistant" ? <ChatMessageDeliverables message={m} /> : null}
+                  {m.role === "assistant" && m.fleetRelay ? (
+                    <ChatFleetRelayNote label={m.fleetRelay.label} jobId={m.fleetRelay.jobId || m.jobId} />
+                  ) : null}
                   {m.role === "assistant" && (m.jobId || extractJobIdFromMessageId(m.id)) ? (
                     <ChatSourceNote jobId={m.jobId || extractJobIdFromMessageId(m.id) || ""} />
                   ) : null}
@@ -919,6 +932,35 @@ export default function ChatShell({
           </div>
         ) : null}
         {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
+        {isQuotidien && fleetOffer.length > 0 && onRelayToFleet ? (
+          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
+            <p className="mb-1.5 text-xs text-slate-600 dark:text-slate-300">
+              Cette situation mérite une analyse de flotte. Je reste votre interlocuteur et je vous indique où lire le résultat.
+            </p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {fleetOffer.map((fleet) => (
+                <button
+                  key={fleet.id}
+                  type="button"
+                  disabled={pending}
+                  onClick={() => onRelayToFleet(fleet.id)}
+                  className="rounded-full bg-violet-700 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                >
+                  Confier à {fleet.label}
+                </button>
+              ))}
+              {onDismissFleetOffer ? (
+                <button
+                  type="button"
+                  onClick={onDismissFleetOffer}
+                  className="rounded-full px-2 py-1.5 text-xs font-semibold text-slate-500"
+                >
+                  Plus tard
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {!isQuotidien && teamOffer && onHandOffToTeam ? (
           <div className="chat-composer-extra mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
             <button

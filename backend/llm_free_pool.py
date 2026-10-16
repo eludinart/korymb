@@ -48,6 +48,12 @@ _MODEL_ERROR_MARKERS = (
     "failed to template",
     "failed to render",
     "rendering failed",
+    # gpt-oss (Groq) : le parseur harmony rejette la sortie (outils ou texte)
+    # et renvoie 400 « Parsing failed » + failed_generation au lieu d'un choix.
+    "parsing failed",
+    "failed_generation",
+    "could not be parsed",
+    "tool_use_failed",
 )
 # Groq gratuit : 8 000 jetons/minute pour la requête entière. On garde la place du max_tokens.
 _GROQ_INPUT_TOKEN_BUDGET = 5600

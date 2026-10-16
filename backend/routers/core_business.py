@@ -28,8 +28,10 @@ from services.business_db import (
     build_contact_outreach_mission,
     complete_crm_follow_up,
     create_calendar_event,
+    actor_label,
     create_contact,
     create_external_invoice,
+    disqualify_contact,
     create_project,
     create_quote,
     delete_calendar_event,
@@ -311,6 +313,16 @@ async def business_update_contact(contact_id: str, body: ContactUpdate):
     if not row:
         raise HTTPException(404, detail="Contact introuvable")
     return row
+
+
+@router.post("/business/contacts/{contact_id}/disqualify")
+async def business_disqualify_contact(contact_id: str, auth: dict = Depends(resolve_tenant)):
+    result = disqualify_contact(contact_id, actor=actor_label(auth))
+    if not result:
+        raise HTTPException(404, detail="Contact introuvable")
+    if result.get("already"):
+        raise HTTPException(409, detail="Contact déjà disqualifié.")
+    return result
 
 
 @router.delete("/business/contacts/{contact_id}", dependencies=[Depends(resolve_tenant)])

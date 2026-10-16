@@ -329,6 +329,13 @@ export const businessApi = {
     );
     return data as BizContact;
   },
+  disqualifyContact: async (id: string) => {
+    const { data } = await requestJson(
+      `/business/contacts/${encodeURIComponent(id)}/disqualify`,
+      { method: "POST", headers: agentHeaders() },
+    );
+    return data as { contact: BizContact; interaction: BizInteraction | null };
+  },
   deleteContact: async (id: string) => {
     await requestJson(`/business/contacts/${encodeURIComponent(id)}`, {
       method: "DELETE",

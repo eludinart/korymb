@@ -11,7 +11,7 @@ from typing import Any, Iterator
 from agent_tool_use import llm_chat_maybe_tools
 from database import get_chat_session_summary, save_job, update_job
 from services.agent_groups import ASSISTANT_SYSTEM
-from services.agents import FLEUR_CONTEXT
+from services.agents import ASSISTANT_TOOL_TAGS, FLEUR_CONTEXT
 from services.chat_surface import surface_chat_result
 from services.chat_topic_guard import is_guard_fallback, user_asks_product_ops
 from services.memory import compress_chat_session
@@ -84,6 +84,18 @@ _PRECISION = (
     "Ne lance pas l'orchestration toi-même.\n"
 )
 
+_PRECISION_QUOTIDIEN = (
+    "\n### Précision\n"
+    "Réponds d'abord, de façon concrète. "
+    "N'invente pas de contact, chiffre, fichier, écran ou URL. "
+    "Si un fait n'est pas dans le contexte ou un outil de ce tour, dis-le. "
+    "Tu es généraliste : le métier, la prospection et la technique sont des sujets valides. "
+    "Une flotte ne se propose que si le sujet mérite une analyse poussée, "
+    "et seulement parmi les flottes déjà en place. "
+    "N'invente pas le bouton « Créer l'équipe » : il n'existe que si un blueprint a été créé. "
+    "Ne lance pas l'orchestration toi-même.\n"
+)
+
 _QUOTIDIEN_SHAPE = (
     "\n### Forme de la réponse\n"
     "Réponds naturellement, comme un assistant quotidien. "
@@ -115,12 +127,67 @@ def product_ops_prompt_addon(user_text: str) -> str:
     return lock
 
 
+def existing_fleet_prompt_addon(message: str, history: list[dict] | None = None) -> str:
+    """Catalogue réel, seulement quand le tour mérite une analyse de flotte."""
+    from services.chat_intelligence import turn_offers_existing_fleet
+
+    if not turn_offers_existing_fleet(message, history):
+        return ""
+    try:
+        from services.agent_groups import list_groups
+
+        groups = [
+            g
+            for g in list_groups(include_archived=False)
+            if str(g.get("status") or "active") != "archived"
+        ]
+    except Exception:
+        logger.exception("existing_fleet_prompt_addon")
+        groups = []
+    if not groups:
+        return (
+            "\n### Analyse de flotte (ce tour)\n"
+            "Le sujet mérite une analyse poussée, mais aucune flotte active n'est disponible. "
+            "Réponds toi-même. N'invente pas de flotte et ne propose pas d'en créer une.\n"
+        )
+    lines: list[str] = []
+    for group in groups[:8]:
+        label = str(group.get("label") or group.get("id") or "").strip()
+        gid = str(group.get("id") or "").strip()
+        if not label or not gid:
+            continue
+        members = group.get("members") if isinstance(group.get("members"), list) else []
+        roles = ", ".join(
+            str(member.get("label") or member.get("key") or "").strip()
+            for member in members[:6]
+            if isinstance(member, dict) and str(member.get("label") or member.get("key") or "").strip()
+        )
+        desc = re.sub(r"\s+", " ", str(group.get("description") or "")).strip()[:160]
+        bit = f"- {label} (id {gid})"
+        if roles:
+            bit += f" — {roles}"
+        if desc:
+            bit += f". {desc}"
+        lines.append(bit)
+    catalog = "\n".join(lines) or "- (liste vide)"
+    return (
+        "\n### Analyse de flotte (ce tour)\n"
+        "Le sujet mérite une analyse poussée. Après ta réponse utile, propose UNE flotte "
+        "déjà en place, choisie dans la liste ci-dessous. N'en invente aucune. "
+        "Ne crée pas d'équipe. Ne lance pas l'orchestration : le dirigeant confirme dans le chat. "
+        "Tu restes l'interlocuteur entre lui et la flotte. "
+        "Dis-lui que le détail se consulte dans Missions, le Briefing, les Livrables et Décisions.\n"
+        f"{catalog}\n"
+    )
+
+
 def build_assistant_system_prompt(
     message: str,
     *,
     chat_use_mode: Any = CHAT_USE_MODE_OPERATIONNEL,
     session_id: str | None = None,
     tools_enabled: bool = True,
+    history: list[dict] | None = None,
 ) -> str:
     from services.chat_intelligence import (
         CHAT_LEAD_SHAPE,
@@ -147,22 +214,29 @@ def build_assistant_system_prompt(
         "Ne propose une équipe que si c'est clairement demandé ou nécessaire. "
         "Pour « qui es-tu ? » : courte présentation d'Assistant Korymb (chatbot), sans te dire CIO.\n"
     )
+    precision = _PRECISION
+    fleet_addon = ""
     if mode == CHAT_USE_MODE_QUOTIDIEN:
         tone = (
             "\nTu es l'assistant quotidien de Korymb (remplacement Gemini). "
             "Réponds vite et naturellement. "
-            "Ne propose une équipe / flotte que si l'utilisateur le demande clairement. "
+            "Si le sujet exige une analyse poussée de la situation, propose une flotte déjà en place "
+            "et reste l'interlocuteur dans ce chat. "
+            "Sur une question simple, ne propose pas de flotte. "
             "Pour « qui es-tu ? » : courte présentation d'Assistant Korymb, sans te dire CIO.\n"
         )
+        precision = _PRECISION_QUOTIDIEN
+        fleet_addon = existing_fleet_prompt_addon(message, history)
     system_prompt = (
         ASSISTANT_SYSTEM
         + str(FLEUR_CONTEXT)
         + tone
-        + _PRECISION
+        + precision
         + qcm_block
         + force
         + product_ops_prompt_addon(message)
         + shape
+        + fleet_addon
     )
     sid = (session_id or "").strip()[:64]
     if sid:
@@ -170,13 +244,22 @@ def build_assistant_system_prompt(
         if summary:
             system_prompt += f"\n### Mémoire de la conversation\n{summary[:2500]}\n"
     if not tools_enabled:
-        system_prompt += (
-            "\n### Équipe (ce tour)\n"
-            "Tu n'as pas l'outil de création d'équipe. "
-            "Tu peux esquisser une idée, puis demander d'écrire « crée l'équipe » "
-            "pour la proposer vraiment. "
-            "Interdit : bouton « Créer l'équipe », blueprint_id, ou JSON d'appel d'outil.\n"
-        )
+        if fleet_addon:
+            system_prompt += (
+                "\n### Équipe (ce tour)\n"
+                "Tu n'as pas l'outil de création d'équipe. "
+                "Propose seulement une flotte déjà listée, sans bouton inventé. "
+                "Le dirigeant la confirme dans le chat. "
+                "Interdit : bouton « Créer l'équipe », blueprint_id, ou JSON d'appel d'outil.\n"
+            )
+        else:
+            system_prompt += (
+                "\n### Équipe (ce tour)\n"
+                "Tu n'as pas l'outil de création d'équipe. "
+                "Tu peux esquisser une idée, puis demander d'écrire « crée l'équipe » "
+                "pour la proposer vraiment. "
+                "Interdit : bouton « Créer l'équipe », blueprint_id, ou JSON d'appel d'outil.\n"
+            )
     return system_prompt
 
 
@@ -296,11 +379,12 @@ def run_assistant_turn(
         chat_use_mode=mode,
         session_id=session_id or None,
         tools_enabled=use_tools,
+        history=history,
     )
     messages = messages_for_assistant(
         history, message, limit=history_limit_for_mode(mode)
     )
-    tool_tags = ["web", "drive", "teams", "workspace"] if use_tools else []
+    tool_tags = list(ASSISTANT_TOOL_TAGS) if use_tools else []
     keep_q = user_wants_choice_questionnaire(message) and not user_forces_direct_answer(message)
 
     if use_tools:
@@ -485,6 +569,7 @@ def iter_assistant_chat_stream(
             chat_use_mode=mode,
             session_id=session_id or None,
             tools_enabled=False,
+            history=history,
         )
         messages = messages_for_assistant(
             history, message, limit=history_limit_for_mode(mode)

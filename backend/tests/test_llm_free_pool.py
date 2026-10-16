@@ -263,6 +263,29 @@ def test_groq_prompt_keeps_the_latest_turn_under_the_budget():
     assert len(fitted) < 4
 
 
+def test_groq_parse_failure_switches_bucket():
+    cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test", gemini_api_key="gem-test")
+    client = _Scripted(
+        [
+            _json(
+                400,
+                "Parsing failed. The model generated output that could not be parsed. "
+                "Please adjust your prompt. See 'failed_generation' for more details.",
+            ),
+            _ok("Les devis sont dans Gestion."),
+        ]
+    )
+    response, meta = post_with_failover(
+        client,
+        cfg,
+        {"messages": [{"role": "user", "content": "où est le modèle de devis"}], "max_tokens": 80},
+        profile="lite",
+    )
+    assert response.status_code == 200
+    assert [model for _, model in client.calls] == ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+    assert meta["model"] == "qwen/qwen3.8-27b"
+
+
 def test_invalid_model_id_switches_bucket():
     cfg = _cfg(llm_free_pool="on", groq_api_key="gsk-test")
     client = _Scripted([_json(400, "ministral-8b-latest is not a valid model ID"), _ok()])
