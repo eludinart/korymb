@@ -16,6 +16,8 @@ import OperatorAdminGate from "./OperatorAdminGate";
 import OperatorGate from "./OperatorGate";
 import DocumentBusyBar from "./DocumentBusyBar";
 import ColorSchemeToggle from "./ColorSchemeToggle";
+import HudAtmosphere from "./ui/aceternity/HudAtmosphere";
+import BrandCore from "./ui/aceternity/BrandCore";
 import { useExecutiveMode } from "../lib/executiveMode";
 import { useUiMode } from "../lib/uiMode";
 import { useSyncVisualViewportHeight } from "../lib/visualViewport";
@@ -66,6 +68,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
 
   return (
     <OperatorGate>
+      <HudAtmosphere />
       <CommandPalette />
       <header ref={headerRef} data-pull-refresh="" className={`app-header-bar ${isChat ? "app-header-bar--chat" : ""}`}>
         <div
@@ -75,6 +78,7 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
         >
           <div className="min-w-0 shrink-0">
             <Link href="/chat" className="app-brand">
+              <BrandCore />
               Korymb
             </Link>
             <p
