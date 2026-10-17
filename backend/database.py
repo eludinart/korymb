@@ -7,6 +7,7 @@ comme projection matérialisée.
 """
 import copy
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -15,6 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 from env_loader import load_backend_env
+
+logger = logging.getLogger(__name__)
 
 try:
     import pymysql
@@ -685,6 +688,27 @@ def _ensure_mission_trace_columns(conn) -> None:
             conn.execute(f"ALTER TABLE mission_traces ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
         except Exception:
             pass
+    _ensure_trace_embedding_column(conn)
+
+
+def _ensure_trace_embedding_column(conn) -> None:
+    """Colonne VECTOR seulement sur MariaDB. SQLite garde le schéma partagé."""
+    if not _is_mariadb():
+        return
+    try:
+        rows = conn.execute("SHOW COLUMNS FROM mission_traces").fetchall()
+        cols = {str(dict(r).get("Field") or "") for r in rows or []}
+    except Exception:
+        return
+    if "embedding" in cols:
+        return
+    try:
+        from services.trace_vectors import trace_vector_dimensions
+
+        dim = trace_vector_dimensions()
+        conn.execute(f"ALTER TABLE mission_traces ADD COLUMN embedding VECTOR({int(dim)}) NULL")
+    except Exception:
+        logger.exception("colonne vectorielle du journal non ajoutée")
 
 
 def ensure_lg_checkpoint_tables(conn=None) -> None:
@@ -5369,4 +5393,9 @@ def search_mission_traces(
     with get_conn() as conn:
         _ensure_mission_trace_columns(conn)
         rows = conn.execute(sql, params).fetchall()
-    return [dict(r) for r in rows or []]
+    out: list[dict] = []
+    for row in rows or []:
+        item = dict(row)
+        item.pop("embedding", None)
+        out.append(item)
+    return out

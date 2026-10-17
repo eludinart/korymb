@@ -1,4 +1,4 @@
-/** Mode d'usage du chat — quotidien (Gemini-like) vs opérationnel (QG). */
+/** Mode d'usage du chat — discussion naturelle vs travail (QG). */
 
 export type ChatUseMode = "quotidien" | "operationnel";
 
@@ -27,7 +27,7 @@ export function saveChatUseMode(mode: ChatUseMode) {
 }
 
 export const CHAT_USE_MODE_OPTIONS: { id: ChatUseMode; label: string; hint: string }[] = [
-  { id: "quotidien", label: "Quotidien", hint: "Réponses rapides, conversation libre" },
+  { id: "quotidien", label: "Discussion", hint: "Parler avec Korymb, comme dans un chat" },
   { id: "operationnel", label: "Ops", hint: "Flottes, missions, HITL" },
 ];
 

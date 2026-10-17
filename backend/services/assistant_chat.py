@@ -84,22 +84,29 @@ _PRECISION = (
     "Ne lance pas l'orchestration toi-même.\n"
 )
 
-_PRECISION_QUOTIDIEN = (
-    "\n### Précision\n"
-    "Réponds d'abord, de façon concrète. "
-    "N'invente pas de contact, chiffre, fichier, écran ou URL. "
-    "Si un fait n'est pas dans le contexte ou un outil de ce tour, dis-le. "
-    "Tu es généraliste : le métier, la prospection et la technique sont des sujets valides. "
-    "Une flotte ne se propose que si le sujet mérite une analyse poussée, "
-    "et seulement parmi les flottes déjà en place. "
-    "N'invente pas le bouton « Créer l'équipe » : il n'existe que si un blueprint a été créé. "
-    "Ne lance pas l'orchestration toi-même.\n"
+_DISCUSSION_SYSTEM = (
+    "Tu es Korymb, l'assistant avec qui l'on discute.\n"
+    "### Discussion\n"
+    "L'utilisateur parle comme dans un chat. Tu réponds avec des phrases simples, "
+    "en français courant, comme le ferait une personne attentive.\n"
+    "Réponds d'abord à ce qui est demandé. "
+    "Pas de jargon interne : pas de flotte, de mission, de HITL, de blueprint, "
+    "de dirigeant, ni de format « décision / prochain pas / ce qui manque », "
+    "sauf si l'utilisateur le demande avec ces mots.\n"
+    "Si la question est simple, une réponse courte suffit. "
+    "S'il faut un détail, explique-le en prose, puis une liste seulement s'il la demande.\n"
+    "N'invente pas de contact, de chiffre, de fichier, d'écran ou d'URL. "
+    "Si tu ne sais pas, dis-le.\n"
+    "Tu rédiges, tu expliques, tu reformules. "
+    "Tu n'inventes pas de bouton et tu n'envoies rien tant qu'on ne te l'a pas demandé clairement.\n"
+    "Si l'on te demande qui tu es : tu es Korymb. "
+    "Tu n'es pas un chef d'orchestre d'agents.\n"
 )
 
 _QUOTIDIEN_SHAPE = (
     "\n### Forme de la réponse\n"
-    "Réponds naturellement, comme un assistant quotidien. "
-    "Sois clair, utile et conversationnel. "
+    "Réponds naturellement, comme dans une discussion. "
+    "Des mots compréhensibles, des phrases complètes. "
     "N'impose pas le format « décision / prochain pas / ce qui manque » "
     "sauf si l'utilisateur le demande.\n"
 )
@@ -203,10 +210,14 @@ def build_assistant_system_prompt(
         else QCM_INSTRUCTION_DEFAULT
     )
     force = (
-        "\nLe dirigeant exige une **conclusion opérationnelle** maintenant "
-        "(pas de nouveau questionnaire).\n"
-        if user_forces_direct_answer(message)
-        else ""
+        "\nL'utilisateur veut la réponse maintenant, sans nouveau questionnaire.\n"
+        if user_forces_direct_answer(message) and mode == CHAT_USE_MODE_QUOTIDIEN
+        else (
+            "\nLe dirigeant exige une **conclusion opérationnelle** maintenant "
+            "(pas de nouveau questionnaire).\n"
+            if user_forces_direct_answer(message)
+            else ""
+        )
     )
     shape = CHAT_LEAD_SHAPE if mode == CHAT_USE_MODE_OPERATIONNEL else _QUOTIDIEN_SHAPE
     tone = (
@@ -217,33 +228,44 @@ def build_assistant_system_prompt(
     precision = _PRECISION
     fleet_addon = ""
     if mode == CHAT_USE_MODE_QUOTIDIEN:
-        tone = (
-            "\nTu es l'assistant quotidien de Korymb (remplacement Gemini). "
-            "Réponds vite et naturellement. "
-            "Si le sujet exige une analyse poussée de la situation, propose une flotte déjà en place "
-            "et reste l'interlocuteur dans ce chat. "
-            "Sur une question simple, ne propose pas de flotte. "
-            "Pour « qui es-tu ? » : courte présentation d'Assistant Korymb, sans te dire CIO.\n"
+        qcm_block = (
+            QCM_INSTRUCTION
+            if user_wants_choice_questionnaire(message) and not user_forces_direct_answer(message)
+            else ""
         )
-        precision = _PRECISION_QUOTIDIEN
         fleet_addon = existing_fleet_prompt_addon(message, history)
-    system_prompt = (
-        ASSISTANT_SYSTEM
-        + str(FLEUR_CONTEXT)
-        + tone
-        + precision
-        + qcm_block
-        + force
-        + product_ops_prompt_addon(message)
-        + shape
-        + fleet_addon
-    )
+        system_prompt = (
+            _DISCUSSION_SYSTEM
+            + shape
+            + qcm_block
+            + force
+            + product_ops_prompt_addon(message)
+            + fleet_addon
+        )
+    else:
+        system_prompt = (
+            ASSISTANT_SYSTEM
+            + str(FLEUR_CONTEXT)
+            + tone
+            + precision
+            + qcm_block
+            + force
+            + product_ops_prompt_addon(message)
+            + shape
+            + fleet_addon
+        )
+    try:
+        from services.trace_vectors import trace_memory_block
+
+        system_prompt += trace_memory_block(message)
+    except Exception:
+        logger.exception("souvenirs du journal ignorés")
     sid = (session_id or "").strip()[:64]
     if sid:
         summary = (get_chat_session_summary(sid) or "").strip()
         if summary:
             system_prompt += f"\n### Mémoire de la conversation\n{summary[:2500]}\n"
-    if not tools_enabled:
+    if not tools_enabled and mode != CHAT_USE_MODE_QUOTIDIEN:
         if fleet_addon:
             system_prompt += (
                 "\n### Équipe (ce tour)\n"
@@ -260,6 +282,14 @@ def build_assistant_system_prompt(
                 "pour la proposer vraiment. "
                 "Interdit : bouton « Créer l'équipe », blueprint_id, ou JSON d'appel d'outil.\n"
             )
+    elif not tools_enabled and fleet_addon:
+        system_prompt += (
+            "\n### Équipe (ce tour)\n"
+            "Tu n'as pas l'outil de création d'équipe. "
+            "Propose seulement une flotte déjà listée, sans bouton inventé. "
+            "La personne confirme dans le chat. "
+            "Interdit : bouton « Créer l'équipe », blueprint_id, ou JSON d'appel d'outil.\n"
+        )
     return system_prompt
 
 
@@ -701,6 +731,18 @@ def start_assistant_chat_job(
 
     def execute() -> None:
         try:
+            from services.mission_journal import note_mission
+            from state import emit_job_event
+
+            emit_job_event(job_id, "mission_start", "assistant", {"phase": "prepare"})
+            note_mission(
+                job_id,
+                kind="activity",
+                agent="assistant",
+                excerpt="Je lis votre message",
+                graph_node="chat",
+            )
+            emit_job_event(job_id, "synthesis_start", "assistant", {"phase": "reply"})
             turn = run_assistant_turn(
                 message=msg_snap,
                 history=hist_snap,
@@ -717,6 +759,14 @@ def start_assistant_chat_job(
             surface = turn["surface"]
             ti = turn["tokens_in"]
             to = turn["tokens_out"]
+            emit_job_event(job_id, "synthesis_done", "assistant", {"phase": "reply"})
+            note_mission(
+                job_id,
+                kind="reply",
+                agent="assistant",
+                excerpt=str(surface or "")[:240],
+                graph_node="chat",
+            )
             pending_bp = turn.get("pending_blueprint_id")
             _add_daily_svc(ti, to)
             if job_id in active_jobs:

@@ -17,7 +17,7 @@ import ChatThreadMoreSheet from "../../components/chat/ChatThreadMoreSheet";
 import { businessApi } from "../../lib/business";
 import { CHAT_FILE_MAX, type ChatFile } from "../../lib/chatAttachments";
 import MissionContextBanner from "../../components/MissionContextBanner";
-import { progressFromJob, type ChatReplyProgress } from "../../lib/chatProgress";
+import { orbMoodFromLabel, progressFromJob, type ChatReplyProgress } from "../../lib/chatProgress";
 import {
   activeChatFleets,
   fleetNamedInText,
@@ -920,7 +920,7 @@ function ChatPageInner() {
   }) => {
     const text = (opts?.text ?? draft).trim();
     const files = (opts?.confirmAction || opts?.reuseLastUser ? opts.attachments || [] : pendingFiles).slice(0, CHAT_FILE_MAX);
-    if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return;
+    if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return "";
 
     const baseMessages = opts?.messagesOverride ?? messages;
     const keepTurn = Boolean(opts?.confirmAction || opts?.reuseLastUser);
@@ -956,7 +956,7 @@ function ChatPageInner() {
         setPendingFiles([]);
         setUploadError("");
         relayToFleetRef.current(target.id, brief, history, target.label);
-        return;
+        return "";
       }
       if (explicit && fleets.length > 0) {
         setMessages([
@@ -972,7 +972,7 @@ function ChatPageInner() {
         setDraft("");
         setPendingFiles([]);
         setUploadError("");
-        return;
+        return "";
       }
     }
     if (!keepTurn) {
@@ -985,6 +985,7 @@ function ChatPageInner() {
     }
     setPending(true);
     setReplyProgress({ percent: 12, label: "Je prépare" });
+    let spoken = "";
 
     const conv = loadConversations().find((c) => c.id === activeId);
     const parentId = conv?.linkedParentJobId || undefined;
@@ -1111,8 +1112,16 @@ function ChatPageInner() {
         });
         if (streamed.kind === "json") {
           applyChatData(streamed.data, agent);
+          const status = String(streamed.data?.status || "");
+          spoken =
+            status === "needs_confirmation"
+              ? "Rien n'est fait tant que vous ne confirmez pas."
+              : status === "accepted"
+                ? String(streamed.data?.mirror_ack || "").trim()
+                : toChatSurface(String(streamed.data?.response || ""));
         } else {
           const surface = toChatSurface(streamed.text || streamed.done.response || "");
+          spoken = surface;
           const degraded = Boolean(streamed.done.degraded) || chatTextIsDegraded(surface);
           const claimGuard = streamed.done.claim_guard as ChatMsg["claimGuard"] | undefined;
           const pendingBlueprintId =
@@ -1140,6 +1149,13 @@ function ChatPageInner() {
           body: JSON.stringify(requestBody),
         });
         applyChatData(data, agent);
+        const status = String(data?.status || "");
+        spoken =
+          status === "needs_confirmation"
+            ? "Rien n'est fait tant que vous ne confirmez pas."
+            : status === "accepted"
+              ? String(data?.mirror_ack || "").trim()
+              : toChatSurface(String(data?.response || ""));
       }
     } catch (err) {
       const aborted =
@@ -1161,6 +1177,7 @@ function ChatPageInner() {
         const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
         const degraded = isChatTransportFailure(err);
         const { agent: failAgent } = parseInterlocutor(who);
+        spoken = degraded ? localDegradedChatReply(text, failAgent === "coordinateur" ? "CIO" : failAgent) : raw;
         setReplyProgress(null);
         setMessages([
           ...history,
@@ -1177,6 +1194,7 @@ function ChatPageInner() {
       setPending(false);
       streamAbortRef.current = null;
     }
+    return spoken;
   }, [
     draft,
     pending,
@@ -1361,10 +1379,13 @@ function ChatPageInner() {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatConversationHeader
             title={activeConv?.title || "Chat"}
+            orbMood={orbMoodFromLabel(replyProgress?.label, pending || activePendingCount > 0)}
             subtitle={
-              chatUseMode === "quotidien"
-                ? "Quotidien"
-                : interlocutorName
+              pending || activePendingCount > 0
+                ? replyProgress?.label || "Je prépare"
+                : chatUseMode === "quotidien"
+                  ? "Prêt"
+                  : interlocutorName
             }
             onOpenHistory={openHistory}
             historyOpen={historyOpen}
@@ -1384,6 +1405,7 @@ function ChatPageInner() {
             draft={draft}
             onDraftChange={setDraft}
             onSend={(replyTo) => void send(replyTo ? { replyTo } : undefined)}
+            onVoiceUtterance={async (text) => (await send({ text })) || ""}
             onQuickSend={(text) => void send({ text })}
             pending={pending}
             backgroundJobCount={activePendingCount}

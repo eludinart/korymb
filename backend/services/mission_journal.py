@@ -44,6 +44,12 @@ def note_mission(
     except Exception:
         logger.exception("journal mission ignoré pour %s", jid)
         return ""
+    try:
+        from services.trace_vectors import store_trace_embedding
+
+        store_trace_embedding(span_id, excerpt)
+    except Exception:
+        logger.exception("vecteur ignoré pour %s", jid)
     return span_id
 
 

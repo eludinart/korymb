@@ -10,6 +10,9 @@ import ChatSourceNote from "./ChatSourceNote";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
 import ChatFleetRelayNote from "./ChatFleetRelayNote";
+import CorimbeOrb from "./CorimbeOrb";
+import ChatVoiceConversation from "./ChatVoiceConversation";
+import { orbMoodFromLabel } from "../../lib/chatProgress";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
 import { chatTextIsDegraded } from "../../lib/chatDegraded";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
@@ -99,7 +102,7 @@ type Props = {
   pending: boolean;
   backgroundJobCount?: number;
   /** Progression réelle agrégée des jobs en arrière-plan (0–100). */
-  backgroundProgress?: { percent: number; label: string; status?: string } | null;
+  backgroundProgress?: { percent: number; label: string; status?: string; steps?: string[] } | null;
   className?: string;
   agentLabels?: Record<string, string>;
   onPatchMessage?: (id: string, patch: Partial<ChatMsg>) => void;
@@ -133,6 +136,8 @@ type Props = {
   onSubmitChoiceAnswers?: (messageId: string, text: string) => void;
   /** Mode quotidien : chrome ops réduit + chips de reformulation. */
   chatUseMode?: "quotidien" | "operationnel";
+  /** Un tour de conversation vocale : envoie la phrase dite et renvoie la réponse à lire. */
+  onVoiceUtterance?: (text: string) => Promise<string>;
   reformChips?: ReadonlyArray<{ label: string; text: string }>;
 };
 
@@ -229,11 +234,13 @@ function ChatReplyPending({
   count,
   percent,
   label,
+  steps,
   onStop,
 }: {
   count: number;
   percent?: number | null;
   label?: string;
+  steps?: string[];
   onStop?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
@@ -248,27 +255,28 @@ function ChatReplyPending({
   const known = typeof percent === "number" && percent > 0;
   const dots = ".".repeat((Math.floor(elapsed * 2) % 3) + 1);
   const statusLabel = label || (count > 1 ? `${count} réponses en cours` : "Je prépare");
+  const mood = orbMoodFromLabel(statusLabel, true);
+  const visibleSteps = (steps || []).filter((step) => step && step !== statusLabel).slice(-3);
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50"
+      className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/40"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="flex min-h-8 items-center gap-2.5 px-3 py-2 text-xs font-medium text-violet-900">
-        <span className="flex items-center gap-0.5" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="chat-typing-dot h-1.5 w-1.5 rounded-full bg-violet-600"
-              style={{ animationDelay: `${i * 0.15}s` }}
-            />
-          ))}
-        </span>
-        <span className="min-w-0 truncate">
-          {statusLabel}
-          <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
+      <div className="flex min-h-8 items-center gap-2.5 px-3 py-2 text-xs font-medium text-violet-900 dark:text-violet-100">
+        <CorimbeOrb mood={mood} size="md" decorative />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">
+            {statusLabel}
+            <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
+          </span>
+          {visibleSteps.length ? (
+            <span className="mt-0.5 block truncate text-[11px] font-normal text-violet-700/80 dark:text-violet-300/80">
+              {visibleSteps.join(" · ")}
+            </span>
+          ) : null}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {onStop ? (
@@ -360,8 +368,9 @@ export default function ChatShell({
   fleetOffer = [],
   onRelayToFleet,
   onDismissFleetOffer,
-  chatUseMode = "operationnel",
+  chatUseMode = "quotidien",
   reformChips = [],
+  onVoiceUtterance,
 }: Props) {
   const isQuotidien = chatUseMode === "quotidien";
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -379,6 +388,7 @@ export default function ChatShell({
   const [portalReady, setPortalReady] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatReplyTarget | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const userTurns = messages.filter((m) => m.role === "user").length;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
   const hasAssistantReply = messages.some(
@@ -530,6 +540,9 @@ export default function ChatShell({
         <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
           {isFirstTurn ? (
             <div className="px-2 pt-6 text-center sm:pt-10">
+              <div className="mb-4 flex justify-center">
+                <CorimbeOrb mood={pending ? "preparing" : "idle"} size="lg" />
+              </div>
               <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
                 {isQuotidien ? "Comment puis-je vous aider ?" : "Qu'est-ce qui vous préoccupe ?"}
               </h1>
@@ -796,6 +809,7 @@ export default function ChatShell({
                 count={Math.max(1, backgroundJobCount)}
                 percent={backgroundProgress?.percent}
                 label={backgroundProgress?.label}
+                steps={backgroundProgress?.steps}
                 onStop={onStopReply}
               />
             </div>
@@ -811,6 +825,7 @@ export default function ChatShell({
               count={Math.max(1, backgroundJobCount)}
               percent={backgroundProgress?.percent}
               label={backgroundProgress?.label}
+              steps={backgroundProgress?.steps}
               onStop={onStopReply}
             />
           </div>
@@ -1065,7 +1080,9 @@ export default function ChatShell({
                 if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
               }}
               rows={1}
-              placeholder={replyingTo ? "Répondre à ce message" : "Message"}
+              placeholder={
+                replyingTo ? "Répondre à ce message" : isQuotidien ? "Écrire à Korymb" : "Message"
+              }
               title="Entrée : nouvelle ligne · Ctrl+Entrée : envoyer"
               className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
               style={{ height: 40 }}
@@ -1074,6 +1091,24 @@ export default function ChatShell({
               autoCorrect="on"
             />
           </div>
+          {isQuotidien && onVoiceUtterance ? (
+            <button
+              type="button"
+              onClick={() => setVoiceOpen(true)}
+              disabled={pending || uploadBusy}
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 active:bg-violet-100 disabled:opacity-40 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-100"
+              aria-label="Conversation vocale avec Korymb"
+              title="Conversation vocale"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
+                <rect x="2" y="9" width="2.2" height="6" rx="1" />
+                <rect x="6.2" y="6" width="2.2" height="12" rx="1" />
+                <rect x="10.4" y="3.5" width="2.2" height="17" rx="1" />
+                <rect x="14.6" y="6" width="2.2" height="12" rx="1" />
+                <rect x="18.8" y="9" width="2.2" height="6" rx="1" />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={pending || uploadBusy || (!draft.trim() && attachments.length === 0)}
@@ -1086,6 +1121,16 @@ export default function ChatShell({
         </div>
       </form>
       </div>
+
+      {voiceOpen && onVoiceUtterance ? (
+        <ChatVoiceConversation
+          open={voiceOpen}
+          onClose={() => setVoiceOpen(false)}
+          onUtterance={onVoiceUtterance}
+          activity={backgroundProgress}
+          workText={[...messages].reverse().find((item) => item.role === "assistant")?.content || ""}
+        />
+      ) : null}
 
       {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
         <div className="absolute inset-0 z-30 flex flex-col bg-white dark:bg-slate-950">

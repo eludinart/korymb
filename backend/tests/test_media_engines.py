@@ -233,3 +233,45 @@ def test_generate_image_uses_mistral_when_key_present(monkeypatch):
     assert out.startswith("✅")
     assert "mistral" in out.lower()
     assert "file_id:" in out
+
+
+def test_elevenlabs_conversation_writes_flash_french_mp3(monkeypatch, tmp_path):
+    from tools import media_engines as me
+
+    monkeypatch.setattr(
+        me,
+        "getenv",
+        _fake_getenv(
+            {
+                "ELEVENLABS_API_KEY": "test-key",
+                "ELEVENLABS_VOICE_ID": "XB0fDUnXU5powFXDhCwa",
+                "ELEVENLABS_MODEL": "eleven_flash_v2_5",
+                "ELEVENLABS_LANGUAGE": "fr",
+                "TTS_OUTPUT_DIR": str(tmp_path),
+            }
+        ),
+    )
+    monkeypatch.setattr(me, "_save_bytes", lambda *args, **kwargs: "")
+    seen: dict = {}
+
+    class Resp:
+        content = b"ID3" + b"x" * 120
+        headers = {"content-type": "audio/mpeg"}
+
+        def raise_for_status(self):
+            return None
+
+    def post(url, headers=None, json=None, timeout=None):
+        seen["url"] = url
+        seen["json"] = json
+        seen["key"] = (headers or {}).get("xi-api-key")
+        return Resp()
+
+    monkeypatch.setattr(me.httpx, "post", post)
+    path = me.elevenlabs_speech_file("Bonjour, je suis Korymb.")
+    assert path is not None and path.is_file()
+    assert path.stat().st_size > 80
+    assert str(seen["url"]).endswith("/text-to-speech/XB0fDUnXU5powFXDhCwa")
+    assert seen["json"]["model_id"] == "eleven_flash_v2_5"
+    assert seen["json"]["language_code"] == "fr"
+    assert seen["key"] == "test-key"
