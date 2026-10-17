@@ -5,6 +5,9 @@ Classique (clé API, header `Authorization: Bearer <CLASSIQUE_API_KEY>`) :
   GET  /classique/tasks/{id}        — polling statut / résultat
   POST /classique/tasks/{id}/result — Classique rend le résultat d'une tâche qui lui a été routée
   POST /classique/route             — prévisualiser le routage (aucune écriture)
+  POST /classique/memory            — importer des fiches de conversation (mémoire vectorielle)
+  GET  /classique/memory/search?q=  — extraits les plus proches (test de la mémoire)
+  POST /classique/memory/reembed    — recalculer les vecteurs avec l'encodeur courant
 
 Opérateur (session admin Korymb) :
   GET  /classique/identity          — fiche Classique + état de config
@@ -52,6 +55,30 @@ class TaskIn(BaseModel):
     workspace: str | None = None
 
 
+class FicheIn(BaseModel):
+    external_id: str = Field(min_length=1, max_length=191)
+    title: str = Field(min_length=1, max_length=300)
+    date: str = Field(default="", max_length=40)
+    project: str = Field(default="", max_length=120)
+    summary: str = Field(default="", max_length=8000)
+    decisions: list[str] = Field(default_factory=list, max_length=50)
+    actions: list[str] = Field(default_factory=list, max_length=50)
+    source: str = Field(default="", max_length=500)
+    tags: list[str] = Field(default_factory=list, max_length=30)
+
+
+class MemoryImportIn(BaseModel):
+    fiches: list[FicheIn] = Field(min_length=1, max_length=100)
+
+
+class ReembedIn(BaseModel):
+    only_conversations: bool = False
+    limit: int = Field(default=5000, ge=1, le=100000)
+
+
+_MEMORY_MAX_BYTES = 512 * 1024
+
+
 class RouteIn(BaseModel):
     intent: str = ""
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -62,6 +89,54 @@ class ResultIn(BaseModel):
     status: Literal["running", "completed", "failed", "cancelled"]
     result: Any = None
     error: str | None = None
+
+
+@router.post("/classique/memory")
+async def classique_memory_import(request: Request, auth: dict = Depends(require_classique)):
+    from fastapi.concurrency import run_in_threadpool
+    from pydantic import ValidationError
+
+    from services.conversation_memory import import_fiches
+
+    raw = await request.body()
+    if len(raw) > _MEMORY_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Lot trop volumineux (512 Ko max).")
+    try:
+        body = MemoryImportIn.model_validate_json(raw or b"{}")
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False))
+    for item in body.fiches:
+        if len(item.model_dump_json()) > 16000:
+            raise HTTPException(status_code=413, detail=f"Fiche trop longue : {item.external_id}")
+    return await run_in_threadpool(import_fiches, [f.model_dump() for f in body.fiches])
+
+
+@router.get("/classique/memory/search")
+async def classique_memory_search(q: str, limit: int = 5, all_kinds: bool = False,
+                                  auth: dict = Depends(require_classique)):
+    from fastapi.concurrency import run_in_threadpool
+
+    from services.conversation_memory import MEMORY_KIND
+    from services.trace_vectors import embed_provider, search_trace_memory
+
+    query = (q or "").strip()[:1000]
+    if not query:
+        raise HTTPException(status_code=422, detail="Paramètre q requis.")
+    kinds = None if all_kinds else [MEMORY_KIND]
+    rows = await run_in_threadpool(search_trace_memory, query, limit=max(1, min(limit, 8)), kinds=kinds)
+    return {"provider": embed_provider() or None, "count": len(rows), "results": rows}
+
+
+@router.post("/classique/memory/reembed")
+async def classique_memory_reembed(body: ReembedIn | None = None, auth: dict = Depends(require_classique)):
+    from fastapi.concurrency import run_in_threadpool
+
+    from services.conversation_memory import MEMORY_KIND
+    from services.trace_vectors import reembed_traces
+
+    opts = body or ReembedIn()
+    kinds = [MEMORY_KIND] if opts.only_conversations else None
+    return await run_in_threadpool(reembed_traces, limit=opts.limit, kinds=kinds)
 
 
 @router.post("/classique/route")
