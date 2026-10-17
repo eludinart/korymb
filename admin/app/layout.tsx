@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
+import { Outfit } from "next/font/google";
 import "./globals.css";
 import "./theme-contrast.css";
 import Providers from "../components/Providers";
 import LayoutSwitch from "../components/LayoutSwitch";
+
+const outfit = Outfit({
+  subsets: ["latin", "latin-ext"],
+  display: "swap",
+});
 
 /** Boot anti-flash — synchrone avec admin/lib/colorScheme.ts (STORAGE_KEY). */
 const COLOR_SCHEME_BOOT =
@@ -49,7 +55,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: COLOR_SCHEME_BOOT }} />
       </head>
-      <body className="antialiased text-slate-900 dark:text-slate-100">
+      <body className={`${outfit.className} antialiased text-slate-900 dark:text-slate-100`}>
         <Providers>
           <LayoutSwitch>{children}</LayoutSwitch>
         </Providers>
