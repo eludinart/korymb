@@ -65,7 +65,11 @@ export function speechPlain(raw: string): string {
     .trim();
   if (clean.length <= 900) return clean;
   const cut = clean.slice(0, 900);
-  const end = Math.max(cut.lastIndexOf("."), cut.lastIndexOf("!"), cut.lastIndexOf("?"));
+  const end = Math.max(
+    cut.lastIndexOf("."),
+    cut.lastIndexOf("!"),
+    cut.lastIndexOf("?"),
+  );
   return (end > 240 ? cut.slice(0, end + 1) : cut).trim();
 }
 
@@ -139,7 +143,9 @@ type Props = {
 };
 
 function activityLines(activity: VoiceActivity | null | undefined): string[] {
-  const steps = (activity?.steps || []).map((step) => step.trim()).filter(Boolean);
+  const steps = (activity?.steps || [])
+    .map((step) => step.trim())
+    .filter(Boolean);
   const label = (activity?.label || "").trim();
   if (label && steps[steps.length - 1] !== label) steps.push(label);
   return steps;
@@ -236,7 +242,12 @@ export default function ChatVoiceConversation({
           await audio.play();
         } catch (error) {
           if (cancelled() || ac.signal.aborted) finish();
-          else fail(error instanceof Error ? error : new Error("La voix n'a pas pu être générée."));
+          else
+            fail(
+              error instanceof Error
+                ? error
+                : new Error("La voix n'a pas pu être générée."),
+            );
         }
       })();
     });
@@ -259,8 +270,14 @@ export default function ChatVoiceConversation({
         const clean = text.trim();
         if (!clean) return;
         setFeed((prev) => {
-          const idx = prev.findIndex((row) => row.turn === turn && row.kind === kind);
-          if (idx === -1) return [...prev, { id: feedIdRef.current++, turn, kind, text: clean }];
+          const idx = prev.findIndex(
+            (row) => row.turn === turn && row.kind === kind,
+          );
+          if (idx === -1)
+            return [
+              ...prev,
+              { id: feedIdRef.current++, turn, kind, text: clean },
+            ];
           if (prev[idx].text === clean) return prev;
           const next = prev.slice();
           next[idx] = { ...next[idx], text: clean };
@@ -315,7 +332,11 @@ export default function ChatVoiceConversation({
         } catch (error) {
           if (stopped) return;
           setPhase("blocked");
-          setLine(error instanceof Error ? error.message : "La voix n'a pas pu être générée.");
+          setLine(
+            error instanceof Error
+              ? error.message
+              : "La voix n'a pas pu être générée.",
+          );
           return;
         }
       }
@@ -336,11 +357,18 @@ export default function ChatVoiceConversation({
     if (!incoming.length) return;
     setFeed((prev) => {
       const known = new Set(
-        prev.filter((row) => row.kind === "work" && row.turn === turn).map((row) => row.text),
+        prev
+          .filter((row) => row.kind === "work" && row.turn === turn)
+          .map((row) => row.text),
       );
       const extra = incoming
         .filter((text) => !known.has(text))
-        .map((text) => ({ id: feedIdRef.current++, turn, kind: "work" as const, text }));
+        .map((text) => ({
+          id: feedIdRef.current++,
+          turn,
+          kind: "work" as const,
+          text,
+        }));
       return extra.length ? [...prev, ...extra] : prev;
     });
   }, [open, phase, activity]);
@@ -354,7 +382,8 @@ export default function ChatVoiceConversation({
   if (!open) return null;
 
   const produced = workText.trim();
-  const liveWork = (phase === "thinking" || phase === "speaking") && produced ? produced : "";
+  const liveWork =
+    (phase === "thinking" || phase === "speaking") && produced ? produced : "";
   const rows = liveWork ? feed.filter((row) => row.kind !== "draft") : feed;
 
   return (
@@ -375,15 +404,21 @@ export default function ChatVoiceConversation({
           {line}
         </p>
       </div>
-      <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-6 pb-2">
+      <div
+        ref={scrollerRef}
+        className="min-h-0 flex-1 overflow-y-auto px-6 pb-2"
+      >
         <div className="mx-auto flex w-full max-w-md flex-col gap-3 pt-2 text-left">
           {rows.map((row, index) => {
             const previous = rows[index - 1];
-            const korymbHead = row.kind !== "you" && (!previous || previous.kind === "you");
+            const korymbHead =
+              row.kind !== "you" && (!previous || previous.kind === "you");
             if (row.kind === "you") {
               return (
                 <div key={row.id}>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">Vous</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                    Vous
+                  </p>
                   <p className="mt-1 text-base leading-6">{row.text}</p>
                 </div>
               );
@@ -391,9 +426,13 @@ export default function ChatVoiceConversation({
             return (
               <div key={row.id}>
                 {korymbHead ? (
-                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">Korymb</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                    Korymb
+                  </p>
                 ) : null}
-                <p className={`${korymbHead ? "mt-1 " : ""}text-sm leading-5 text-violet-800 dark:text-violet-200`}>
+                <p
+                  className={`${korymbHead ? "mt-1 " : ""}text-sm leading-5 text-violet-800 dark:text-violet-200`}
+                >
                   {row.text}
                 </p>
               </div>
@@ -402,9 +441,13 @@ export default function ChatVoiceConversation({
           {liveWork ? (
             <div>
               {rows[rows.length - 1]?.kind === "you" || rows.length === 0 ? (
-                <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">Korymb</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                  Korymb
+                </p>
               ) : null}
-              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800 dark:text-slate-100">{liveWork}</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm leading-6 text-slate-800 dark:text-slate-100">
+                {liveWork}
+              </p>
             </div>
           ) : null}
         </div>
