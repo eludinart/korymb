@@ -189,31 +189,60 @@ def reembed_traces(*, batch: int = 32, limit: int = 5000, kinds: list[str] | Non
     return {"ok": True, "scanned": len(rows), "updated": updated, "failed": failed, "provider": embed_provider()}
 
 
-def search_trace_memory(query: str, *, limit: int = 4, kinds: list[str] | None = None) -> list[dict]:
+def classique_workspace_id() -> str:
+    """Espace où la route Classique importe la mémoire des conversations."""
+    return (os.getenv("CLASSIQUE_WORKSPACE_ID") or "ws-default-legacy").strip() or "ws-default-legacy"
+
+
+def _memory_workspace() -> str:
+    """Espace courant, sinon celui de Classique (tour sans contexte de requête)."""
+    try:
+        from database import _ws
+
+        ws = (_ws() or "").strip()
+    except Exception:
+        ws = ""
+    return ws or classique_workspace_id()
+
+
+def search_trace_memory(
+    query: str,
+    *,
+    limit: int = 4,
+    kinds: list[str] | None = None,
+    exclude_kinds: list[str] | None = None,
+    workspaces: list[str] | None = None,
+    vector: list[float] | None = None,
+) -> list[dict]:
     """Plus proches extraits déjà vectorisés. Vide si l'encodeur ou la colonne manque."""
-    vector = embed_excerpt(query)
+    vector = vector or embed_excerpt(query)
     if not vector:
         return []
     lim = max(1, min(int(limit), 8))
     try:
-        from database import _is_mariadb, _ws, get_conn
+        from database import _is_mariadb, get_conn
 
         if not _is_mariadb():
             return []
+        ws_list = [w for w in dict.fromkeys(workspaces or [_memory_workspace()]) if w]
+        ws_sql = "workspace_id IN (" + ",".join("?" for _ in ws_list) + ")"
         literal = json.dumps(vector, separators=(",", ":"))
         kind_params = [str(k)[:32] for k in (kinds or []) if str(k).strip()]
         kind_sql = (" AND kind IN (" + ",".join("?" for _ in kind_params) + ")") if kind_params else ""
+        ex_params = [str(k)[:32] for k in (exclude_kinds or []) if str(k).strip()]
+        if ex_params:
+            kind_sql += " AND kind NOT IN (" + ",".join("?" for _ in ex_params) + ")"
         with get_conn() as conn:
             rows = conn.execute(
                 """
                 SELECT span_id, kind, agent, excerpt,
                        VEC_DISTANCE_EUCLIDEAN(embedding, VEC_FromText(?)) AS dist
                 FROM mission_traces
-                WHERE workspace_id=? AND embedding IS NOT NULL{kind_sql}
+                WHERE {ws_sql} AND embedding IS NOT NULL{kind_sql}
                 ORDER BY dist ASC
                 LIMIT ?
-                """.replace("{kind_sql}", kind_sql),
-                (literal, _ws(), *kind_params, lim),
+                """.replace("{kind_sql}", kind_sql).replace("{ws_sql}", ws_sql),
+                (literal, *ws_list, *kind_params, *ex_params, lim),
             ).fetchall()
     except Exception:
         logger.exception("recherche vectorielle du journal ignorée")
@@ -225,23 +254,53 @@ def search_trace_memory(query: str, *, limit: int = 4, kinds: list[str] | None =
         excerpt = " ".join(str(item.get("excerpt") or "").split())
         if not excerpt:
             continue
-        item["excerpt"] = excerpt[:500]
+        item["excerpt"] = excerpt[:800]
         out.append(item)
     return out
 
 
+CONVERSATION_MEMORY_HEADING = "### Ce que tu sais d'Eric et de vos échanges"
+
+
 def trace_memory_block(query: str) -> str:
-    """Bloc court pour le prompt, à partir des traces vectorisées."""
-    rows = search_trace_memory(query, limit=4)
-    lines: list[str] = []
-    for row in rows:
-        kind = str(row.get("kind") or "note")
-        excerpt = str(row.get("excerpt") or "")[:280]
-        if excerpt:
-            lines.append(f"- {kind} : {excerpt}")
-    if not lines:
+    """Bloc pour le prompt : d'abord ce qu'on sait d'Eric (fiches de conversation), puis le journal."""
+    vector = embed_excerpt(query)
+    if not vector:
         return ""
-    return "\n### Souvenirs du journal\n" + "\n".join(lines) + "\n"
+    current = _memory_workspace()
+    convo = search_trace_memory(
+        query, limit=3, kinds=["conversation"],
+        workspaces=[current, classique_workspace_id()], vector=vector,
+    )
+    journal = search_trace_memory(
+        query, limit=3, exclude_kinds=["conversation"], workspaces=[current], vector=vector,
+    )
+    seen: set[str] = set()
+    facts: list[str] = []
+    for row in convo:
+        excerpt = str(row.get("excerpt") or "")[:600]
+        key = str(row.get("span_id") or excerpt)
+        if excerpt and key not in seen:
+            seen.add(key)
+            facts.append(f"- {excerpt}")
+    notes: list[str] = []
+    for row in journal:
+        excerpt = str(row.get("excerpt") or "")[:280]
+        key = str(row.get("span_id") or excerpt)
+        if excerpt and key not in seen:
+            seen.add(key)
+            notes.append(f"- {str(row.get('kind') or 'note')} : {excerpt}")
+    out = ""
+    if facts:
+        out += (
+            f"\n{CONVERSATION_MEMORY_HEADING}\n"
+            "Ces éléments sont des faits que tu connais déjà sur Eric, la personne avec qui tu parles, "
+            "et sur vos échanges passés. Utilise-les naturellement comme tes propres souvenirs ; "
+            "ne dis pas que tu ne sais rien de lui.\n" + "\n".join(facts) + "\n"
+        )
+    if notes:
+        out += "\n### Souvenirs du journal\n" + "\n".join(notes) + "\n"
+    return out
 
 
 def _hash_embed(text: str, dim: int) -> list[float]:
