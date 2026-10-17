@@ -7,6 +7,8 @@ import { useCallback, useEffect, useState } from "react";
 import { accountDisplayName, type AuthMeResponse } from "../lib/authSession";
 import { loadPublicStorefront } from "../lib/storefront";
 import { PracticePoweredBy, PracticeTheme } from "./practice/PracticeTheme";
+import HudAtmosphere from "./ui/aceternity/HudAtmosphere";
+import BrandCore from "./ui/aceternity/BrandCore";
 
 export default function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
@@ -54,7 +56,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
   const brandName = brand?.name || "Espace participant";
 
   const inner = (
-    <div className={isVitrine ? "flex min-h-screen flex-col" : "min-h-screen bg-gradient-to-b from-violet-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"}>
+    <div className={isVitrine ? "flex min-h-screen flex-col" : "relative z-10 min-h-screen"}>
       <header data-pull-refresh="" className="border-b border-slate-200 bg-white/80 backdrop-blur-md dark:border-violet-900 dark:bg-slate-950/90" style={isVitrine ? { borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" } : undefined}>
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link href={isVitrine ? `/p/${encodeURIComponent(vitrineSlug)}` : "/"} className="flex min-w-0 items-center gap-3">
@@ -64,7 +66,12 @@ export default function PublicShell({ children }: { children: React.ReactNode })
             ) : null}
             <span className="min-w-0">
               <span className={`block truncate text-lg font-extrabold ${isVitrine ? "practice-heading" : "app-brand"}`}>
-                {isVitrine ? brandName : "Korymb"}
+                {isVitrine ? brandName : (
+                  <>
+                    <BrandCore />
+                    Korymb
+                  </>
+                )}
               </span>
               {isVitrine && brand?.location ? (
                 <span className="mt-0.5 block truncate text-xs font-semibold text-slate-600">{brand.location}</span>
@@ -104,7 +111,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
                 <Link href="/login" className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-violet-50">
                   Connexion
                 </Link>
-                <Link href="/register" className="rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
+                <Link href="/register" className="hud-btn rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
                   Créer un espace
                 </Link>
               </>
@@ -132,5 +139,10 @@ export default function PublicShell({ children }: { children: React.ReactNode })
   if (isVitrine) {
     return <PracticeTheme identity={brand || { name: brandName }}>{inner}</PracticeTheme>;
   }
-  return inner;
+  return (
+    <>
+      <HudAtmosphere />
+      {inner}
+    </>
+  );
 }
