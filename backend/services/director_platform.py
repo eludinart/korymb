@@ -1010,6 +1010,194 @@ def _build_executive_summary(
         return first[0].upper() + first[1:] + "."
     return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
 
+_PROPOSAL_KINDS = frozenset({"learning_suggestion", "config_suggestion", "scheduler_output"})
+
+_BOARD_WHERE = {
+    "hitl": "Décisions",
+    "action_ticket": "Décisions",
+    "cio_question": "Décisions",
+    "closure": "Décisions",
+    "quality": "Décisions",
+    "mission_error": "Missions",
+    "crm_follow_up": "Planning",
+    "learning_suggestion": "Mémoire",
+    "config_suggestion": "Configuration",
+    "scheduler_output": "Décisions",
+    "config": "Configuration",
+}
+
+
+def _board_item_id(item: dict) -> str:
+    return str(
+        item.get("id")
+        or item.get("ticket_id")
+        or item.get("event_id")
+        or item.get("output_id")
+        or item.get("suggestion_id")
+        or item.get("job_id")
+        or item.get("kind")
+        or ""
+    )
+
+
+def _inbox_board_row(item: dict) -> dict[str, str]:
+    kind = str(item.get("kind") or "")
+    return {
+        "id": _board_item_id(item),
+        "title": _priority_label(item),
+        "where": _BOARD_WHERE.get(kind, "Décisions"),
+        "href": str(item.get("href") or _priority_href(item)),
+        "kind": kind,
+        "severity": str(item.get("severity") or "low"),
+        "detail": str(item.get("progress_label") or _progress_label(kind)),
+    }
+
+
+def _extra_board_row(item: dict) -> dict[str, str]:
+    urgency = str(item.get("urgency") or "high")
+    severity = "critical" if urgency == "critical" else "high" if urgency in {"high", "warning"} else "medium"
+    href = str(item.get("href") or "/configuration")
+    kind = str(item.get("kind") or "config")
+    if item.get("where"):
+        where = str(item.get("where"))
+    elif "budget" in href:
+        where = "Budget"
+    else:
+        where = _BOARD_WHERE.get(kind, "Configuration")
+    return {
+        "id": _board_item_id(item) or kind,
+        "title": str(item.get("label") or item.get("title") or "Avertissement"),
+        "where": where,
+        "href": href,
+        "kind": kind,
+        "severity": severity,
+        "detail": "Bloque les missions" if severity == "critical" else "À surveiller",
+    }
+
+
+def _warn_row(*, id: str, title: str, where: str, href: str, severity: str) -> dict[str, str]:
+    return {
+        "id": id,
+        "title": title,
+        "where": where,
+        "href": href,
+        "kind": "warning",
+        "severity": severity,
+        "detail": "",
+    }
+
+
+def build_ops_board(
+    inbox_items: list[dict],
+    *,
+    extras: list[dict] | None = None,
+    recent_errors: list[dict] | None = None,
+    commercial: dict | None = None,
+    budget: dict | None = None,
+) -> dict[str, Any]:
+    """Découpe le briefing en files lisibles : urgent, à faire, propositions, avertissements."""
+    actions: list[dict[str, str]] = []
+    proposals: list[dict[str, str]] = []
+    for item in inbox_items:
+        if not isinstance(item, dict):
+            continue
+        row = _inbox_board_row(item)
+        if row["kind"] in _PROPOSAL_KINDS:
+            proposals.append(row)
+        else:
+            actions.append(row)
+
+    urgent = [row for row in actions if row["severity"] in {"critical", "high"}]
+    todo = [row for row in actions if row["severity"] not in {"critical", "high"}]
+    extra_rows = [_extra_board_row(item) for item in (extras or []) if isinstance(item, dict)]
+    front = [row for row in extra_rows if row["severity"] in {"critical", "high"}]
+    urgent = front + urgent
+
+    warnings: list[dict[str, str]] = list(extra_rows)
+    seen = {row["id"] for row in urgent if row.get("id")}
+    for err in recent_errors or []:
+        if not isinstance(err, dict):
+            continue
+        job_id = str(err.get("job_id") or "").strip()
+        if not job_id or job_id in seen:
+            continue
+        mission = str(err.get("mission") or "").strip() or job_id
+        detail = str(err.get("error") or "").strip()
+        title = f"Échec — {mission}" if not detail else f"Échec — {mission} : {detail}"
+        warnings.append(_warn_row(
+            id=f"err-{job_id}",
+            title=title[:160],
+            where="Missions",
+            href=f"/missions?job={quote(job_id)}",
+            severity="high",
+        ))
+        seen.add(job_id)
+
+    counts = (commercial or {}).get("counts") if isinstance(commercial, dict) else {}
+    counts = counts if isinstance(counts, dict) else {}
+    overdue = int(counts.get("follow_ups_overdue") or 0)
+    due = int(counts.get("follow_ups_due_today") or 0)
+    if overdue:
+        warnings.append(_warn_row(
+            id="crm-overdue",
+            title=f"{overdue} relance{'s' if overdue > 1 else ''} en retard",
+            where="Planning",
+            href="/gestion/planning",
+            severity="high",
+        ))
+    elif due:
+        warnings.append(_warn_row(
+            id="crm-due",
+            title=f"{due} relance{'s' if due > 1 else ''} aujourd'hui",
+            where="Planning",
+            href="/gestion/planning",
+            severity="medium",
+        ))
+    stale = int(counts.get("stale_quotes") or 0)
+    if stale:
+        warnings.append(_warn_row(
+            id="stale-quotes",
+            title=f"{stale} devis sans suite",
+            where="Devis",
+            href="/gestion/devis",
+            severity="medium",
+        ))
+    needs_reply = int(counts.get("email_threads_needs_reply") or 0)
+    if needs_reply:
+        warnings.append(_warn_row(
+            id="mail-reply",
+            title=f"{needs_reply} message{'s' if needs_reply > 1 else ''} sans réponse",
+            where="Courrier",
+            href="/gestion/courrier",
+            severity="high",
+        ))
+
+    budget = budget or {}
+    budget_href = "/administration/budget"
+    already_budget = any(str(row.get("href") or "").startswith(budget_href) for row in warnings)
+    if (budget.get("budget_exceeded") or budget.get("alert")) and not already_budget:
+        warnings.append(_warn_row(
+            id="budget",
+            title="Budget IA dépassé" if budget.get("budget_exceeded") else "Alerte budget IA",
+            where="Budget",
+            href=budget_href,
+            severity="critical" if budget.get("budget_exceeded") else "high",
+        ))
+
+    return {
+        "urgent": urgent[:6],
+        "todo": todo[:8],
+        "proposals": proposals[:6],
+        "warnings": warnings[:8],
+        "counts": {
+            "urgent": len(urgent),
+            "todo": len(todo),
+            "proposals": len(proposals),
+            "warnings": len(warnings),
+        },
+    }
+
+
 def _ritual_status(inbox_total: int, budget: dict, *, llm_ready: bool = True) -> str:
     if not llm_ready:
         return "config_blocked"
@@ -1165,9 +1353,18 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         recent_missions=recent_missions,
     )
 
+    board = build_ops_board(
+        list(inbox.get("items") or []),
+        extras=extra_priorities,
+        recent_errors=recent_errors,
+        commercial=commercial,
+        budget=budget_block,
+    )
+
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
+        "board": board,
         "llm_envelope": llm_envelope,
         "executive_summary": executive_summary,
         "jarvis": jarvis,

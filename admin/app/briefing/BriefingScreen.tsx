@@ -5,32 +5,24 @@ import { useSearchParams } from "next/navigation";
 import { useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
-import ExecutiveBriefHero from "../../components/director/ExecutiveBriefHero";
+import BriefingBoard, { type OpsBoard } from "../../components/director/BriefingBoard";
 import BriefingCommercialPanel, {
   type CommercialMorningSnapshot,
 } from "../../components/director/BriefingCommercialPanel";
-import BriefingEssential from "../../components/director/BriefingEssential";
-import JarvisHome, { type JarvisHomeData } from "../../components/director/JarvisHome";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import IntentionLaunch from "../../components/missions/IntentionLaunch";
 import WorkSurfaceSwitcher from "../../components/director/WorkSurfaceSwitcher";
 import ScenarioSimulator from "../../components/director/ScenarioSimulator";
 import GestionShortcuts from "../../components/gestion/GestionShortcuts";
+import { AlertBox, LoadingLine, PageShell } from "../../components/ui/PageChrome";
 import {
-  AlertBox,
-  LoadingLine,
-  PageShell,
-  SectionCard,
-} from "../../components/ui/PageChrome";
-import {
-  BTN_DELETE,
   collectMissionDeleteJobIds,
   confirmDeleteMission,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
 import { useUiMode } from "../../lib/uiMode";
 
@@ -44,7 +36,6 @@ function BriefingPageContent() {
   const qc = useQueryClient();
   const searchParams = useSearchParams();
   const showWelcome = searchParams.get("welcome") === "1";
-  const packId = searchParams.get("pack");
   const { isEssential, loading: uiLoading } = useUiMode();
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
@@ -87,6 +78,8 @@ function BriefingPageContent() {
         inbox_total?: number;
         missions_running?: Array<{ job_id: string; mission?: string }>;
         missions_todo?: Array<{ job_id: string; mission?: string }>;
+        executive_summary?: string;
+        board?: OpsBoard | null;
         commercial?: CommercialMorningSnapshot | null;
         memory_digest?: { lines?: string[]; pending_count?: number; href?: string } | null;
         day_anticipation?: {
@@ -95,8 +88,10 @@ function BriefingPageContent() {
           href?: string;
         } | null;
         inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
-        jarvis?: JarvisHomeData | null;
         llm_envelope?: LlmEnvelope | null;
+        llm_readiness?: { ready?: boolean; blocker?: string | null } | null;
+        budget?: { budget_exceeded?: boolean; alert?: boolean } | null;
+        recent_errors?: Array<{ job_id?: string; mission?: string; error?: string }>;
         unconsulted_results?: Array<{
           job_id: string;
           mission?: string;
@@ -132,47 +127,39 @@ function BriefingPageContent() {
     );
   }
 
-  if (isEssential) {
-    return (
-      <PageShell size="wide">
-        <EnvelopeNotice envelope={b?.llm_envelope} />
-        {briefing.isLoading ? <LoadingLine /> : null}
-        {briefing.isError ? (
-          <AlertBox tone="error" title="Accueil indisponible">
-            {isMariaDbTunnelError(briefing.error?.message || "") ? (
-              <>
-                Le tunnel MariaDB est coupé (port 3307). Relancez{" "}
-                <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span>, puis rechargez.
-              </>
-            ) : (
-              <>Vérifiez que le backend tourne, puis réessayez.</>
-            )}
-          </AlertBox>
-        ) : null}
-        <BriefingEssential
-          userName={userName}
-          showWelcome={showWelcome}
-          packId={packId}
-          decisions={b?.decisions_today || []}
-          inboxTotal={Number(b?.inbox_total || 0)}
-          missionsRunning={b?.missions_running || []}
-          memoryDigest={b?.memory_digest || null}
-          dayAnticipation={b?.day_anticipation || null}
-          inboxSeverity={b?.inbox_severity || null}
-          jarvis={b?.jarvis || null}
-        />
-      </PageShell>
-    );
-  }
+  const tunnelDown = isMariaDbTunnelError(briefing.error?.message || "");
 
   return (
-    <PageShell size="wide">
+    <PageShell size="board">
       {showWelcome ? (
-        <div className="mb-6 rounded-2xl border-2 border-emerald-200 bg-emerald-50 px-4 py-4 sm:px-6">
-          <p className="text-sm font-bold text-emerald-900">Bienvenue dans le cockpit dirigeant</p>
-          <p className="mt-1 text-sm text-emerald-800">
-            Mode Avancé actif. Pour une interface plus simple : Configuration → Essentiel.
+        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950">
+          <p className="text-sm font-bold text-emerald-900 dark:text-emerald-100">
+            {isEssential ? "Premiers pas" : "Bienvenue"}
           </p>
+          <p className="mt-1 text-sm text-emerald-800 dark:text-emerald-200">
+            {isEssential
+              ? "Le contexte de l'espace s'écrit une question à la fois. Rien n'est enregistré sans votre accord."
+              : "Le tableau ci-dessous classe l'urgent, le travail en cours et les propositions."}
+          </p>
+          {isEssential ? (
+            <ul className="mt-3 space-y-2">
+              <li>
+                <Link href="/administration/contexte" className="text-sm font-bold text-emerald-950 underline dark:text-emerald-50">
+                  Dire ce que vous suivez ici
+                </Link>
+              </li>
+              <li>
+                <Link href="/gestion/planning/nouveau" className="text-sm font-bold text-emerald-950 underline dark:text-emerald-50">
+                  Ajouter un rendez-vous
+                </Link>
+              </li>
+              <li>
+                <Link href="/chat" className="text-sm font-bold text-emerald-950 underline dark:text-emerald-50">
+                  Faire une demande
+                </Link>
+              </li>
+            </ul>
+          ) : null}
         </div>
       ) : null}
 
@@ -185,8 +172,8 @@ function BriefingPageContent() {
       <EnvelopeNotice envelope={b?.llm_envelope} />
       {briefing.isLoading ? <LoadingLine /> : null}
       {briefing.isError ? (
-        <AlertBox tone="error" title="Briefing indisponible">
-          {isMariaDbTunnelError(briefing.error?.message || "") ? (
+        <AlertBox tone="error" title="Aujourd'hui indisponible">
+          {tunnelDown ? (
             <>
               Le tunnel MariaDB est coupé (port 3307). Relancez{" "}
               <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span>, puis rechargez.
@@ -197,115 +184,68 @@ function BriefingPageContent() {
         </AlertBox>
       ) : null}
 
-      <div className="space-y-6">
-        <RepriseBriefingSection />
+      {b ? (
+        <BriefingBoard
+          userName={userName}
+          summary={b.executive_summary}
+          board={b.board}
+          decisions={b.decisions_today || []}
+          running={b.missions_running || []}
+          planned={b.missions_todo || []}
+          unconsulted={b.unconsulted_results || []}
+          dayEvents={b.day_anticipation?.events || []}
+          dayLines={b.day_anticipation?.lines || []}
+          dayHref={b.day_anticipation?.href}
+          signals={{
+            recentErrors: b.recent_errors || [],
+            followUpsOverdue: Number(b.commercial?.counts?.follow_ups_overdue || 0),
+            followUpsDueToday: Number(b.commercial?.counts?.follow_ups_due_today || 0),
+            staleQuotes: Number(b.commercial?.counts?.stale_quotes || 0),
+            mailNeedsReply: Number(b.commercial?.counts?.email_threads_needs_reply || 0),
+            budgetExceeded: Boolean(b.budget?.budget_exceeded),
+            budgetAlert: Boolean(b.budget?.alert),
+            llmReady: b.llm_readiness?.ready,
+            llmBlocker: b.llm_readiness?.blocker,
+            envelopeBlocked: Boolean(b.llm_envelope?.blocked),
+            envelopePaused: Boolean(b.llm_envelope?.paused),
+            envelopeWarn: Boolean(b.llm_envelope?.warn),
+            envelopePercent: Number(b.llm_envelope?.percent || 0),
+          }}
+          inboxTotal={Number(b.inbox_total || 0)}
+          memoryPending={Number(b.memory_digest?.pending_count || 0)}
+          memoryHref={b.memory_digest?.href}
+          onDeleteRunning={isEssential ? undefined : (jobId, mission) => void deleteMission(jobId, mission)}
+          deleteBusyId={deleteBusyId}
+        />
+      ) : null}
 
-        {b ? (
-          <>
-            <JarvisHome data={b.jarvis} />
-            <ExecutiveBriefHero data={b} userName={userName} />
+      {isEssential ? (
+        <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <h2 className="text-sm font-extrabold text-slate-950 dark:text-slate-50">Demander</h2>
+          <p className="mt-0.5 mb-3 text-xs text-slate-500">Une phrase suffit. Le résultat revient ici, à valider si besoin.</p>
+          <IntentionLaunch compact />
+        </section>
+      ) : (
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-bold text-slate-800 dark:text-slate-100">
+            Outils, gestion et audit
+            <span className="mt-0.5 block text-xs font-medium text-slate-500">
+              Raccourcis, commercial, lancement et reprise. Repliés pour laisser le tableau lisible.
+            </span>
+          </summary>
+          <div className="space-y-6 border-t border-slate-100 px-4 py-4 dark:border-slate-800">
             <WorkSurfaceSwitcher
-              runningCount={(b.missions_running || []).length}
-              inboxCritical={
-                Number(b.inbox_severity?.critical || 0) + Number(b.inbox_severity?.high || 0)
-              }
+              runningCount={(b?.missions_running || []).length}
+              inboxCritical={Number(b?.inbox_severity?.critical || 0) + Number(b?.inbox_severity?.high || 0)}
             />
-            <BriefingCommercialPanel data={b.commercial} />
+            <BriefingCommercialPanel data={b?.commercial} />
             <GestionShortcuts />
             <MissionQuickLaunch compact />
             <ScenarioSimulator />
-
-            {(b.unconsulted_results || []).length > 0 ? (
-              <SectionCard title="Résultats à reprendre">
-                <p className="mb-3 text-sm text-slate-600">
-                  Missions terminées (ou en attente de validation) dont vous n&apos;avez pas encore ouvert le
-                  résultat.
-                </p>
-                <ul className="space-y-3">
-                  {(b.unconsulted_results || []).map((m) => (
-                    <li
-                      key={m.job_id}
-                      className="flex flex-col gap-2 rounded-xl border-2 border-amber-200 bg-amber-50/70 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-base font-bold text-slate-900">
-                          {missionTitleLabel(m.mission, 100) || m.job_id}
-                        </p>
-                        <p className="mt-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
-                          {String(m.status || "") === "awaiting_validation"
-                            ? "Validation en attente"
-                            : String(m.status || "").startsWith("error")
-                              ? "Échec — à consulter"
-                              : "Résultat non consulté"}
-                        </p>
-                        {m.result_surface ? (
-                          <p className="mt-1 line-clamp-2 text-sm text-slate-600">{m.result_surface}</p>
-                        ) : null}
-                      </div>
-                      <Link
-                        href={`/missions?job=${encodeURIComponent(m.job_id)}`}
-                        className="btn-link-primary shrink-0"
-                      >
-                        Reprendre →
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </SectionCard>
-            ) : null}
-
-            {(b.missions_todo || []).length > 0 ? (
-              <SectionCard title="Tâches à faire">
-                <ul className="space-y-3">
-                  {(b.missions_todo || []).map((m) => (
-                    <li
-                      key={m.job_id}
-                      className="flex flex-col gap-2 rounded-xl border-2 border-violet-200 bg-violet-50/60 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <span className="min-w-0 text-base font-bold text-slate-900">
-                        {missionTitleLabel(m.mission, 100) || m.job_id}
-                      </span>
-                      <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary shrink-0">
-                        Ouvrir
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </SectionCard>
-            ) : null}
-
-            {(b.missions_running || []).length > 0 ? (
-              <SectionCard title="Missions en cours">
-                <ul className="space-y-3">
-                  {(b.missions_running || []).map((m) => (
-                    <li
-                      key={m.job_id}
-                      className="flex flex-col gap-2 rounded-xl border-2 border-slate-200 bg-slate-50 p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <span className="min-w-0 text-base font-bold text-slate-900">
-                        {missionTitleLabel(m.mission, 100) || m.job_id}
-                      </span>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary">
-                          Suivre
-                        </Link>
-                        <button
-                          type="button"
-                          disabled={deleteBusyId === m.job_id}
-                          onClick={() => void deleteMission(m.job_id, m.mission)}
-                          className={BTN_DELETE}
-                        >
-                          {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </SectionCard>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+            <RepriseBriefingSection />
+          </div>
+        </details>
+      )}
     </PageShell>
   );
 }

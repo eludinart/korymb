@@ -17,11 +17,17 @@ export function PageShell({
   className = "",
 }: {
   children: ReactNode;
-  size?: "narrow" | "default" | "wide";
+  size?: "narrow" | "default" | "wide" | "board";
   className?: string;
 }) {
   const max =
-    size === "narrow" ? "max-w-3xl" : size === "wide" ? "max-w-7xl" : "max-w-5xl";
+    size === "narrow"
+      ? "max-w-3xl"
+      : size === "board"
+        ? "max-w-[100rem]"
+        : size === "wide"
+          ? "max-w-7xl"
+          : "max-w-5xl";
   return <div className={`page-shell ${max} ${className}`}>{children}</div>;
 }
 

@@ -845,7 +845,7 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = "cio"
     merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
     merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
-    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents"):
+    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents", "project_id", "origin"):
         if extra in mc and mc.get(extra) not in (None, ""):
             merged[extra] = mc[extra]
     out["mission_config"] = merged
@@ -4719,13 +4719,24 @@ def list_jobs_active_rows(limit: int = 24) -> list[dict]:
     return [dict(row) for row in rows or []]
 
 
+def _project_id_from_mission_config(raw: str | None) -> str:
+    """Identifiant projet CRM stocké dans mission_config, sans hydrater tout le JSON métier."""
+    try:
+        mc = json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(mc, dict):
+        return ""
+    return str(mc.get("project_id") or "").strip()[:64]
+
+
 def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     """Cartes missions / historique : champs utiles + extrait result, sans hydratation JSON lourde."""
     lim = max(1, min(int(limit), 120))
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
-            "hitl_gate_json, "
+            "hitl_gate_json, mission_config_json, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
@@ -4740,6 +4751,8 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             gate = {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        pid = _project_id_from_mission_config(d.pop("mission_config_json", None))
+        d["mission_config"] = {"project_id": pid} if pid else {}
         out.append(d)
     return out
 

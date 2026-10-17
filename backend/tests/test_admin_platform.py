@@ -143,6 +143,53 @@ def test_admin_briefing(client):
     assert body["jarvis"]["line"]
     assert isinstance(body["jarvis"].get("suite"), list)
     assert any(item.get("ready") is False for item in body["jarvis"]["suite"])
+    assert "board" in body
+    board = body["board"]
+    assert isinstance(board.get("urgent"), list)
+    assert isinstance(board.get("todo"), list)
+    assert isinstance(board.get("proposals"), list)
+    assert isinstance(board.get("warnings"), list)
+    counts = board.get("counts") or {}
+    assert counts["urgent"] >= len(board["urgent"])
+    assert counts["proposals"] >= len(board["proposals"])
+
+
+def test_ops_board_separates_urgent_and_proposals():
+    from services.director_platform import build_ops_board
+
+    board = build_ops_board(
+        [
+            {"kind": "hitl", "job_id": "job-hitl", "title": "Valider le plan", "severity": "high"},
+            {"kind": "closure", "job_id": "job-close", "title": "Clôturer le studio", "severity": "medium"},
+            {
+                "kind": "learning_suggestion",
+                "suggestion_id": "sug-1",
+                "title": "Retenir le ton de la marque",
+                "severity": "low",
+            },
+            {
+                "kind": "scheduler_output",
+                "output_id": "out-1",
+                "title": "Publier le récap du vendredi",
+                "severity": "low",
+            },
+        ],
+        extras=[{"id": "llm-blocker", "label": "Ajouter la clé LLM", "href": "/configuration", "kind": "config", "urgency": "critical"}],
+        recent_errors=[{"job_id": "job-err", "mission": "Relance Camille", "error": "timeout"}],
+        commercial={"counts": {"follow_ups_overdue": 2, "stale_quotes": 1, "email_threads_needs_reply": 3}},
+        budget={"budget_exceeded": False, "alert": False},
+    )
+    assert [row["id"] for row in board["urgent"][:2]] == ["llm-blocker", "job-hitl"]
+    assert any(row["id"] == "job-close" for row in board["todo"])
+    assert {row["kind"] for row in board["proposals"]} == {"learning_suggestion", "scheduler_output"}
+    wheres = {row["where"] for row in board["warnings"]}
+    assert "Configuration" in wheres
+    assert "Missions" in wheres
+    assert "Planning" in wheres
+    assert "Devis" in wheres
+    assert "Courrier" in wheres
+    assert board["counts"]["proposals"] == 2
+    assert board["counts"]["urgent"] == 2
 
 
 def test_jarvis_home_sentence():

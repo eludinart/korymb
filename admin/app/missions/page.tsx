@@ -29,6 +29,13 @@ import MissionsHubToolbar, { type MissionsHubView } from "../../components/missi
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import MissionKanbanBoard from "../../components/missions/MissionKanbanBoard";
+import MissionProjectGroup from "../../components/missions/MissionProjectGroup";
+import { businessApi } from "../../lib/business";
+import {
+  groupMissionsByProject,
+  missionTaskTitle,
+  type ProjectMissionLink,
+} from "../../lib/missionProjectGroups";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
 import { deleteChatConversationOnServer } from "../../lib/chatConversationsApi";
 import { deleteConversation } from "../../lib/chatSessions";
@@ -80,6 +87,11 @@ function MissionsContent() {
   const [detailMode, setDetailMode] = useState<"daily" | "dossier">("daily");
   const urlTeam = (searchParams.get("team") || "").trim();
   const [teamFilter, setTeamFilter] = useState(() => urlTeam || "all");
+  const [groupByProject, setGroupByProject] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("korymb_missions_group_by_project") !== "0";
+  });
+  const [collapsedProjectKeys, setCollapsedProjectKeys] = useState<ReadonlySet<string>>(() => new Set());
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -147,6 +159,31 @@ function MissionsContent() {
     return missionRows.filter((j) => jobAgentGroupId(j) === teamFilter);
   }, [missionRows, teamFilter]);
   const sortedRows = useMemo(() => sortJobsForBossView(filteredMissionRows), [filteredMissionRows]);
+
+  const projectsQuery = useQuery({
+    queryKey: ["business-projects"],
+    queryFn: async () => {
+      try {
+        return await businessApi.listProjects();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60_000,
+  });
+  const projectLinks = useMemo<ProjectMissionLink[]>(
+    () =>
+      (projectsQuery.data || []).map((project) => ({
+        id: project.id,
+        title: project.title,
+        jobIds: project.linked_job_ids || [],
+      })),
+    [projectsQuery.data],
+  );
+  const listEntries = useMemo(
+    () => (groupByProject ? groupMissionsByProject(sortedRows, projectLinks) : sortedRows.map((job) => ({ kind: "job" as const, job }))),
+    [groupByProject, sortedRows, projectLinks],
+  );
 
   // Pour chaque job parent, retrouver le job enfant le plus récent (continuation terminée)
   const latestChildByParent = useMemo(() => {
@@ -666,6 +703,37 @@ function MissionsContent() {
     router.replace(base);
   };
 
+  const renderMissionCard = (j: Job, titleOverride?: string) => (
+    <MissionListCard
+      key={j.job_id}
+      job={j}
+      teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
+      teamGroupId={jobAgentGroupId(j)}
+      inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
+      busy={busyId === j.job_id}
+      deleteBusy={deleteMissionBusyId === j.job_id}
+      actionBusy={Boolean(ticketBusyId) || launchBusyId === j.job_id}
+      onSelect={(id) => openMission(id)}
+      onStart={(id) => void launchPlannedMission(id)}
+      onFinish={(id) => {
+        const job = sortedRows.find((x) => x.job_id === id);
+        void onValidate(id, job?.mission);
+      }}
+      onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
+      onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
+      titleOverride={titleOverride}
+    />
+  );
+
+  const toggleProjectGroup = (key: string) => {
+    setCollapsedProjectKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const onMissionCreated = (jobId: string) => {
     setShowCreatePanel(false);
     openMission(jobId);
@@ -704,6 +772,11 @@ function MissionsContent() {
           teamFilterOptions={teamFilterOptions}
           teamFilter={teamFilter}
           onTeamFilterChange={setTeamFilter}
+          groupByProject={groupByProject}
+          onGroupByProjectChange={(value) => {
+            setGroupByProject(value);
+            localStorage.setItem("korymb_missions_group_by_project", value ? "1" : "0");
+          }}
         />
         {!selected && (hubView === "active" || hubView === "kanban") ? <MissionQuickLaunch /> : null}
         {hubView === "guided" ? (
@@ -723,7 +796,12 @@ function MissionsContent() {
               />
             ) : null}
             {jobs.isPending ? <p className="text-sm text-slate-500">Chargement…</p> : null}
-            <MissionKanbanBoard jobs={sortedRows} onSelect={openMission} />
+            <MissionKanbanBoard
+              jobs={sortedRows}
+              onSelect={openMission}
+              groupByProject={groupByProject}
+              projects={projectLinks}
+            />
             <p className="text-sm">
               <Link href="/carte" className="font-semibold text-violet-700 hover:underline">
                 Vue carte spatiale →
@@ -795,26 +873,24 @@ function MissionsContent() {
         ) : null}
         {hubView === "active" ? (
           <>
-            {sortedRows.map((j) => (
-              <MissionListCard
-                key={j.job_id}
-                job={j}
-                teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
-                teamGroupId={jobAgentGroupId(j)}
-                inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
-                busy={busyId === j.job_id}
-                deleteBusy={deleteMissionBusyId === j.job_id}
-                actionBusy={Boolean(ticketBusyId) || launchBusyId === j.job_id}
-                onSelect={(id) => openMission(id)}
-                onStart={(id) => void launchPlannedMission(id)}
-                onFinish={(id) => {
-                  const job = sortedRows.find((x) => x.job_id === id);
-                  void onValidate(id, job?.mission);
-                }}
-                onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
-                onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
-              />
-            ))}
+            {listEntries.map((entry) =>
+              entry.kind === "job" ? (
+                renderMissionCard(entry.job)
+              ) : (
+                <MissionProjectGroup
+                  key={entry.key}
+                  title={entry.title}
+                  count={entry.jobs.length}
+                  href={entry.href}
+                  open={!collapsedProjectKeys.has(entry.key)}
+                  onToggle={() => toggleProjectGroup(entry.key)}
+                >
+                  {entry.jobs.map((job) =>
+                    renderMissionCard(job, missionTaskTitle(job.mission, entry.title) || undefined),
+                  )}
+                </MissionProjectGroup>
+              ),
+            )}
             {jobs.isSuccess && missionRows.length === 0 ? (
               <p className="text-sm text-slate-400">Aucune mission en cours. Lancez-en une ou consultez les archives.</p>
             ) : null}
@@ -839,7 +915,7 @@ function MissionsContent() {
                 <>
                   <p>
                     <strong className="text-slate-800">En cours</strong> — chaque carte montre l’état et la prochaine
-                    action (publier, agenda, décider, terminer).
+                    action (publier, agenda, décider, terminer). Les missions d’un même projet se regroupent.
                   </p>
                   <p className="text-xs text-slate-500">
                     La file du matin reste dans{" "}

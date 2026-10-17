@@ -32,6 +32,8 @@ type Props = {
   onFinish: (jobId: string, mission?: string | null) => void;
   onDelete: (jobId: string, mission?: string | null) => void;
   onApproveTicket?: (ticketId: string) => void;
+  /** Titre affiché à la place de la consigne (ex. tâche seule dans un groupe projet). */
+  titleOverride?: string;
 };
 
 function PrimaryButton({
@@ -161,6 +163,7 @@ export default function MissionListCard({
   onFinish,
   onDelete,
   onApproveTicket,
+  titleOverride,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const origin = missionOrigin(j.source);
@@ -170,7 +173,8 @@ export default function MissionListCard({
     hasPendingQuestions: inboxItems.some((i) => i.kind === "cio_question"),
   });
   const action = resolveMissionPrimaryAction(j, inboxItems);
-  const title = missionCardTitle(j.mission, 88);
+  const title = missionCardTitle(titleOverride || j.mission, 88);
+  const fullTitle = missionCardTitle(j.mission, 240);
   const disabled = busy || deleteBusy || actionBusy;
   const ring =
     phase.id === "act"
@@ -178,16 +182,16 @@ export default function MissionListCard({
       : phase.id === "decide"
         ? "border-violet-400 ring-2 ring-violet-200/70"
         : phase.id === "todo"
-          ? "border-violet-300 ring-1 ring-violet-100"
+          ? "border-violet-300 ring-1 ring-violet-100 dark:border-violet-600 dark:ring-violet-900"
           : phase.id === "running"
-            ? "border-amber-300 ring-1 ring-amber-100"
-            : "border-slate-200";
+            ? "border-amber-300 ring-1 ring-amber-100 dark:border-amber-600 dark:ring-amber-900"
+            : "border-slate-200 dark:border-slate-700";
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`min-w-0 cursor-pointer rounded-2xl border bg-white p-3.5 shadow-sm transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 ${ring}`}
+      className={`min-w-0 cursor-pointer rounded-2xl border bg-white p-3.5 shadow-sm transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:hover:border-slate-500 ${ring}`}
       onClick={() => onSelect(j.job_id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -217,10 +221,10 @@ export default function MissionListCard({
               </span>
             ) : null}
           </div>
-          <p className="truncate text-sm font-semibold text-slate-900" title={title}>
+          <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50" title={fullTitle}>
             {title}
           </p>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
             {j.agent || "coordinateur"}
             {action.type === "approve_ticket" ? " · action prête" : null}
           </p>
@@ -244,7 +248,7 @@ export default function MissionListCard({
               aria-label="Plus d’actions"
               aria-expanded={menuOpen}
               disabled={disabled}
-              className="min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              className="min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
@@ -254,12 +258,12 @@ export default function MissionListCard({
             </button>
             {menuOpen ? (
               <div
-                className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                 onClick={(e) => e.stopPropagation()}
               >
                 <Link
                   href={decisionsHrefForJob(j.job_id)}
-                  className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                   onClick={() => setMenuOpen(false)}
                 >
                   À valider
@@ -267,7 +271,7 @@ export default function MissionListCard({
                 {origin.id === "studio" ? (
                   <Link
                     href="/gestion/studio"
-                    className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                     onClick={() => setMenuOpen(false)}
                   >
                     Ouvrir le Studio

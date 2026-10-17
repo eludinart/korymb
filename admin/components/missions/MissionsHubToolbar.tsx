@@ -15,6 +15,9 @@ type Props = {
   teamFilterOptions?: Array<{ id: string; label: string }>;
   teamFilter?: string;
   onTeamFilterChange?: (id: string) => void;
+  /** Regroupe les missions qui partagent un dossier projet. */
+  groupByProject?: boolean;
+  onGroupByProjectChange?: (value: boolean) => void;
 };
 
 export default function MissionsHubToolbar({
@@ -27,6 +30,8 @@ export default function MissionsHubToolbar({
   teamFilterOptions,
   teamFilter = "all",
   onTeamFilterChange,
+  groupByProject = true,
+  onGroupByProjectChange,
 }: Props) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4">
@@ -98,6 +103,21 @@ export default function MissionsHubToolbar({
               </option>
             ))}
           </select>
+        ) : null}
+        {onGroupByProjectChange && (view === "active" || view === "kanban") ? (
+          <button
+            type="button"
+            aria-pressed={groupByProject}
+            title="Regroupe les missions du même projet"
+            className={`rounded-full px-3 py-2 text-sm font-semibold transition-colors ${
+              groupByProject
+                ? "bg-emerald-700 text-white shadow-sm dark:bg-emerald-600"
+                : "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            }`}
+            onClick={() => onGroupByProjectChange(!groupByProject)}
+          >
+            Par projet
+          </button>
         ) : null}
       </div>
       <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
