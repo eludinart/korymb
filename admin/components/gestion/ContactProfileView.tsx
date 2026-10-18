@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import OutreachSuggestionsView from "./OutreachSuggestionsView";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS } from "../../app/gestion/_shared";
 import type { BizContact } from "../../lib/business";
 import { httpHref, mailtoHref, mapsHref, telHref } from "../../lib/contactLinks";
@@ -130,8 +130,8 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
       {contact.outreach_suggestions?.trim() ? (
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Suggestions d’approche</p>
-          <div className="mt-1 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm">
-            <AgentMessageMarkdown source={contact.outreach_suggestions} />
+          <div className="mt-2">
+            <OutreachSuggestionsView source={contact.outreach_suggestions} />
           </div>
         </div>
       ) : null}

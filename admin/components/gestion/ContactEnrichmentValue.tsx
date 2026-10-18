@@ -1,6 +1,7 @@
 "use client";
 
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import OutreachSuggestionsView from "./OutreachSuggestionsView";
 import { contactFieldLabel } from "../../lib/contactReachability";
 import { httpHref, mailtoHref, mapsHref, telHref } from "../../lib/contactLinks";
 
@@ -67,6 +68,14 @@ export default function ContactEnrichmentValue({ field, value }: Props) {
 
   const text = String(value ?? "").trim();
   if (!text || text === "—") return <span className="text-slate-400">—</span>;
+
+  if (field === "outreach_suggestions") {
+    return (
+      <div className="max-h-[32rem] overflow-y-auto pr-1">
+        <OutreachSuggestionsView source={unwrapMarkdownFence(text)} />
+      </div>
+    );
+  }
 
   if (MARKDOWN_KEYS.has(field)) {
     return (

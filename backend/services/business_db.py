@@ -1343,6 +1343,16 @@ def reject_enrichment_proposal(proposal_id: str) -> dict | None:
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 _PHONE_RE = re.compile(r"(?:\+33|0)\s*[1-9](?:[\s./-]?\d{2}){4}")
+_INTL_PHONE_RE = re.compile(r"\+(?:\d[\s./()-]?){8,15}\d")
+_INLINE_WRAP = r"[`*_\"'«»]*"
+_INLINE_LABELED_EMAIL_RE = re.compile(
+    rf"(?:e-?mail|courriel)\s*[:=]\s*{_INLINE_WRAP}\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{{2,}})",
+    re.I,
+)
+_INLINE_LABELED_PHONE_RE = re.compile(
+    rf"(?:t[ée]l[ée]phone|phone|portable|mobile|gsm|t[ée]l\.?)\s*[:=]\s*{_INLINE_WRAP}\s*([+\d][\d\s./()-]{{6,24}})",
+    re.I,
+)
 _URL_RE = re.compile(r"https?://[^\s)|>\]]+", re.I)
 _POSTAL_CITY_RE = re.compile(r"\b(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\- ]{1,40})", re.I)
 _EMPTY_EXTRACT = re.compile(
@@ -1533,8 +1543,71 @@ def _split_address_parts(address: str) -> dict[str, str]:
     return out
 
 
+_ENRICH_SCALAR_KEYS = (
+    "email",
+    "phone",
+    "website",
+    "linkedin_url",
+    "address",
+    "city",
+    "postal_code",
+    "company",
+    "instagram",
+    "facebook",
+    "youtube",
+    "resalib",
+)
+
+
+def _propose_tool_params(text: str) -> dict[str, str]:
+    """Paramètres d'un appel `gestion_propose_contact_enrichment` resté en texte."""
+    out: dict[str, str] = {}
+    for block in re.findall(
+        r"<function=gestion_propose_contact_enrichment>(.*?)</function>",
+        text,
+        flags=re.I | re.S,
+    ):
+        for match in re.finditer(
+            r"<parameter=([A-Za-z0-9_]+)>\s*(.*?)\s*</parameter>",
+            block,
+            flags=re.I | re.S,
+        ):
+            key = match.group(1).strip().lower()
+            val = match.group(2).strip()
+            if key and val and key not in out:
+                out[key] = val
+    if out or "gestion_propose_contact_enrichment" not in text:
+        return out
+    for match in re.finditer(r"\{(?:[^{}]|\{[^{}]*\}){10,12000}\}", text, flags=re.S):
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        args = data.get("arguments") if isinstance(data.get("arguments"), dict) else data
+        if not isinstance(args, dict):
+            continue
+        if not any(
+            key in args
+            for key in ("notes_append", "linkedin_url", "outreach_suggestions", "email", "phone", "instagram")
+        ):
+            continue
+        for key, val in args.items():
+            if val is None or key in out:
+                continue
+            if isinstance(val, list):
+                out[str(key).lower()] = json.dumps(val, ensure_ascii=False)
+            elif isinstance(val, (str, int, float)):
+                text_val = str(val).strip()
+                if text_val:
+                    out[str(key).lower()] = text_val
+        break
+    return out
+
+
 def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
-    """Parse le livrable d'exploration (tableaux / puces) → champs contact structurés."""
+    """Parse le livrable d'exploration (tableaux, puces, appel d'outil) → champs contact."""
     text = str(result or "").strip()
     if not text:
         return {}
@@ -1561,6 +1634,7 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
         if not val or _is_empty_extracted(val):
             return
         if key == "email":
+            val = val.replace("`", "")
             m = _EMAIL_RE.search(val)
             if not m:
                 return
@@ -1569,9 +1643,13 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
             if domain in {"pagesjaunes.fr", "example.com", "tavily.com", "google.com"}:
                 return
         elif key == "phone":
-            m = _PHONE_RE.search(val.replace("(0)", " "))
-            if m:
-                digits = re.sub(r"[^\d+]", "", m.group(0))
+            raw_phone = val.replace("(0)", " ")
+            intl = _INTL_PHONE_RE.search(raw_phone)
+            fr = _PHONE_RE.search(raw_phone)
+            if intl and "+" in intl.group(0):
+                val = re.sub(r"[^\d+]", "", intl.group(0))
+            elif fr:
+                digits = re.sub(r"[^\d+]", "", fr.group(0))
                 if digits.startswith("0") and len(digits) == 10:
                     digits = "+33" + digits[1:]
                 val = digits
@@ -1610,7 +1688,14 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
         if key not in proposed:
             proposed[key] = val
 
-    for raw in text.splitlines():
+    # Les notes et suggestions citent souvent un autre e-mail (siège, association).
+    scan_text = re.sub(
+        r"<parameter=(?:notes_append|outreach_suggestions|summary)>\s*.*?\s*</parameter>",
+        "",
+        text,
+        flags=re.I | re.S,
+    )
+    for raw in scan_text.splitlines():
         line = raw.strip()
         if not line:
             continue
@@ -1637,6 +1722,15 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 label = m.group(1).lower().replace("*", "").strip()
                 value = m.group(2)
 
+        if "email" not in proposed:
+            found_email = _INLINE_LABELED_EMAIL_RE.search(line)
+            if found_email:
+                _set("email", found_email.group(1))
+        if "phone" not in proposed:
+            found_phone = _INLINE_LABELED_PHONE_RE.search(line)
+            if found_phone:
+                _set("phone", found_phone.group(1))
+
         if not label or not value:
             continue
         matched = False
@@ -1656,6 +1750,32 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
 
     # Pas de fallback « premier e-mail / URL du document » : trop d'homonymes et de sources.
 
+    tool_params = _propose_tool_params(text)
+    for key in _ENRICH_SCALAR_KEYS:
+        if tool_params.get(key):
+            proposed.pop(key, None)
+            _set(key, tool_params[key])
+    for key in ("notes_append", "outreach_suggestions"):
+        val = str(tool_params.get(key) or "").strip()
+        if val:
+            proposed[key] = val[:3500]
+    raw_sources = str(tool_params.get("sources") or "").strip()
+    if raw_sources:
+        try:
+            parsed_sources = json.loads(raw_sources)
+        except json.JSONDecodeError:
+            parsed_sources = None
+        if isinstance(parsed_sources, list):
+            tool_urls = [str(item).strip() for item in parsed_sources if str(item or "").strip()]
+        else:
+            tool_urls = [url.rstrip(".,;)") for url in _URL_RE.findall(raw_sources)]
+        for url in tool_urls:
+            if url not in sources and len(sources) < 12:
+                sources.append(url)
+    tool_summary = str(tool_params.get("summary") or "").strip()
+    if tool_summary:
+        proposed["_summary"] = tool_summary[:500]
+
     if "address" in proposed and ("city" not in proposed or "postal_code" not in proposed):
         parts = _split_address_parts(str(proposed["address"]))
         proposed.update({k: v for k, v in parts.items() if k not in proposed or not proposed.get(k)})
@@ -1670,9 +1790,9 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
 
     # Sépare notes factuelles vs suggestions d'approche dans le livrable markdown
     notes_facts, outreach = _split_exploration_narrative(text)
-    if notes_facts:
+    if notes_facts and "notes_append" not in proposed:
         proposed["notes_append"] = notes_facts
-    if outreach:
+    if outreach and "outreach_suggestions" not in proposed:
         proposed["outreach_suggestions"] = outreach
 
     if sources:
@@ -1695,6 +1815,8 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         "comment le contacter",
         "pitch",
         "fleur d",
+        "recommandation",
+        "limites et recommandations",
     )
     fact_headers = (
         "informations complémentaires",
@@ -1704,6 +1826,8 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         "siret",
         "profil",
         "à propos",
+        "faits et sources",
+        "faits",
     )
 
     sections: list[tuple[str, str]] = []
@@ -1713,11 +1837,14 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         line = raw.rstrip()
         heading = re.match(r"^#{1,4}\s+\**\s*(.+?)\s*\**\s*$", line.strip())
         numbered = re.match(r"^#{0,4}\s*\**\s*\d+\.\s+\**\s*(.+?)\s*\**\s*$", line.strip())
+        plain = re.match(r"^\**\s*([A-Za-zÀ-ÿ][^:\n]{2,70}?)\s*:\s*\**\s*$", line.strip())
         title = ""
         if heading:
             title = heading.group(1).strip().lower()
         elif numbered and any(k in line.lower() for k in ("approche", "complémentaire", "contact", "suggestion", "angle")):
             title = numbered.group(1).strip().lower()
+        elif plain:
+            title = plain.group(1).strip().lower()
         if title:
             if current_lines:
                 sections.append((current_title, "\n".join(current_lines).strip()))
@@ -1765,6 +1892,7 @@ def exploration_result_summary(result: str, *, max_chars: int = 1200) -> str | N
     """Résumé court à partir des champs extraits (ou extrait texte)."""
     fields = extract_contact_fields_from_exploration(result)
     fields.pop("_sources", None)
+    fields.pop("_summary", None)
     if fields:
         labels = {
             "email": "Email",
@@ -1883,18 +2011,26 @@ def fill_contact_from_exploration(
     extracted = extract_contact_fields_from_exploration(body)
     extracted = sanitize_proposed_against_contact(contact, extracted)
     sources_raw = extracted.pop("_sources", None)
+    tool_summary = str(extracted.pop("_summary", "") or "").strip()
     sources = sources_raw if isinstance(sources_raw, list) else []
     if not extracted:
+        empty_result = bool(
+            re.match(
+                r"^\(?\s*(?:aucune réponse textuelle|aucun résultat|no textual response)\s*\.?\s*\)?$",
+                body,
+                re.I,
+            )
+        )
         return {
             "contact": contact,
             "applied": False,
             "skipped": True,
-            "reason": "no_fields_extracted",
+            "reason": "empty_model_result" if empty_result else "no_fields_extracted",
             "job_id": jid,
             "fields": {},
         }
 
-    summary = exploration_result_summary(body) or "Enrichissement auto depuis exploration"
+    summary = tool_summary or exploration_result_summary(body) or "Enrichissement auto depuis exploration"
     proposal = create_enrichment_proposal(
         contact_id=contact_id,
         proposed=extracted,
@@ -2020,6 +2156,116 @@ def apply_enrichment_proposal(
     return result
 
 
+def workspace_approach_catalog(*, max_items: int = 12) -> str:
+    """Pistes d'approche de l'espace courant : vitrine, faits, projets et séances.
+
+    Rien n'est codé en dur : un autre workspace reçoit sa propre liste.
+    """
+    items: list[str] = []
+    seen: set[str] = set()
+
+    def add(line: str) -> None:
+        text = " ".join(str(line or "").split())
+        if not text or len(items) >= max_items:
+            return
+        key = _fold_ident(text)[:96]
+        if not key or key in seen:
+            return
+        seen.add(key)
+        items.append(text[:220])
+
+    wid = _ws()
+    try:
+        from workspace_db import get_workspace_by_id, parse_workspace_offers
+
+        row = get_workspace_by_id(wid) if wid else None
+    except Exception:
+        row = None
+    if isinstance(row, dict):
+        for offer in parse_workspace_offers(row.get("offers_json")):
+            title = str(offer.get("title") or "").strip()
+            summary = str(offer.get("summary") or "").strip()
+            kind = str(offer.get("kind") or "").strip()
+            bits = [title]
+            if kind:
+                bits.append(f"({kind})")
+            if summary:
+                bits.append(f"— {summary}")
+            add("Offre publiée : " + " ".join(bit for bit in bits if bit))
+
+    try:
+        from services.memory_inbox import get_enterprise_facts
+
+        facts = get_enterprise_facts()
+    except Exception:
+        facts = {}
+    if isinstance(facts, dict):
+        raw_offers = facts.get("offers")
+        if isinstance(raw_offers, list):
+            for offer in raw_offers:
+                add(f"Offre mémorisée : {offer}")
+        elif isinstance(raw_offers, str) and raw_offers.strip():
+            add(f"Offre mémorisée : {raw_offers}")
+        activity = facts.get("activity")
+        if isinstance(activity, str) and activity.strip():
+            add(f"Activité : {activity}")
+
+    if wid:
+        try:
+            with get_conn() as conn:
+                projects = conn.execute(
+                    "SELECT title, project_type FROM biz_projects WHERE workspace_id=? "
+                    "ORDER BY updated_at DESC LIMIT 8",
+                    (wid,),
+                ).fetchall()
+                events = conn.execute(
+                    "SELECT title, event_type FROM biz_calendar_events WHERE workspace_id=? "
+                    "ORDER BY starts_at DESC LIMIT 8",
+                    (wid,),
+                ).fetchall()
+            for project in projects:
+                data = dict(project)
+                title = str(data.get("title") or "").strip()
+                kind = str(data.get("project_type") or "").strip()
+                if title:
+                    add("Projet : " + title + (f" ({kind})" if kind else ""))
+            for event in events:
+                data = dict(event)
+                title = str(data.get("title") or "").strip()
+                kind = str(data.get("event_type") or "").strip()
+                if title:
+                    add("Séance : " + title + (f" ({kind})" if kind else ""))
+        except Exception:
+            pass
+
+    if not items:
+        return ""
+    return "\n".join(f"- {line}" for line in items)
+
+
+def _approach_piste_block() -> str:
+    catalog = workspace_approach_catalog()
+    if not catalog:
+        return (
+            "### Pistes de contact\n"
+            "Cet espace n'a pas encore d'offre ni d'activité enregistrée "
+            "(vitrine, science de l'entreprise, projets, séances). "
+            "N'invente pas de produit. Propose un canal et une question d'ouverture.\n\n"
+        )
+    return (
+        "### Pistes de contact\n"
+        "Cette liste vient de la vitrine, de la science de l'entreprise et des activités "
+        "déjà menées dans **cet** espace. Un autre espace a d'autres pistes. "
+        "N'invente pas d'offre absente d'ici et de la mémoire partagée.\n"
+        f"{catalog}\n\n"
+        "Choisis **une ou deux** pistes qui collent le mieux à ce contact "
+        "(métier, centres d'intérêt, historique). Nomme-les, dis pourquoi, "
+        "et écarte les autres en une phrase. "
+        "Ne t'arrête pas à la première offre de la liste si une autre colle mieux. "
+        "Si aucune ne colle, propose seulement le canal et une question d'ouverture.\n\n"
+    )
+
+
 def build_contact_exploration_mission(contact: dict) -> str:
     """Consigne mission Commercial pour exploration détaillée d'une fiche."""
     reach = contact.get("reachability") if isinstance(contact.get("reachability"), dict) else contact_reachability(contact)
@@ -2065,6 +2311,7 @@ def build_contact_exploration_mission(contact: dict) -> str:
         f"**Champs manquants prioritaires :** {missing}\n"
         f"**Joignabilité :** {reach.get('label')} ({reach.get('score')}%)\n\n"
         f"{prior_block}"
+        f"{_approach_piste_block()}"
         "### Objectif\n"
         "1) Compléter les **infos factuelles** du contact (coordonnées, métier, sources).\n"
         "2) Produire des **suggestions d'approche** pour le contacter — **séparées** des notes factuelles — "
@@ -2105,7 +2352,7 @@ def build_contact_exploration_mission(contact: dict) -> str:
         "### Livrable (structure imposée)\n"
         "Dans l'outil `gestion_propose_contact_enrichment` :\n"
         "- `notes_append` : spécialité, SIRET, contexte métier, sources — **pas** d'angle de vente.\n"
-        "- `outreach_suggestions` : comment approcher (canal, accroche liée à l'offre du workspace, timing) "
+        "- `outreach_suggestions` : comment approcher (canal, **une ou deux pistes** de la liste ci-dessus, timing) "
         "en **approfondissant** ce qui a déjà été suggéré ou fait.\n"
         "- Puis un court résumé dirigeant."
     )
@@ -2140,6 +2387,7 @@ def build_contact_outreach_mission(contact: dict) -> str:
         f"**Site / LinkedIn :** {contact.get('website') or '—'} / {contact.get('linkedin_url') or '—'}\n"
         f"**Réseaux :** {json.dumps(socials, ensure_ascii=False) if socials else '(aucun)'}\n"
         f"**Notes factuelles :** {(contact.get('notes') or '(aucune)')[:900]}\n\n"
+        f"{_approach_piste_block()}"
         "### Historique (missions, interactions, suggestions déjà faites)\n"
         f"{history}\n\n"
         "### Objectif\n"
@@ -2157,8 +2405,8 @@ def build_contact_outreach_mission(contact: dict) -> str:
         "   - pas de `notes_append` sauf fait vraiment nouveau et utile\n\n"
         "### Structure attendue de `outreach_suggestions`\n"
         "- **Canal prioritaire** (email / LinkedIn / tél / autre) + pourquoi\n"
-        "- **Accroche** adaptée au métier (offre du workspace, ton de la mémoire partagée)\n"
-        "- **Offre / format** (atelier, module pro, démo, partenariat…)\n"
+        "- **Accroche** adaptée au métier du contact et au ton de la mémoire partagée\n"
+        "- **Offre / format** : une ou deux pistes de la liste ci-dessus, pas une offre inventée\n"
         "- **Ce qui change vs suggestions précédentes** (approfondissement explicite)\n"
         "- **Prochaine action** concrète (1 phrase)\n"
     )
