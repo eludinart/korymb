@@ -1585,6 +1585,11 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 val = ("https://" + val) if not val.startswith("http") else val
             elif key == "instagram" and re.fullmatch(r"@?[A-Za-z0-9._]{2,40}", val):
                 val = f"https://www.instagram.com/{val.lstrip('@')}/"
+            elif key == "instagram":
+                hm = re.search(r"@([A-Za-z0-9._]{2,40})\b", val)
+                if not hm:
+                    return
+                val = f"https://www.instagram.com/{hm.group(1).strip('.')}/"
             elif key == "facebook" and re.fullmatch(r"@?[A-Za-z0-9.]{2,80}", val):
                 val = f"https://www.facebook.com/{val.lstrip('@')}"
             else:
@@ -1623,9 +1628,10 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 label = cells[0].lower().replace("*", "").strip()
                 value = cells[1]
         else:
+            probe = re.sub(r"^\d+[\.\)]\s+", "", line)
             m = re.match(
                 r"^(?:[-*]\s*)?\*{0,2}([A-Za-zÀ-ÿ /_-]{2,40})\*{0,2}\s*[:=]\s*(.+)$",
-                line,
+                probe,
             )
             if m:
                 label = m.group(1).lower().replace("*", "").strip()
@@ -1633,10 +1639,20 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
 
         if not label or not value:
             continue
+        matched = False
         for key, aliases in label_map:
             if any(a in label for a in aliases):
                 _set(key, value)
+                matched = True
                 break
+        if not matched and label in {"contact", "coordonnées", "coordonnees"}:
+            inline_email = re.search(
+                r"(?:e-?mail)\s*[:=]\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
+                value,
+                re.I,
+            )
+            if inline_email:
+                _set("email", inline_email.group(1))
 
     # Pas de fallback « premier e-mail / URL du document » : trop d'homonymes et de sources.
 

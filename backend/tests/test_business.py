@@ -404,6 +404,21 @@ Canal : email contact@ + LinkedIn. Offre : module pro coachs.
     assert again.json()["reason"] == "already_applied_for_job"
 
 
+def test_extract_contact_fields_from_numbered_prose():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    text = """
+The user wants me to provide a synthesis for the CIO based on my research findings.
+
+1. Contact: cible42 (email: cible42@gmail.com)
+2. Instagram: Found profile @cible42 with name "Cible Test" - 10 followers
+3. Connection to workspace: tag matches the offer
+"""
+    fields = extract_contact_fields_from_exploration(text)
+    assert fields["email"] == "cible42@gmail.com"
+    assert "cible42" in fields["socials"]["instagram"]
+
+
 def test_extract_contact_fields_ignores_unlabeled_noise():
     from services.business_db import extract_contact_fields_from_exploration
 
