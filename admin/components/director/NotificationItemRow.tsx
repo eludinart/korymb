@@ -99,10 +99,12 @@ export default function NotificationItemRow({
   const menu =
     menuOpen && mounted && menuPos
       ? createPortal(
-          <div
+            <div
             ref={menuRef}
             id={menuId}
             role="menu"
+            data-notification-menu=""
+            onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-[120] min-w-[11rem] rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
             style={{
               top: menuPos.openUp ? undefined : menuPos.top,
@@ -208,6 +210,15 @@ export default function NotificationItemRow({
             {busy ? "…" : primary.label}
           </button>
         ) : null}
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onDelete()}
+          className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
+        >
+          Retirer
+        </button>
 
         <div className="relative">
           <button

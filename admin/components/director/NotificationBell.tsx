@@ -18,6 +18,11 @@ import { resolveLearningSuggestion } from "../../lib/missionActions";
 import DirectorToast from "./DirectorToast";
 import NotificationItemRow from "./NotificationItemRow";
 
+function isAlreadyAppliedMemory(n: DirectorNotification) {
+  const body = String(n.body || "").toLowerCase();
+  return body.includes("appliquée automatiquement") || body.includes("appliquee automatiquement");
+}
+
 function showDesktopEmailAlert(n: DirectorNotification) {
   if (typeof window === "undefined" || typeof Notification === "undefined")
     return;
@@ -171,6 +176,7 @@ export default function NotificationBell() {
     const onPointerDown = (ev: MouseEvent) => {
       const target = ev.target as Node | null;
       if (!target) return;
+      if (target instanceof Element && target.closest("[data-notification-menu]")) return;
       if (rootRef.current?.contains(target)) return;
       if (panelRef.current?.contains(target)) return;
       setOpen(false);
@@ -196,20 +202,32 @@ export default function NotificationBell() {
   }, [open, isNarrow]);
 
   const list = Array.isArray(notifs.data) ? notifs.data : [];
-  const unreadCount = list.filter((n) => !n.read_at).length;
-  const badgeCount = filter === "unread" ? list.length : unreadCount;
+  const visible = list.filter((n) => !isAlreadyAppliedMemory(n));
+  const badgeCount = filter === "unread" ? visible.length : visible.filter((n) => !n.read_at).length;
+
+  const forgetNotification = (id: string, mode: "read" | "delete") => {
+    const now = new Date().toISOString();
+    for (const key of ["unread", "all"] as const) {
+      qc.setQueryData<DirectorNotification[]>(["director-notifications", key], (old) => {
+        if (!Array.isArray(old)) return old;
+        if (mode === "delete" || key === "unread") return old.filter((item) => item.id !== id);
+        return old.map((item) => (item.id === id && !item.read_at ? { ...item, read_at: now } : item));
+      });
+    }
+  };
 
   const markRead = async (id: string): Promise<boolean> => {
+    forgetNotification(id, "read");
     try {
       await requestJson(`/admin/notifications/${encodeURIComponent(id)}/read`, {
         method: "PATCH",
         headers: agentHeaders(),
         retries: 1,
       });
-      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
       setActionError("");
       return true;
     } catch (err) {
+      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
       const msg = err instanceof Error ? err.message : String(err);
       if (
         !/failed to fetch|fetch failed|injoignable|network|timeout|aborted/i.test(
@@ -225,6 +243,20 @@ export default function NotificationBell() {
       return false;
     }
   };
+
+  const staleTried = useRef(new Set<string>());
+  const staleApplied = list
+    .filter((n) => !n.read_at && isAlreadyAppliedMemory(n))
+    .map((n) => n.id)
+    .join(",");
+  useEffect(() => {
+    if (!staleApplied) return;
+    for (const id of staleApplied.split(",")) {
+      if (staleTried.current.has(id)) continue;
+      staleTried.current.add(id);
+      void markRead(id);
+    }
+  }, [staleApplied]);
 
   const navigateFromNotification = async (
     n: DirectorNotification,
@@ -245,22 +277,18 @@ export default function NotificationBell() {
   };
 
   const deleteNotification = async (id: string) => {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm("Supprimer cette notification ?")
-    )
-      return;
     setBusyId(id);
     setActionError("");
+    forgetNotification(id, "delete");
     try {
       await requestJson(`/admin/notifications/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: agentHeaders(),
         retries: 1,
       });
-      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
       void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
     } catch (err) {
+      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
       setActionError(
         err instanceof Error
           ? err.message
@@ -275,14 +303,18 @@ export default function NotificationBell() {
     setMarkAllBusy(true);
     setActionError("");
     try {
+      const now = new Date().toISOString();
+      qc.setQueryData<DirectorNotification[]>(["director-notifications", "unread"], []);
+      qc.setQueryData<DirectorNotification[]>(["director-notifications", "all"], (old) =>
+        Array.isArray(old) ? old.map((item) => (item.read_at ? item : { ...item, read_at: now })) : old,
+      );
       await requestJson("/admin/notifications/mark-all-read", {
         method: "POST",
         headers: agentHeaders(),
         retries: 1,
       });
-      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
-      if (filter === "unread") setFilter("all");
     } catch (err) {
+      void qc.invalidateQueries({ queryKey: ["director-notifications"] });
       setActionError(
         err instanceof Error
           ? err.message
@@ -377,14 +409,14 @@ export default function NotificationBell() {
           <li className="px-4 py-6 text-center text-sm text-slate-500">
             Chargement…
           </li>
-        ) : list.length === 0 ? (
+        ) : visible.length === 0 ? (
           <li className="px-4 py-6 text-center text-sm font-medium text-slate-600">
             {filter === "unread"
               ? "Aucune notification non lue."
               : "Aucune notification récente."}
           </li>
         ) : (
-          list.map((n) => (
+          visible.map((n) => (
             <NotificationItemRow
               key={n.id}
               notification={n}
