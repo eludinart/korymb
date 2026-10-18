@@ -175,9 +175,25 @@ export default function NotificationItemRow({
             </div>
           ) : null}
         </div>
-        {isUnread ? (
-          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet-600" title="Non lue" aria-hidden />
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          {isUnread ? (
+            <span className="h-2 w-2 rounded-full bg-violet-600" title="Non lue" aria-hidden />
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-rose-400 text-lg font-bold leading-none text-rose-600 hover:bg-rose-600 hover:text-white disabled:opacity-40"
+            aria-label="Supprimer la notification"
+            title="Supprimer"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
@@ -210,15 +226,6 @@ export default function NotificationItemRow({
             {busy ? "…" : primary.label}
           </button>
         ) : null}
-
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => onDelete()}
-          className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
-        >
-          Retirer
-        </button>
 
         <div className="relative">
           <button

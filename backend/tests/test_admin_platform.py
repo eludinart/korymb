@@ -487,6 +487,13 @@ def test_admin_notifications_crud(client):
     r2 = client.patch(f"/admin/notifications/{nid}/read")
     assert r2.status_code == 200
     assert r2.json().get("read_at")
+    deleted = client.delete(f"/admin/notifications/{nid}")
+    assert deleted.status_code == 200
+    assert deleted.json().get("deleted") == nid
+    again = client.get("/admin/notifications?unread_only=false")
+    assert all(i["id"] != nid for i in again.json()["items"])
+    missing = client.delete(f"/admin/notifications/{nid}")
+    assert missing.status_code == 404
 
 
 def test_chat_result_notifications_are_ephemeral(monkeypatch):

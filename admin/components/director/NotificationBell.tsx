@@ -82,6 +82,7 @@ export default function NotificationBell() {
   const [actionError, setActionError] = useState("");
   const [markAllBusy, setMarkAllBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const deletedIds = useRef(new Set<string>());
 
   useEffect(() => setMounted(true), []);
 
@@ -93,9 +94,8 @@ export default function NotificationBell() {
         `/admin/notifications?unread_only=${unreadOnly ? "true" : "false"}&limit=50`,
         { headers: agentHeaders(), retries: 1 },
       );
-      return Array.isArray(data.items)
-        ? (data.items as DirectorNotification[])
-        : [];
+      const items = Array.isArray(data.items) ? (data.items as DirectorNotification[]) : [];
+      return items.filter((item) => !deletedIds.current.has(item.id));
     },
     refetchInterval: open ? 15000 : 30000,
   });
@@ -202,7 +202,7 @@ export default function NotificationBell() {
   }, [open, isNarrow]);
 
   const list = Array.isArray(notifs.data) ? notifs.data : [];
-  const visible = list.filter((n) => !isAlreadyAppliedMemory(n));
+  const visible = list.filter((n) => !deletedIds.current.has(n.id) && !isAlreadyAppliedMemory(n));
   const badgeCount = filter === "unread" ? visible.length : visible.filter((n) => !n.read_at).length;
 
   const forgetNotification = (id: string, mode: "read" | "delete") => {
@@ -279,6 +279,7 @@ export default function NotificationBell() {
   const deleteNotification = async (id: string) => {
     setBusyId(id);
     setActionError("");
+    deletedIds.current.add(id);
     forgetNotification(id, "delete");
     try {
       await requestJson(`/admin/notifications/${encodeURIComponent(id)}`, {
@@ -286,14 +287,12 @@ export default function NotificationBell() {
         headers: agentHeaders(),
         retries: 1,
       });
-      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "Impossible de supprimer la notification.";
+      if (/introuvable|404/i.test(msg)) return;
+      deletedIds.current.delete(id);
       void qc.invalidateQueries({ queryKey: ["director-notifications"] });
-      setActionError(
-        err instanceof Error
-          ? err.message
-          : "Impossible de supprimer la notification.",
-      );
+      setActionError(msg);
     } finally {
       setBusyId(null);
     }
