@@ -1,6 +1,14 @@
 "use client";
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import ChoiceQuestionnaire from "../ChoiceQuestionnaire";
@@ -307,6 +315,43 @@ function ChatReplyPending({
   );
 }
 
+const COMPOSER_MIN_H = 40;
+
+function composerTextareaLimits(el: HTMLTextAreaElement) {
+  const desktop = window.matchMedia("(min-width: 1024px)").matches;
+  const keyboard = document.documentElement.dataset.keyboardOpen === "1";
+  const autoMax = desktop ? 280 : keyboard ? 72 : 120;
+  if (keyboard && !desktop) return { autoMax, dragMax: autoMax };
+  const shellH = el.closest(".chat-root")?.clientHeight ?? window.innerHeight;
+  return { autoMax, dragMax: Math.max(autoMax, Math.round(shellH * 0.62)) };
+}
+
+/** Hauteur auto (contenu), sans descendre sous une hauteur tirée à la main. */
+function applyComposerTextareaHeight(el: HTMLTextAreaElement, manual: number) {
+  const { autoMax, dragMax } = composerTextareaLimits(el);
+  const kept = manual > 48 ? Math.min(manual, dragMax) : 0;
+  const cap = kept > 0 ? Math.max(autoMax, kept) : autoMax;
+  el.style.height = "0px";
+  const needed = Math.max(el.scrollHeight, COMPOSER_MIN_H);
+  const next = Math.min(Math.max(needed, COMPOSER_MIN_H, kept), cap);
+  el.style.height = `${next}px`;
+  el.style.overflowY = needed > next ? "auto" : "hidden";
+}
+
+/** Hauteur imposée par la poignée du haut (grandit vers le haut du fil). */
+function setComposerTextareaHeight(el: HTMLTextAreaElement, next: number) {
+  const { dragMax } = composerTextareaLimits(el);
+  const height = Math.min(Math.max(COMPOSER_MIN_H, next), dragMax);
+  el.style.height = `${height}px`;
+  el.style.overflowY = el.scrollHeight > height + 1 ? "auto" : "hidden";
+  return height;
+}
+
+function syncComposerResizeAria(handle: HTMLElement, height: number, max: number) {
+  handle.setAttribute("aria-valuenow", String(Math.round(height)));
+  handle.setAttribute("aria-valuemax", String(Math.round(max)));
+}
+
 function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
@@ -421,16 +466,9 @@ export default function ChatShell({
     if (!el) return;
     // Ne pas toucher la hauteur pendant la frappe ou la dictée : height=0 casse Gboard.
     if (document.activeElement === el && draft.trim()) return;
-    const minH = Math.max(40, userMinHeightRef.current);
-    const desktop = window.matchMedia("(min-width: 1024px)").matches;
-    const keyboard = document.documentElement.dataset.keyboardOpen === "1";
-    const maxH = desktop ? 280 : keyboard ? 72 : 120;
-    el.style.height = "0px";
-    const needed = Math.max(el.scrollHeight, 40);
-    const next = Math.min(Math.max(needed, minH), maxH);
-    el.style.height = `${next}px`;
-    el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
+    const manual = userMinHeightRef.current;
     if (!draft.trim()) userMinHeightRef.current = 0;
+    applyComposerTextareaHeight(el, draft.trim() ? manual : 0);
   }, [draft]);
 
   useEffect(() => {
@@ -492,6 +530,58 @@ export default function ChatShell({
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     dispatchSend();
+  };
+
+  const rememberComposerHeight = (height: number) => {
+    userMinHeightRef.current = height > 48 ? height : 0;
+  };
+
+  const resetComposerHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    userMinHeightRef.current = 0;
+    applyComposerTextareaHeight(el, 0);
+  };
+
+  const onComposerResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = el.getBoundingClientRect().height;
+    const onMove = (ev: globalThis.PointerEvent) => {
+      const height = setComposerTextareaHeight(el, startH + (startY - ev.clientY));
+      rememberComposerHeight(height);
+      syncComposerResizeAria(handle, height, composerTextareaLimits(el).dragMax);
+    };
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  };
+
+  const onComposerResizeKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (e.key === "Home") {
+      e.preventDefault();
+      resetComposerHeight();
+      return;
+    }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const step = e.shiftKey ? 80 : 24;
+    const delta = e.key === "ArrowUp" ? step : -step;
+    const height = setComposerTextareaHeight(el, el.getBoundingClientRect().height + delta);
+    rememberComposerHeight(height);
+    syncComposerResizeAria(e.currentTarget, height, composerTextareaLimits(el).dragMax);
   };
 
   const beginReply = (target: ChatReplyTarget) => {
@@ -875,7 +965,7 @@ export default function ChatShell({
           setDragging(false);
           takeFiles(filesFromDataTransfer(e.dataTransfer));
         }}
-        className="chat-composer-shell relative px-2 pt-1 sm:px-4 sm:pt-3"
+        className="chat-composer-shell relative z-10 px-2 pt-2 sm:px-4 sm:pt-3"
         style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))" }}
       >
         {dragging ? (
@@ -1061,7 +1151,21 @@ export default function ChatShell({
               </svg>
             </button>
           ) : null}
-          <div className="chat-input-pill flex min-h-9 min-w-0 flex-1 items-end rounded-[1.35rem]">
+          <div className="chat-input-pill relative flex min-h-9 min-w-0 flex-1 items-end rounded-[1.35rem]">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Agrandir la zone de texte"
+              aria-valuemin={COMPOSER_MIN_H}
+              tabIndex={0}
+              title="Glisser vers le haut pour agrandir. Double-clic pour revenir à la taille d'origine."
+              className="chat-composer-resize group absolute inset-x-3 -top-2 z-10 flex h-4 cursor-ns-resize touch-none select-none items-center justify-center"
+              onPointerDown={onComposerResizePointerDown}
+              onDoubleClick={resetComposerHeight}
+              onKeyDown={onComposerResizeKeyDown}
+            >
+              <span className="h-1 w-10 rounded-full bg-slate-400 transition-colors group-hover:bg-violet-500 group-active:bg-violet-600 dark:bg-slate-500 dark:group-hover:bg-violet-400" aria-hidden />
+            </div>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -1073,18 +1177,12 @@ export default function ChatShell({
                 e.preventDefault();
                 takeFiles(files);
               }}
-              onPointerUp={() => {
-                const el = textareaRef.current;
-                if (!el) return;
-                // Conserve une hauteur tirée à la main (poignée resize desktop).
-                if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
-              }}
               rows={1}
               placeholder={
                 replyingTo ? "Répondre à ce message" : isQuotidien ? "Écrire à Korymb" : "Message"
               }
               title="Entrée : nouvelle ligne · Ctrl+Entrée : envoyer"
-              className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
+              className="min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
               style={{ height: 40 }}
               enterKeyHint="enter"
               autoComplete="off"

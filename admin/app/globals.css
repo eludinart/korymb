@@ -173,6 +173,10 @@ html.dark .pull-refresh-cue {
       max-height: 4.5rem;
     }
 
+    html.chat-immersion[data-keyboard-open="1"] .chat-composer-resize {
+      display: none;
+    }
+
     .app-carte-main {
       height: auto;
       max-height: none;
