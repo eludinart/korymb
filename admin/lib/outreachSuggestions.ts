@@ -70,22 +70,23 @@ function splitLabel(text: string): { label: string; rest: string } | null {
   return { label: match[1].trim(), rest: match[2].trim() };
 }
 
+function beginAngle(angles: OutreachAngle[], title: string, pitch: string): OutreachAngle {
+  const angle: OutreachAngle = { title: clean(title), pitch: clean(pitch), details: [] };
+  angles.push(angle);
+  return angle;
+}
+
 function parseBody(body: string): { intro: string; angles: OutreachAngle[] } {
   const angles: OutreachAngle[] = [];
   const intro: string[] = [];
   let current: OutreachAngle | null = null;
-
-  const start = (title: string, pitch: string) => {
-    current = { title: clean(title), pitch: clean(pitch), details: [] };
-    angles.push(current);
-  };
 
   for (const line of body.split("\n")) {
     if (!line.trim()) continue;
     const bullet = splitBullet(line);
     if (!bullet) {
       const text = clean(line);
-      if (!current) intro.push(text);
+      if (current === null) intro.push(text);
       else if (!current.pitch) current.pitch = text;
       else current.pitch = `${current.pitch} ${text}`;
       continue;
@@ -93,11 +94,12 @@ function parseBody(body: string): { intro: string; angles: OutreachAngle[] } {
     const labeled = splitLabel(bullet.text);
     const top = bullet.indent < 2;
     if (top && (!labeled || !isMeta(labeled.label))) {
-      if (labeled) start(labeled.label, labeled.rest);
-      else start(bullet.text, "");
+      current = labeled
+        ? beginAngle(angles, labeled.label, labeled.rest)
+        : beginAngle(angles, bullet.text, "");
       continue;
     }
-    if (!current) start("Approche", "");
+    if (current === null) current = beginAngle(angles, "Approche", "");
     if (labeled) current.details.push({ label: clean(labeled.label), value: clean(labeled.rest) });
     else if (current.pitch) current.pitch = `${current.pitch} ${clean(bullet.text)}`;
     else current.pitch = clean(bullet.text);
