@@ -14,6 +14,7 @@ import {
   shouldShowNotificationToast,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
+import { resolveLearningSuggestion } from "../../lib/missionActions";
 import DirectorToast from "./DirectorToast";
 import NotificationItemRow from "./NotificationItemRow";
 
@@ -74,7 +75,6 @@ export default function NotificationBell() {
   const [filter, setFilter] = useState<FilterMode>("unread");
   const [toast, setToast] = useState<DirectorNotification | null>(null);
   const [actionError, setActionError] = useState("");
-  const [copyHint, setCopyHint] = useState("");
   const [markAllBusy, setMarkAllBusy] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -195,12 +195,6 @@ export default function NotificationBell() {
     };
   }, [open, isNarrow]);
 
-  useEffect(() => {
-    if (!copyHint) return;
-    const t = window.setTimeout(() => setCopyHint(""), 2000);
-    return () => window.clearTimeout(t);
-  }, [copyHint]);
-
   const list = Array.isArray(notifs.data) ? notifs.data : [];
   const unreadCount = list.filter((n) => !n.read_at).length;
   const badgeCount = filter === "unread" ? list.length : unreadCount;
@@ -299,8 +293,20 @@ export default function NotificationBell() {
     }
   };
 
-  const onCopyLink = (value: string) => {
-    setCopyHint(value.length <= 16 ? `Id copié : ${value}` : "Lien copié");
+  const resolveMemory = async (n: DirectorNotification, decision: "approve" | "reject") => {
+    const suggestionId = String(n.suggestion_id || "").trim();
+    if (!suggestionId) return;
+    setBusyId(n.id);
+    setActionError("");
+    try {
+      await resolveLearningSuggestion(suggestionId, decision);
+      if (!n.read_at) await markRead(n.id);
+      void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Impossible d'enregistrer la mémoire.");
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const panelBody = (
@@ -364,12 +370,6 @@ export default function NotificationBell() {
           {actionError}
         </p>
       ) : null}
-      {copyHint ? (
-        <p className="border-b border-emerald-100 bg-emerald-50 px-4 py-2 text-xs font-medium text-emerald-900">
-          {copyHint}
-        </p>
-      ) : null}
-
       <ul
         className={`overflow-auto ${isNarrow ? "flex-1 pb-safe" : "max-h-[min(70vh,24rem)]"}`}
       >
@@ -393,8 +393,8 @@ export default function NotificationBell() {
                 void navigateFromNotification(n, href, mark)
               }
               onMarkRead={() => void markRead(n.id)}
-              onCopyLink={onCopyLink}
               onDelete={() => void deleteNotification(n.id)}
+              onResolveMemory={(decision) => void resolveMemory(n, decision)}
             />
           ))
         )}

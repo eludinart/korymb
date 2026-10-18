@@ -732,6 +732,12 @@ def mark_job_result_consulted(job_id: str):
         raise HTTPException(status_code=404, detail="Job introuvable.")
     if jid in active_jobs:
         active_jobs[jid]["result_consulted_at"] = out.get("result_consulted_at")
+    try:
+        from database import mark_job_receipt_notifications_read
+
+        mark_job_receipt_notifications_read(jid)
+    except Exception:
+        pass
     return out
 
 

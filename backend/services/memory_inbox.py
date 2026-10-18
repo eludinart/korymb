@@ -15,6 +15,75 @@ MEMORY_COMPACT_TARGET_CHARS = 2800
 MEMORY_COMPACT_TRIGGER_CHARS = 4500
 MEMORY_COMPACT_TTL_HOURS = 168  # 7 jours
 
+# L'utilisateur vient de faire l'action : la mémoire intégrée n'a pas à revenir dans la cloche.
+_SEEN_MEMORY_SOURCES = frozenset({
+    "crm_enrichment",
+    "storefront_sync",
+    "mission_validate",
+    "chat_directive",
+    "manual",
+})
+
+
+def _memory_fact_line(payload: dict[str, Any]) -> str:
+    learnings = payload.get("learnings") if isinstance(payload.get("learnings"), list) else []
+    for item in learnings:
+        text = str(item or "").strip()
+        if text:
+            return text[:240]
+    keys = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
+    for key, value in keys.items():
+        text = str(value or "").strip()
+        if text:
+            return f"{key} : {text[:200]}"
+    return "Mémoire à confirmer."
+
+
+def _origin_already_seen(source: str, job_id: str) -> bool:
+    """Vrai si l'utilisateur vient de faire l'action, ou a déjà ouvert la mission."""
+    if source in _SEEN_MEMORY_SOURCES:
+        return True
+    if not job_id:
+        return False
+    try:
+        from database import get_job
+
+        row = get_job(job_id) or {}
+    except Exception:
+        return False
+    return bool(str(row.get("result_consulted_at") or "").strip())
+
+
+def _notify_memory_suggestion(payload: dict[str, Any], suggestion_id: str, job_id: str, *, auto_applied: bool) -> None:
+    source = str(payload.get("source") or "").strip()
+    title = str(payload.get("title") or "Mémoire")[:160]
+    fact = _memory_fact_line(payload)
+    try:
+        from services.director_platform import emit_director_notification
+
+        if auto_applied:
+            if _origin_already_seen(source, job_id):
+                return
+            emit_director_notification(
+                kind="memory_applied",
+                title=title,
+                body=f"Mémorisé : {fact}",
+                job_id=job_id or None,
+                suggestion_id=suggestion_id or None,
+                action_url="/administration/memory",
+            )
+            return
+        emit_director_notification(
+            kind="learning_suggestion",
+            title=title,
+            body=fact,
+            job_id=job_id or None,
+            suggestion_id=suggestion_id or None,
+            action_url="/administration/memory",
+        )
+    except Exception:
+        logger.exception("memory inbox notification failed")
+
 
 def propose_memory_suggestion(
     *,
@@ -74,27 +143,7 @@ def propose_memory_suggestion(
     )
 
     if notify:
-        try:
-            from services.director_platform import emit_director_notification
-
-            if auto_applied:
-                emit_director_notification(
-                    kind="learning_suggestion",
-                    title=str(payload.get("title") or "Mémoire mise à jour"),
-                    body=f"Suggestion mémoire appliquée automatiquement ({source}).",
-                    job_id=job_id or None,
-                    action_url="/administration/memory",
-                )
-            else:
-                emit_director_notification(
-                    kind="learning_suggestion",
-                    title=str(payload.get("title") or "Mémoire à confirmer"),
-                    body="Nouvelle suggestion mémoire à approuver dans Décisions.",
-                    job_id=job_id or None,
-                    action_url=f"/inbox?job={job_id}" if job_id else "/inbox",
-                )
-        except Exception:
-            logger.exception("memory inbox notification failed")
+        _notify_memory_suggestion(payload, sid, job_id, auto_applied=auto_applied)
 
     if auto_applied and isinstance(sug, dict):
         sug = dict(sug)

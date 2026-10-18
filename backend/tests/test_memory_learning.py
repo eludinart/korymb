@@ -250,3 +250,63 @@ def test_learning_resolve_bulk_approve(client, monkeypatch):
     mem = get_enterprise_memory()
     assert "fait A" in str(mem.get("contexts", {}).get("global") or "")
     assert "fait B" in str(mem.get("contexts", {}).get("global") or "")
+
+
+def test_seen_crm_memory_does_not_notify(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_from_crm_enrichment
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_from_crm_enrichment(
+        contact={"id": "ctc-quiet", "name": "Camille", "company": "Studio Nord", "contact_type": "prospect", "city": "Aix"}
+    )
+    assert sug is not None
+    assert sug.get("status") == "auto_applied"
+    assert notes == []
+
+
+def test_pending_memory_notifies_the_fact(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_from_crm_enrichment
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "off")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_from_crm_enrichment(
+        contact={"id": "ctc-ask", "name": "Camille", "company": "Studio Nord", "contact_type": "prospect", "city": "Aix"}
+    )
+    assert sug is not None
+    assert notes and notes[0]["kind"] == "learning_suggestion"
+    assert notes[0]["suggestion_id"] == sug.get("id")
+    assert "Camille" in notes[0]["body"]
+    assert "crm_enrichment" not in notes[0]["body"]
+
+
+def test_unseen_memory_leaves_a_receipt(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_memory_suggestion
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_memory_suggestion(
+        title="Mémoire nuit",
+        learnings=["Fait arrivé hors écran."],
+        suggested_memory_keys={"global": "Fait arrivé hors écran."},
+        source="nightly",
+    )
+    assert sug is not None
+    assert sug.get("status") == "auto_applied"
+    assert notes and notes[0]["kind"] == "memory_applied"
+    assert notes[0]["body"].startswith("Mémorisé :")

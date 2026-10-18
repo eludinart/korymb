@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requestJson, agentHeaders } from "../../../lib/api";
 import { MEMORY_CONTEXT_KEYS, MEMORY_CONTEXT_TITLES, CIO_MEMORY_NOTE } from "../../../lib/agentMemory";
@@ -677,6 +677,22 @@ export default function MemoryConsolePage() {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 3500);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void requestJson("/admin/notifications/mark-kinds-read", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ kinds: ["memory_applied"] }),
+    })
+      .then(() => {
+        if (!cancelled) void qc.invalidateQueries({ queryKey: ["director-notifications"] });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [qc]);
 
   return (
     <div className="space-y-6">

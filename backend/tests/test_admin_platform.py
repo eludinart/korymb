@@ -557,6 +557,32 @@ def test_mark_notification_kinds_read(client):
 
     denied = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["hitl"]})
     assert denied.status_code == 422
+    applied = insert_director_notification(kind="memory_applied", title="Mémorisé", body="fait")
+    ok = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["memory_applied"]})
+    assert ok.status_code == 200
+    assert get_director_notification(applied["id"]).get("read_at")
+
+
+def test_opening_mission_clears_done_notifications_only(client):
+    from database import get_director_notification
+
+    save_job("jobseen01", "coordinateur", "Mission déjà vue", source="test")
+    receipt = insert_director_notification(
+        kind="memory_applied",
+        title="Mémorisé",
+        body="fait",
+        job_id="jobseen01",
+    )
+    decision = insert_director_notification(
+        kind="hitl",
+        title="Validation requise",
+        body="plan",
+        job_id="jobseen01",
+    )
+    r = client.post("/jobs/jobseen01/result-consulted")
+    assert r.status_code == 200
+    assert get_director_notification(receipt["id"]).get("read_at")
+    assert not get_director_notification(decision["id"]).get("read_at")
 
 
 def test_cio_answer_marks_answered(client):

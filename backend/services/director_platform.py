@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 # Réponses chat : déjà visibles dans /chat — pas d'archive cloche ni d'email/webhook.
 EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
-SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test"})
+SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "memory_applied"})
 
 from database import (
     _user_validated_set,
@@ -1411,6 +1411,7 @@ def emit_director_notification(
     job_id: str | None = None,
     output_id: str | None = None,
     action_url: str | None = None,
+    suggestion_id: str | None = None,
 ) -> dict:
     kind_norm = (kind or "info").strip().lower()[:32]
     ephemeral = kind_norm in EPHEMERAL_NOTIFICATION_KINDS
@@ -1424,6 +1425,7 @@ def emit_director_notification(
             job_id=job_id,
             output_id=output_id,
             action_url=action_url,
+            suggestion_id=suggestion_id,
         )
     enqueue_job_sse_event({
         "type": "director_notification",
@@ -1433,6 +1435,7 @@ def emit_director_notification(
         "job_id": job_id,
         "output_id": output_id,
         "action_url": action_url,
+        "suggestion_id": suggestion_id,
         "id": row.get("id"),
         "ephemeral": ephemeral,
         "ts": datetime.utcnow().isoformat(),
