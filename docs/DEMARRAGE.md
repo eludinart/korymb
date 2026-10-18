@@ -31,12 +31,11 @@ copy .env.example .env.local
 copy backend\.env.example backend\.env
 ```
 
-Vérifier que les secrets correspondent entre les deux fichiers :
+Le secret agent reste dans le backend, pour Hermes et les scripts. Le navigateur s'authentifie par le cookie de session.
 
-| Fichier        | Variable                                                   |
-| -------------- | ---------------------------------------------------------- |
-| `backend/.env` | `AGENT_API_SECRET`                                         |
-| `.env.local`   | `KORYMB_AGENT_SECRET` et `NEXT_PUBLIC_KORYMB_AGENT_SECRET` |
+| Fichier        | Variable                                                                  |
+| -------------- | ------------------------------------------------------------------------- |
+| `backend/.env` | `AGENT_API_SECRET` (Hermes et scripts ; pas exposé au navigateur)         |
 
 La base de données est configurée dans `backend/.env.local` (`KORYMB_DB_ENGINE=mariadb`, `KORYMB_DB_PORT=3307`). En mode MariaDB, le backend passe par un tunnel SSH vers le VPS — d'où l'option `-MariaDbTunnel` ci-dessous.
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isProxyUnprotected } from "../../../../lib/proxySecret";
+import { isProxyUnprotected } from "../../../../lib/proxyPaths";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 

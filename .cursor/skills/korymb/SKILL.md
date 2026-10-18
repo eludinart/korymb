@@ -32,7 +32,7 @@ Sur l’instance Élude, le workspace historique `ws-default-legacy` porte le pa
 - Orchestration : legacy / **LangGraph** / shadow
 - **MariaDB** Coolify ; starter packs `blank` \| `accompagnement` \| `contenu`
 - UI modes : `essential` (défaut) / `advanced`
-- Secrets alignés : `AGENT_API_SECRET` (backend) ↔ `KORYMB_AGENT_SECRET` (admin)
+- Secret agent : `AGENT_API_SECRET` sur le backend (Hermes, scripts). Le navigateur utilise le cookie httpOnly, pas ce secret.
 
 ## Univers UI (ne pas mélanger)
 
