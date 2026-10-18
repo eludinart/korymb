@@ -15,7 +15,7 @@ Variables Coolify (runtime) :
 | `NODE_ENV` | oui | `production` |
 | `NEXT_PUBLIC_KORYMB_API_URL` | oui | URL publique du backend (ex. `https://api-korymb.eludein.art`) |
 | `KORYMB_API_URL` | oui | Même URL, côté serveur (routes `/api/auth/*`, proxy) |
-| `KORYMB_AGENT_SECRET` | oui | Secret partagé avec le backend — **jamais** en `NEXT_PUBLIC_*` |
+| `KORYMB_AGENT_SECRET` | oui (runtime) | Secret partagé avec le backend. **Runtime uniquement**, jamais en argument de build, jamais en `NEXT_PUBLIC_*` |
 
 Référence : `.env.coolify.example`.
 
@@ -61,9 +61,9 @@ Variables Coolify essentielles :
 KORYMB_AGENT_SECRET (frontend)  ==  AGENT_API_SECRET (backend)
 ```
 
-En production, ne pas définir `NEXT_PUBLIC_KORYMB_AGENT_SECRET` : le proxy Next utilise uniquement le secret serveur.
+Ne jamais définir `NEXT_PUBLIC_KORYMB_AGENT_SECRET` (ni en build, ni en runtime). Next.js intègre toute variable `NEXT_PUBLIC_` au JavaScript envoyé au navigateur. Retirer cette variable du service frontend Coolify si elle y est encore.
 
-Le cookie JWT (`korymb_token`) est obligatoire pour les pages cockpit. `KORYMB_AGENT_SECRET` n'autorise pas un accès navigateur sans login.
+Le navigateur n'envoie pas le secret agent. Les routes `/api/korymb*` exigent le cookie JWT (`korymb_token`) et le transmettent au backend en `Authorization: Bearer`. `KORYMB_AGENT_SECRET` reste côté processus Next (Hermes et les scripts appellent l'API avec `X-Agent-Secret`, pas le navigateur).
 
 ## 4) CORS
 

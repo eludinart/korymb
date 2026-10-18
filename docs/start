@@ -8,8 +8,7 @@ Utilisation (terminal Cursor, racine du repo)
    - copy backend\.env.example backend\.env
    - verifier que les secrets matchent:
      - backend/.env -> AGENT_API_SECRET
-     - .env.local -> KORYMB_AGENT_SECRET
-     - .env.local -> NEXT_PUBLIC_KORYMB_AGENT_SECRET
+     - .env.local -> KORYMB_AGENT_SECRET (jamais NEXT_PUBLIC_)
 3) Démarrage:
    - .\start-dev-cursor.ps1 -MariaDbTunnel
    (option -MariaDbTunnel requise si KORYMB_DB_ENGINE=mariadb dans backend/.env.local)

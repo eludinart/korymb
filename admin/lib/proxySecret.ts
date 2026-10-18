@@ -1,22 +1,12 @@
 /**
- * Secret agent API — résolution serveur uniquement.
- * Les proxies navigateur (`/api/korymb`, événements, réglages) ne l'envoient pas :
- * sans cookie de session, la requête est refusée. Hermes et les scripts appellent
- * l'API FastAPI directement avec `X-Agent-Secret`.
- * En production : KORYMB_AGENT_SECRET ou AGENT_API_SECRET.
- * En dev local : repli sur NEXT_PUBLIC_KORYMB_AGENT_SECRET (jamais en prod).
+ * Secret agent — serveur Next uniquement (`KORYMB_AGENT_SECRET`, repli `AGENT_API_SECRET`).
+ * Le navigateur appelle `/api/korymb*` avec le cookie JWT (`korymb_token`). Ces routes
+ * refusent la requête sans session (sauf chemins publics) et ne transmettent pas ce secret.
+ * Hermes et les scripts appellent FastAPI directement avec `X-Agent-Secret`.
+ * Ne jamais lire `NEXT_PUBLIC_KORYMB_AGENT_SECRET` : Next intègre ce préfixe au JavaScript du navigateur.
  */
 export function resolveProxySecret(): string {
-  const primary =
-    process.env.KORYMB_AGENT_SECRET?.trim() ||
-    process.env.AGENT_API_SECRET?.trim() ||
-    "";
-  if (primary) return primary;
-
-  const isProd = process.env.NODE_ENV === "production";
-  if (isProd) return "";
-
-  return process.env.NEXT_PUBLIC_KORYMB_AGENT_SECRET?.trim() || "";
+  return process.env.KORYMB_AGENT_SECRET?.trim() || process.env.AGENT_API_SECRET?.trim() || "";
 }
 
 export const PROXY_UNPROTECTED = new Set(["health", "health/live", "health/database", "llm"]);
