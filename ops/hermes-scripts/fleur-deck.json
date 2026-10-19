@@ -10,7 +10,7 @@
   "epoch": "2026-01-01",
   "timezone": "Europe/Paris",
   "shuffle_seed": "fleur-damours-carte-du-jour-v1",
-  "url_template": "https://app-fleurdamours.eludein.art/cycles/{cycle}#{slug}",
+  "url_template": "https://app-fleurdamours.eludein.art/jardin/cartes/{slug}",
   "cards": [
     {
       "name": "L'Estuaire",

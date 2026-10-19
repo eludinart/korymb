@@ -173,7 +173,7 @@ def main() -> None:
         "epoch": EPOCH,
         "timezone": "Europe/Paris",
         "shuffle_seed": SEED,
-        "url_template": "https://app-fleurdamours.eludein.art/cycles/{cycle}#{slug}",
+        "url_template": "https://app-fleurdamours.eludein.art/jardin/cartes/{slug}",
         "cards": cards,
     }
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

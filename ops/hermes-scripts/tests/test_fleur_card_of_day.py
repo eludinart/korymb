@@ -44,7 +44,7 @@ def main() -> None:
         assert payload["quote"]
         assert payload["page"]
         assert payload["url"] == (
-            f"https://app-fleurdamours.eludein.art/cycles/{payload['cycle']}#{payload['slug']}"
+            f"https://app-fleurdamours.eludein.art/jardin/cartes/{payload['slug']}"
         )
         slugs.append(payload["slug"])
 
@@ -66,7 +66,7 @@ def main() -> None:
     text = run("--date", epoch.isoformat(), "--text")
     assert text.returncode == 0, text.stderr
     assert f"slug: {slugs[0]}" in text.stdout
-    assert "url: https://app-fleurdamours.eludein.art/cycles/" in text.stdout
+    assert "url: https://app-fleurdamours.eludein.art/jardin/cartes/" in text.stdout
 
     bad = run("--date", "2026-13-01")
     assert bad.returncode == 2

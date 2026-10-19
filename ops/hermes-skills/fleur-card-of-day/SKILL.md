@@ -23,8 +23,8 @@ Sortie JSON (défaut) ou texte (`--text`). Champs à recopier tels quels :
 |-------|--------|
 | `name` | Nom de la carte dans le post. Ne pas le reformuler. |
 | `cycle` | Cycle (`feu`, `eau`, `air`, `terre`, `ether`, `coeur`, `vegetal`, `vie`). |
-| `slug` | Ancre du chapitre du manuel. |
-| `url` | Seul lien de la carte. |
+| `slug` | Slug du chapitre du manuel. |
+| `url` | Seul lien de la carte : `https://app-fleurdamours.eludein.art/jardin/cartes/<slug>`. |
 | `quote` | Question racine du manuel. Ne pas inventer une autre citation. |
 | `page` | Pages livre, par exemple `140-141`. |
 

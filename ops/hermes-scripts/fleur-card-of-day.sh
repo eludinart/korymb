@@ -85,7 +85,7 @@ else:
 count = len(cards)
 slot = (today - epoch).days % count
 card = cards[slot]
-template = deck.get("url_template") or "https://app-fleurdamours.eludein.art/cycles/{cycle}#{slug}"
+template = deck.get("url_template") or "https://app-fleurdamours.eludein.art/jardin/cartes/{slug}"
 payload = {
     "date": today.isoformat(),
     "timezone": tz_name,

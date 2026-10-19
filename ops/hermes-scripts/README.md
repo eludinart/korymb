@@ -21,7 +21,7 @@ Copies sans secrets des scripts VPS — source live : `/opt/data/scripts/` (wrap
 
 Les mots de passe / tokens restent dans `/opt/data/.env` sur le VPS — **jamais** dans git.
 
-Déploiement : `.\scripts\hermes-intelligence-deploy.ps1` archive `ops/hermes-scripts/` puis `scripts/hermes-intel-remote-install.sh` copie les `*.sh` dans le volume conteneur (`/docker/hermes-agent-aoxw/data/scripts/`, vu comme `/opt/data/scripts/` par Hermès) et la liste hôte dans `/opt/data/scripts/` sur le VPS. `fleur-card-of-day.sh` et `fleur-deck.json` partent aux deux endroits. Le script lit le JSON à côté de lui.
+Déploiement : `.\scripts\hermes-intelligence-deploy.ps1` archive `ops/hermes-scripts/` puis `scripts/hermes-intel-remote-install.sh` copie les `*.sh` dans le volume conteneur (`/docker/hermes-agent-aoxw/data/scripts/`, vu comme `/opt/data/scripts/` par Hermès) et la liste hôte dans `/opt/data/scripts/` sur le VPS. `fleur-card-of-day.sh` et `fleur-deck.json` partent aux deux endroits. Le script lit le JSON à côté de lui. Le champ `url` pointe vers `https://app-fleurdamours.eludein.art/jardin/cartes/<slug>`.
 
 Régénérer le jeu après un changement du manuel Fleur (l'ordre figé des 65 cartes est conservé, les cartes nouvelles s'ajoutent en queue) :
 
