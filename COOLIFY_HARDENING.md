@@ -63,6 +63,8 @@ AGENT_API_SECRET (backend) = KORYMB_AGENT_SECRET (Hermes / scripts, hors navigat
 
 Le navigateur ne reçoit pas le secret agent. Les routes proxy Next authentifient avec le cookie httpOnly `korymb_token`.
 
+Ne jamais définir `NEXT_PUBLIC_KORYMB_AGENT_SECRET` (ni en build, ni en runtime). Next.js intègre toute variable `NEXT_PUBLIC_` au JavaScript envoyé au navigateur. Retirer cette variable du service frontend Coolify si elle y est encore.
+
 Le cookie JWT (`korymb_token`) est obligatoire pour les pages cockpit. `KORYMB_AGENT_SECRET` n'autorise pas un accès navigateur sans login.
 
 ## 4) CORS
