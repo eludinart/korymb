@@ -151,6 +151,7 @@ export default function GestionContactEditPage() {
         accent="emerald"
         badge="Personnes"
         title={contact.data.name}
+        place={{ href: "/gestion/contacts", label: "Personnes" }}
         description={`Créé le ${formatDateTime(contact.data.created_at)}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">

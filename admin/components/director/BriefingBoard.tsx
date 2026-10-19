@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import InboxActionCard, { type InboxActionItem } from "./InboxActionCard";
 import { BTN_DELETE } from "../../lib/deleteMissionBundle";
 import {
   buildClientOpsBoard,
@@ -12,7 +13,7 @@ import {
   type OpsBoardItem,
 } from "../../lib/briefingBoard";
 import { asInboxItems, fetchAdminInboxItems } from "../../lib/inboxQuery";
-import { filterSnoozedItems } from "../../lib/inboxSnooze";
+import { filterSnoozedItems, snoozeInboxItem } from "../../lib/inboxSnooze";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
 import { useUiMode } from "../../lib/uiMode";
@@ -105,31 +106,17 @@ function RepriseWarningProbe({ onItem }: { onItem: (item: OpsBoardItem | null) =
   return null;
 }
 
-function Kpi({
-  href,
-  label,
-  value,
-  hot,
-}: {
-  href: string;
-  label: string;
-  value: number;
-  hot: string;
-}) {
-  const active = value > 0;
-  return (
-    <a
-      href={href}
-      className={`flex min-h-[4.25rem] flex-col justify-between rounded-xl border px-3 py-2.5 transition hover:shadow-sm ${
-        active
-          ? hot
-          : "border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400"
-      }`}
-    >
-      <span className="text-[11px] font-bold uppercase leading-tight tracking-wide">{label}</span>
-      <span className="mt-1 text-2xl font-extrabold tabular-nums leading-none">{value}</span>
-    </a>
-  );
+const DECISION_KINDS = new Set(["hitl", "action_ticket", "cio_question", "closure", "quality"]);
+
+function inboxMatchesRow(item: InboxActionItem, row: OpsBoardItem): boolean {
+  const focus = item.ticket_id || item.job_id || item.output_id || item.suggestion_id || item.event_id || "";
+  if (!focus) return false;
+  return row.id === `${item.kind || "item"}:${focus}` || String(row.href || "").includes(focus);
+}
+
+function countBit(n: number, one: string, many: string): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? one : `${n} ${many}`;
 }
 
 function Lane({
@@ -241,16 +228,18 @@ export default function BriefingBoard({
   onDeleteRunning,
   deleteBusyId,
 }: Props) {
+  const qc = useQueryClient();
   const { isPlatformOwner } = useUiMode();
   const serverReady = Boolean(board?.counts);
   const inbox = useQuery({
     queryKey: ["admin-inbox"],
     queryFn: () => fetchAdminInboxItems(80),
-    enabled: !serverReady,
     staleTime: 45_000,
     refetchOnWindowFocus: false,
   });
   const [repriseWarning, setRepriseWarning] = useState<OpsBoardItem | null>(null);
+  const [snoozeTick, setSnoozeTick] = useState(0);
+  const [hiddenLead, setHiddenLead] = useState("");
 
   const resolved = useMemo(() => {
     if (serverReady && board) return board;
@@ -277,6 +266,30 @@ export default function BriefingBoard({
   const events = (dayEvents || []).filter((ev) => ev.title);
   const lines = (dayLines || []).filter((line) => line && !/rien d.urgent au planning/i.test(line));
   const greet = userName ? `Bonjour, ${userName}` : "Bonjour";
+  const liveInbox = useMemo(
+    () => filterSnoozedItems(asInboxItems(inbox.data)),
+    [inbox.data, snoozeTick],
+  );
+  const leadRow = urgent[0];
+  const leadIndex = leadRow ? liveInbox.findIndex((item) => inboxMatchesRow(item, leadRow)) : -1;
+  const leadItem = leadIndex >= 0 && DECISION_KINDS.has(String(liveInbox[leadIndex]?.kind || "")) ? liveInbox[leadIndex] : null;
+  const leadKey = leadItem ? `${leadItem.kind || "item"}:${leadItem.ticket_id || leadItem.job_id || leadItem.event_id || leadIndex}` : "";
+  const showLead = Boolean(leadItem) && hiddenLead !== leadKey;
+  const urgentLinks = showLead ? urgent.slice(1) : urgent;
+
+  useEffect(() => {
+    if (!showLead || !leadItem) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key !== "s" && e.key !== "S") return;
+      e.preventDefault();
+      snoozeInboxItem(leadItem, leadIndex, 24);
+      setHiddenLead(leadKey);
+      setSnoozeTick((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showLead, leadItem, leadIndex, leadKey]);
 
   return (
     <div className="space-y-4">
@@ -292,6 +305,29 @@ export default function BriefingBoard({
           <p className="mt-1 line-clamp-3 max-w-3xl text-sm leading-relaxed text-slate-600 dark:text-slate-300 lg:line-clamp-none">
             {summary || "Voici ce qui demande votre attention aujourd'hui."}
           </p>
+          <p className="mt-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            {urgentCount === 0 ? <span>Rien d&apos;urgent.</span> : (
+              <a href="#board-urgent" className="text-rose-800 underline-offset-2 hover:underline dark:text-rose-200">
+                {countBit(urgentCount, "1 urgent", "urgents")}
+              </a>
+            )}
+            {todoCount > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-todo" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                  {countBit(todoCount, "1 à valider", "à valider")}
+                </a>
+              </>
+            ) : null}
+            {runningRows.length > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-running" className="underline-offset-2 hover:underline">
+                  {countBit(runningRows.length, "1 en cours", "en cours")}
+                </a>
+              </>
+            ) : null}
+          </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Link href="/missions?create=1" className="btn-link-primary">
@@ -302,15 +338,6 @@ export default function BriefingBoard({
           </Link>
         </div>
       </header>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        <Kpi href="#board-urgent" label="Urgent" value={urgentCount} hot="border-rose-300 bg-rose-50 text-rose-950 dark:border-rose-700 dark:bg-rose-950 dark:text-rose-100" />
-        <Kpi href="#board-todo" label="À faire" value={todoCount} hot="border-violet-300 bg-violet-50 text-violet-950 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-100" />
-        <Kpi href="#board-running" label="En cours" value={runningRows.length} hot="border-sky-300 bg-sky-50 text-sky-950 dark:border-sky-700 dark:bg-sky-950 dark:text-sky-100" />
-        <Kpi href="#board-advance" label="À avancer" value={advanceCount} hot="border-amber-300 bg-amber-50 text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100" />
-        <Kpi href="#board-proposals" label="Propositions" value={proposalCount} hot="border-emerald-300 bg-emerald-50 text-emerald-950 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-100" />
-        <Kpi href="#board-warnings" label="Avertissements" value={warningCount} hot="border-orange-300 bg-orange-50 text-orange-950 dark:border-orange-700 dark:bg-orange-950 dark:text-orange-100" />
-      </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-12 xl:items-start">
         {warningCount === 0 ? <div id="board-warnings" className="hidden" /> : null}
@@ -360,8 +387,35 @@ export default function BriefingBoard({
                 File des décisions
               </Link>
             </div>
+            {showLead && leadItem ? (
+              <div className="mb-3">
+                <InboxActionCard
+                  item={leadItem}
+                  defaultExpanded
+                  onDismissed={() => {
+                    setHiddenLead(leadKey);
+                    void qc.invalidateQueries({ queryKey: ["admin-inbox"] });
+                    void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+                  }}
+                />
+                <div className="mt-2 flex justify-end">
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                    onClick={() => {
+                      snoozeInboxItem(leadItem, leadIndex, 24);
+                      setHiddenLead(leadKey);
+                      setSnoozeTick((n) => n + 1);
+                    }}
+                  >
+                    Reporter
+                    <kbd className="ml-1 rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] dark:bg-slate-800">S</kbd>
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <ul className="grid gap-2 lg:grid-cols-2">
-              {urgent.map((item, index) => (
+              {urgentLinks.map((item, index) => (
                 <li key={`${item.id || item.title}-${index}`}>
                   <ItemLink item={item} />
                 </li>

@@ -9,6 +9,7 @@ import { businessApi, type BizContact } from "../../../lib/business";
 import { CONTACT_PROFILE_DEFS, contactMatchesProfile, extraProfileTags } from "../../../lib/contactProfiles";
 import { getContactReachability } from "../../../lib/contactReachability";
 import { CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../_shared";
+import { useUndoRibbon } from "../../../lib/undoRibbon";
 
 type ReachFilter = "all" | "complete" | "partial" | "unreachable";
 
@@ -67,7 +68,9 @@ function isFlaggedTestContact(c: BizContact): boolean {
 
 export default function GestionContactsPage() {
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<string[]>([]);
   const [reachFilter, setReachFilter] = useState<ReachFilter>("all");
   const [profileFilter, setProfileFilter] = useState("all");
   const [relationFilter, setRelationFilter] = useState("all");
@@ -90,9 +93,12 @@ export default function GestionContactsPage() {
     if (reachFilter !== "all") {
       rows = rows.filter((c) => getContactReachability(c).level === reachFilter);
     }
+    if (pendingDelete.length) {
+      rows = rows.filter((c) => !pendingDelete.includes(c.id));
+    }
     // Contacts marqués TEST en tête de liste
     return [...rows].sort((a, b) => Number(isFlaggedTestContact(b)) - Number(isFlaggedTestContact(a)));
-  }, [contacts.data, profileFilter, relationFilter, reachFilter]);
+  }, [contacts.data, profileFilter, relationFilter, reachFilter, pendingDelete]);
 
   const filtersActive = profileFilter !== "all" || relationFilter !== "all" || reachFilter !== "all";
 
@@ -258,7 +264,17 @@ export default function GestionContactsPage() {
                       className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800 disabled:opacity-50"
                       disabled={remove.isPending}
                       onClick={() => {
-                        if (window.confirm(`Supprimer ${c.name} ?`)) remove.mutate(c.id);
+                        setPendingDelete((prev) => (prev.includes(c.id) ? prev : [...prev, c.id]));
+                        pushUndo(
+                          `Suppression de ${c.name}`,
+                          () => setPendingDelete((prev) => prev.filter((id) => id !== c.id)),
+                          () => {
+                            remove.mutate(c.id, {
+                              onError: () => setPendingDelete((prev) => prev.filter((id) => id !== c.id)),
+                              onSuccess: () => setPendingDelete((prev) => prev.filter((id) => id !== c.id)),
+                            });
+                          },
+                        );
                       }}
                     >
                       Supprimer

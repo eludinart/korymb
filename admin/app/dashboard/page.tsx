@@ -10,10 +10,10 @@ import type { AuthMeResponse } from "../../lib/authSession";
 import {
   BTN_DELETE,
   collectMissionDeleteJobIds,
-  confirmDeleteMission,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
+import { useUndoRibbon } from "../../lib/undoRibbon";
 import { schedulerReject } from "../../lib/missionActions";
 import { normalizeTeamRows, type TeamRow } from "../../lib/jobTeam";
 import { QK } from "../../lib/queryClient";
@@ -371,6 +371,7 @@ function outputTypeLabel(t: string): string {
 
 export default function DashboardPage() {
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
   const [openAgent, setOpenAgent] = useState<{ key: string; fleetId: string | null } | null>(null);
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [rejectBusyId, setRejectBusyId] = useState<string | null>(null);
@@ -430,8 +431,14 @@ export default function DashboardPage() {
   const jobRows = useMemo(() => (jobs.data || []) as JobRow[], [jobs.data]);
   const allJobs = useMemo(() => (jobs.data || []) as Job[], [jobs.data]);
 
-  const deleteMission = async (jobId: string, mission?: string | null) => {
-    if (!confirmDeleteMission(jobId, mission)) return;
+  const deleteMission = (jobId: string, mission?: string | null) => {
+    const label = String(mission || jobId).trim() || jobId;
+    pushUndo(`Suppression de ${label}`, undefined, () => {
+      void performDeleteMission(jobId);
+    });
+  };
+
+  const performDeleteMission = async (jobId: string) => {
     setDeleteBusyId(jobId);
     setActionError("");
     try {

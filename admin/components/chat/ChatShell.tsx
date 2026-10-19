@@ -435,6 +435,10 @@ export default function ChatShell({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const userTurns = messages.filter((m) => m.role === "user").length;
+  const lastUserId = [...messages].reverse().find((m) => m.role === "user" && m.content.trim())?.id;
+  const lastAssistantId = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content.trim() && !m.pendingAction && !m.id.startsWith("ack-"))?.id;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
   const hasAssistantReply = messages.some(
     (m) => m.role === "assistant" && Boolean(m.content.trim()) && !m.pendingAction,
@@ -627,7 +631,7 @@ export default function ChatShell({
   return (
     <div className={`chat-root relative mx-auto flex min-h-0 w-full flex-col ${className || "h-full"}`}>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 py-2 sm:px-4 sm:py-4">
-        <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
+        <div className="mx-auto max-w-3xl lg:max-w-none space-y-3 sm:space-y-5">
           {isFirstTurn ? (
             <div className="px-2 pt-6 text-center sm:pt-10">
               <div className="mb-4 flex justify-center">
@@ -712,6 +716,8 @@ export default function ChatShell({
               (m.role === "assistant" ? displaySource : m.content).trim() ||
               (m.attachments?.map((file) => file.filename).join(", ") || "");
             const quotable = chatReplyExcerpt(copySource);
+            const canResumeUser = m.id === lastUserId && !pending && Boolean(m.content.trim());
+            const canResumeAssistant = m.id === lastAssistantId && !pending;
             const actionLabel = m.pendingAction?.label || "Confirmer";
             const quoted = replyingTo?.id === m.id;
             return (
@@ -770,26 +776,55 @@ export default function ChatShell({
                       </>
                     )}
                   </div>
-                  {quotable ? (
-                    <div className={`mt-1 flex gap-0.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <button
-                        type="button"
-                        onClick={() => copyMessage(m.id, copySource)}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                        aria-label={copiedId === m.id ? "Copié" : "Copier le message"}
-                      >
-                        <CopyIcon />
-                        {copiedId === m.id ? "Copié" : "Copier"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => beginReply({ id: m.id, role: m.role, excerpt: quotable })}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                        aria-label="Répondre à ce message"
-                      >
-                        <ReplyIcon />
-                        Répondre
-                      </button>
+                  {quotable || canResumeUser || canResumeAssistant ? (
+                    <div className={`mt-1 flex flex-wrap gap-0.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      {quotable ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => copyMessage(m.id, copySource)}
+                            className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label={copiedId === m.id ? "Copié" : "Copier le message"}
+                          >
+                            <CopyIcon />
+                            {copiedId === m.id ? "Copié" : "Copier"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => beginReply({ id: m.id, role: m.role, excerpt: quotable })}
+                            className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label="Répondre à ce message"
+                          >
+                            <ReplyIcon />
+                            Répondre
+                          </button>
+                        </>
+                      ) : null}
+                      {canResumeUser ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDraftChange(m.content);
+                            window.setTimeout(() => textareaRef.current?.focus(), 0);
+                          }}
+                          className="inline-flex min-h-8 items-center rounded-full px-2 py-1 text-[11px] font-semibold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+                        >
+                          Reprendre
+                        </button>
+                      ) : null}
+                      {canResumeAssistant ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const excerpt = m.content.trim().slice(0, 400);
+                            onDraftChange(`Reformule en gardant…\n\n${excerpt}`);
+                            window.setTimeout(() => textareaRef.current?.focus(), 0);
+                          }}
+                          className="inline-flex min-h-8 items-center rounded-full px-2 py-1 text-[11px] font-semibold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+                        >
+                          Reprendre autrement
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                   {m.role === "assistant" && agents.length > 0 ? (
@@ -1001,7 +1036,7 @@ export default function ChatShell({
           onChange={onPickFromInput}
         />
         {attachments.length > 0 ? (
-          <div className="mx-auto mb-1.5 flex max-w-3xl flex-wrap gap-1.5">
+          <div className="mx-auto mb-1.5 flex max-w-3xl lg:max-w-none flex-wrap gap-1.5">
             {attachments.map((f) => {
               const kind = chatFileKind(f.mime, f.filename);
               return (
@@ -1036,9 +1071,9 @@ export default function ChatShell({
             })}
           </div>
         ) : null}
-        {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
+        {uploadError ? <p className="mx-auto mb-1 max-w-3xl lg:max-w-none text-[11px] text-red-700">{uploadError}</p> : null}
         {isQuotidien && fleetOffer.length > 0 && onRelayToFleet ? (
-          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
+          <div className="chat-composer-extra mx-auto max-w-3xl lg:max-w-none px-1 pb-1">
             <p className="mb-1.5 text-xs text-slate-600 dark:text-slate-300">
               Cette situation mérite une analyse de flotte. Je reste votre interlocuteur et je vous indique où lire le résultat.
             </p>
@@ -1067,7 +1102,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {!isQuotidien && teamOffer && onHandOffToTeam ? (
-          <div className="chat-composer-extra mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl lg:max-w-none items-center gap-2 px-1 pb-1">
             <button
               type="button"
               onClick={onHandOffToTeam}
@@ -1087,7 +1122,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {isQuotidien && reformChips.length > 0 && !pending && hasAssistantReply ? (
-          <div className="chat-composer-extra mx-auto flex max-w-3xl flex-wrap gap-1.5 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl lg:max-w-none flex-wrap gap-1.5 px-1 pb-1">
             {reformChips.map((chip) => (
               <button
                 key={chip.label}
@@ -1102,7 +1137,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {!isQuotidien && canConvertToMission && onConvertToMission && convertBrief == null ? (
-          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
+          <div className="chat-composer-extra mx-auto max-w-3xl lg:max-w-none px-1 pb-1">
             <button
               type="button"
               onClick={onConvertToMission}
@@ -1114,7 +1149,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {replyingTo ? (
-          <div className="mx-auto mb-1.5 flex max-w-3xl items-stretch gap-2 rounded-xl border-l-4 border-violet-500 bg-violet-50 px-2.5 py-1.5 dark:bg-violet-950/40">
+          <div className="mx-auto mb-1.5 flex max-w-3xl lg:max-w-none items-stretch gap-2 rounded-xl border-l-4 border-violet-500 bg-violet-50 px-2.5 py-1.5 dark:bg-violet-950/40">
             <button
               type="button"
               onClick={() => focusQuotedMessage(replyingTo.id)}
@@ -1135,7 +1170,7 @@ export default function ChatShell({
             </button>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-3xl items-end gap-1">
+        <div className="mx-auto flex max-w-3xl lg:max-w-none items-end gap-1">
           {onAddFiles ? (
             <button
               type="button"

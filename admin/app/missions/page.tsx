@@ -59,17 +59,18 @@ import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { adaptivePollInterval } from "../../lib/korymbEvents";
 import {
   collectMissionDeleteJobIds,
-  confirmDeleteMission,
   clusterStillVisible,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
+import { useUndoRibbon } from "../../lib/undoRibbon";
 
 import { jobAgentGroupId, missionLeadLabel, teamBadgeLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 function MissionsContent() {
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);
@@ -245,8 +246,14 @@ function MissionsContent() {
     router.replace(`/missions?${p.toString()}`);
   };
 
-  const deleteMissionBundle = async (primaryJobId: string, mission?: string | null) => {
-    if (!confirmDeleteMission(primaryJobId, mission)) return;
+  const deleteMissionBundle = (primaryJobId: string, mission?: string | null) => {
+    const label = String(mission || primaryJobId).trim() || primaryJobId;
+    pushUndo(`Suppression de ${label}`, undefined, () => {
+      void performDeleteMission(primaryJobId, mission);
+    });
+  };
+
+  const performDeleteMission = async (primaryJobId: string, mission?: string | null) => {
     const jobIds = collectMissionDeleteJobIds(primaryJobId, rows);
     setDeleteMissionBusyId(primaryJobId);
     setError("");

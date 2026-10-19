@@ -2,26 +2,20 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import RepriseBriefingSection from "../../components/director/RepriseBriefingSection";
 import BriefingBoard, { type OpsBoard } from "../../components/director/BriefingBoard";
-import BriefingCommercialPanel, {
-  type CommercialMorningSnapshot,
-} from "../../components/director/BriefingCommercialPanel";
+import { type CommercialMorningSnapshot } from "../../components/director/BriefingCommercialPanel";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
-import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
 import IntentionLaunch from "../../components/missions/IntentionLaunch";
-import WorkSurfaceSwitcher from "../../components/director/WorkSurfaceSwitcher";
 import ScenarioSimulator from "../../components/director/ScenarioSimulator";
-import GestionShortcuts from "../../components/gestion/GestionShortcuts";
 import { AlertBox, LoadingLine, PageShell } from "../../components/ui/PageChrome";
 import {
   collectMissionDeleteJobIds,
-  confirmDeleteMission,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
+import { useUndoRibbon } from "../../lib/undoRibbon";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
 import { useUiMode } from "../../lib/uiMode";
@@ -37,8 +31,14 @@ function BriefingPageContent() {
   const searchParams = useSearchParams();
   const showWelcome = searchParams.get("welcome") === "1";
   const { isEssential, loading: uiLoading } = useUiMode();
+  const { pushUndo } = useUndoRibbon();
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [scenariosOpen, setScenariosOpen] = useState(false);
+
+  useEffect(() => {
+    if (window.location.hash === "#scenarios") setScenariosOpen(true);
+  }, []);
 
   const me = useQuery({
     queryKey: ["auth-me-briefing"],
@@ -104,8 +104,14 @@ function BriefingPageContent() {
   const userName =
     me.data?.user?.display_name || me.data?.user?.name || me.data?.user?.email?.split("@")[0];
 
-  const deleteMission = async (jobId: string, mission?: string) => {
-    if (!confirmDeleteMission(jobId, mission)) return;
+  const deleteMission = (jobId: string, mission?: string) => {
+    const label = (mission || jobId).trim() || jobId;
+    pushUndo(`Suppression de ${label}`, undefined, () => {
+      void runDeleteMission(jobId);
+    });
+  };
+
+  const runDeleteMission = async (jobId: string) => {
     setDeleteBusyId(jobId);
     setDeleteError("");
     try {
@@ -226,25 +232,20 @@ function BriefingPageContent() {
           <IntentionLaunch compact />
         </section>
       ) : (
-        <details className="mt-4 rounded-2xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-bold text-slate-800 dark:text-slate-100">
-            Outils, gestion et audit
-            <span className="mt-0.5 block text-xs font-medium text-slate-500">
-              Raccourcis, commercial, lancement et reprise. Repliés pour laisser le tableau lisible.
-            </span>
-          </summary>
-          <div className="space-y-6 border-t border-slate-100 px-4 py-4 dark:border-slate-800">
-            <WorkSurfaceSwitcher
-              runningCount={(b?.missions_running || []).length}
-              inboxCritical={Number(b?.inbox_severity?.critical || 0) + Number(b?.inbox_severity?.high || 0)}
-            />
-            <BriefingCommercialPanel data={b?.commercial} />
-            <GestionShortcuts />
-            <MissionQuickLaunch compact />
-            <ScenarioSimulator />
-            <RepriseBriefingSection />
-          </div>
-        </details>
+        <div className="mt-4" id="scenarios">
+          <button
+            type="button"
+            onClick={() => setScenariosOpen((v) => !v)}
+            className="text-sm font-bold text-violet-800 underline-offset-2 hover:underline dark:text-violet-200"
+          >
+            {scenariosOpen ? "Fermer les scénarios" : "Et si…"}
+          </button>
+          {scenariosOpen ? (
+            <div className="mt-3">
+              <ScenarioSimulator />
+            </div>
+          ) : null}
+        </div>
       )}
     </PageShell>
   );

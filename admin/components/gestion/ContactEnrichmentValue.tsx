@@ -1,11 +1,9 @@
 "use client";
 
-import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import FactNotesView from "./FactNotesView";
 import OutreachSuggestionsView from "./OutreachSuggestionsView";
 import { contactFieldLabel } from "../../lib/contactReachability";
 import { httpHref, mailtoHref, mapsHref, telHref } from "../../lib/contactLinks";
-
-const MARKDOWN_KEYS = new Set(["outreach_suggestions", "notes_append"]);
 const LINK_KEYS = new Set(["website", "linkedin_url"]);
 
 export function unwrapMarkdownFence(raw: string): string {
@@ -77,10 +75,10 @@ export default function ContactEnrichmentValue({ field, value }: Props) {
     );
   }
 
-  if (MARKDOWN_KEYS.has(field)) {
+  if (field === "notes_append") {
     return (
-      <div className="max-h-[22rem] overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 text-sm text-slate-800">
-        <AgentMessageMarkdown source={unwrapMarkdownFence(text)} />
+      <div className="max-h-[32rem] overflow-y-auto pr-1">
+        <FactNotesView source={unwrapMarkdownFence(text)} />
       </div>
     );
   }
