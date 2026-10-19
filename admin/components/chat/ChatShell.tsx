@@ -1,6 +1,14 @@
 "use client";
 
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  KeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import AgentMessageMarkdown from "../AgentMessageMarkdown";
 import ChoiceQuestionnaire from "../ChoiceQuestionnaire";
@@ -10,6 +18,9 @@ import ChatSourceNote from "./ChatSourceNote";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
 import ChatFleetRelayNote from "./ChatFleetRelayNote";
+import CorimbeOrb from "./CorimbeOrb";
+import ChatVoiceConversation from "./ChatVoiceConversation";
+import { orbMoodFromLabel } from "../../lib/chatProgress";
 import { extractJobIdFromMessageId, fetchJobAgentKeys } from "../../lib/chatJobAgents";
 import { chatTextIsDegraded } from "../../lib/chatDegraded";
 import { chatBubbleDisplayText } from "../../lib/chatMirrorDisplay";
@@ -99,7 +110,7 @@ type Props = {
   pending: boolean;
   backgroundJobCount?: number;
   /** Progression réelle agrégée des jobs en arrière-plan (0–100). */
-  backgroundProgress?: { percent: number; label: string; status?: string } | null;
+  backgroundProgress?: { percent: number; label: string; status?: string; steps?: string[] } | null;
   className?: string;
   agentLabels?: Record<string, string>;
   onPatchMessage?: (id: string, patch: Partial<ChatMsg>) => void;
@@ -133,6 +144,8 @@ type Props = {
   onSubmitChoiceAnswers?: (messageId: string, text: string) => void;
   /** Mode quotidien : chrome ops réduit + chips de reformulation. */
   chatUseMode?: "quotidien" | "operationnel";
+  /** Un tour de conversation vocale : envoie la phrase dite et renvoie la réponse à lire. */
+  onVoiceUtterance?: (text: string) => Promise<string>;
   reformChips?: ReadonlyArray<{ label: string; text: string }>;
 };
 
@@ -229,11 +242,13 @@ function ChatReplyPending({
   count,
   percent,
   label,
+  steps,
   onStop,
 }: {
   count: number;
   percent?: number | null;
   label?: string;
+  steps?: string[];
   onStop?: () => void;
 }) {
   const [elapsed, setElapsed] = useState(0);
@@ -248,27 +263,28 @@ function ChatReplyPending({
   const known = typeof percent === "number" && percent > 0;
   const dots = ".".repeat((Math.floor(elapsed * 2) % 3) + 1);
   const statusLabel = label || (count > 1 ? `${count} réponses en cours` : "Je prépare");
+  const mood = orbMoodFromLabel(statusLabel, true);
+  const visibleSteps = (steps || []).filter((step) => step && step !== statusLabel).slice(-3);
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50"
+      className="overflow-hidden rounded-xl border border-violet-100 bg-violet-50 dark:border-violet-900 dark:bg-violet-950/40"
       role="status"
       aria-live="polite"
       aria-busy="true"
     >
-      <div className="flex min-h-8 items-center gap-2.5 px-3 py-2 text-xs font-medium text-violet-900">
-        <span className="flex items-center gap-0.5" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <span
-              key={i}
-              className="chat-typing-dot h-1.5 w-1.5 rounded-full bg-violet-600"
-              style={{ animationDelay: `${i * 0.15}s` }}
-            />
-          ))}
-        </span>
-        <span className="min-w-0 truncate">
-          {statusLabel}
-          <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
+      <div className="flex min-h-8 items-center gap-2.5 px-3 py-2 text-xs font-medium text-violet-900 dark:text-violet-100">
+        <CorimbeOrb mood={mood} size="md" decorative />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">
+            {statusLabel}
+            <span className="inline-block w-4 text-left tracking-tight">{dots}</span>
+          </span>
+          {visibleSteps.length ? (
+            <span className="mt-0.5 block truncate text-[11px] font-normal text-violet-700/80 dark:text-violet-300/80">
+              {visibleSteps.join(" · ")}
+            </span>
+          ) : null}
         </span>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {onStop ? (
@@ -297,6 +313,43 @@ function ChatReplyPending({
       </div>
     </div>
   );
+}
+
+const COMPOSER_MIN_H = 40;
+
+function composerTextareaLimits(el: HTMLTextAreaElement) {
+  const desktop = window.matchMedia("(min-width: 1024px)").matches;
+  const keyboard = document.documentElement.dataset.keyboardOpen === "1";
+  const autoMax = desktop ? 280 : keyboard ? 72 : 120;
+  if (keyboard && !desktop) return { autoMax, dragMax: autoMax };
+  const shellH = el.closest(".chat-root")?.clientHeight ?? window.innerHeight;
+  return { autoMax, dragMax: Math.max(autoMax, Math.round(shellH * 0.62)) };
+}
+
+/** Hauteur auto (contenu), sans descendre sous une hauteur tirée à la main. */
+function applyComposerTextareaHeight(el: HTMLTextAreaElement, manual: number) {
+  const { autoMax, dragMax } = composerTextareaLimits(el);
+  const kept = manual > 48 ? Math.min(manual, dragMax) : 0;
+  const cap = kept > 0 ? Math.max(autoMax, kept) : autoMax;
+  el.style.height = "0px";
+  const needed = Math.max(el.scrollHeight, COMPOSER_MIN_H);
+  const next = Math.min(Math.max(needed, COMPOSER_MIN_H, kept), cap);
+  el.style.height = `${next}px`;
+  el.style.overflowY = needed > next ? "auto" : "hidden";
+}
+
+/** Hauteur imposée par la poignée du haut (grandit vers le haut du fil). */
+function setComposerTextareaHeight(el: HTMLTextAreaElement, next: number) {
+  const { dragMax } = composerTextareaLimits(el);
+  const height = Math.min(Math.max(COMPOSER_MIN_H, next), dragMax);
+  el.style.height = `${height}px`;
+  el.style.overflowY = el.scrollHeight > height + 1 ? "auto" : "hidden";
+  return height;
+}
+
+function syncComposerResizeAria(handle: HTMLElement, height: number, max: number) {
+  handle.setAttribute("aria-valuenow", String(Math.round(height)));
+  handle.setAttribute("aria-valuemax", String(Math.round(max)));
 }
 
 function SendIcon() {
@@ -360,8 +413,9 @@ export default function ChatShell({
   fleetOffer = [],
   onRelayToFleet,
   onDismissFleetOffer,
-  chatUseMode = "operationnel",
+  chatUseMode = "quotidien",
   reformChips = [],
+  onVoiceUtterance,
 }: Props) {
   const isQuotidien = chatUseMode === "quotidien";
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -379,7 +433,12 @@ export default function ChatShell({
   const [portalReady, setPortalReady] = useState(false);
   const [replyingTo, setReplyingTo] = useState<ChatReplyTarget | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const userTurns = messages.filter((m) => m.role === "user").length;
+  const lastUserId = [...messages].reverse().find((m) => m.role === "user" && m.content.trim())?.id;
+  const lastAssistantId = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant" && m.content.trim() && !m.pendingAction && !m.id.startsWith("ack-"))?.id;
   const isFirstTurn = userTurns === 0 && !pending && backgroundJobCount === 0;
   const hasAssistantReply = messages.some(
     (m) => m.role === "assistant" && Boolean(m.content.trim()) && !m.pendingAction,
@@ -411,16 +470,9 @@ export default function ChatShell({
     if (!el) return;
     // Ne pas toucher la hauteur pendant la frappe ou la dictée : height=0 casse Gboard.
     if (document.activeElement === el && draft.trim()) return;
-    const minH = Math.max(40, userMinHeightRef.current);
-    const desktop = window.matchMedia("(min-width: 1024px)").matches;
-    const keyboard = document.documentElement.dataset.keyboardOpen === "1";
-    const maxH = desktop ? 280 : keyboard ? 72 : 120;
-    el.style.height = "0px";
-    const needed = Math.max(el.scrollHeight, 40);
-    const next = Math.min(Math.max(needed, minH), maxH);
-    el.style.height = `${next}px`;
-    el.style.overflowY = needed > maxH || next >= maxH ? "auto" : "hidden";
+    const manual = userMinHeightRef.current;
     if (!draft.trim()) userMinHeightRef.current = 0;
+    applyComposerTextareaHeight(el, draft.trim() ? manual : 0);
   }, [draft]);
 
   useEffect(() => {
@@ -484,6 +536,58 @@ export default function ChatShell({
     dispatchSend();
   };
 
+  const rememberComposerHeight = (height: number) => {
+    userMinHeightRef.current = height > 48 ? height : 0;
+  };
+
+  const resetComposerHeight = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    userMinHeightRef.current = 0;
+    applyComposerTextareaHeight(el, 0);
+  };
+
+  const onComposerResizePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = el.getBoundingClientRect().height;
+    const onMove = (ev: globalThis.PointerEvent) => {
+      const height = setComposerTextareaHeight(el, startH + (startY - ev.clientY));
+      rememberComposerHeight(height);
+      syncComposerResizeAria(handle, height, composerTextareaLimits(el).dragMax);
+    };
+    const onUp = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      handle.removeEventListener("pointercancel", onUp);
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
+    handle.addEventListener("pointercancel", onUp);
+  };
+
+  const onComposerResizeKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const el = textareaRef.current;
+    if (!el) return;
+    if (e.key === "Home") {
+      e.preventDefault();
+      resetComposerHeight();
+      return;
+    }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const step = e.shiftKey ? 80 : 24;
+    const delta = e.key === "ArrowUp" ? step : -step;
+    const height = setComposerTextareaHeight(el, el.getBoundingClientRect().height + delta);
+    rememberComposerHeight(height);
+    syncComposerResizeAria(e.currentTarget, height, composerTextareaLimits(el).dragMax);
+  };
+
   const beginReply = (target: ChatReplyTarget) => {
     setReplyingTo(target);
     window.setTimeout(() => textareaRef.current?.focus(), 0);
@@ -527,9 +631,12 @@ export default function ChatShell({
   return (
     <div className={`chat-root relative mx-auto flex min-h-0 w-full flex-col ${className || "h-full"}`}>
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-2 py-2 sm:px-4 sm:py-4">
-        <div className="mx-auto max-w-3xl space-y-3 sm:space-y-5">
+        <div className="mx-auto max-w-3xl lg:max-w-none space-y-3 sm:space-y-5">
           {isFirstTurn ? (
             <div className="px-2 pt-6 text-center sm:pt-10">
+              <div className="mb-4 flex justify-center">
+                <CorimbeOrb mood={pending ? "preparing" : "idle"} size="lg" />
+              </div>
               <h1 className="text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-50 sm:text-3xl">
                 {isQuotidien ? "Comment puis-je vous aider ?" : "Qu'est-ce qui vous préoccupe ?"}
               </h1>
@@ -609,6 +716,8 @@ export default function ChatShell({
               (m.role === "assistant" ? displaySource : m.content).trim() ||
               (m.attachments?.map((file) => file.filename).join(", ") || "");
             const quotable = chatReplyExcerpt(copySource);
+            const canResumeUser = m.id === lastUserId && !pending && Boolean(m.content.trim());
+            const canResumeAssistant = m.id === lastAssistantId && !pending;
             const actionLabel = m.pendingAction?.label || "Confirmer";
             const quoted = replyingTo?.id === m.id;
             return (
@@ -667,26 +776,55 @@ export default function ChatShell({
                       </>
                     )}
                   </div>
-                  {quotable ? (
-                    <div className={`mt-1 flex gap-0.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                      <button
-                        type="button"
-                        onClick={() => copyMessage(m.id, copySource)}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                        aria-label={copiedId === m.id ? "Copié" : "Copier le message"}
-                      >
-                        <CopyIcon />
-                        {copiedId === m.id ? "Copié" : "Copier"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => beginReply({ id: m.id, role: m.role, excerpt: quotable })}
-                        className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
-                        aria-label="Répondre à ce message"
-                      >
-                        <ReplyIcon />
-                        Répondre
-                      </button>
+                  {quotable || canResumeUser || canResumeAssistant ? (
+                    <div className={`mt-1 flex flex-wrap gap-0.5 ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      {quotable ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => copyMessage(m.id, copySource)}
+                            className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label={copiedId === m.id ? "Copié" : "Copier le message"}
+                          >
+                            <CopyIcon />
+                            {copiedId === m.id ? "Copié" : "Copier"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => beginReply({ id: m.id, role: m.role, excerpt: quotable })}
+                            className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                            aria-label="Répondre à ce message"
+                          >
+                            <ReplyIcon />
+                            Répondre
+                          </button>
+                        </>
+                      ) : null}
+                      {canResumeUser ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDraftChange(m.content);
+                            window.setTimeout(() => textareaRef.current?.focus(), 0);
+                          }}
+                          className="inline-flex min-h-8 items-center rounded-full px-2 py-1 text-[11px] font-semibold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+                        >
+                          Reprendre
+                        </button>
+                      ) : null}
+                      {canResumeAssistant ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const excerpt = m.content.trim().slice(0, 400);
+                            onDraftChange(`Reformule en gardant…\n\n${excerpt}`);
+                            window.setTimeout(() => textareaRef.current?.focus(), 0);
+                          }}
+                          className="inline-flex min-h-8 items-center rounded-full px-2 py-1 text-[11px] font-semibold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+                        >
+                          Reprendre autrement
+                        </button>
+                      ) : null}
                     </div>
                   ) : null}
                   {m.role === "assistant" && agents.length > 0 ? (
@@ -796,6 +934,7 @@ export default function ChatShell({
                 count={Math.max(1, backgroundJobCount)}
                 percent={backgroundProgress?.percent}
                 label={backgroundProgress?.label}
+                steps={backgroundProgress?.steps}
                 onStop={onStopReply}
               />
             </div>
@@ -811,6 +950,7 @@ export default function ChatShell({
               count={Math.max(1, backgroundJobCount)}
               percent={backgroundProgress?.percent}
               label={backgroundProgress?.label}
+              steps={backgroundProgress?.steps}
               onStop={onStopReply}
             />
           </div>
@@ -860,7 +1000,7 @@ export default function ChatShell({
           setDragging(false);
           takeFiles(filesFromDataTransfer(e.dataTransfer));
         }}
-        className="chat-composer-shell relative px-2 pt-1 sm:px-4 sm:pt-3"
+        className="chat-composer-shell relative z-10 px-2 pt-2 sm:px-4 sm:pt-3"
         style={{ paddingBottom: "max(0.25rem, env(safe-area-inset-bottom, 0px))" }}
       >
         {dragging ? (
@@ -896,7 +1036,7 @@ export default function ChatShell({
           onChange={onPickFromInput}
         />
         {attachments.length > 0 ? (
-          <div className="mx-auto mb-1.5 flex max-w-3xl flex-wrap gap-1.5">
+          <div className="mx-auto mb-1.5 flex max-w-3xl lg:max-w-none flex-wrap gap-1.5">
             {attachments.map((f) => {
               const kind = chatFileKind(f.mime, f.filename);
               return (
@@ -931,9 +1071,9 @@ export default function ChatShell({
             })}
           </div>
         ) : null}
-        {uploadError ? <p className="mx-auto mb-1 max-w-3xl text-[11px] text-red-700">{uploadError}</p> : null}
+        {uploadError ? <p className="mx-auto mb-1 max-w-3xl lg:max-w-none text-[11px] text-red-700">{uploadError}</p> : null}
         {isQuotidien && fleetOffer.length > 0 && onRelayToFleet ? (
-          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
+          <div className="chat-composer-extra mx-auto max-w-3xl lg:max-w-none px-1 pb-1">
             <p className="mb-1.5 text-xs text-slate-600 dark:text-slate-300">
               Cette situation mérite une analyse de flotte. Je reste votre interlocuteur et je vous indique où lire le résultat.
             </p>
@@ -962,7 +1102,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {!isQuotidien && teamOffer && onHandOffToTeam ? (
-          <div className="chat-composer-extra mx-auto flex max-w-3xl items-center gap-2 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl lg:max-w-none items-center gap-2 px-1 pb-1">
             <button
               type="button"
               onClick={onHandOffToTeam}
@@ -982,7 +1122,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {isQuotidien && reformChips.length > 0 && !pending && hasAssistantReply ? (
-          <div className="chat-composer-extra mx-auto flex max-w-3xl flex-wrap gap-1.5 px-1 pb-1">
+          <div className="chat-composer-extra mx-auto flex max-w-3xl lg:max-w-none flex-wrap gap-1.5 px-1 pb-1">
             {reformChips.map((chip) => (
               <button
                 key={chip.label}
@@ -997,7 +1137,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {!isQuotidien && canConvertToMission && onConvertToMission && convertBrief == null ? (
-          <div className="chat-composer-extra mx-auto max-w-3xl px-1 pb-1">
+          <div className="chat-composer-extra mx-auto max-w-3xl lg:max-w-none px-1 pb-1">
             <button
               type="button"
               onClick={onConvertToMission}
@@ -1009,7 +1149,7 @@ export default function ChatShell({
           </div>
         ) : null}
         {replyingTo ? (
-          <div className="mx-auto mb-1.5 flex max-w-3xl items-stretch gap-2 rounded-xl border-l-4 border-violet-500 bg-violet-50 px-2.5 py-1.5 dark:bg-violet-950/40">
+          <div className="mx-auto mb-1.5 flex max-w-3xl lg:max-w-none items-stretch gap-2 rounded-xl border-l-4 border-violet-500 bg-violet-50 px-2.5 py-1.5 dark:bg-violet-950/40">
             <button
               type="button"
               onClick={() => focusQuotedMessage(replyingTo.id)}
@@ -1030,7 +1170,7 @@ export default function ChatShell({
             </button>
           </div>
         ) : null}
-        <div className="mx-auto flex max-w-3xl items-end gap-1">
+        <div className="mx-auto flex max-w-3xl lg:max-w-none items-end gap-1">
           {onAddFiles ? (
             <button
               type="button"
@@ -1046,7 +1186,21 @@ export default function ChatShell({
               </svg>
             </button>
           ) : null}
-          <div className="chat-input-pill flex min-h-9 min-w-0 flex-1 items-end rounded-[1.35rem]">
+          <div className="chat-input-pill relative flex min-h-9 min-w-0 flex-1 items-end rounded-[1.35rem]">
+            <div
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="Agrandir la zone de texte"
+              aria-valuemin={COMPOSER_MIN_H}
+              tabIndex={0}
+              title="Glisser vers le haut pour agrandir. Double-clic pour revenir à la taille d'origine."
+              className="chat-composer-resize group absolute inset-x-3 -top-2 z-10 flex h-4 cursor-ns-resize touch-none select-none items-center justify-center"
+              onPointerDown={onComposerResizePointerDown}
+              onDoubleClick={resetComposerHeight}
+              onKeyDown={onComposerResizeKeyDown}
+            >
+              <span className="h-1 w-10 rounded-full bg-slate-400 transition-colors group-hover:bg-violet-500 group-active:bg-violet-600 dark:bg-slate-500 dark:group-hover:bg-violet-400" aria-hidden />
+            </div>
             <textarea
               ref={textareaRef}
               value={draft}
@@ -1058,22 +1212,36 @@ export default function ChatShell({
                 e.preventDefault();
                 takeFiles(files);
               }}
-              onPointerUp={() => {
-                const el = textareaRef.current;
-                if (!el) return;
-                // Conserve une hauteur tirée à la main (poignée resize desktop).
-                if (el.offsetHeight > 48) userMinHeightRef.current = el.offsetHeight;
-              }}
               rows={1}
-              placeholder={replyingTo ? "Répondre à ce message" : "Message"}
+              placeholder={
+                replyingTo ? "Répondre à ce message" : isQuotidien ? "Écrire à Korymb" : "Message"
+              }
               title="Entrée : nouvelle ligne · Ctrl+Entrée : envoyer"
-              className="max-h-[7.5rem] min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500 lg:max-h-[17.5rem] lg:resize-y"
+              className="min-h-9 w-full resize-none bg-transparent px-3.5 py-2 text-[16px] leading-5 text-slate-900 outline-none dark:text-slate-100 dark:placeholder:text-slate-500"
               style={{ height: 40 }}
               enterKeyHint="enter"
               autoComplete="off"
               autoCorrect="on"
             />
           </div>
+          {isQuotidien && onVoiceUtterance ? (
+            <button
+              type="button"
+              onClick={() => setVoiceOpen(true)}
+              disabled={pending || uploadBusy}
+              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-300 bg-violet-50 text-violet-800 active:bg-violet-100 disabled:opacity-40 dark:border-violet-700 dark:bg-violet-950 dark:text-violet-100"
+              aria-label="Conversation vocale avec Korymb"
+              title="Conversation vocale"
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden>
+                <rect x="2" y="9" width="2.2" height="6" rx="1" />
+                <rect x="6.2" y="6" width="2.2" height="12" rx="1" />
+                <rect x="10.4" y="3.5" width="2.2" height="17" rx="1" />
+                <rect x="14.6" y="6" width="2.2" height="12" rx="1" />
+                <rect x="18.8" y="9" width="2.2" height="6" rx="1" />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="submit"
             disabled={pending || uploadBusy || (!draft.trim() && attachments.length === 0)}
@@ -1086,6 +1254,16 @@ export default function ChatShell({
         </div>
       </form>
       </div>
+
+      {voiceOpen && onVoiceUtterance ? (
+        <ChatVoiceConversation
+          open={voiceOpen}
+          onClose={() => setVoiceOpen(false)}
+          onUtterance={onVoiceUtterance}
+          activity={backgroundProgress}
+          workText={[...messages].reverse().find((item) => item.role === "assistant")?.content || ""}
+        />
+      ) : null}
 
       {convertBrief != null && onConvertBriefChange && onConfirmConvert ? (
         <div className="absolute inset-0 z-30 flex flex-col bg-white dark:bg-slate-950">

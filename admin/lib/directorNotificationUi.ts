@@ -1,5 +1,3 @@
-import { normalizeJobId } from "./missionBossView";
-
 export type DirectorNotification = {
   id: string;
   kind: string;
@@ -8,6 +6,7 @@ export type DirectorNotification = {
   action_url?: string;
   job_id?: string | null;
   output_id?: string | null;
+  suggestion_id?: string | null;
   read_at?: string | null;
   created_at?: string;
   ephemeral?: boolean;
@@ -26,7 +25,8 @@ const KIND_LABELS: Record<string, string> = {
   hitl: "Validation CIO",
   studio_stale: "Studio",
   scheduler_output: "Approbation",
-  learning_suggestion: "Apprentissage",
+  learning_suggestion: "Mémoire",
+  memory_applied: "Mémoire",
   email_reply: "Courrier",
   info: "Information",
   test: "Test",
@@ -39,6 +39,7 @@ const KIND_STYLES: Record<string, string> = {
   studio_stale: "bg-violet-100 text-violet-950 dark:bg-violet-900 dark:text-violet-100",
   scheduler_output: "bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100",
   learning_suggestion: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
+  memory_applied: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
   email_reply: "bg-teal-100 text-teal-950 dark:bg-teal-900 dark:text-teal-100",
   info: "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
 };
@@ -72,10 +73,7 @@ function primaryLabel(kind: string, href: string): string {
   if (k === "hitl") return "Décider";
   if (k === "studio_stale") return "Ouvrir le Studio";
   if (k === "scheduler_output") return "Voir les approbations";
-  if (k === "learning_suggestion") {
-    if (href.includes("/administration/memory")) return "Voir la mémoire";
-    return "Ouvrir Décisions";
-  }
+  if (k === "learning_suggestion" || k === "memory_applied") return "Voir la mémoire";
   if (k === "email_reply") return "Ouvrir le courrier";
   if (href.includes("/gestion/courrier")) return "Ouvrir le courrier";
   if (href.includes("/missions")) return "Ouvrir la mission";
@@ -84,52 +82,18 @@ function primaryLabel(kind: string, href: string): string {
   return "Ouvrir";
 }
 
-/** Actions de navigation dérivées du type et des métadonnées notification. */
+/** Une seule porte de sortie. Garder / Ignorer d'une mémoire en attente ne passent pas par un lien. */
 export function buildNotificationActions(n: DirectorNotification): NotificationAction[] {
-  const actions: NotificationAction[] = [];
-  const seen = new Set<string>();
   const kind = String(n.kind || "").toLowerCase();
-  const jobId = normalizeJobId(n.job_id);
+  const suggestionId = String(n.suggestion_id || "").trim();
+  if (kind === "learning_suggestion" && suggestionId) return [];
+
   const actionUrl = String(n.action_url || "").trim();
-  const outputId = String(n.output_id || "").trim();
-
-  const add = (id: string, label: string, href: string, primary = false) => {
-    const path = href.trim();
-    if (!path || seen.has(path)) return;
-    seen.add(path);
-    actions.push({ id, label, href: path, primary });
-  };
-
-  if (actionUrl) {
-    add("primary", primaryLabel(kind, actionUrl), actionUrl, true);
-  }
-
-  if (jobId) {
-    if (kind === "chat_result" || kind === "chat_error") {
-      const chatHref = actionUrl.startsWith("/chat") ? actionUrl : `/chat?job=${jobId}`;
-      add("chat", "Conversation", chatHref);
-      add("mission", "Mission liée", `/missions?job=${jobId}`);
-    } else if (kind === "hitl" || kind === "learning_suggestion") {
-      add("inbox", "À valider", `/inbox?job=${jobId}`);
-      add("mission", "Mission", `/missions?job=${jobId}`);
-    } else if (!actionUrl.includes(`/missions?job=${jobId}`)) {
-      add("mission", "Mission", `/missions?job=${jobId}`);
-    }
-  }
-
-  if (kind === "scheduler_output" || outputId) {
-    add("approbations", "Approbations", "/administration/approbations");
-  }
-
-  if (kind === "hitl" && !seen.has(`/inbox?job=${jobId}`) && jobId) {
-    add("inbox-hitl", "Valider le plan", `/inbox?job=${jobId}`);
-  }
-
-  if (!actions.length) {
-    add("briefing", "Briefing", "/briefing");
-  }
-
-  return actions;
+  const href =
+    actionUrl ||
+    (kind === "memory_applied" || kind === "learning_suggestion" ? "/administration/memory" : "");
+  if (!href) return [{ id: "briefing", label: "Briefing", href: "/briefing", primary: true }];
+  return [{ id: "primary", label: primaryLabel(kind, href), href, primary: true }];
 }
 
 export function notificationShareUrl(href: string): string {
@@ -167,6 +131,9 @@ export function notificationConsumedByPath(kind: string, pathname: string): bool
     return true;
   }
   if (k === "scheduler_output" && path.startsWith("/administration/approbations")) {
+    return true;
+  }
+  if (k === "memory_applied" && path.startsWith("/administration/memory")) {
     return true;
   }
   return false;

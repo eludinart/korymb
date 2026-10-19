@@ -17,7 +17,7 @@ import ChatThreadMoreSheet from "../../components/chat/ChatThreadMoreSheet";
 import { businessApi } from "../../lib/business";
 import { CHAT_FILE_MAX, type ChatFile } from "../../lib/chatAttachments";
 import MissionContextBanner from "../../components/MissionContextBanner";
-import { progressFromJob, type ChatReplyProgress } from "../../lib/chatProgress";
+import { orbMoodFromLabel, progressFromJob, type ChatReplyProgress } from "../../lib/chatProgress";
 import {
   activeChatFleets,
   fleetNamedInText,
@@ -138,6 +138,7 @@ function ChatPageInner() {
   const [pending, setPending] = useState(false);
   const [backgroundJobs, setBackgroundJobs] = useState<PendingChatJob[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [replyProgress, setReplyProgress] = useState<ChatReplyProgress | null>(null);
   const [teamOfferDismissedId, setTeamOfferDismissedId] = useState("");
@@ -169,6 +170,26 @@ function ChatPageInner() {
     return () => {
       mountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(window.localStorage.getItem("korymb_chat_sidebar_collapsed") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("korymb_chat_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -920,7 +941,7 @@ function ChatPageInner() {
   }) => {
     const text = (opts?.text ?? draft).trim();
     const files = (opts?.confirmAction || opts?.reuseLastUser ? opts.attachments || [] : pendingFiles).slice(0, CHAT_FILE_MAX);
-    if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return;
+    if ((!text && files.length === 0) || pending || !activeId || uploadBusy) return "";
 
     const baseMessages = opts?.messagesOverride ?? messages;
     const keepTurn = Boolean(opts?.confirmAction || opts?.reuseLastUser);
@@ -956,7 +977,7 @@ function ChatPageInner() {
         setPendingFiles([]);
         setUploadError("");
         relayToFleetRef.current(target.id, brief, history, target.label);
-        return;
+        return "";
       }
       if (explicit && fleets.length > 0) {
         setMessages([
@@ -972,7 +993,7 @@ function ChatPageInner() {
         setDraft("");
         setPendingFiles([]);
         setUploadError("");
-        return;
+        return "";
       }
     }
     if (!keepTurn) {
@@ -985,6 +1006,7 @@ function ChatPageInner() {
     }
     setPending(true);
     setReplyProgress({ percent: 12, label: "Je prépare" });
+    let spoken = "";
 
     const conv = loadConversations().find((c) => c.id === activeId);
     const parentId = conv?.linkedParentJobId || undefined;
@@ -1111,8 +1133,16 @@ function ChatPageInner() {
         });
         if (streamed.kind === "json") {
           applyChatData(streamed.data, agent);
+          const status = String(streamed.data?.status || "");
+          spoken =
+            status === "needs_confirmation"
+              ? "Rien n'est fait tant que vous ne confirmez pas."
+              : status === "accepted"
+                ? String(streamed.data?.mirror_ack || "").trim()
+                : toChatSurface(String(streamed.data?.response || ""));
         } else {
           const surface = toChatSurface(streamed.text || streamed.done.response || "");
+          spoken = surface;
           const degraded = Boolean(streamed.done.degraded) || chatTextIsDegraded(surface);
           const claimGuard = streamed.done.claim_guard as ChatMsg["claimGuard"] | undefined;
           const pendingBlueprintId =
@@ -1140,6 +1170,13 @@ function ChatPageInner() {
           body: JSON.stringify(requestBody),
         });
         applyChatData(data, agent);
+        const status = String(data?.status || "");
+        spoken =
+          status === "needs_confirmation"
+            ? "Rien n'est fait tant que vous ne confirmez pas."
+            : status === "accepted"
+              ? String(data?.mirror_ack || "").trim()
+              : toChatSurface(String(data?.response || ""));
       }
     } catch (err) {
       const aborted =
@@ -1161,6 +1198,7 @@ function ChatPageInner() {
         const raw = err instanceof Error ? err.message : "Une erreur est survenue.";
         const degraded = isChatTransportFailure(err);
         const { agent: failAgent } = parseInterlocutor(who);
+        spoken = degraded ? localDegradedChatReply(text, failAgent === "coordinateur" ? "CIO" : failAgent) : raw;
         setReplyProgress(null);
         setMessages([
           ...history,
@@ -1177,6 +1215,7 @@ function ChatPageInner() {
       setPending(false);
       streamAbortRef.current = null;
     }
+    return spoken;
   }, [
     draft,
     pending,
@@ -1344,27 +1383,33 @@ function ChatPageInner() {
   const interlocutorName = describeInterlocutor(interlocutor, groupsList as GroupOpt[]).title;
 
   return (
-    <div className="chat-hud-stage mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950 lg:border-x lg:border-slate-200 dark:lg:border-slate-800">
+    <div className="chat-hud-stage mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950">
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <ChatSidebar
-          conversations={conversations}
-          activeId={activeId}
-          pendingJobs={backgroundJobs}
-          onSelect={selectConversation}
-          onNew={newConversation}
-          onDelete={(id) => void removeConversation(id)}
-          onDeleteMany={(ids) => removeConversations(ids)}
-          interlocutorLabel={interlocutorLabel}
-          className="hidden lg:flex"
-        />
+        <div className="hidden h-full min-h-0 shrink-0 lg:flex">
+          <ChatSidebar
+            conversations={conversations}
+            activeId={activeId}
+            pendingJobs={backgroundJobs}
+            onSelect={selectConversation}
+            onNew={newConversation}
+            onDelete={(id) => void removeConversation(id)}
+            onDeleteMany={(ids) => removeConversations(ids)}
+            interlocutorLabel={interlocutorLabel}
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={toggleSidebarCollapsed}
+          />
+        </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatConversationHeader
             title={activeConv?.title || "Chat"}
+            orbMood={orbMoodFromLabel(replyProgress?.label, pending || activePendingCount > 0)}
             subtitle={
-              chatUseMode === "quotidien"
-                ? "Quotidien"
-                : interlocutorName
+              pending || activePendingCount > 0
+                ? replyProgress?.label || "Je prépare"
+                : chatUseMode === "quotidien"
+                  ? "Prêt"
+                  : interlocutorName
             }
             onOpenHistory={openHistory}
             historyOpen={historyOpen}
@@ -1384,6 +1429,7 @@ function ChatPageInner() {
             draft={draft}
             onDraftChange={setDraft}
             onSend={(replyTo) => void send(replyTo ? { replyTo } : undefined)}
+            onVoiceUtterance={async (text) => (await send({ text })) || ""}
             onQuickSend={(text) => void send({ text })}
             pending={pending}
             backgroundJobCount={activePendingCount}

@@ -17,6 +17,9 @@ type Props = {
   className?: string;
   /** Mobile plein écran, tiroir, ou colonne desktop. */
   variant?: "sidebar" | "inbox" | "drawer";
+  /** Desktop : colonne réduite aux actions. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
 };
 
 function formatRelative(ts: number): string {
@@ -57,6 +60,8 @@ export default function ChatSidebar({
   interlocutorLabel,
   className = "",
   variant = "sidebar",
+  collapsed = false,
+  onToggleCollapsed,
 }: Props) {
   const listRef = useRef<HTMLUListElement>(null);
   const activeRef = useRef<HTMLLIElement>(null);
@@ -151,6 +156,42 @@ export default function ChatSidebar({
     }
   };
 
+  if (!roomy && collapsed) {
+    return (
+      <aside
+        className={`chat-sidebar flex h-full min-h-0 w-12 shrink-0 flex-col items-center gap-2 border-r px-1.5 py-2 ${className}`}
+        aria-label="Conversations"
+      >
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+          aria-label="Afficher les conversations"
+          title="Afficher les conversations"
+          aria-expanded={false}
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 6l6 6-6 6" />
+          </svg>
+          {unreadCount > 0 ? (
+            <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+          ) : null}
+        </button>
+        <button
+          type="button"
+          onClick={onNew}
+          className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-700 text-white shadow-sm hover:bg-violet-800"
+          aria-label="Nouvelle conversation"
+          title="Nouvelle conversation"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden>
+            <path strokeLinecap="round" d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      </aside>
+    );
+  }
+
   const pendingByConv = new Map<string, PendingChatJob[]>();
   for (const j of pendingJobs) {
     const list = pendingByConv.get(j.conversationId) || [];
@@ -184,20 +225,36 @@ export default function ChatSidebar({
             </Link>
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={() => {
-            setQuery("");
-            onNew();
-          }}
-          className={
-            roomy
-              ? "w-full rounded-2xl bg-violet-700 px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm active:bg-violet-800"
-              : "w-full rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
-          }
-        >
-          Nouvelle conversation
-        </button>
+        <div className={roomy ? "" : "flex items-center gap-1.5"}>
+          <button
+            type="button"
+            onClick={() => {
+              setQuery("");
+              onNew();
+            }}
+            className={
+              roomy
+                ? "w-full rounded-2xl bg-violet-700 px-4 py-3.5 text-[15px] font-semibold text-white shadow-sm active:bg-violet-800"
+                : "min-w-0 flex-1 rounded-xl bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
+            }
+          >
+            Nouvelle conversation
+          </button>
+          {!roomy && onToggleCollapsed ? (
+            <button
+              type="button"
+              onClick={onToggleCollapsed}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+              aria-label="Réduire le menu"
+              title="Réduire le menu"
+              aria-expanded
+            >
+              <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
+              </svg>
+            </button>
+          ) : null}
+        </div>
         {drawer ? (
           <div className="mt-2 flex items-center gap-2">
             <input

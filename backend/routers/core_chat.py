@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
@@ -745,6 +745,23 @@ async def chat_stream(request: ChatRequest):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+class ChatVoiceBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(min_length=1, max_length=1500)
+
+
+@router.post("/chat/voice", dependencies=[Depends(resolve_tenant)])
+def chat_voice(body: ChatVoiceBody):
+    """MP3 ElevenLabs pour la conversation vocale. Voix et modèle viennent des intégrations."""
+    from tools.media_engines import elevenlabs_speech_file
+
+    path = elevenlabs_speech_file(body.text)
+    if path is None:
+        raise HTTPException(status_code=503, detail="La voix ElevenLabs n'est pas disponible.")
+    return FileResponse(path, media_type="audio/mpeg", filename="korymb.mp3")
 
 
 class ChatConversationBody(BaseModel):

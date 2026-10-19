@@ -1,10 +1,13 @@
 # Ignore FTP config files containing credentials
 .ftpconfig
 .ftpconfig.*
+# Secrets. Les modèles *.example restent versionnés (.env.example, .env.production.example, backend/.env.example).
 .env
-.env.production
-.env.coolify
-.env.*.production
+.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
 
 # Node modules
 node_modules/
@@ -50,3 +53,6 @@ admin/.next/
 admin/.next-build/
 build/
 coverage/
+
+# Données personnelles locales, hors dépôt
+.dev-logs/sophie-carniaux.json

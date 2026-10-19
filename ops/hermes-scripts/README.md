@@ -1,5 +1,7 @@
 # Hermes scripts (miroirs)
 
+Dossier Cursor de gestion VPS : `C:\workspace-vps` (fiche SSH : `VPS-SSH.md`). Accès rappelé dans `ops/hermes/VPS-ACCESS.md`.
+
 Copies sans secrets des scripts VPS — source live : `/opt/data/scripts/` (wrappers) et `/docker/hermes-agent-aoxw/data/scripts/` (dans le conteneur).
 
 | Fichier | Déploiement cible |

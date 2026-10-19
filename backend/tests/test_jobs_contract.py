@@ -52,6 +52,26 @@ def test_get_job_detail_shape(client):
     assert "events" in body or "events_total" in body
 
 
+def test_jobs_cards_keep_project_id(client):
+    from database import insert_planned_job
+
+    insert_planned_job(
+        "prjcard1",
+        "coordinateur",
+        "Documentation — Pizza Lucio",
+        source="project",
+        mission_config={"mode": "cio", "project_id": "prj-abc", "origin": "chat"},
+    )
+    cards = client.get("/jobs/cards?limit=40")
+    assert cards.status_code == 200
+    row = next(j for j in cards.json()["jobs"] if j["job_id"] == "prjcard1")
+    assert row["mission_config"]["project_id"] == "prj-abc"
+
+    detail = client.get("/jobs/prjcard1")
+    assert detail.status_code == 200
+    assert detail.json()["mission_config"]["project_id"] == "prj-abc"
+
+
 def test_get_jobs_list(client):
     r = client.get("/jobs")
     assert r.status_code == 200

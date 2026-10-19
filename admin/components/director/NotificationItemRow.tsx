@@ -8,18 +8,16 @@ import {
   notificationKindLabel,
   notificationKindStyle,
   notificationPreviewText,
-  notificationShareUrl,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
-import { BTN_DELETE } from "../../lib/deleteMissionBundle";
 
 type Props = {
   notification: DirectorNotification;
   busy?: boolean;
   onNavigate: (href: string, markRead: boolean) => void;
   onMarkRead: () => void;
-  onCopyLink: (url: string) => void;
   onDelete: () => void;
+  onResolveMemory?: (decision: "approve" | "reject") => void;
 };
 
 type MenuPos = { top: number; left: number; openUp: boolean };
@@ -29,8 +27,8 @@ export default function NotificationItemRow({
   busy = false,
   onNavigate,
   onMarkRead,
-  onCopyLink,
   onDelete,
+  onResolveMemory,
 }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,7 +39,7 @@ export default function NotificationItemRow({
   const menuId = useId();
   const actions = buildNotificationActions(n);
   const primary = actions.find((a) => a.primary) || actions[0];
-  const secondary = actions.filter((a) => a !== primary);
+  const memoryDecision = String(n.kind || "").toLowerCase() === "learning_suggestion" && Boolean(n.suggestion_id);
   const body = notificationPreviewText(n.body, 400);
   const longBody = body.length > 140;
   const isUnread = !n.read_at;
@@ -101,10 +99,12 @@ export default function NotificationItemRow({
   const menu =
     menuOpen && mounted && menuPos
       ? createPortal(
-          <div
+            <div
             ref={menuRef}
             id={menuId}
             role="menu"
+            data-notification-menu=""
+            onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-[120] min-w-[11rem] rounded-xl border border-slate-200 bg-white py-1 shadow-xl"
             style={{
               top: menuPos.openUp ? undefined : menuPos.top,
@@ -112,60 +112,17 @@ export default function NotificationItemRow({
               left: menuPos.left,
             }}
           >
-            {actions.map((a) => (
-              <button
-                key={`menu-${a.id}`}
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                onClick={() => {
-                  closeMenu();
-                  onNavigate(a.href, true);
-                }}
-              >
-                {a.label}
-              </button>
-            ))}
-            {primary ? (
+            {isUnread ? (
               <button
                 type="button"
                 role="menuitem"
                 className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
                 onClick={() => {
                   closeMenu();
-                  window.open(notificationShareUrl(primary.href), "_blank", "noopener,noreferrer");
+                  onMarkRead();
                 }}
               >
-                Nouvel onglet
-              </button>
-            ) : null}
-            {primary ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                onClick={() => {
-                  closeMenu();
-                  const url = notificationShareUrl(primary.href);
-                  void navigator.clipboard?.writeText(url).catch(() => undefined);
-                  onCopyLink(url);
-                }}
-              >
-                Copier le lien
-              </button>
-            ) : null}
-            {n.job_id ? (
-              <button
-                type="button"
-                role="menuitem"
-                className="block w-full px-3 py-2.5 text-left text-xs font-medium text-slate-800 hover:bg-slate-50"
-                onClick={() => {
-                  closeMenu();
-                  void navigator.clipboard?.writeText(String(n.job_id));
-                  onCopyLink(String(n.job_id));
-                }}
-              >
-                Copier l&apos;id mission
+                Marquer lu
               </button>
             ) : null}
             <button
@@ -199,9 +156,6 @@ export default function NotificationItemRow({
             {n.created_at ? (
               <span className="text-[10px] font-medium text-slate-400">{formatNotificationWhen(n.created_at)}</span>
             ) : null}
-            {n.job_id ? (
-              <span className="font-mono text-[10px] text-slate-400">#{String(n.job_id).slice(0, 8)}</span>
-            ) : null}
           </div>
           <p className="mt-1 text-sm font-extrabold leading-snug text-slate-950">{n.title}</p>
           {body ? (
@@ -221,13 +175,48 @@ export default function NotificationItemRow({
             </div>
           ) : null}
         </div>
-        {isUnread ? (
-          <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-violet-600" title="Non lue" aria-hidden />
-        ) : null}
+        <div className="flex shrink-0 items-center gap-1">
+          {isUnread ? (
+            <span className="h-2 w-2 rounded-full bg-violet-600" title="Non lue" aria-hidden />
+          ) : null}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-rose-400 text-lg font-bold leading-none text-rose-600 hover:bg-rose-600 hover:text-white disabled:opacity-40"
+            aria-label="Supprimer la notification"
+            title="Supprimer"
+          >
+            ×
+          </button>
+        </div>
       </div>
 
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
-        {primary ? (
+        {memoryDecision ? (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onResolveMemory?.("approve")}
+              className="min-h-10 rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"
+            >
+              {busy ? "…" : "Garder"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onResolveMemory?.("reject")}
+              className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
+            >
+              Ignorer
+            </button>
+          </>
+        ) : primary ? (
           <button
             type="button"
             disabled={busy}
@@ -237,31 +226,6 @@ export default function NotificationItemRow({
             {busy ? "…" : primary.label}
           </button>
         ) : null}
-
-        {secondary.slice(0, 2).map((a) => (
-          <button
-            key={a.id}
-            type="button"
-            disabled={busy}
-            onClick={() => onNavigate(a.href, true)}
-            className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-50"
-          >
-            {a.label}
-          </button>
-        ))}
-
-        <button
-          type="button"
-          disabled={busy || !isUnread}
-          onClick={() => onMarkRead()}
-          className="min-h-10 rounded-lg px-2.5 py-2 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-40"
-        >
-          Marquer lu
-        </button>
-
-        <button type="button" disabled={busy} onClick={() => onDelete()} className={BTN_DELETE}>
-          {busy ? "…" : "Supprimer"}
-        </button>
 
         <div className="relative">
           <button

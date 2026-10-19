@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isProxyUnprotected } from "../../../../lib/proxySecret";
+import { isProxyUnprotected } from "../../../../lib/proxyPaths";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
@@ -11,7 +11,7 @@ function targetPath(path: string[]) {
 function upstreamTimeoutMs(joinedPath: string): number {
   const p = joinedPath.toLowerCase();
   if (p === "health" || p === "health/live" || p === "health/database" || p === "llm") return 8_000;
-  if (p === "chat" || p === "chat/stream") return 120_000;
+  if (p === "chat" || p === "chat/stream" || p === "chat/voice") return 120_000;
   if (p.startsWith("admin/reprise")) return 90_000;
   if (p.startsWith("context-guide")) return 60_000;
   if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
@@ -28,7 +28,14 @@ function withSessionHeaders(request: NextRequest, joinedPath = "") {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
   const p = joinedPath.toLowerCase();
-  headers.set("Accept", p === "chat/stream" || p.endsWith("/stream") ? "text/event-stream" : "application/json");
+  headers.set(
+    "Accept",
+    p === "chat/voice"
+      ? "audio/mpeg"
+      : p === "chat/stream" || p.endsWith("/stream")
+        ? "text/event-stream"
+        : "application/json",
+  );
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -101,6 +108,16 @@ async function proxy(request: NextRequest, path: string[]) {
   }
 
   const contentType = response.headers.get("content-type") || "application/json";
+  if (contentType.includes("audio/") || contentType.includes("mpeg")) {
+    const audio = await response.arrayBuffer();
+    return new NextResponse(audio, {
+      status: response.status,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
   if (contentType.includes("text/event-stream") && response.body) {
     return new NextResponse(response.body, {
       status: response.status,

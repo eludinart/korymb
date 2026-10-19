@@ -241,18 +241,6 @@ async def scheduler_approve_output(output_id: str, body: ApproveOutputPayload):
         if job_id:
             from database import link_autonomous_output_job
             link_autonomous_output_job(output_id, job_id)
-        try:
-            from services.director_platform import emit_director_notification
-            emit_director_notification(
-                kind="scheduler_output",
-                title=f"Proposition approuvée — {output.get('title') or output_id}",
-                body="Mission lancée depuis l'approbation.",
-                job_id=job_id,
-                output_id=output_id,
-                action_url=f"/missions?job={job_id}" if job_id else "/administration/approbations",
-            )
-        except Exception:
-            pass
         return updated
 
     # Cas général : marquer approuvé, publier si demandé

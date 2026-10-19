@@ -75,10 +75,11 @@ def test_turn_needs_team_tools_on_short_confirmation():
     assert "3 rôles" in stripped
 
 
-def test_quotidien_without_tools_forbids_fake_team_button():
+def test_quotidien_without_tools_stays_a_plain_conversation():
     daily = build_assistant_system_prompt("bonjour", chat_use_mode="quotidien", tools_enabled=False)
-    assert "n'as pas l'outil" in daily.lower() or "pas l'outil" in daily.lower()
-    assert "crée l'équipe" in daily.lower()
+    assert "korymb" in daily.lower()
+    assert "crée l'équipe" not in daily.lower()
+    assert "créer l'équipe" not in daily.lower()
 
 
 def test_resolve_pending_blueprint_only_when_proposed(monkeypatch):
@@ -173,5 +174,5 @@ def test_quotidien_prompt_skips_lead_shape():
     ops = build_assistant_system_prompt("bonjour", chat_use_mode="operationnel")
     daily = build_assistant_system_prompt("bonjour", chat_use_mode="quotidien")
     assert "ce qui est décidé" in ops.lower() or "prochain pas" in ops.lower()
-    assert "assistant quotidien" in daily.lower()
+    assert "korymb" in daily.lower()
     assert "n'impose pas le format" in daily.lower() or "naturellement" in daily.lower()

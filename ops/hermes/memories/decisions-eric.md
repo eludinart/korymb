@@ -44,7 +44,7 @@ Document **prioritaire**. Ne pas contredire sans confirmation explicite d'Éric.
 
 ## LLM
 
-- 15 octobre 2026 : Éric a demandé de sortir Hermes de Mistral payant. Modèle principal : `gemini-3.1-flash-lite`. Bascule ensuite vers Nemotron Ultra `:free`, Nemotron Lightning `:free`, Gemma 4 31B `:free`, puis Groq `openai/gpt-oss-120b`, puis `mistral-small-latest` seulement si tous les gratuits échouent. Ne pas remettre `mistral-medium` ni `mistral-large` en modèle principal. Gemini d'abord, pour ne pas manger le quota Groq de Korymb.
+- 16 octobre 2026 : Mistral est interdit pour Hermes. Aucun modèle Mistral, aucun secours, le fournisseur `custom:mistral` ne doit pas être déclaré. Éric a été facturé après une surconsommation de tokens. Modèle principal : `gemini-2.5-flash` (quota gratuit Gemini, plus capable que flash-lite, distinct du Groq de Korymb). Tâches annexes (compression, vision, extraction web) : `gemini-3.1-flash-lite`. Secours, dans l'ordre : `gemini-3.1-flash-lite`, puis OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`, `nvidia/nemotron-3.5-lightning:free`, `google/gemma-4-31b-it:free`. Pas de Groq tant que la clé répond 403. Pas de modèle local : l'hôte a 8 Go et Hermes est plafonné.
 
 ## Secrets
 

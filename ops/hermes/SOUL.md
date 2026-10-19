@@ -48,6 +48,10 @@ VÉRIFIER → AGIR (via runbook) → CONFIRMER (sortie brute)
 
 Lire `/opt/data/memories/ecosystem-eludein.md` quand le contexte métier manque.
 
+## Accès VPS
+
+Ne pas re-découvrir l'accès SSH. Fiche : `ops/hermes/VPS-ACCESS.md` dans le dépôt Korymb, dossier Cursor `C:\workspace-vps` (fichier `VPS-SSH.md`). Connexion du PC : `root@187.124.42.135`, clé `C:\Users\eludi\.ssh\id_ed25519`. Le site mutualisé `92.113.28.43` n'est pas ce VPS. La clé `/opt/data/.ssh/id_ed25519` sert au conteneur vers `10.0.3.1`, pas au PC.
+
 ## Température cognitive
 
 - Ops / SQL / diagnostic : **précision** — suivre runbooks, pas improviser

@@ -136,21 +136,22 @@ docker compose up -d --force-recreate   # après modification compose
 | Paramètre | Valeur |
 |-----------|--------|
 | Image | `ghcr.io/hostinger/hvps-hermes-agent:latest` |
-| Modèle | Gemini `gemini-3.1-flash-lite`, puis bascule gratuite (voir ci-dessous) |
+| Modèle | Gemini `gemini-2.5-flash`, puis bascule gratuite sans Mistral (voir ci-dessous) |
 | Terminal | `ssh` → `root@10.0.3.1` (passerelle Docker) |
 | execute_code | Docker (socket monté + init-docker-access) |
 | Réseaux Docker | `coolify`, `default` |
 
 Bascule, dans l'ordre, quand le modèle en cours est en quota, en erreur ou injoignable :
 
-1. **Gemini** `gemini-3.1-flash-lite` (principal — quota distinct du Groq de Korymb)
-2. OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`
-3. OpenRouter `nvidia/nemotron-3.5-lightning:free`
-4. OpenRouter `google/gemma-4-31b-it:free`
-5. Groq `openai/gpt-oss-120b` (même clé que Korymb ; inutile tant que Groq refuse la clé)
-6. Mistral `mistral-small-latest` seulement si tous les gratuits ont échoué
+1. **Gemini** `gemini-2.5-flash` (principal — quota gratuit, plus capable que flash-lite, distinct du Groq de Korymb)
+2. Gemini `gemini-3.1-flash-lite`
+3. OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`
+4. OpenRouter `nvidia/nemotron-3.5-lightning:free`
+5. OpenRouter `google/gemma-4-31b-it:free`
 
-Les tâches annexes (compression, vision, extraction web) restent sur le même Gemini. Ne pas remettre `mistral-medium` ni `mistral-large` en modèle principal.
+Mistral est interdit : ni modèle principal, ni secours, ni fournisseur déclaré. Groq n'est pas dans la chaîne tant que la clé répond 403.
+
+Les tâches annexes (compression, vision, extraction web) restent sur `gemini-3.1-flash-lite`.
 
 ### Hermes WebUI (intégré au compose agent)
 
@@ -223,7 +224,7 @@ Doc : [HERMES-INTELLIGENCE.md](HERMES-INTELLIGENCE.md).
 
 ### Optimisation complète (recommandé après changement infra)
 
-Un seul script remet en ordre agent, WebUI, sync hôte `/opt/data`, espaces et smoke tests. Il ne remet pas Mistral en modèle principal :
+Un seul script remet en ordre agent, WebUI, sync hôte `/opt/data`, espaces et smoke tests. Il avertit si Mistral apparaît encore dans `config.yaml` :
 
 ```powershell
 .\scripts\hermes-optimize.ps1

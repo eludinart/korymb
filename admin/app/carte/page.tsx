@@ -10,10 +10,10 @@ import MapInspector from "../../components/carte/MapInspector";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { businessApi } from "../../lib/business";
 import {
-  confirmDeleteMission,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
+import { useUndoRibbon } from "../../lib/undoRibbon";
 import {
   buildBrainSky,
   buildMapBoard,
@@ -35,6 +35,7 @@ type FilterId = "work" | "live" | "waiting" | "crm" | "knowledge";
 export default function CartePage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
   const [filter, setFilter] = useState<FilterId>("work");
   const [altitude, setAltitude] = useState<BrainAltitude>("fiches");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -240,40 +241,41 @@ export default function CartePage() {
     setActionError("");
     if (node.kind === "mission") {
       const jobId = mapNodeJobId(node);
-      if (!jobId || !confirmDeleteMission(jobId, node.label)) return;
-      setDeleteBusy(true);
-      try {
-        await deleteMissionJobBundle([jobId]);
-        invalidateAfterMissionDelete(qc);
-        closeSheet();
-      } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Suppression impossible.");
-      } finally {
-        setDeleteBusy(false);
-      }
+      if (!jobId) return;
+      const label = node.label || jobId;
+      pushUndo(`Suppression de ${label}`, undefined, () => {
+        void (async () => {
+          setDeleteBusy(true);
+          try {
+            await deleteMissionJobBundle([jobId]);
+            invalidateAfterMissionDelete(qc);
+            closeSheet();
+          } catch (err) {
+            setActionError(err instanceof Error ? err.message : "Suppression impossible.");
+          } finally {
+            setDeleteBusy(false);
+          }
+        })();
+      });
       return;
     }
     if (node.kind === "project") {
       const projectId = mapNodeProjectId(node);
       if (!projectId) return;
-      if (
-        typeof window !== "undefined" &&
-        !window.confirm(
-          `Supprimer définitivement le dossier « ${node.label} » ?\n\nCette action enlève le projet CRM. Les missions liées restent, sans ce dossier.`,
-        )
-      ) {
-        return;
-      }
-      setDeleteBusy(true);
-      try {
-        await businessApi.deleteProject(projectId);
-        void qc.invalidateQueries({ queryKey: QK.operationalMap });
-        closeSheet();
-      } catch (err) {
-        setActionError(err instanceof Error ? err.message : "Suppression du dossier impossible.");
-      } finally {
-        setDeleteBusy(false);
-      }
+      pushUndo(`Suppression de ${node.label}`, undefined, () => {
+        void (async () => {
+          setDeleteBusy(true);
+          try {
+            await businessApi.deleteProject(projectId);
+            void qc.invalidateQueries({ queryKey: QK.operationalMap });
+            closeSheet();
+          } catch (err) {
+            setActionError(err instanceof Error ? err.message : "Suppression du dossier impossible.");
+          } finally {
+            setDeleteBusy(false);
+          }
+        })();
+      });
     }
   };
 

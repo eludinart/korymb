@@ -143,6 +143,53 @@ def test_admin_briefing(client):
     assert body["jarvis"]["line"]
     assert isinstance(body["jarvis"].get("suite"), list)
     assert any(item.get("ready") is False for item in body["jarvis"]["suite"])
+    assert "board" in body
+    board = body["board"]
+    assert isinstance(board.get("urgent"), list)
+    assert isinstance(board.get("todo"), list)
+    assert isinstance(board.get("proposals"), list)
+    assert isinstance(board.get("warnings"), list)
+    counts = board.get("counts") or {}
+    assert counts["urgent"] >= len(board["urgent"])
+    assert counts["proposals"] >= len(board["proposals"])
+
+
+def test_ops_board_separates_urgent_and_proposals():
+    from services.director_platform import build_ops_board
+
+    board = build_ops_board(
+        [
+            {"kind": "hitl", "job_id": "job-hitl", "title": "Valider le plan", "severity": "high"},
+            {"kind": "closure", "job_id": "job-close", "title": "Clôturer le studio", "severity": "medium"},
+            {
+                "kind": "learning_suggestion",
+                "suggestion_id": "sug-1",
+                "title": "Retenir le ton de la marque",
+                "severity": "low",
+            },
+            {
+                "kind": "scheduler_output",
+                "output_id": "out-1",
+                "title": "Publier le récap du vendredi",
+                "severity": "low",
+            },
+        ],
+        extras=[{"id": "llm-blocker", "label": "Ajouter la clé LLM", "href": "/configuration", "kind": "config", "urgency": "critical"}],
+        recent_errors=[{"job_id": "job-err", "mission": "Relance Camille", "error": "timeout"}],
+        commercial={"counts": {"follow_ups_overdue": 2, "stale_quotes": 1, "email_threads_needs_reply": 3}},
+        budget={"budget_exceeded": False, "alert": False},
+    )
+    assert [row["id"] for row in board["urgent"][:2]] == ["llm-blocker", "job-hitl"]
+    assert any(row["id"] == "job-close" for row in board["todo"])
+    assert {row["kind"] for row in board["proposals"]} == {"learning_suggestion", "scheduler_output"}
+    wheres = {row["where"] for row in board["warnings"]}
+    assert "Configuration" in wheres
+    assert "Missions" in wheres
+    assert "Planning" in wheres
+    assert "Devis" in wheres
+    assert "Courrier" in wheres
+    assert board["counts"]["proposals"] == 2
+    assert board["counts"]["urgent"] == 2
 
 
 def test_jarvis_home_sentence():
@@ -440,6 +487,13 @@ def test_admin_notifications_crud(client):
     r2 = client.patch(f"/admin/notifications/{nid}/read")
     assert r2.status_code == 200
     assert r2.json().get("read_at")
+    deleted = client.delete(f"/admin/notifications/{nid}")
+    assert deleted.status_code == 200
+    assert deleted.json().get("deleted") == nid
+    again = client.get("/admin/notifications?unread_only=false")
+    assert all(i["id"] != nid for i in again.json()["items"])
+    missing = client.delete(f"/admin/notifications/{nid}")
+    assert missing.status_code == 404
 
 
 def test_chat_result_notifications_are_ephemeral(monkeypatch):
@@ -510,6 +564,32 @@ def test_mark_notification_kinds_read(client):
 
     denied = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["hitl"]})
     assert denied.status_code == 422
+    applied = insert_director_notification(kind="memory_applied", title="Mémorisé", body="fait")
+    ok = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["memory_applied"]})
+    assert ok.status_code == 200
+    assert get_director_notification(applied["id"]).get("read_at")
+
+
+def test_opening_mission_clears_done_notifications_only(client):
+    from database import get_director_notification
+
+    save_job("jobseen01", "coordinateur", "Mission déjà vue", source="test")
+    receipt = insert_director_notification(
+        kind="memory_applied",
+        title="Mémorisé",
+        body="fait",
+        job_id="jobseen01",
+    )
+    decision = insert_director_notification(
+        kind="hitl",
+        title="Validation requise",
+        body="plan",
+        job_id="jobseen01",
+    )
+    r = client.post("/jobs/jobseen01/result-consulted")
+    assert r.status_code == 200
+    assert get_director_notification(receipt["id"]).get("read_at")
+    assert not get_director_notification(decision["id"]).get("read_at")
 
 
 def test_cio_answer_marks_answered(client):

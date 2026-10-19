@@ -404,6 +404,141 @@ Canal : email contact@ + LinkedIn. Offre : module pro coachs.
     assert again.json()["reason"] == "already_applied_for_job"
 
 
+def test_approach_catalog_comes_from_workspace_knowledge(monkeypatch):
+    from services import business_db
+
+    monkeypatch.setattr(business_db, "_ws", lambda: "ws-catalog")
+    monkeypatch.setattr(
+        "workspace_db.get_workspace_by_id",
+        lambda wid: {
+            "offers_json": [
+                {"title": "Accompagnement individuel", "summary": "Séances", "kind": ""},
+                {"title": "Conseil et IA", "summary": "Outils", "kind": "module"},
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        "services.memory_inbox.get_enterprise_facts",
+        lambda: {"offers": ["Atelier du lieu"], "activity": "Préparer des séances"},
+    )
+    monkeypatch.setattr(business_db, "get_conn", lambda: (_ for _ in ()).throw(RuntimeError("no db")))
+
+    catalog = business_db.workspace_approach_catalog()
+    assert "Accompagnement individuel" in catalog
+    assert "Conseil et IA" in catalog
+    assert "Atelier du lieu" in catalog
+    assert "Préparer des séances" in catalog
+    assert "fleur" not in catalog.lower()
+
+
+def test_outreach_mission_asks_to_choose_among_pistes(client, monkeypatch):
+    from services import business_db
+
+    monkeypatch.setattr(
+        business_db,
+        "workspace_approach_catalog",
+        lambda **_k: "- Offre publiée : Accompagnement individuel\n- Offre publiée : Conseil et IA",
+    )
+    text = business_db.build_contact_outreach_mission({"id": "c-piste", "name": "Ada"})
+    assert "Accompagnement individuel" in text
+    assert "Conseil et IA" in text
+    assert "une ou deux" in text.lower()
+    assert "fleur" not in text.lower()
+
+
+def test_exploration_mission_without_catalog_forbids_invented_offer(client, monkeypatch):
+    from services import business_db
+
+    monkeypatch.setattr(business_db, "workspace_approach_catalog", lambda **_k: "")
+    text = business_db.build_contact_exploration_mission({"id": "c-vide", "name": "Ada"})
+    assert "N'invente pas de produit" in text
+
+
+def test_extract_contact_fields_from_numbered_prose():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    text = """
+The user wants me to provide a synthesis for the CIO based on my research findings.
+
+1. Contact: cible42 (email: cible42@gmail.com)
+2. Instagram: Found profile @cible42 with name "Cible Test" - 10 followers
+3. Connection to workspace: tag matches the offer
+"""
+    fields = extract_contact_fields_from_exploration(text)
+    assert fields["email"] == "cible42@gmail.com"
+    assert "cible42" in fields["socials"]["instagram"]
+
+
+def test_extract_contact_fields_from_tool_call_xml():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    text = """
+The user wants a synthesis and an enrichment proposal.
+
+<tool_call>
+<function=gestion_propose_contact_enrichment>
+<parameter=contact_id>
+ctc-abc
+</parameter>
+<parameter=linkedin_url>
+https://www.linkedin.com/in/cible-test
+</parameter>
+<parameter=notes_append>
+Coordinatrice d'une association. Le siège est à Biarritz et contact@asso-exemple.org.
+</parameter>
+<parameter=outreach_suggestions>
+CANAL PRIORITAIRE: LinkedIn. ACCROCHE: proposer un atelier découverte.
+</parameter>
+<parameter=sources>
+["https://exemple-asso.org/equipe", "https://www.linkedin.com/in/cible-test"]
+</parameter>
+<parameter=summary>
+Fiche enrichie : profil confirmé.
+</parameter>
+</function>
+</tool_call>
+"""
+    fields = extract_contact_fields_from_exploration(text)
+    assert fields["linkedin_url"] == "https://www.linkedin.com/in/cible-test"
+    assert "contact@asso-exemple.org" in fields["notes_append"]
+    assert "email" not in fields
+    assert "atelier" in fields["outreach_suggestions"].lower()
+    assert "https://exemple-asso.org/equipe" in fields["_sources"]
+    assert fields["_summary"].startswith("Fiche enrichie")
+
+
+def test_extract_contact_fields_from_tool_call_json():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    text = """
+gestion_propose_contact_enrichment
+{"linkedin_url": "https://www.linkedin.com/in/cible-json", "email": "cible.json@gmail.com", "notes_append": "Cabinet à Lyon."}
+"""
+    fields = extract_contact_fields_from_exploration(text)
+    assert fields["linkedin_url"] == "https://www.linkedin.com/in/cible-json"
+    assert fields["email"] == "cible.json@gmail.com"
+    assert fields["notes_append"] == "Cabinet à Lyon."
+
+
+def test_extract_contact_fields_from_cio_prose():
+    from services.business_db import extract_contact_fields_from_exploration
+
+    text = """
+Voici une synthèse exploitable pour le CIO concernant Cible Prose :
+
+**Faits et sources :**
+Cible Prose est thérapeute au Centre « Mon Verger » (Genval, Belgique). Ses coordonnées professionnelles sont désormais identifiées (e-mail : `cible.prose@gmail.com` ; téléphone : `+32 475 76 23 32` ).
+
+**Limites et recommandations :**
+Le profil impose une approche de partenariat plutôt qu'une vente directe. La prochaine étape est l'envoi d'une invitation personnelle, sans confondre avec un homonyme.
+"""
+    fields = extract_contact_fields_from_exploration(text)
+    assert fields["email"] == "cible.prose@gmail.com"
+    assert "32475762332" in fields["phone"]
+    assert "mon verger" in fields["notes_append"].lower()
+    assert "partenariat" in fields["outreach_suggestions"].lower()
+
+
 def test_extract_contact_fields_ignores_unlabeled_noise():
     from services.business_db import extract_contact_fields_from_exploration
 

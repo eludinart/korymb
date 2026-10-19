@@ -17,11 +17,17 @@ export function PageShell({
   className = "",
 }: {
   children: ReactNode;
-  size?: "narrow" | "default" | "wide";
+  size?: "narrow" | "default" | "wide" | "board";
   className?: string;
 }) {
   const max =
-    size === "narrow" ? "max-w-3xl" : size === "wide" ? "max-w-7xl" : "max-w-5xl";
+    size === "narrow"
+      ? "max-w-3xl"
+      : size === "board"
+        ? "max-w-[100rem]"
+        : size === "wide"
+          ? "max-w-7xl"
+          : "max-w-5xl";
   return <div className={`page-shell ${max} ${className}`}>{children}</div>;
 }
 
@@ -31,21 +37,33 @@ export function PageHeader({
   badge,
   accent = "violet",
   actions,
+  place,
 }: {
   title: string;
   description?: string;
   badge?: string;
   accent?: Accent;
   actions?: ReactNode;
+  /** Retour d'un mot : « Personnes / Sophie ». */
+  place?: { href: string; label: string };
 }) {
   return (
     <header className={`page-header page-header--${accent}`}>
       <div className={`page-header-accent bg-gradient-to-r ${accentBar[accent]}`} aria-hidden />
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
+          {place ? (
+            <p className="mb-1 text-sm font-semibold text-slate-500">
+              <Link href={place.href} className="text-violet-800 hover:underline dark:text-violet-200">
+                {place.label}
+              </Link>
+              <span className="mx-1.5 text-slate-300">/</span>
+              <span className="text-slate-700 dark:text-slate-200">{title}</span>
+            </p>
+          ) : null}
           {badge ? <span className="page-badge mb-2">{badge}</span> : null}
           <h1 className="page-title">{title}</h1>
-          {description ? <p className="page-lead">{description}</p> : null}
+          {description ? <p className={`page-lead ${place ? "hidden sm:block" : ""}`}>{description}</p> : null}
         </div>
         {actions ? (
           <div className="flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">{actions}</div>

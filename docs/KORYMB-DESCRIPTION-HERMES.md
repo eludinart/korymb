@@ -193,7 +193,7 @@ Les clés d’intégration sont dans `.env` / configuration runtime — **ne jam
 - Provider et modèle sont **dynamiques** (configurables dans l’UI `/configuration`, persistés en base)
 - Baseline dans `backend/.env`, surcharges runtime en DB (`llm_runtime_settings`)
 - **Ne jamais hardcoder** un provider/modèle dans la logique métier
-- Secrets alignés : `AGENT_API_SECRET` (backend) = `KORYMB_AGENT_SECRET` (frontend)
+- Secret agent : `AGENT_API_SECRET` (backend) = `KORYMB_AGENT_SECRET` (Hermes, `/opt/data/.env`). Le navigateur utilise le cookie de session.
 
 ---
 

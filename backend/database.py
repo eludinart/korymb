@@ -7,6 +7,7 @@ comme projection matérialisée.
 """
 import copy
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -15,6 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 from env_loader import load_backend_env
+
+logger = logging.getLogger(__name__)
 
 try:
     import pymysql
@@ -540,6 +543,7 @@ def _ensure_platform_tables(conn) -> None:
             job_id TEXT,
             output_id TEXT,
             action_url TEXT,
+            suggestion_id TEXT,
             read_at TEXT,
             created_at TEXT NOT NULL
         )
@@ -665,6 +669,26 @@ def _ensure_platform_tables(conn) -> None:
     """)
     ensure_lg_checkpoint_tables(conn)
     _ensure_mission_trace_columns(conn)
+    _ensure_notification_columns(conn)
+
+
+def _ensure_notification_columns(conn) -> None:
+    """suggestion_id relie une notification à une suggestion mémoire déjà créée."""
+    try:
+        if _is_mariadb():
+            rows = conn.execute("SHOW COLUMNS FROM director_notifications").fetchall()
+            cols = {str(dict(r).get("Field") or "") for r in rows or []}
+        else:
+            rows = conn.execute("PRAGMA table_info(director_notifications)").fetchall()
+            cols = {str(r[1]) for r in rows or []}
+    except Exception:
+        return
+    if "suggestion_id" in cols:
+        return
+    try:
+        conn.execute("ALTER TABLE director_notifications ADD COLUMN suggestion_id TEXT")
+    except Exception:
+        pass
 
 
 def _ensure_mission_trace_columns(conn) -> None:
@@ -685,6 +709,27 @@ def _ensure_mission_trace_columns(conn) -> None:
             conn.execute(f"ALTER TABLE mission_traces ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
         except Exception:
             pass
+    _ensure_trace_embedding_column(conn)
+
+
+def _ensure_trace_embedding_column(conn) -> None:
+    """Colonne VECTOR seulement sur MariaDB. SQLite garde le schéma partagé."""
+    if not _is_mariadb():
+        return
+    try:
+        rows = conn.execute("SHOW COLUMNS FROM mission_traces").fetchall()
+        cols = {str(dict(r).get("Field") or "") for r in rows or []}
+    except Exception:
+        return
+    if "embedding" in cols:
+        return
+    try:
+        from services.trace_vectors import trace_vector_dimensions
+
+        dim = trace_vector_dimensions()
+        conn.execute(f"ALTER TABLE mission_traces ADD COLUMN embedding VECTOR({int(dim)}) NULL")
+    except Exception:
+        logger.exception("colonne vectorielle du journal non ajoutée")
 
 
 def ensure_lg_checkpoint_tables(conn=None) -> None:
@@ -845,7 +890,7 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = "cio"
     merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
     merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
-    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents"):
+    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents", "project_id", "origin"):
         if extra in mc and mc.get(extra) not in (None, ""):
             merged[extra] = mc[extra]
     out["mission_config"] = merged
@@ -1044,6 +1089,16 @@ def _init_db_seeds() -> None:
         ensure_sandbox_execute_on()
     except Exception:
         pass
+    try:
+        from services.classique_bridge import init_classique_tables
+        from services.calendar_sync import init_calendar_sync_tables
+
+        init_classique_tables()
+        init_calendar_sync_tables()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Tables Classique / synchro agenda non initialisées")
 
 
 def seed_scheduled_task_defaults() -> None:
@@ -4709,13 +4764,24 @@ def list_jobs_active_rows(limit: int = 24) -> list[dict]:
     return [dict(row) for row in rows or []]
 
 
+def _project_id_from_mission_config(raw: str | None) -> str:
+    """Identifiant projet CRM stocké dans mission_config, sans hydrater tout le JSON métier."""
+    try:
+        mc = json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(mc, dict):
+        return ""
+    return str(mc.get("project_id") or "").strip()[:64]
+
+
 def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     """Cartes missions / historique : champs utiles + extrait result, sans hydratation JSON lourde."""
     lim = max(1, min(int(limit), 120))
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
-            "hitl_gate_json, "
+            "hitl_gate_json, mission_config_json, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
@@ -4730,6 +4796,8 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             gate = {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        pid = _project_id_from_mission_config(d.pop("mission_config_json", None))
+        d["mission_config"] = {"project_id": pid} if pid else {}
         out.append(d)
     return out
 
@@ -4766,17 +4834,19 @@ def insert_director_notification(
     job_id: str | None = None,
     output_id: str | None = None,
     action_url: str | None = None,
+    suggestion_id: str | None = None,
     notif_id: str | None = None,
 ) -> dict:
     import uuid as _uuid
 
     nid = (notif_id or _uuid.uuid4().hex[:16]).strip()[:32]
+    sid = (suggestion_id or "").strip()[:64] or None
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO director_notifications (id, kind, title, body, job_id, output_id, action_url, read_at, created_at, workspace_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
-            (nid, kind[:32], title[:500], body[:4000], job_id, output_id, action_url, now, _ws()),
+            "INSERT INTO director_notifications (id, kind, title, body, job_id, output_id, action_url, suggestion_id, read_at, created_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+            (nid, kind[:32], title[:500], body[:4000], job_id, output_id, action_url, sid, now, _ws()),
         )
         conn.commit()
     return get_director_notification(nid) or {"id": nid}
@@ -4819,6 +4889,41 @@ def mark_all_director_notifications_read() -> int:
         cur = conn.execute(
             "UPDATE director_notifications SET read_at=? WHERE workspace_id=? AND read_at IS NULL",
             (now, _ws()),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+# Reçus d'un travail déjà fait : ils partent quand la mission est ouverte.
+_RECEIPT_NOTIFICATION_KINDS = ("info", "memory_applied")
+
+
+def mark_job_receipt_notifications_read(job_id: str) -> int:
+    jid = (job_id or "").strip()
+    if not jid:
+        return 0
+    now = datetime.utcnow().isoformat()
+    placeholders = ",".join(["?"] * len(_RECEIPT_NOTIFICATION_KINDS))
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE director_notifications SET read_at=? "
+            f"WHERE workspace_id=? AND job_id=? AND read_at IS NULL AND kind IN ({placeholders})",
+            (now, _ws(), jid, *_RECEIPT_NOTIFICATION_KINDS),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def mark_notifications_read_by_suggestion(suggestion_id: str) -> int:
+    sid = (suggestion_id or "").strip()
+    if not sid:
+        return 0
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE director_notifications SET read_at=? "
+            "WHERE workspace_id=? AND suggestion_id=? AND read_at IS NULL",
+            (now, _ws(), sid),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0)
@@ -5346,4 +5451,9 @@ def search_mission_traces(
     with get_conn() as conn:
         _ensure_mission_trace_columns(conn)
         rows = conn.execute(sql, params).fetchall()
-    return [dict(r) for r in rows or []]
+    out: list[dict] = []
+    for row in rows or []:
+        item = dict(row)
+        item.pop("embedding", None)
+        out.append(item)
+    return out

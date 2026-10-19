@@ -1,5 +1,8 @@
 "use client";
 
+import CorimbeOrb from "./CorimbeOrb";
+import type { OrbMood } from "../../lib/chatProgress";
+
 type Props = {
   title: string;
   onOpenHistory: () => void;
@@ -8,6 +11,7 @@ type Props = {
   historyAttention?: boolean;
   onOpenMore: () => void;
   subtitle?: string;
+  orbMood?: OrbMood;
 };
 
 /** Barre conversation — menu des fils (mobile) et options du fil en cours. */
@@ -18,6 +22,7 @@ export default function ChatConversationHeader({
   historyAttention = false,
   onOpenMore,
   subtitle,
+  orbMood = "idle",
 }: Props) {
   return (
     <header data-pull-refresh="" className="chat-thread-header flex h-11 shrink-0 items-center gap-0.5 px-1">
@@ -36,11 +41,14 @@ export default function ChatConversationHeader({
         ) : null}
       </button>
 
-      <div className="min-w-0 flex-1 px-1.5 py-1">
-        <p className="truncate text-[13px] font-bold leading-tight text-slate-900 dark:text-slate-50">{title}</p>
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-1.5 py-1">
+        <CorimbeOrb mood={orbMood} size="sm" />
+        <div className="min-w-0">
+          <p className="truncate text-[13px] font-bold leading-tight text-slate-900 dark:text-slate-50">{title}</p>
         {subtitle ? (
           <p className="truncate text-[11px] font-semibold text-violet-700 dark:text-violet-300">{subtitle}</p>
         ) : null}
+        </div>
       </div>
 
       <button

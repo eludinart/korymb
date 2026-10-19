@@ -39,31 +39,34 @@ append "$("$SCRIPTS/fleur-sql.sh" "SELECT COUNT(*) AS users FROM wp_users LIMIT 
 append "$("$SCRIPTS/fleur-sql.sh" "SELECT COUNT(*) AS new_7d FROM wp_users WHERE user_registered >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1" 2>&1 || true)"
 
 append ""
+append "--- Mandala ---"
+# Statut conteneur Mandala (via Coolify)
+MANDALA_CONTAINER="p11nw75ijqbg4lfzmwbw2m3m"
+MANDALA_STATUS=$(docker inspect --format '{{.State.Status}}' "$MANDALA_CONTAINER" 2>/dev/null || echo "inconnu")
+append "Conteneur Mandala: $MANDALA_STATUS"
+append "$("$SCRIPTS/mandala-sql.sh" "SELECT COUNT(*) AS total_users FROM mdl_users" 2>&1 || true)"
+append "$("$SCRIPTS/mandala-sql.sh" "SELECT COUNT(*) AS new_24h FROM mdl_users WHERE user_registered >= DATE_SUB(NOW(), INTERVAL 1 DAY)" 2>&1 || true)"
+append "$("$SCRIPTS/mandala-sql.sh" "SELECT COUNT(*) AS new_7d FROM mdl_users WHERE user_registered >= DATE_SUB(NOW(), INTERVAL 7 DAY)" 2>&1 || true)"
+append "$("$SCRIPTS/mandala-sql.sh" "SELECT COUNT(*) AS active_communities FROM mdl_mandala_communities" 2>&1 || true)"
+append "$("$SCRIPTS/mandala-sql.sh" "SELECT COUNT(*) AS total_posts FROM mdl_mandala_posts" 2>&1 || true)"
+
+append ""
 append "=== Fin briefing ==="
 
 if [[ "$NO_TG" == "--no-telegram" ]]; then
   exit 0
 fi
 
-# Telegram : version courte + 1 action
+# Telegram : version courte
 NOTIF="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM director_notifications WHERE workspace_id='ws-default-legacy' AND read_at IS NULL LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
-OPEN="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status NOT IN ('completed','cancelled') AND status NOT LIKE 'error%' LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
-HITL="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status = 'awaiting_validation' LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
-FAIL="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status LIKE 'error%' AND updated_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
+OPEN="$("$SCRIPTS/korymb-sql.sh" "SELECT COUNT(*) FROM jobs WHERE workspace_id='ws-default-legacy' AND status NOT IN ('completed','cancelled') LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
 FLEUR7="$("$SCRIPTS/fleur-sql.sh" "SELECT COUNT(*) FROM wp_users WHERE user_registered >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1" 2>/dev/null | tail -1 || echo '?')"
-
-ACTION="Inbox: https://korymb.eludein.art/inbox"
-if [[ "${HITL:-0}" =~ ^[1-9] ]]; then
-  ACTION="Valider HITL: https://korymb.eludein.art/inbox"
-elif [[ "${FAIL:-0}" =~ ^[1-9] ]]; then
-  ACTION="Voir échecs / clé LLM: https://korymb.eludein.art/configuration"
-fi
 
 TG_MSG="☀️ *Briefing Élude In Art* — $DATE
 
 • Hermes: HTTP $HERMES_HTTP
-• Korymb: jobs ouverts $OPEN | HITL $HITL | notifs $NOTIF | échecs 7j $FAIL
+• Korymb jobs ouverts: $OPEN | notifs: $NOTIF
 • Fleur users 7j: +$FLEUR7
-• Action: $ACTION"
+• Inbox: https://korymb.eludein.art/inbox"
 
 "$SCRIPTS/eludein-telegram-send.sh" "$TG_MSG" --parse-mode Markdown || echo "Telegram non envoyé (config manquante?)"

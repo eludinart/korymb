@@ -30,7 +30,7 @@ run hermes-host-sync.sh
 echo "=== 3. Layout espaces WebUI ==="
 run hermes-workspace-layout.sh
 
-echo "=== 4. Config modèle (bascule gratuite, Mistral en dernier seulement) ==="
+echo "=== 4. Config modèle (gratuit, Mistral interdit) ==="
 python3 <<'PY'
 from pathlib import Path
 
@@ -50,12 +50,13 @@ for line in text.splitlines():
     elif stripped.startswith("default:"):
         default = stripped.split(":", 1)[1].strip()
 print(f"config.yaml: provider={provider or '?'} model={default or '?'}")
-if "mistral-medium" in default or "mistral-large" in default or provider.startswith("custom:mistral"):
-    print("WARN: le modèle principal est encore Mistral payant — la bascule gratuite n'est pas active")
+low = text.lower()
+if "mistral" in low:
+    print("WARN: Mistral est encore cité dans config.yaml — il est interdit")
 elif "fallback_providers:" not in text:
     print("WARN: fallback_providers absent")
 else:
-    print("config.yaml: bascule gratuite présente")
+    print("config.yaml: bascule gratuite sans Mistral")
 PY
 
 echo "=== 5. Sessions WebUI → livrables ==="
