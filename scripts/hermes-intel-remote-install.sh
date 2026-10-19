@@ -17,14 +17,20 @@ for sk in hermes-deploy/hermes-skills/*/; do
 done
 
 cp hermes-deploy/hermes-scripts/*.sh "$HERMES_DIR/data/scripts/"
+if [ -f hermes-deploy/hermes-scripts/fleur-deck.json ]; then
+  cp hermes-deploy/hermes-scripts/fleur-deck.json "$HERMES_DIR/data/scripts/fleur-deck.json"
+fi
 mkdir -p /opt/data/scripts
-for s in korymb-sql.sh fleur-sql.sh eludein-db-check.sh eludein-sql.sh korymb-api.sh eludein-telegram-send.sh eludein-morning-briefing.sh eludein-evening-recap.sh eludein-alerts.sh eludein-post-deploy-smoke.sh eludein-log-watch.sh; do
+for s in korymb-sql.sh fleur-sql.sh fleur-card-of-day.sh eludein-db-check.sh eludein-sql.sh korymb-api.sh eludein-telegram-send.sh eludein-morning-briefing.sh eludein-evening-recap.sh eludein-alerts.sh eludein-post-deploy-smoke.sh eludein-log-watch.sh; do
   if [ -f "hermes-deploy/hermes-scripts/host/$s" ]; then
     cp "hermes-deploy/hermes-scripts/host/$s" "/opt/data/scripts/$s"
   else
     cp "hermes-deploy/hermes-scripts/$s" "/opt/data/scripts/$s"
   fi
 done
+if [ -f hermes-deploy/hermes-scripts/fleur-deck.json ]; then
+  cp hermes-deploy/hermes-scripts/fleur-deck.json /opt/data/scripts/fleur-deck.json
+fi
 
 chmod +x "$HERMES_DIR/data/scripts/"*.sh /opt/data/scripts/*.sh
 ln -sf "$HERMES_DIR/data/.env" /opt/data/.env

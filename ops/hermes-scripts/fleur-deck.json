@@ -1,0 +1,471 @@
+{
+  "source": {
+    "repo": "https://github.com/eludinart/fleur-amours",
+    "commit": "c2c2f4e8c38cff43da6f8afc67b747c467bf15d1",
+    "names": "next/src/data/tarotCards.ts",
+    "quotes_and_pages": "next/public/manuel/*.md (Question Racine + Pages livre)",
+    "cycles": "chapitres du manuel : coeur 21-28, vegetal 30-39, elements bruts 41-45, terre 47-52, eau 54-59, air 61-66, feu 68-73, ether 75-80, vie 82-93",
+    "db": "pas de catalogue de cartes dans les tables wp_fleur_* (comptes, tirages, coach)"
+  },
+  "epoch": "2026-01-01",
+  "timezone": "Europe/Paris",
+  "shuffle_seed": "fleur-damours-carte-du-jour-v1",
+  "url_template": "https://app-fleurdamours.eludein.art/cycles/{cycle}#{slug}",
+  "cards": [
+    {
+      "name": "L'Estuaire",
+      "cycle": "eau",
+      "slug": "l-estuaire",
+      "quote": "Quelles sont les deux parts de moi (ou de ma vie) qui cherchent à se réconcilier ?",
+      "page": "120-121"
+    },
+    {
+      "name": "La Mémoire de la Sève",
+      "cycle": "vie",
+      "slug": "la-memoire-de-la-seve",
+      "quote": "Quel héritage familial ou karmique suis-je en train de porter ou de guérir ?",
+      "page": "178-179"
+    },
+    {
+      "name": "La Fleur",
+      "cycle": "vegetal",
+      "slug": "la-fleur",
+      "quote": "Quelle partie de ma beauté ou de mon talent ai-je peur de montrer au monde ?",
+      "page": "72-73"
+    },
+    {
+      "name": "L'Harmonie des Cycles",
+      "cycle": "ether",
+      "slug": "l-harmonie-des-cycles",
+      "quote": "Est-ce le moment d'agir, ou le moment d'attendre que la roue tourne ?",
+      "page": "154-155"
+    },
+    {
+      "name": "La Transmission",
+      "cycle": "vie",
+      "slug": "la-transmission",
+      "quote": "Quelle sagesse ai-je acquise que je dois maintenant passer à d'autres ?",
+      "page": "182-183"
+    },
+    {
+      "name": "La Lumière",
+      "cycle": "feu",
+      "slug": "la-lumiere",
+      "quote": "Qu'est-ce que je refusais de voir et qui est maintenant évident ?",
+      "page": "146-147"
+    },
+    {
+      "name": "Le Minéral",
+      "cycle": "terre",
+      "slug": "le-mineral",
+      "quote": "Quelle part de moi est inébranlable, quoi qu'il arrive autour ?",
+      "page": "98-99"
+    },
+    {
+      "name": "Pragma",
+      "cycle": "coeur",
+      "slug": "pragma",
+      "quote": "Quel engagement concret puis-je prendre pour solidifier ce que je construis ?",
+      "page": "54-55"
+    },
+    {
+      "name": "Ludus",
+      "cycle": "coeur",
+      "slug": "ludus",
+      "quote": "Où ai-je perdu ma capacité à jouer et à ne pas me prendre au sérieux ?",
+      "page": "56-57"
+    },
+    {
+      "name": "Le Soleil Intérieur",
+      "cycle": "feu",
+      "slug": "le-soleil-interieur",
+      "quote": "Comment puis-je rayonner qui je suis sans m'excuser ni chercher l'approbation ?",
+      "page": "148-149"
+    },
+    {
+      "name": "La Tige",
+      "cycle": "vegetal",
+      "slug": "la-tige",
+      "quote": "Quelle valeur ou conviction me permet de rester droit·e dans cette situation ?",
+      "page": "66-67"
+    },
+    {
+      "name": "Les Braises",
+      "cycle": "feu",
+      "slug": "les-braises",
+      "quote": "Quel projet ou désir ai-je laissé de côté mais qui est encore chaud en moi ?",
+      "page": "140-141"
+    },
+    {
+      "name": "Le Cristal",
+      "cycle": "terre",
+      "slug": "le-cristal",
+      "quote": "Quelle vérité est devenue limpide pour moi, même si elle est tranchante ?",
+      "page": "104-105"
+    },
+    {
+      "name": "La Présence",
+      "cycle": "vie",
+      "slug": "la-presence",
+      "quote": "Suis-je vraiment là, ou suis-je déjà en train de planifier la suite ?",
+      "page": "186-187"
+    },
+    {
+      "name": "La Graine Endormie",
+      "cycle": "vegetal",
+      "slug": "la-graine-endormie",
+      "quote": "Quel projet ou quelle part de moi a besoin de repos avant de pouvoir grandir ?",
+      "page": "80-81"
+    },
+    {
+      "name": "La Cendre Fertile",
+      "cycle": "terre",
+      "slug": "la-cendre-fertile",
+      "quote": "Qu'est-ce qui est définitivement fini et que je dois accepter pour renaître ?",
+      "page": "108-109"
+    },
+    {
+      "name": "Mania",
+      "cycle": "coeur",
+      "slug": "mania",
+      "quote": "Où se situe la frontière exacte entre ma passion et ma souffrance ?",
+      "page": "58-59"
+    },
+    {
+      "name": "Le Grand Passage",
+      "cycle": "vie",
+      "slug": "le-grand-passage",
+      "quote": "Qu'est-ce qui doit mourir symboliquement aujourd'hui pour que je puisse vivre pleinement ?",
+      "page": "190-191"
+    },
+    {
+      "name": "L'Océan",
+      "cycle": "eau",
+      "slug": "l-ocean",
+      "quote": "Si je lâchais totalement le contrôle maintenant, que se passerait-il ?",
+      "page": "122-123"
+    },
+    {
+      "name": "Les Racines",
+      "cycle": "vegetal",
+      "slug": "les-racines",
+      "quote": "Sur quoi repose ma sécurité actuelle : sur moi-même ou sur l'extérieur ?",
+      "page": "64-65"
+    },
+    {
+      "name": "Storgè",
+      "cycle": "coeur",
+      "slug": "storge",
+      "quote": "Est-ce que je reste par choix d'amour ou par habitude de sécurité ?",
+      "page": "52-53"
+    },
+    {
+      "name": "La Terre",
+      "cycle": "terre",
+      "slug": "la-terre",
+      "quote": "Comment puis-je faire descendre mon idée du mental vers la réalité concrète ?",
+      "page": "94-95"
+    },
+    {
+      "name": "Philautia",
+      "cycle": "coeur",
+      "slug": "philautia",
+      "quote": "Si je me traitais comme la personne la plus précieuse de ma vie, que ferais-je différemment ?",
+      "page": "60-61"
+    },
+    {
+      "name": "L'Abeille",
+      "cycle": "vie",
+      "slug": "l-abeille",
+      "quote": "Quelle est ma contribution unique au groupe ou à la communauté ?",
+      "page": "168-169"
+    },
+    {
+      "name": "Le Feu",
+      "cycle": "feu",
+      "slug": "le-feu",
+      "quote": "Quelle est l'action courageuse que je repousse et qui débloquerait tout ?",
+      "page": "86-87"
+    },
+    {
+      "name": "Le Cœur du Feu",
+      "cycle": "feu",
+      "slug": "le-c-ur-du-feu",
+      "quote": "Qu'est-ce qui me fait sentir intensément vivant·e quand je le fais ?",
+      "page": "142-143"
+    },
+    {
+      "name": "L'Écho",
+      "cycle": "air",
+      "slug": "l-echo",
+      "quote": "Ce que je reçois des autres est-il le reflet de ce que j'émets ?",
+      "page": "130-131"
+    },
+    {
+      "name": "Les Feuilles",
+      "cycle": "vegetal",
+      "slug": "les-feuilles",
+      "quote": "Suis-je en train de m'étouffer en gardant tout pour moi, ou est-ce que je laisse l'air circuler ?",
+      "page": "68-69"
+    },
+    {
+      "name": "L'Éther",
+      "cycle": "ether",
+      "slug": "l-ether",
+      "quote": "Comment puis-je créer plus d'espace et de silence dans ma vie actuelle ?",
+      "page": "88-89"
+    },
+    {
+      "name": "La Métamorphose",
+      "cycle": "vie",
+      "slug": "la-metamorphose",
+      "quote": "Quelle ancienne version de moi-même suis-je en train de quitter ?",
+      "page": "188-189"
+    },
+    {
+      "name": "L'Unité",
+      "cycle": "ether",
+      "slug": "l-unite",
+      "quote": "Qu'est-ce qui me sépare des autres ou de moi-même en ce moment ?",
+      "page": "160-161"
+    },
+    {
+      "name": "Éros",
+      "cycle": "coeur",
+      "slug": "eros",
+      "quote": "Qu'est-ce qui, dans ma vie, me donne envie de me lever et de créer avec ferveur ?",
+      "page": "48-49"
+    },
+    {
+      "name": "La Source Lumineuse",
+      "cycle": "ether",
+      "slug": "la-source-lumineuse",
+      "quote": "Quelle est ma connexion au sacré dans mon quotidien ?",
+      "page": "162-163"
+    },
+    {
+      "name": "L'Âme du Monde",
+      "cycle": "vie",
+      "slug": "l-ame-du-monde",
+      "quote": "Comment mon histoire personnelle résonne-t-elle avec ce que le monde traverse ?",
+      "page": "170-171"
+    },
+    {
+      "name": "La Source Profonde",
+      "cycle": "eau",
+      "slug": "la-source-profonde",
+      "quote": "Quelle est l'intuition profonde, que j'entends chuchoter mais que je n'ose pas écouter ?",
+      "page": "112-113"
+    },
+    {
+      "name": "La Vague",
+      "cycle": "eau",
+      "slug": "la-vague",
+      "quote": "Suis-je en train de lutter contre le courant ou d'apprendre à surfer avec ?",
+      "page": "118-119"
+    },
+    {
+      "name": "Le Vent Solaire",
+      "cycle": "air",
+      "slug": "le-vent-solaire",
+      "quote": "Quelle grande vision m'inspire et m'effraie à la fois ?",
+      "page": "128-129"
+    },
+    {
+      "name": "Le Nectar",
+      "cycle": "vegetal",
+      "slug": "le-nectar",
+      "quote": "Où se cache la douceur et le plaisir dans ce que je vis en ce moment ?",
+      "page": "78-79"
+    },
+    {
+      "name": "Le Messager",
+      "cycle": "air",
+      "slug": "le-messager",
+      "quote": "À quel signe ou à quelle coïncidence dois-je prêter attention aujourd'hui ?",
+      "page": "136-137"
+    },
+    {
+      "name": "La Pluie",
+      "cycle": "eau",
+      "slug": "la-pluie",
+      "quote": "Quelles larmes (de joie ou de peine) ai-je besoin de verser pour nettoyer mon ciel ?",
+      "page": "114-115"
+    },
+    {
+      "name": "Le Fruit",
+      "cycle": "vegetal",
+      "slug": "le-fruit",
+      "quote": "Qu'est-ce que j'ai accompli qui est maintenant mûr pour être partagé ?",
+      "page": "74-75"
+    },
+    {
+      "name": "L'Alizé",
+      "cycle": "air",
+      "slug": "l-alize",
+      "quote": "Quel est le chemin le plus fluide et le plus doux pour moi en ce moment ?",
+      "page": "132-133"
+    },
+    {
+      "name": "La Conscience Collective",
+      "cycle": "vie",
+      "slug": "la-conscience-collective",
+      "quote": "Quelle énergie suis-je en train d'injecter dans le monde : de la peur ou de la confiance ?",
+      "page": "184-185"
+    },
+    {
+      "name": "Le Pollen",
+      "cycle": "vegetal",
+      "slug": "le-pollen",
+      "quote": "Quelle idée ou quel message ai-je besoin de disséminer autour de moi ?",
+      "page": "76-77"
+    },
+    {
+      "name": "L'Offrande",
+      "cycle": "vie",
+      "slug": "l-offrande",
+      "quote": "Qu'est-ce que je suis prêt·e à donner simplement pour la joie de donner ?",
+      "page": "172-173"
+    },
+    {
+      "name": "La Danse du Monde",
+      "cycle": "vie",
+      "slug": "la-danse-du-monde",
+      "quote": "Comment puis-je mettre plus de joie et de mouvement dans ma vie, là, tout de suite ?",
+      "page": "176-177"
+    },
+    {
+      "name": "Le Souffle",
+      "cycle": "air",
+      "slug": "le-souffle",
+      "quote": "Où est-ce que je me contracte et où ai-je besoin de respirer plus large ?",
+      "page": "126-127"
+    },
+    {
+      "name": "L'Invisible",
+      "cycle": "ether",
+      "slug": "l-invisible",
+      "quote": "Puis-je faire confiance à ce que je ne vois pas encore ?",
+      "page": "156-157"
+    },
+    {
+      "name": "La Flamme",
+      "cycle": "feu",
+      "slug": "la-flamme",
+      "quote": "Si je suivais mon impulsion immédiate sans réfléchir, que ferais-je ?",
+      "page": "144-145"
+    },
+    {
+      "name": "La Roche-Mère",
+      "cycle": "terre",
+      "slug": "la-roche-mere",
+      "quote": "Quel héritage ou quelle force ancienne me soutient sans que je le voie ?",
+      "page": "106-107"
+    },
+    {
+      "name": "L'Humus",
+      "cycle": "terre",
+      "slug": "l-humus",
+      "quote": "Quel échec ou quelle perte passée peut servir d'engrais à ma réussite d'aujourd'hui ?",
+      "page": "102-103"
+    },
+    {
+      "name": "La Spirale de la Vie",
+      "cycle": "vie",
+      "slug": "la-spirale-de-la-vie",
+      "quote": "J'ai l'impression de revenir en arrière, mais qu'est-ce que j'ai appris de plus cette fois-ci ?",
+      "page": "174-175"
+    },
+    {
+      "name": "Le Volcan",
+      "cycle": "feu",
+      "slug": "le-volcan",
+      "quote": "Quelle vérité suis-je en train de contenir qui risque d'exploser si je ne l'exprime pas ?",
+      "page": "150-151"
+    },
+    {
+      "name": "Le Bouton",
+      "cycle": "vegetal",
+      "slug": "le-bouton",
+      "quote": "Qu'est-ce qui est prêt à éclore en moi si j'arrête de forcer l'ouverture ?",
+      "page": "70-71"
+    },
+    {
+      "name": "L'Argile",
+      "cycle": "terre",
+      "slug": "l-argile",
+      "quote": "Suis-je trop rigide, ou suis-je prêt·e à me laisser remodeler par la vie ?",
+      "page": "100-101"
+    },
+    {
+      "name": "Le Mandala Cosmique",
+      "cycle": "ether",
+      "slug": "le-mandala-cosmique",
+      "quote": "Quel est le sens caché ou l'ordre derrière le chaos apparent de ma situation ?",
+      "page": "158-159"
+    },
+    {
+      "name": "Philia",
+      "cycle": "coeur",
+      "slug": "philia",
+      "quote": "Dans cette relation, est-ce que je me sens écouté·e autant que j'écoute ?",
+      "page": "50-51"
+    },
+    {
+      "name": "L'Air",
+      "cycle": "air",
+      "slug": "l-air",
+      "quote": "Quelle croyance ou pensée rigide m'empêche d'avancer librement ?",
+      "page": "92-93"
+    },
+    {
+      "name": "La Germination",
+      "cycle": "vegetal",
+      "slug": "la-germination",
+      "quote": "Quel est le tout premier petit pas que je peux faire, même si je tremble ?",
+      "page": "82-83"
+    },
+    {
+      "name": "La Naissance",
+      "cycle": "vie",
+      "slug": "la-naissance",
+      "quote": "Qu'est-ce qui est en train de naître à travers moi et qui me demande du courage ?",
+      "page": "180-181"
+    },
+    {
+      "name": "Agapè",
+      "cycle": "coeur",
+      "slug": "agape",
+      "quote": "Où puis-je donner aujourd'hui sans absolument rien attendre en retour ?",
+      "page": "46-47"
+    },
+    {
+      "name": "L'Eau",
+      "cycle": "eau",
+      "slug": "l-eau",
+      "quote": "Quelle émotion suis-je en train de refouler qui demande à couler ?",
+      "page": "90-91"
+    },
+    {
+      "name": "Le Verbe",
+      "cycle": "air",
+      "slug": "le-verbe",
+      "quote": "Qu'est-ce qui a besoin d'être dit à haute voix pour devenir réel ?",
+      "page": "134-135"
+    },
+    {
+      "name": "Le Silence Étoilé",
+      "cycle": "ether",
+      "slug": "le-silence-etoile",
+      "quote": "Si je m'arrête de parler et de faire, que reste-t-il ?",
+      "page": "164-165"
+    },
+    {
+      "name": "La Brume",
+      "cycle": "eau",
+      "slug": "la-brume",
+      "quote": "Puis-je accepter de ne pas avoir la réponse tout de suite et d'avancer dans le flou ?",
+      "page": "116-117"
+    }
+  ]
+}
