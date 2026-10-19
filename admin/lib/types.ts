@@ -138,6 +138,7 @@ export type BossJobLike = {
   mission_closed_by_user?: boolean;
   result?: string | null;
   created_at?: string | null;
+  mission_config?: MissionConfig | null;
 };
 
 // ── Triade agentique ──────────────────────────────────────────────────────────
