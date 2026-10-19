@@ -651,7 +651,7 @@ export default function BriefingBoard({
               <>
                 <span className="text-slate-300"> · </span>
                 <a href="#board-todo" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
-                  {countBit(todoCount, "1 à valider", "à valider")}
+                  {countBit(todoCount, "1 décision en attente", "décisions en attente")}
                 </a>
               </>
             ) : null}
@@ -659,7 +659,7 @@ export default function BriefingBoard({
               <>
                 <span className="text-slate-300"> · </span>
                 <a href="#board-running" className="underline-offset-2 hover:underline">
-                  {countBit(runningRows.length, "1 en cours", "en cours")}
+                  {countBit(runningRows.length, "1 mission en cours", "missions en cours")}
                 </a>
               </>
             ) : null}
@@ -773,8 +773,8 @@ export default function BriefingBoard({
 
         <Lane
           id="board-todo"
-          title="À faire"
-          hint="Décisions et validations qui vous attendent."
+          title="Décisions en attente"
+          hint="Validations qui vous attendent, hors urgences."
           count={todoCount}
           accent="bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100"
           bar="bg-violet-500"
@@ -807,7 +807,7 @@ export default function BriefingBoard({
 
         <Lane
           id="board-running"
-          title="En cours"
+          title="Missions en cours"
           hint="Missions qui tournent en ce moment."
           count={runningRows.length}
           accent="bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100"
@@ -857,8 +857,8 @@ export default function BriefingBoard({
 
         <Lane
           id="board-advance"
-          title="À avancer"
-          hint="Résultats à reprendre, puis tâches prévues."
+          title="Missions planifiées et résultats"
+          hint="Résultats non consultés, puis missions pas encore lancées."
           count={advanceCount}
           accent="bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100"
           bar="bg-amber-500"
@@ -870,7 +870,7 @@ export default function BriefingBoard({
           }
         >
           {advanceCount === 0 ? (
-            <EmptyLine>Rien à reprendre ni à lancer.</EmptyLine>
+            <EmptyLine>Aucune mission planifiée, aucun résultat à lire.</EmptyLine>
           ) : (
             <ul className="space-y-2">
               {resumeRows.map((m) => (
@@ -924,7 +924,7 @@ export default function BriefingBoard({
 
         <Lane
           id="board-proposals"
-          title="Propositions"
+          title="Propositions à valider"
           hint="Suggestions à accepter ou à refuser. Rien ne part sans vous."
           count={proposalCount}
           accent="bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100"
@@ -937,7 +937,7 @@ export default function BriefingBoard({
           }
         >
           {proposals.length === 0 ? (
-            <EmptyLine>Aucune proposition en attente.</EmptyLine>
+            <EmptyLine>Aucune proposition à valider.</EmptyLine>
           ) : (
             <ul className="space-y-2">
               {proposals.map((item, index) => (
@@ -958,7 +958,7 @@ export default function BriefingBoard({
 
         <Lane
           id="board-soon"
-          title="Bientôt"
+          title="Agenda 48 h"
           hint="Planning des prochaines 48 h."
           count={events.length || lines.length}
           accent="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
@@ -974,7 +974,7 @@ export default function BriefingBoard({
           }
         >
           {events.length === 0 && lines.length === 0 && memoryPending <= 0 ? (
-            <EmptyLine>Rien au planning sur les 48 prochaines heures.</EmptyLine>
+            <EmptyLine>Rien à l&apos;agenda sur les 48 prochaines heures.</EmptyLine>
           ) : (
             <ul className="space-y-2">
               {memoryPending > 0 && !proposals.some((item) => item.kind === "learning_suggestion") ? (
