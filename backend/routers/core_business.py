@@ -466,6 +466,8 @@ async def business_fill_contact_from_exploration(
         raise HTTPException(404, detail="Contact introuvable")
     if result.get("skipped") and result.get("reason") == "no_exploration_job":
         raise HTTPException(404, detail="Aucune exploration trouvée pour ce contact")
+    if result.get("skipped") and result.get("reason") == "empty_model_result":
+        raise HTTPException(400, detail="Le modèle n'a pas renvoyé de texte exploitable")
     if result.get("skipped") and result.get("reason") == "no_fields_extracted":
         raise HTTPException(400, detail="Impossible d'extraire des champs depuis le résultat d'exploration")
     return result

@@ -138,6 +138,7 @@ function ChatPageInner() {
   const [pending, setPending] = useState(false);
   const [backgroundJobs, setBackgroundJobs] = useState<PendingChatJob[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreSheetOpen, setMoreSheetOpen] = useState(false);
   const [replyProgress, setReplyProgress] = useState<ChatReplyProgress | null>(null);
   const [teamOfferDismissedId, setTeamOfferDismissedId] = useState("");
@@ -169,6 +170,26 @@ function ChatPageInner() {
     return () => {
       mountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(window.localStorage.getItem("korymb_chat_sidebar_collapsed") === "1");
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("korymb_chat_sidebar_collapsed", next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -1362,19 +1383,22 @@ function ChatPageInner() {
   const interlocutorName = describeInterlocutor(interlocutor, groupsList as GroupOpt[]).title;
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950 lg:border-x lg:border-slate-200 dark:lg:border-slate-800">
+    <div className="flex h-full w-full flex-col bg-white dark:bg-slate-950">
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
-        <ChatSidebar
-          conversations={conversations}
-          activeId={activeId}
-          pendingJobs={backgroundJobs}
-          onSelect={selectConversation}
-          onNew={newConversation}
-          onDelete={(id) => void removeConversation(id)}
-          onDeleteMany={(ids) => removeConversations(ids)}
-          interlocutorLabel={interlocutorLabel}
-          className="hidden lg:flex"
-        />
+        <div className="hidden h-full min-h-0 shrink-0 lg:flex">
+          <ChatSidebar
+            conversations={conversations}
+            activeId={activeId}
+            pendingJobs={backgroundJobs}
+            onSelect={selectConversation}
+            onNew={newConversation}
+            onDelete={(id) => void removeConversation(id)}
+            onDeleteMany={(ids) => removeConversations(ids)}
+            interlocutorLabel={interlocutorLabel}
+            collapsed={sidebarCollapsed}
+            onToggleCollapsed={toggleSidebarCollapsed}
+          />
+        </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ChatConversationHeader

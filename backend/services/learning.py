@@ -153,6 +153,12 @@ def resolve_learning_decision(suggestion_id: str, decision: str) -> dict | None:
         resolve_learning_suggestion(suggestion_id, "approved")
     else:
         resolve_learning_suggestion(suggestion_id, "rejected")
+    try:
+        from database import mark_notifications_read_by_suggestion
+
+        mark_notifications_read_by_suggestion(suggestion_id)
+    except Exception:
+        logger.exception("mark memory notification read failed for %s", suggestion_id)
     return get_learning_suggestion(suggestion_id)
 
 

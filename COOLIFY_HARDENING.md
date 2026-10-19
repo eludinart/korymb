@@ -15,7 +15,7 @@ Variables Coolify (runtime) :
 | `NODE_ENV` | oui | `production` |
 | `NEXT_PUBLIC_KORYMB_API_URL` | oui | URL publique du backend (ex. `https://api-korymb.eludein.art`) |
 | `KORYMB_API_URL` | oui | Même URL, côté serveur (routes `/api/auth/*`, proxy) |
-| `KORYMB_AGENT_SECRET` | oui (runtime) | Secret partagé avec le backend. **Runtime uniquement**, jamais en argument de build, jamais en `NEXT_PUBLIC_*` |
+| `KORYMB_AGENT_SECRET` | non | Le proxy Next ne l'envoie pas. Ne pas le mettre sur le service frontend. |
 
 Référence : `.env.coolify.example`.
 
@@ -58,12 +58,14 @@ Variables Coolify essentielles :
 ## 3) Alignement secrets
 
 ```
-KORYMB_AGENT_SECRET (frontend)  ==  AGENT_API_SECRET (backend)
+AGENT_API_SECRET (backend) = KORYMB_AGENT_SECRET (Hermes / scripts, hors navigateur)
 ```
+
+Le navigateur ne reçoit pas le secret agent. Les routes proxy Next authentifient avec le cookie httpOnly `korymb_token`.
 
 Ne jamais définir `NEXT_PUBLIC_KORYMB_AGENT_SECRET` (ni en build, ni en runtime). Next.js intègre toute variable `NEXT_PUBLIC_` au JavaScript envoyé au navigateur. Retirer cette variable du service frontend Coolify si elle y est encore.
 
-Le navigateur n'envoie pas le secret agent. Les routes `/api/korymb*` exigent le cookie JWT (`korymb_token`) et le transmettent au backend en `Authorization: Bearer`. `KORYMB_AGENT_SECRET` reste côté processus Next (Hermes et les scripts appellent l'API avec `X-Agent-Secret`, pas le navigateur).
+Le cookie JWT (`korymb_token`) est obligatoire pour les pages cockpit. `KORYMB_AGENT_SECRET` n'autorise pas un accès navigateur sans login.
 
 ## 4) CORS
 
@@ -141,7 +143,7 @@ Symptômes :
 
 1. **`NODE_ENV=production` avant `npm ci`** — omet tailwind/postcss/typescript (devDependencies). Le Dockerfile du repo installe d’abord les deps, puis définit `NODE_ENV=production` avant le build.
 2. **Build pack encore Nixpacks** — `next` introuvable (`suivant: not found` en logs FR) car `npm --prefix admin ci` n’est pas exécuté.
-3. **`KORYMB_AGENT_SECRET` en build ARG** — à garder en variable **runtime** uniquement (pas en argument de build Docker).
+3. **Secret agent en build ARG** — ne pas passer `AGENT_API_SECRET` ni `KORYMB_AGENT_SECRET` au build de l'image Next.
 4. **Polices Google** — `next/font/google` peut échouer sans accès réseau au build ; le layout utilise des polices système.
 
 **Build arguments Coolify (frontend)** : uniquement `NEXT_PUBLIC_KORYMB_API_URL` si nécessaire.

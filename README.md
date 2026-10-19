@@ -26,8 +26,8 @@ copy backend\.env.example backend\.env
 
 Then fill required secrets and keep them aligned:
 
-- `backend/.env` -> `AGENT_API_SECRET=...`
-- **`admin/.env.local`** -> `KORYMB_AGENT_SECRET=...` (serveur Next uniquement, même valeur, jamais de préfixe `NEXT_PUBLIC_`)
+- `backend/.env` -> `AGENT_API_SECRET=...` (clients machine : Hermes, scripts — jamais dans le navigateur)
+- Le cockpit Next s'authentifie par cookie httpOnly (`korymb_token`) via les routes `/api/korymb*`
 
 #### Dev branché sur MariaDB du VPS
 

@@ -47,8 +47,8 @@ class MarkNotificationKindsBody(BaseModel):
     @field_validator("kinds")
     @classmethod
     def _kinds(cls, value: list[str]) -> list[str]:
-        # Uniquement les échos chat : le fil est déjà la source de vérité.
-        allowed = {"chat_result"}
+        # Échos déjà visibles ailleurs : le fil chat, ou la page mémoire.
+        allowed = {"chat_result", "memory_applied"}
         out: list[str] = []
         seen: set[str] = set()
         for raw in value:
@@ -58,7 +58,7 @@ class MarkNotificationKindsBody(BaseModel):
             seen.add(k)
             out.append(k)
         if not out:
-            raise ValueError("Aucun type consommable (chat_result).")
+            raise ValueError("Aucun type consommable (chat_result, memory_applied).")
         return out
 
 

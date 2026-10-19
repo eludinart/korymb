@@ -5,6 +5,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import type { AuthMeResponse } from "../../lib/authSession";
 import { queryClient } from "../../lib/queryClient";
+import { useUiMode } from "../../lib/uiMode";
 
 export default function ProfilPage() {
   const [me, setMe] = useState<AuthMeResponse | null>(null);
@@ -12,8 +13,11 @@ export default function ProfilPage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const { showAdvanced, setUiMode, canSetUiMode, busy: uiBusy, error: uiModeError } = useUiMode();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -49,10 +53,13 @@ export default function ProfilPage() {
         body: JSON.stringify({
           display_name: displayName,
           ...(visiting ? {} : { workspace_name: workspaceName }),
+          ...(newPassword ? { current_password: currentPassword, new_password: newPassword } : {}),
         }),
       });
       if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || "Enregistrement impossible.");
-      setMessage("Profil mis à jour.");
+      setMessage(newPassword ? "Profil et mot de passe mis à jour." : "Profil mis à jour.");
+      setCurrentPassword("");
+      setNewPassword("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur.");
@@ -129,6 +136,28 @@ export default function ProfilPage() {
               />
             </label>
           ) : null}
+          <label className="block text-sm font-semibold text-slate-700">
+            Mot de passe actuel
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Nouveau mot de passe
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              minLength={8}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            />
+          </label>
+          <p className="text-xs text-slate-500">Laissez les mots de passe vides pour ne changer que le nom.</p>
           {message ? <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{message}</p> : null}
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
           <button
@@ -140,6 +169,36 @@ export default function ProfilPage() {
           </button>
         </form>
       </section>
+
+      {canSetUiMode ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-extrabold text-slate-900">Mode de l&apos;espace</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={uiBusy || !showAdvanced}
+              onClick={() => void setUiMode("essential").catch(() => undefined)}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold ${!showAdvanced ? "bg-violet-700 text-white" : "border border-slate-300 text-slate-700"} disabled:opacity-60`}
+            >
+              Essentiel
+            </button>
+            <button
+              type="button"
+              disabled={uiBusy || showAdvanced}
+              onClick={() => void setUiMode("advanced").catch(() => undefined)}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold ${showAdvanced ? "bg-violet-700 text-white" : "border border-slate-300 text-slate-700"} disabled:opacity-60`}
+            >
+              Avancé
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            {showAdvanced
+              ? "Avancé : travaux, carte et moteur, en plus du quotidien."
+              : "Essentiel : ce qui a besoin de vous, sans le moteur."}
+          </p>
+          {uiModeError ? <p className="mt-2 text-sm text-red-700">{uiModeError}</p> : null}
+        </section>
+      ) : null}
 
       <section className="flex flex-wrap gap-3">
         <Link href="/chat" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">

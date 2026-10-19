@@ -42,7 +42,7 @@ export default function GestionLayout({ children }: { children: React.ReactNode 
 
   return (
     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:gap-8">
-      <aside className="shrink-0 rounded-2xl border-2 border-emerald-200 bg-white p-3 shadow-md sm:p-4 lg:sticky lg:top-28 lg:w-64">
+      <aside className="shrink-0 rounded-2xl border-2 border-emerald-200 bg-white p-3 shadow-md sm:p-4 lg:sticky lg:top-[calc(var(--app-header-offset,0px)+0.75rem)] lg:z-20 lg:max-h-[calc(100dvh-var(--app-header-offset,0px)-1.5rem)] lg:w-64 lg:self-start lg:overflow-y-auto lg:overscroll-y-contain lg:[scrollbar-width:thin]">
         <p className="text-xs font-extrabold uppercase tracking-wider text-emerald-800">Gestion</p>
         <p className="mt-1 hidden px-2 text-[11px] leading-snug text-slate-500 sm:block">
           Création, équipes projet, commercial et planning
