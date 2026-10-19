@@ -24,11 +24,26 @@ _STATUS_RE = re.compile(
     r")\b",
     re.I,
 )
+# Point produit (« ce qui marche / bloque »), pas une sonde Gmail/jobs.
+# Doit gagner sur _STATUS_RE, qui matche aussi « état de korymb ».
+_PRODUCT_SNAPSHOT_RE = re.compile(
+    r"("
+    r"ce qui marche|ce qui bloque|ce qui coince|"
+    r"point court|"
+    r"point .{0,32}etat"
+    r")",
+    re.I,
+)
 _PLATFORM_RE = re.compile(
     r"\b("
     r"bug|corrige|patch|spec plateforme|propose_platform|"
     r"bouton|composant|fichier \w+\.(py|tsx|ts)|fastapi|next\.js|"
-    r"comportement moteur|sandbox_execute|lazy.?delegation"
+    r"comportement moteur|sandbox_execute|lazy.?delegation|"
+    r"etat des lieux|état des lieux|developpement (de )?(korymb|la plateforme)|"
+    r"développement (de )?(korymb|la plateforme)|changelog|"
+    r"ce qui (a ete|est) (deploye|livre|pousse)|a redeployer|à redéployer|"
+    r"plateforme korymb|etat (de la )?plateforme|état (de la )?plateforme|"
+    r"comment (marche|fonctionne) korymb|connaitre korymb"
     r")\b",
     re.I,
 )
@@ -53,6 +68,23 @@ _MEMORY_RE = re.compile(
 )
 _ACTION_RE = re.compile(
     r"\b(prepare|redige|trouve|produis|liste de|enquete|prospection)\b",
+    re.I,
+)
+_QCM_REQUEST_RE = re.compile(
+    r"("
+    r"(?<!sans )\bqcm|(?<!sans )\bquestionnaire|cases? a cocher|cases? à cocher|"
+    r"choix multiples|arbitre entre|options a cocher|options à cocher|"
+    r"fais[- ]moi (un |des )?choix|propose des options a valider|"
+    r"fait[- ]moi (un |des )?(qcm|questionnaire)|fais[- ]moi (un |des )?(qcm|questionnaire)"
+    r")\b",
+    re.I,
+)
+_FORCE_ANSWER_RE = re.compile(
+    r"\b("
+    r"et alors|sans questionnaire|sans qcm|sans questions?|arrete de (me )?questionner|arrête de (me )?questionner|"
+    r"stop (les )?questions?|reponds|réponds|donne (la |une )?reponse|donne (la |une )?réponse|"
+    r"conclu|conclude|decide|décide|go\b|vas[- ]y|fais (le |la )?synthese|fais (le |la )?synthèse"
+    r")\b",
     re.I,
 )
 
@@ -85,6 +117,8 @@ def classify_chat_intent(text: str) -> str:
     raw = (text or "").strip()
     if _MEMORY_RE.match(raw):
         return INTENT_MEMORY
+    if is_product_snapshot(raw):
+        return INTENT_PLATFORM
     if _STATUS_RE.search(t):
         return INTENT_STATUS
     if _PLATFORM_RE.search(t):
@@ -94,6 +128,265 @@ def classify_chat_intent(text: str) -> str:
     if _CRM_RE.search(t):
         return INTENT_CRM
     return INTENT_CHAT
+
+
+def is_product_snapshot(text: str) -> bool:
+    """Bilan produit court, pas une sonde d'intégration."""
+    return bool(_PRODUCT_SNAPSHOT_RE.search(_fold(text)))
+
+
+def product_snapshot_state_text(*, max_chars: int = 2800) -> str:
+    """Fichier d'état en local ; mémoire développeur si l'image API ne contient pas docs/."""
+    try:
+        from services.platform_state import format_platform_state_prompt
+
+        plat = format_platform_state_prompt(max_chars=max_chars)
+        if plat:
+            return plat
+    except Exception:
+        plat = ""
+    try:
+        from database import get_enterprise_memory
+
+        mem = get_enterprise_memory()
+        contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
+        dev = str(contexts.get("developpeur") or "").strip()
+        if dev:
+            return (
+                "### État plateforme (mémoire développeur — ne pas contredire)\n"
+                + dev[:max_chars]
+            )
+    except Exception:
+        return ""
+    return ""
+
+
+_IRREVERSIBLE_SEND_RE = re.compile(
+    r"\b(envoie|envoyer|publie|publier)\b",
+    re.I,
+)
+_IRREVERSIBLE_RECORD_RE = re.compile(
+    r"("
+    r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|upsert)\b.{0,48}"
+    r"\b(fiche|devis|contact|evenement|facture|crm)|"
+    r"\bau crm\b"
+    r")",
+    re.I,
+)
+_LABEL_VERBS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\b(envoie|envoyer)\b"), "Envoyer"),
+    (re.compile(r"\b(publie|publier)\b"), "Publier"),
+    (re.compile(r"\b(cree|creer)\b"), "Créer"),
+    (re.compile(r"\b(ajoute|ajouter)\b"), "Ajouter"),
+    (re.compile(r"\b(enregistre|enregistrer)\b"), "Enregistrer"),
+)
+
+CHAT_LEAD_SHAPE = (
+    "\n### Forme de la réponse\n"
+    "Les premières lignes disent trois choses, dans cet ordre : "
+    "ce qui est décidé, le prochain pas, ce qui manque. "
+    "Le détail vient ensuite.\n"
+)
+
+
+def chat_message_needs_confirmation(text: str) -> bool:
+    """Vrai seulement pour un envoi, une publication ou une écriture de fiche / devis."""
+    folded = _fold(text)
+    if not folded:
+        return False
+    if _IRREVERSIBLE_SEND_RE.search(folded):
+        return True
+    return bool(_IRREVERSIBLE_RECORD_RE.search(folded))
+
+
+def irreversible_action_label(text: str) -> str:
+    """Libellé court affiché sur le bouton de confirmation."""
+    folded = _fold(text).strip()
+    raw = re.sub(r"\s+", " ", (text or "").strip())
+    for rx, verb in _LABEL_VERBS:
+        matched = rx.search(folded)
+        if not matched:
+            continue
+        rest = raw[matched.end() :].strip(" :,-")
+        phrase = f"{verb} {rest}".strip() if rest else verb
+        return phrase[:90] + ("…" if len(phrase) > 90 else "")
+    if not raw:
+        return "Confirmer"
+    phrase = raw[:90]
+    return phrase[0].upper() + phrase[1:]
+
+
+_TEAM_DIRECT_RE = re.compile(
+    r"("
+    r"\b(equipe|flotte)\b|"
+    r"blueprint|"
+    r"creer .{0,48}(agent|equipe|flotte)|"
+    r"propose .{0,32}(equipe|flotte)"
+    r")"
+)
+_TEAM_CONFIRM_RE = re.compile(
+    r"^("
+    r"oui|ouais|ok|okay|d accord|daccord|vas[- ]y|go|"
+    r"valide|valider|c est bon|parfait|fais[- ]le|"
+    r"je valide|confirme|confirmer"
+    r")\b"
+)
+_TEAM_HISTORY_RE = re.compile(
+    r"(equipe|blueprint|propose_team|creer l'equipe|creer l equipe)"
+)
+_FAKE_TEAM_BUTTON_RE = re.compile(
+    r"(creer l'equipe|creer l equipe)"
+)
+
+
+_FLEET_ANALYSIS_RE = re.compile(
+    r"("
+    r"analyse poussee|analyse approfondie|analyse (de la |la |cette |notre )?situation|"
+    r"analyser (la |cette |notre )?situation|"
+    r"\bdiagnostic\b|etat des lieux|\baudit\b|"
+    r"vision d ensemble|plusieurs angles|situation (globale|actuelle|complexe)|"
+    r"\bapprofondi[rs]\b|\bcreuse[rz]?\b|va au fond|"
+    r"\barbitrage\b|comparer .{0,48}(options|scenarios|pistes|angles)|"
+    r"mobilise[rz]? (la |une )?(flotte|equipe)|"
+    r"passe[rz]? .{0,32}(a la |aux )?(flotte|equipe)|"
+    r"confie[rz]? .{0,40}(flotte|equipe)|"
+    r"demande[rz]? a (la |l )?(flotte|equipe)"
+    r")",
+    re.I,
+)
+_FLEET_ANALYSIS_SOFT_RE = re.compile(
+    r"\b(strategie|priorit|decid|situation|scenario|enjeu)\b",
+    re.I,
+)
+_FLEET_CONFIRM_RE = re.compile(
+    r"^("
+    r"oui|ouais|ok|okay|d accord|daccord|vas[- ]y|go|"
+    r"valide|valider|c est bon|parfait|fais[- ]le|"
+    r"je valide|confirme|confirmer|lance|lancer"
+    r")( la flotte| l equipe)?$"
+)
+_SIMPLE_ASSISTANT_RE = re.compile(
+    r"\b(qui es[- ]tu|qui est[- ]tu|tu es qui|qui etes[- ]vous|presente[- ]toi)\b",
+    re.I,
+)
+
+
+def message_warrants_existing_fleet(text: str) -> bool:
+    """Vrai si le sujet mérite une flotte déjà en place (analyse poussée), pas un échange court."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    folded = _fold(raw)
+    if _SIMPLE_ASSISTANT_RE.search(folded):
+        return False
+    if _FLEET_ANALYSIS_RE.search(folded):
+        return True
+    return len(folded) >= 280 and bool(_FLEET_ANALYSIS_SOFT_RE.search(folded))
+
+
+def turn_offers_existing_fleet(message: str, history: list | None = None) -> bool:
+    """Ce tour, ou un « oui » qui suit une demande d'analyse."""
+    if message_warrants_existing_fleet(message):
+        return True
+    folded = _fold(message).replace("'", " ").replace("’", " ")
+    folded = re.sub(r"\s+", " ", folded).strip()
+    folded = re.sub(r"[.!?]+$", "", folded).strip()
+    if not folded or len(folded) > 80 or not _FLEET_CONFIRM_RE.search(folded):
+        return False
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        return message_warrants_existing_fleet(str(item.get("content") or ""))
+    return False
+
+
+def chat_turn_needs_team_tools(message: str, history: list | None = None) -> bool:
+    """Vrai si ce tour doit passer par les outils d'équipe (blueprint + bouton)."""
+    folded = _fold(message).strip()
+    if not folded:
+        return False
+    if _TEAM_DIRECT_RE.search(folded):
+        return True
+    if len(folded) > 80 or not _TEAM_CONFIRM_RE.search(folded):
+        return False
+    recent: list[str] = []
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        recent.append(_fold(str(item.get("content") or "")))
+        if len(recent) >= 2:
+            break
+    return bool(_TEAM_HISTORY_RE.search("\n".join(recent)))
+
+
+def strip_unbacked_team_button(text: str) -> str:
+    """Retire l'invitation à un bouton qui n'existe pas tant qu'aucun blueprint n'est créé."""
+    kept: list[str] = []
+    for line in (text or "").splitlines():
+        folded = _fold(line)
+        if _FAKE_TEAM_BUTTON_RE.search(folded) and re.search(
+            r"(bouton|clique|valide|interface|ui)",
+            folded,
+        ):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+_PROJECT_WRITE_RE = re.compile(
+    r"("
+    r"\b(cree|creer|ajoute|ajouter|enregistre|enregistrer|ouvre|materialise|genere)\b.{0,80}\bprojets?\b|"
+    r"\b(modifie|modifier|change|changer|renomme|renommer|supprime|supprimer|retire|retirer|"
+    r"marque|met a jour|mets a jour|corrige|corriger|cloture|cloturer)\b.{0,80}"
+    r"\b(projets?|taches?|cartes?|etapes?|playbooks?|templates?)\b|"
+    r"\bprojets?\b.{0,80}\b(a partir|depuis (la |cette )?(discussion|conversation)|depuis (le |ce )?chat)\b|"
+    r"\b(cartes?|taches?)\b.{0,40}\b(kanban|a faire|projet)\b"
+    r")",
+    re.I,
+)
+
+
+def chat_turn_needs_project_write(text: str) -> bool:
+    """Vrai si ce tour doit pouvoir écrire un projet et ses tâches."""
+    return bool(_PROJECT_WRITE_RE.search(_fold(text or "")))
+
+
+def chat_message_needs_action(text: str) -> bool:
+    """Vrai si le message demande un travail (recherche, rédaction, envoi, livrable)."""
+    raw = (text or "").strip()
+    if not raw:
+        return False
+    folded = _fold(raw)
+    if re.search(
+        r"\b(qui es[- ]tu|qui est[- ]tu|tu es qui|qui etes[- ]vous|presente[- ]toi|c'est qui)\b",
+        folded,
+    ):
+        return False
+    if is_product_snapshot(raw):
+        return False
+    intent = classify_chat_intent(raw)
+    if intent in {INTENT_MISSION, INTENT_PLATFORM}:
+        return True
+    if _ACTION_RE.search(folded):
+        return True
+    if chat_turn_needs_project_write(raw):
+        return True
+    return bool(
+        re.search(
+            r"\b(cherche|chercher|recherche|rechercher|envoie|envoyer|lance|lancer|publie|publier|genere|generer|cree|creer|redige|ecris)\b",
+            folded,
+        )
+    )
+
+
+def user_wants_choice_questionnaire(text: str) -> bool:
+    """QCM / cases à cocher seulement sur demande explicite."""
+    return bool(_QCM_REQUEST_RE.search(_fold(text)))
+
+
+def user_forces_direct_answer(text: str) -> bool:
+    """L'utilisateur coupe les questions et exige une conclusion."""
+    return bool(_FORCE_ANSWER_RE.search(_fold(text)))
 
 
 def extract_search_query(text: str) -> str:
@@ -113,7 +406,20 @@ def wants_mission_brief(intent: str, text: str) -> bool:
     return False
 
 
-def chat_tool_mandate(intent: str) -> str:
+_SNAPSHOT_MANDATE = (
+    "\n\n[Point d'état] Réponse courte, 12 lignes maximum, deux blocs seulement : "
+    "« Ce qui tient » et « Ce qui bloque ». "
+    "Chaque puce vient du bloc « État plateforme ». "
+    "Si un sujet n'y figure pas, écris « pas dans l'état connu » — ne l'invente pas. "
+    "Interdit : roadmap, délais (48h, 1 semaine), bugs absents de l'état, "
+    "noms d'exemples (Camille, Studio Nord), trading, Coinbase, "
+    "et toute offre de mission ou de template en fin de message."
+)
+
+
+def chat_tool_mandate(intent: str, text: str = "") -> str:
+    if is_product_snapshot(text):
+        return _SNAPSHOT_MANDATE
     if intent == INTENT_STATUS:
         return (
             "\n\n[Ancrage] Question d'état Korymb : appuie-toi UNIQUEMENT sur le bloc "
@@ -126,8 +432,12 @@ def chat_tool_mandate(intent: str) -> str:
         )
     if intent == INTENT_PLATFORM:
         return (
-            "\n\n[Ancrage] Changement produit : appuie-toi sur les extraits docs/code. "
-            "Propose via `propose_platform_change` ; n'affirme pas qu'un patch git est fait."
+            "\n\n[Ancrage] Sujet plateforme / développement Korymb : "
+            "appuie-toi d'abord sur « État plateforme » puis docs/code. "
+            "N'invente pas d'écrans (ex. Rapports), ni de bugs CSS/WordPress hors cadrage. "
+            "Si la mémoire ou un exemple de prompt contredit « État plateforme », le fichier gagne. "
+            "Pour un changement code : propose via `propose_platform_change` ; "
+            "n'affirme pas qu'un patch git ou un deploy est fait sans preuve."
         )
     return ""
 
@@ -217,6 +527,8 @@ def build_targeted_memory_block(user_text: str) -> str:
     mem = get_enterprise_memory()
     contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
     parts: list[str] = []
+    intent = classify_chat_intent(user_text)
+    folded = _fold(user_text)
     try:
         from services.memory_inbox import format_enterprise_facts_prompt
 
@@ -225,21 +537,43 @@ def build_targeted_memory_block(user_text: str) -> str:
             parts.append(facts_blk)
     except Exception:
         pass
-    matched = _matching_memory_lines(user_text, str(contexts.get("global") or ""))
+    snapshot = is_product_snapshot(user_text)
+    matched = "" if snapshot else _matching_memory_lines(user_text, str(contexts.get("global") or ""))
     if matched:
         parts.append("Faits mémoire liés à la question :\n" + matched[:MEMORY_CHAT_GLOBAL_CHARS])
-    else:
-        global_ctx = str(contexts.get("global") or "").strip()
-        if global_ctx:
-            parts.append("Contexte global (extrait) :\n" + global_ctx[: min(220, MEMORY_CHAT_GLOBAL_CHARS)])
+    # État plateforme (fichier versionné + volet developpeur) quand la question porte sur le produit.
+    if intent == INTENT_PLATFORM or bool(
+        re.search(r"\b(plateforme|korymb|deploy|deploiement|changelog|qcm|toast|modele?s)\b", folded)
+    ):
+        try:
+            if snapshot:
+                plat = product_snapshot_state_text(max_chars=2200)
+                if plat:
+                    parts.append(plat)
+            else:
+                from services.platform_state import format_platform_state_prompt
+
+                dev_ctx = str(contexts.get("developpeur") or "").strip()
+                if dev_ctx:
+                    parts.append("Mémoire développeur / plateforme :\n" + dev_ctx[:MEMORY_CHAT_GLOBAL_CHARS])
+                plat = format_platform_state_prompt(max_chars=2200)
+                if plat:
+                    parts.append(plat)
+        except Exception:
+            pass
+    # Ne jamais coller un extrait global « au hasard » : ça fait dériver le chat vers CRM/reprise.
     summary = str(contexts.get("auto_summary") or "").strip()
-    if summary:
+    if summary and not snapshot and (intent in (INTENT_STATUS, INTENT_MISSION) or matched):
         parts.append("Résumé missions :\n" + summary[:MEMORY_CHAT_SUMMARY_CHARS])
-    fb = load_chat_apply_feedback(limit=3)
-    if fb:
-        lines = [f"- {x.get('kind')}: {x.get('title')}" for x in fb if x.get("title")]
-        if lines:
-            parts.append("Récemment validé dans Décisions :\n" + "\n".join(lines))
+    wants_decisions = intent in (INTENT_CRM, INTENT_STATUS) or bool(
+        re.search(r"\b(decisions?|décisions?|inbox|hitl|crm|contact|prospect)\b", folded)
+    )
+    if wants_decisions:
+        fb = load_chat_apply_feedback(limit=3)
+        if fb:
+            lines = [f"- {x.get('kind')}: {x.get('title')}" for x in fb if x.get("title")]
+            if lines:
+                parts.append("Récemment validé dans Décisions :\n" + "\n".join(lines))
     if not parts:
         return ""
     return (
@@ -254,7 +588,10 @@ def build_chat_grounding_block(user_text: str, *, intent: str | None = None) -> 
     chunks: list[str] = []
     q = extract_search_query(user_text)
 
-    if intent == INTENT_STATUS:
+    if is_product_snapshot(user_text):
+        plat = product_snapshot_state_text(max_chars=2800)
+        chunks.append(plat or "(état plateforme indisponible)")
+    elif intent == INTENT_STATUS:
         try:
             from services.korymb_overview import build_korymb_overview
 
@@ -284,10 +621,18 @@ def build_chat_grounding_block(user_text: str, *, intent: str | None = None) -> 
             chunks.append("(CRM lecture indisponible)")
     elif intent == INTENT_PLATFORM:
         try:
+            from services.platform_state import format_platform_state_prompt
+
+            plat = format_platform_state_prompt(max_chars=2800)
+            if plat:
+                chunks.append(plat)
+        except Exception:
+            pass
+        try:
             from tools.agent_tools import search_core_notes
 
-            qn = q or "korymb architecture"
-            chunks.append(search_core_notes(qn, max_results=5, include_code=True))
+            qn = q or "PLATFORM_STATE korymb"
+            chunks.append(search_core_notes(qn, max_results=4, include_code=True))
         except Exception:
             chunks.append("(notes / code indisponibles)")
 

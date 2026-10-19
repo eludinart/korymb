@@ -27,7 +27,7 @@ def run_mission_graph(
     mission_config: dict,
     behavior_snapshot: dict | None = None,
 ) -> dict[str, Any] | None:
-    """Exécute le graphe. Retourne l'état final ou None si shadow-only."""
+    """Exécute le graphe. En mode shadow, le résultat n'est pas celui qui est servi."""
     if not use_langgraph_execution():
         return None
 
@@ -52,15 +52,28 @@ def run_mission_graph(
         pass
 
     graph = build_mission_graph()
-    if is_shadow_mode():
-        logger.info("[shadow] LangGraph dry-run log for job %s", job_id)
-        return None
-
     final = graph.invoke(initial, _thread_config(job_id))
+    if is_shadow_mode():
+        logger.info(
+            "[shadow] graphe exécuté pour %s — la réponse servie reste l'ancien moteur",
+            job_id,
+        )
     return final
 
 
-def resume_mission_graph(job_id: str, hitl_payload: dict[str, Any]) -> dict[str, Any]:
+def graph_is_waiting(job_id: str) -> bool:
+    """Vrai si le carnet a une mission en pause, prête à reprendre."""
+    try:
+        state = get_graph_state(job_id)
+    except Exception:
+        logger.exception("lecture du carnet pour %s", job_id)
+        return False
+    return bool(state and state.get("next"))
+
+
+def resume_mission_graph(job_id: str, hitl_payload: dict[str, Any]) -> dict[str, Any] | None:
+    if not graph_is_waiting(job_id):
+        return None
     graph = build_mission_graph()
     return graph.invoke(Command(resume=hitl_payload), _thread_config(job_id))
 

@@ -263,7 +263,7 @@ export default function RepriseAuditPage() {
         accent="amber"
         badge="Évolution d'activité"
         title="Pilotage & couverture métier"
-        description="Checklist ancrée dans votre réalité (tarot, commercial, IT, éditorial…). Ignorez ou reportez ce qui n'est pas pour maintenant — l'application et les agents en tiennent compte. Les sujets acquisition (banque, RH…) n'apparaissent que si une reprise est documentée en mémoire."
+        description="Checklist ancrée dans votre réalité (commercial, IT, éditorial, opérations…). Ignorez ou reportez ce qui n'est pas pour maintenant — l'application et les agents en tiennent compte. Les sujets acquisition (banque, RH…) n'apparaissent que si une reprise est documentée en mémoire."
         actions={
           <>
             <PageLink href="/briefing">Briefing</PageLink>
@@ -381,6 +381,7 @@ export default function RepriseAuditPage() {
         <p className="text-sm text-slate-500">Chargement du scan reprise…</p>
       ) : data ? (
         <>
+          {!data.workspace_empty ? (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Couverture globale</p>
@@ -399,17 +400,25 @@ export default function RepriseAuditPage() {
               <p className="mt-1 text-2xl font-bold text-red-900">{data.summary.missing}</p>
             </div>
           </section>
+          ) : null}
 
-          {!data.has_reprise_context ? (
+          {data.workspace_empty ? (
+            <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+              Cet espace n&apos;a pas encore d&apos;audit de reprise. Les checklists d&apos;une autre activité (clients, éditorial, cession…) n&apos;apparaissent pas ici. Décrivez votre activité dans la mémoire pour lancer un premier scan.
+            </p>
+          ) : null}
+
+          {!data.workspace_empty && !data.has_reprise_context ? (
             <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               Peu de contexte « reprise » détecté. Ajoutez dans{" "}
               <Link href="/administration/memory" className="font-semibold underline">
-                Mémoire entreprise → Contexte global
+                Mémoire partagée → Contexte global
               </Link>{" "}
               les objectifs de reprise, le calendrier et les points déjà traités.
             </p>
           ) : null}
 
+          {!data.workspace_empty ? (
           <section>
             <h2 className="section-title mb-4">Checklist par domaine</h2>
             <div className="space-y-3">
@@ -424,16 +433,16 @@ export default function RepriseAuditPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT[d.status]}`} />
                       <span className="font-semibold">{d.label}</span>
-                      <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-medium">
+                      <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium text-slate-800 dark:bg-slate-950/80 dark:text-slate-100">
                         {STATUS_LABELS[d.status]}
                       </span>
                       {d.checklist_missing.length > 0 ? (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900">
+                        <span className="rounded-full bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-950 dark:bg-amber-900 dark:text-amber-100">
                           {d.checklist_missing.length} à traiter
                         </span>
                       ) : null}
                       {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0) > 0 ? (
-                        <span className="rounded-full bg-slate-200/80 px-2 py-0.5 text-xs font-bold text-slate-600">
+                        <span className="rounded-full bg-slate-300/90 px-2 py-0.5 text-xs font-bold text-slate-800 dark:bg-slate-700 dark:text-slate-100">
                           {(d.checklist_deferred?.length ?? 0) + (d.checklist_ignored?.length ?? 0)} mis de côté
                         </span>
                       ) : null}
@@ -449,7 +458,7 @@ export default function RepriseAuditPage() {
                     {d.checklist_missing.length === 0 &&
                     d.checklist_covered.length === 0 &&
                     ((d.checklist_deferred?.length ?? 0) > 0 || (d.checklist_ignored?.length ?? 0) > 0) ? (
-                      <p className="md:col-span-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-3 text-sm text-slate-600">
+                      <p className="md:col-span-2 rounded-xl border border-dashed border-slate-300 bg-white/50 px-4 py-3 text-sm text-slate-700 dark:border-slate-600 dark:bg-slate-950/60 dark:text-slate-300">
                         Tous les points de ce domaine sont mis de côté. Ouvrez « Mis de côté » pour les réafficher.
                       </p>
                     ) : null}
@@ -548,8 +557,9 @@ export default function RepriseAuditPage() {
               ))}
             </div>
           </section>
+          ) : null}
 
-          {data.gaps.length > 0 ? (
+          {data.workspace_empty ? null : data.gaps.length > 0 ? (
             <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
               <h2 className="text-sm font-bold text-violet-900">
                 {data.gaps.length} lacune(s) prioritaire(s)

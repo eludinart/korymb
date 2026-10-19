@@ -7,6 +7,7 @@ comme projection matérialisée.
 """
 import copy
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -15,6 +16,8 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any
 from env_loader import load_backend_env
+
+logger = logging.getLogger(__name__)
 
 try:
     import pymysql
@@ -32,6 +35,25 @@ MISSION_THREAD_JSON_MAX_BYTES = 14_000_000
 # Source de vérité config backend (.env + .env.local)
 load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
+
+
+def _add_workspace_column(conn, table: str) -> None:
+    """Ajoute workspace_id si la table existe déjà sans cette colonne (création paresseuse)."""
+    from workspace_db import _DEFAULT_WORKSPACE_ID, _table_columns
+
+    try:
+        cols = _table_columns(conn, table)
+    except Exception:
+        return
+    if not cols or "workspace_id" in cols:
+        return
+    text_col = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    try:
+        conn.execute(
+            f"ALTER TABLE {table} ADD COLUMN workspace_id {text_col} NOT NULL DEFAULT '{_DEFAULT_WORKSPACE_ID}'"
+        )
+    except Exception:
+        pass
 
 
 def _ws() -> str:
@@ -145,8 +167,10 @@ class _MariaCursorAdapter:
 
 
 class _MariaConnAdapter:
-    def __init__(self, conn):
+    def __init__(self, conn, *, pooled: bool = False, pool: "_MariaPool | None" = None):
         self._conn = conn
+        self._pooled = pooled
+        self._pool = pool
 
     def execute(self, sql: str, params: tuple | list | None = None):
         sql_use = _qmark_to_percent(sql)
@@ -170,7 +194,77 @@ class _MariaConnAdapter:
             if exc is not None:
                 self._conn.rollback()
         finally:
-            self._conn.close()
+            if self._pooled and self._pool is not None:
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    with self._pool._lock:
+                        self._pool._created = max(0, self._pool._created - 1)
+                    return
+                self._pool.release(self._conn)
+            else:
+                self._conn.close()
+
+
+class _MariaPool:
+    """Petit pool thread-safe de connexions PyMySQL (évite connect/close à chaque requête)."""
+
+    def __init__(self, size: int = 8):
+        import queue
+        import threading
+
+        self._size = max(1, min(int(size), 32))
+        self._q: queue.Queue = queue.Queue(maxsize=self._size)
+        self._lock = threading.Lock()
+        self._created = 0
+
+    def _new_conn(self):
+        return pymysql.connect(**_maria_cfg())
+
+    def acquire(self):
+        try:
+            return self._q.get_nowait()
+        except Exception:
+            pass
+        with self._lock:
+            if self._created < self._size:
+                self._created += 1
+                return self._new_conn()
+        return self._q.get(timeout=8)
+
+    def release(self, conn) -> None:
+        try:
+            if not getattr(conn, "open", True):
+                with self._lock:
+                    self._created = max(0, self._created - 1)
+                return
+            self._q.put_nowait(conn)
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            with self._lock:
+                self._created = max(0, self._created - 1)
+
+
+_maria_pool: _MariaPool | None = None
+_maria_pool_lock = __import__("threading").Lock()
+
+
+def _get_maria_pool() -> _MariaPool:
+    global _maria_pool
+    if _maria_pool is not None:
+        return _maria_pool
+    with _maria_pool_lock:
+        if _maria_pool is None:
+            size = int(os.getenv("KORYMB_DB_POOL_SIZE") or "8")
+            _maria_pool = _MariaPool(size=size)
+        return _maria_pool
 
 
 def probe_database_connection() -> dict[str, Any]:
@@ -184,15 +278,98 @@ def probe_database_connection() -> dict[str, Any]:
 
 
 def get_conn():
-    # MariaDB : connexion par bloc `with` (pas de pool PyMySQL intégré ici ; à ajouter si charge élevée).
+    # MariaDB : pool réutilisable (KORYMB_DB_POOL_SIZE, défaut 8). SQLite : connexion locale.
     if _is_mariadb():
         if not _PYMYSQL_OK:
             raise RuntimeError("KORYMB_DB_ENGINE=mariadb mais pymysql n'est pas installé.")
-        return _MariaConnAdapter(pymysql.connect(**_maria_cfg()))
+        pool = _get_maria_pool()
+        return _MariaConnAdapter(pool.acquire(), pooled=True, pool=pool)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _ensure_mission_events_table(conn) -> None:
+    """Table events requêteable (dual-write avec jobs.events_json)."""
+    text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    auto_pk = "BIGINT PRIMARY KEY AUTO_INCREMENT" if _is_mariadb() else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS mission_events (
+            id            {auto_pk},
+            job_id        {text_pk} NOT NULL,
+            workspace_id  {text_pk} NOT NULL,
+            kind          TEXT NOT NULL DEFAULT '',
+            agent         TEXT NOT NULL DEFAULT '',
+            payload_json  TEXT NOT NULL DEFAULT '{{}}',
+            created_at    TEXT NOT NULL
+        )
+        """
+    )
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mission_events_job ON mission_events (workspace_id, job_id, id)"
+        )
+    except Exception:
+        # MariaDB < 10.5 may not support IF NOT EXISTS on indexes
+        try:
+            conn.execute("CREATE INDEX idx_mission_events_job ON mission_events (workspace_id, job_id, id)")
+        except Exception:
+            pass
+
+
+def append_mission_events_rows(job_id: str, events: list, *, workspace_id: str | None = None) -> None:
+    """Dual-write : insert les événements manquants dans mission_events (best-effort)."""
+    if not job_id or not isinstance(events, list) or not events:
+        return
+    wid = (workspace_id or _ws() or "").strip()
+    jid = _norm_job_id(job_id)
+    if not jid or not wid:
+        return
+    try:
+        with get_conn() as conn:
+            existing = conn.execute(
+                "SELECT COUNT(*) AS c FROM mission_events WHERE job_id=? AND workspace_id=?",
+                (jid, wid),
+            ).fetchone()
+            already = 0
+            if existing is not None:
+                already = int(dict(existing).get("c") if isinstance(existing, dict) else existing[0] or 0)
+            # N'insère que les nouveaux événements en fin de liste (append-only).
+            to_add = events[already:] if already < len(events) else []
+            for ev in to_add:
+                if not isinstance(ev, dict):
+                    continue
+                kind = str(ev.get("type") or ev.get("kind") or "")[:64]
+                agent = str(ev.get("agent") or "")[:64]
+                payload = ev.get("payload") if isinstance(ev.get("payload"), dict) else (
+                    ev.get("data") if isinstance(ev.get("data"), dict) else {}
+                )
+                created = str(ev.get("ts") or ev.get("created_at") or datetime.utcnow().isoformat())
+                conn.execute(
+                    "INSERT INTO mission_events (job_id, workspace_id, kind, agent, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (jid, wid, kind, agent, json.dumps(payload, ensure_ascii=False), created),
+                )
+            conn.commit()
+    except Exception:
+        pass
+
+
+def persist_job_events(job_id: str, events: list) -> None:
+    """Écrit jobs.events_json + dual-write mission_events (chemin unique)."""
+    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
+    if not jid or not isinstance(events, list):
+        return
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(events, ensure_ascii=False), now, jid, _ws()),
+        )
+        conn.commit()
+    append_mission_events_rows(jid, events)
 
 
 def _ensure_jobs_columns(conn) -> None:
@@ -326,6 +503,9 @@ def _ensure_platform_tables(conn) -> None:
             cost_usd REAL DEFAULT 0,
             latency_ms INTEGER DEFAULT 0,
             behavior_snapshot_hash TEXT NOT NULL DEFAULT '',
+            kind TEXT NOT NULL DEFAULT '',
+            excerpt TEXT NOT NULL DEFAULT '',
+            ref_key TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         )
     """)
@@ -363,7 +543,20 @@ def _ensure_platform_tables(conn) -> None:
             job_id TEXT,
             output_id TEXT,
             action_url TEXT,
+            suggestion_id TEXT,
             read_at TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+    blob_col = "LONGBLOB" if _is_mariadb() else "BLOB"
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS workspace_resource_files (
+            id {text_pk} PRIMARY KEY,
+            workspace_id {text_pk} NOT NULL,
+            filename TEXT NOT NULL,
+            mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+            size INTEGER NOT NULL DEFAULT 0,
+            content {blob_col} NOT NULL,
             created_at TEXT NOT NULL
         )
     """)
@@ -452,11 +645,13 @@ def _ensure_platform_tables(conn) -> None:
             title TEXT NOT NULL DEFAULT '',
             messages_json {msg_col} NOT NULL DEFAULT '[]',
             linked_parent_job_id TEXT,
+            interlocutor TEXT,
             workspace_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )
     """)
+    _ensure_chat_conversations_columns(conn)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS inbox_dismissals (
             dismiss_key {text_pk} PRIMARY KEY,
@@ -472,6 +667,165 @@ def _ensure_platform_tables(conn) -> None:
             created_at TEXT NOT NULL
         )
     """)
+    ensure_lg_checkpoint_tables(conn)
+    _ensure_mission_trace_columns(conn)
+    _ensure_notification_columns(conn)
+
+
+def _ensure_notification_columns(conn) -> None:
+    """suggestion_id relie une notification à une suggestion mémoire déjà créée."""
+    try:
+        if _is_mariadb():
+            rows = conn.execute("SHOW COLUMNS FROM director_notifications").fetchall()
+            cols = {str(dict(r).get("Field") or "") for r in rows or []}
+        else:
+            rows = conn.execute("PRAGMA table_info(director_notifications)").fetchall()
+            cols = {str(r[1]) for r in rows or []}
+    except Exception:
+        return
+    if "suggestion_id" in cols:
+        return
+    try:
+        conn.execute("ALTER TABLE director_notifications ADD COLUMN suggestion_id TEXT")
+    except Exception:
+        pass
+
+
+def _ensure_mission_trace_columns(conn) -> None:
+    """Colonnes du journal (type, extrait, empreinte d'outil) sur une base déjà créée."""
+    try:
+        if _is_mariadb():
+            rows = conn.execute("SHOW COLUMNS FROM mission_traces").fetchall()
+            cols = {str(dict(r).get("Field") or "") for r in rows or []}
+        else:
+            rows = conn.execute("PRAGMA table_info(mission_traces)").fetchall()
+            cols = {str(r[1]) for r in rows or []}
+    except Exception:
+        return
+    for name in ("kind", "excerpt", "ref_key"):
+        if name in cols:
+            continue
+        try:
+            conn.execute(f"ALTER TABLE mission_traces ADD COLUMN {name} TEXT NOT NULL DEFAULT ''")
+        except Exception:
+            pass
+    _ensure_trace_embedding_column(conn)
+
+
+def _ensure_trace_embedding_column(conn) -> None:
+    """Colonne VECTOR seulement sur MariaDB. SQLite garde le schéma partagé."""
+    if not _is_mariadb():
+        return
+    try:
+        rows = conn.execute("SHOW COLUMNS FROM mission_traces").fetchall()
+        cols = {str(dict(r).get("Field") or "") for r in rows or []}
+    except Exception:
+        return
+    if "embedding" in cols:
+        return
+    try:
+        from services.trace_vectors import trace_vector_dimensions
+
+        dim = trace_vector_dimensions()
+        conn.execute(f"ALTER TABLE mission_traces ADD COLUMN embedding VECTOR({int(dim)}) NULL")
+    except Exception:
+        logger.exception("colonne vectorielle du journal non ajoutée")
+
+
+def ensure_lg_checkpoint_tables(conn=None) -> None:
+    """Tables de progression LangGraph, dans la même base que les missions."""
+    from workspace_db import _DEFAULT_WORKSPACE_ID
+
+    own = conn is None
+    if own:
+        conn = get_conn()
+    wid = _DEFAULT_WORKSPACE_ID if re.fullmatch(r"ws-[A-Za-z0-9_-]{1,80}", _DEFAULT_WORKSPACE_ID) else "ws-default-legacy"
+    blob = "LONGBLOB" if _is_mariadb() else "BLOB"
+    thread = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    ns = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    cid = "VARCHAR(128)" if _is_mariadb() else "TEXT"
+    kind = "VARCHAR(64)" if _is_mariadb() else "TEXT"
+    wscol = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    try:
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS lg_checkpoints (
+                thread_id {thread} NOT NULL,
+                checkpoint_ns {ns} NOT NULL DEFAULT '',
+                checkpoint_id {cid} NOT NULL,
+                parent_checkpoint_id {cid},
+                type {kind},
+                checkpoint {blob},
+                metadata {blob},
+                workspace_id {wscol} NOT NULL DEFAULT '{wid}',
+                PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+            )
+        """)
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS lg_checkpoint_writes (
+                thread_id {thread} NOT NULL,
+                checkpoint_ns {ns} NOT NULL DEFAULT '',
+                checkpoint_id {cid} NOT NULL,
+                task_id {cid} NOT NULL,
+                idx INTEGER NOT NULL,
+                channel {ns} NOT NULL,
+                type {kind},
+                value {blob},
+                workspace_id {wscol} NOT NULL DEFAULT '{wid}',
+                PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+            )
+        """)
+        if own:
+            conn.commit()
+    finally:
+        if own:
+            _release_db_conn(conn)
+
+
+def _release_db_conn(conn) -> None:
+    """Rend une connexion au pool, ou ferme le fichier SQLite des tests."""
+    if _is_mariadb():
+        conn.__exit__(None, None, None)
+        return
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _ensure_chat_conversations_columns(conn) -> None:
+    """Mémorise l'interlocuteur (assistant, CIO, flotte) de chaque conversation."""
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM chat_conversations")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(chat_conversations)")
+        cols = {row[1] for row in cur.fetchall()}
+    if "interlocutor" not in cols:
+        conn.execute("ALTER TABLE chat_conversations ADD COLUMN interlocutor TEXT")
+    conn.commit()
+
+
+def _clean_interlocutor(value: str | None) -> str | None:
+    raw = (value or "").strip()[:80]
+    if raw in ("assistant", "coordinateur"):
+        return raw
+    if raw.startswith("group:"):
+        gid = raw[6:].strip()
+        if gid and len(gid) <= 64 and all(c.isalnum() or c in "-_" for c in gid):
+            return "coordinateur" if gid == "entreprise" else f"group:{gid}"
+    return None
+
+
+def _chat_conversation_public(d: dict, messages: list) -> dict:
+    return {
+        "id": d.get("id"),
+        "title": d.get("title") or "",
+        "messages": messages,
+        "linked_parent_job_id": d.get("linked_parent_job_id"),
+        "interlocutor": _clean_interlocutor(str(d.get("interlocutor") or "")),
+        "created_at": d.get("created_at"),
+        "updated_at": d.get("updated_at"),
+    }
 
 
 def _ensure_memory_columns(conn) -> None:
@@ -536,6 +890,9 @@ def _hydrate_job_row(d: dict) -> dict:
         merged["mode"] = "cio"
     merged["cio_questions_enabled"] = bool(merged.get("cio_questions_enabled", True))
     merged["cio_plan_hitl_enabled"] = bool(merged.get("cio_plan_hitl_enabled", True))
+    for extra in ("agent_group_id", "orchestrator_key", "allowed_agents", "project_id", "origin"):
+        if extra in mc and mc.get(extra) not in (None, ""):
+            merged[extra] = mc[extra]
     out["mission_config"] = merged
     out.pop("plan_json", None)
     out.pop("events_json", None)
@@ -620,8 +977,10 @@ def init_db():
                 updated_at      TEXT NOT NULL
             )
         """)
+        _ensure_mission_sessions_columns(conn)
         _ensure_llm_usage_table(conn)
         _ensure_custom_agents_table(conn)
+        _ensure_agent_groups_tables(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS mission_templates (
                 id              """ + text_pk + """ PRIMARY KEY,
@@ -670,7 +1029,22 @@ def init_db():
 
         ensure_saas_tables(conn)
         ensure_workspace_columns(conn)
+        _ensure_mission_events_table(conn)
         conn.commit()
+    from tenant_context import clear_tenant_context, get_workspace_id, set_tenant_context
+    from workspace_db import _DEFAULT_WORKSPACE_ID
+
+    boot_ws = not (get_workspace_id() or "").strip()
+    if boot_ws:
+        set_tenant_context(workspace_id=_DEFAULT_WORKSPACE_ID)
+    try:
+        _init_db_seeds()
+    finally:
+        if boot_ws:
+            clear_tenant_context()
+
+
+def _init_db_seeds() -> None:
     init_enterprise_memory_row()
     _init_autonomous_tables()
     # Graphe de connaissance entités (import tardif pour éviter les cycles)
@@ -715,6 +1089,16 @@ def init_db():
         ensure_sandbox_execute_on()
     except Exception:
         pass
+    try:
+        from services.classique_bridge import init_classique_tables
+        from services.calendar_sync import init_calendar_sync_tables
+
+        init_classique_tables()
+        init_calendar_sync_tables()
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Tables Classique / synchro agenda non initialisées")
 
 
 def seed_scheduled_task_defaults() -> None:
@@ -751,8 +1135,132 @@ def seed_scheduled_task_defaults() -> None:
 
 
 def seed_playbooks() -> None:
-    """Playbooks Fleur/Sivana par défaut."""
-    defaults = [
+    """Playbooks par défaut — génériques pour tout workspace ; pack Fleur/Sivana uniquement legacy."""
+    from services.workspace_brand import is_legacy_elude_workspace
+
+    generic = [
+        {
+            "id": "ops-relance-prospect",
+            "name": "Relance prospect",
+            "description": "Rédiger un e-mail de relance ; envoi après validation inbox/Telegram.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Préparer un e-mail de relance pour un prospect (ton professionnel, adapté à l'activité). "
+                    "Utiliser send_email (file d'arbitrage, pas d'envoi live). "
+                    "Enregistrer le contact dans Gestion si connu."
+                ),
+                "agents": ["commercial"],
+            },
+        },
+        {
+            "id": "ops-article-wordpress",
+            "name": "Article WordPress",
+            "description": "Rédiger un article ; publication WP après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Rédiger un article web aligné sur la mémoire et la charte du workspace. "
+                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "ops-agenda-seance",
+            "name": "Créneau agenda",
+            "description": "Préparer un événement Google Calendar ; création après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Préparer un créneau de séance / visio dans l'agenda. "
+                    "Utiliser create_calendar_event (file d'arbitrage)."
+                ),
+                "agents": ["coordinateur"],
+            },
+        },
+        {
+            "id": "ops-post-social",
+            "name": "Post Instagram / Facebook",
+            "description": "Préparer un post ; publication après validation.",
+            "category": "ops",
+            "steps": {
+                "mission": (
+                    "Rédiger un post Instagram (et Facebook si pertinent) pour l'activité du workspace. "
+                    "Utiliser post_instagram / post_facebook — aucune publication tant que le dirigeant n'a pas validé."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-article-blog",
+            "name": "Article de blog",
+            "description": "Article SEO ; publication WordPress après validation.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un article web (SEO) aligné sur la mémoire du workspace. "
+                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pack-social",
+            "name": "Pack réseaux (IG + FB + LinkedIn)",
+            "description": "Un brief, trois déclinaisons. Publication après Décisions.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "À partir d'un même angle éditorial, produire : "
+                    "1) post Instagram + visuel generate_image, 2) post Facebook plus long, "
+                    "3) post LinkedIn thought-leadership. "
+                    "Utiliser post_instagram, post_facebook, post_linkedin (HITL)."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-podcast",
+            "name": "Épisode podcast",
+            "description": "Script parlé + TTS ElevenLabs/OpenAI, fichier MP3 ressource.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Écrire un script podcast 6–10 min (voix haute, [pause] notées) puis "
+                    "create_podcast_episode. Show notes + citation. Pas de publication sans relecture."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-pdf-module",
+            "name": "Document PDF brandé",
+            "description": "Fiche ou module pédagogique en PDF, charte vitrine.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Rédiger un document pédagogique (2–6 pages) puis "
+                    "create_branded_pdf. Marquer #### LIVRABLE — <titre>."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+        {
+            "id": "studio-video-short",
+            "name": "Vidéo courte 9:16",
+            "description": "Script reel + génération vidéo si API branchée, sinon storyboard + miniature.",
+            "category": "studio",
+            "steps": {
+                "mission": (
+                    "Script vidéo verticale 15–45 s (hook 2 s, 3 plans, CTA). "
+                    "Si generate_video est configuré, lancer le clip ; sinon storyboard + generate_image miniature."
+                ),
+                "agents": ["community_manager"],
+            },
+        },
+    ]
+    legacy_pack = [
         {
             "id": "fleur-veille-concurrence",
             "name": "Veille concurrence Fleur",
@@ -784,127 +1292,10 @@ def seed_playbooks() -> None:
                 "agents": ["marketing"],
             },
         },
-        {
-            "id": "ops-relance-prospect",
-            "name": "Relance prospect",
-            "description": "Rédiger un e-mail de relance ; envoi après validation inbox/Telegram.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Préparer un e-mail de relance pour un prospect (ton maïeutique Élude In Art). "
-                    "Utiliser send_email (file d'arbitrage, pas d'envoi live). "
-                    "Enregistrer le contact dans Gestion si connu."
-                ),
-                "agents": ["commercial"],
-            },
-        },
-        {
-            "id": "ops-article-wordpress",
-            "name": "Article WordPress",
-            "description": "Rédiger un article ; publication WP après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Rédiger un article web Élude In Art / Fleur d'ÅmÔurs (posture non divinatoire). "
-                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "ops-agenda-seance",
-            "name": "Créneau agenda",
-            "description": "Préparer un événement Google Calendar ; création après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Préparer un créneau de séance / visio dans l'agenda. "
-                    "Utiliser create_calendar_event (file d'arbitrage)."
-                ),
-                "agents": ["coordinateur"],
-            },
-        },
-        {
-            "id": "ops-post-social",
-            "name": "Post Instagram / Facebook",
-            "description": "Préparer un post ; publication après validation.",
-            "category": "ops",
-            "steps": {
-                "mission": (
-                    "Rédiger un post Instagram (et Facebook si pertinent) autour de Fleur d'ÅmÔurs. "
-                    "Utiliser post_instagram / post_facebook — aucune publication tant que le dirigeant n'a pas validé."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-article-blog",
-            "name": "Article de blog",
-            "description": "Article SEO Fleur d'ÅmÔurs ; publication WordPress après validation.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Rédiger un article web Élude In Art / Fleur d'ÅmÔurs (posture non divinatoire). "
-                    "Utiliser wordpress_create_post — publication réelle après validation dirigeant."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-pack-social",
-            "name": "Pack réseaux (IG + FB + LinkedIn)",
-            "description": "Un brief, trois déclinaisons. Publication après Décisions.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "À partir d'un même angle Fleur d'ÅmÔurs, produire : "
-                    "1) post Instagram + visuel generate_image, 2) post Facebook plus long, "
-                    "3) post LinkedIn thought-leadership. "
-                    "Utiliser post_instagram, post_facebook, post_linkedin (HITL)."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-podcast",
-            "name": "Épisode podcast",
-            "description": "Script parlé + TTS ElevenLabs/OpenAI, fichier MP3 ressource.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Écrire un script podcast 6–10 min (voix haute, [pause] notées) puis "
-                    "create_podcast_episode. Show notes + citation. Pas de publication sans relecture."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-pdf-module",
-            "name": "Document PDF brandé",
-            "description": "Fiche ou module pédagogique en PDF, charte vitrine.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Rédiger un document pédagogique Fleur d'ÅmÔurs (2–6 pages) puis "
-                    "create_branded_pdf. Marquer #### LIVRABLE — <titre>."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
-        {
-            "id": "studio-video-short",
-            "name": "Vidéo courte 9:16",
-            "description": "Script reel + génération vidéo si API branchée, sinon storyboard + miniature.",
-            "category": "studio",
-            "steps": {
-                "mission": (
-                    "Script vidéo verticale 15–45 s (hook 2 s, 3 plans, CTA). "
-                    "Si generate_video est configuré, lancer le clip ; sinon storyboard + generate_image miniature."
-                ),
-                "agents": ["community_manager"],
-            },
-        },
     ]
+    defaults = list(generic)
+    if is_legacy_elude_workspace():
+        defaults = legacy_pack + defaults
     for pb in defaults:
         if get_playbook(pb["id"]):
             continue
@@ -934,23 +1325,46 @@ def _bare_prompt_key(stored_key: str) -> str:
 
 
 def seed_orchestration_prompt_defaults() -> None:
-    """Insère les prompts d'orchestration par défaut si absents."""
-    from services.orchestration_prompt_defaults import DEFAULT_ORCHESTRATION_PROMPTS
+    """Insère les prompts d'orchestration par défaut si absents.
+
+    Une copie d'usine encore marquée « Elude In Art » est réécrite en socle générique,
+    sauf sur l'espace legacy Élude dont cette mention fait partie du métier.
+    """
+    from services.orchestration_prompt_defaults import (
+        DEFAULT_ORCHESTRATION_PROMPTS,
+        is_unmodified_branded_factory,
+    )
+    from services.workspace_brand import is_legacy_elude_workspace
 
     now = datetime.utcnow().isoformat()
     wid = _ws()
+    keep_brand = is_legacy_elude_workspace(wid)
     with get_conn() as conn:
         for key, body in DEFAULT_ORCHESTRATION_PROMPTS.items():
             stored = _scoped_prompt_key(key)
             row = conn.execute(
-                "SELECT prompt_key FROM orchestration_prompts WHERE prompt_key = ? AND workspace_id = ?",
-                (stored, wid),
+                "SELECT prompt_key, body FROM orchestration_prompts WHERE workspace_id = ? AND (prompt_key = ? OR prompt_key = ?)",
+                (wid, stored, key),
             ).fetchone()
-            if row:
+            if not row:
+                try:
+                    conn.execute(
+                        "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
+                        (stored, body, now, wid),
+                    )
+                except Exception:
+                    # Doublon PK (clé nue vs scopée) : ne pas faire échouer GET /admin.
+                    continue
+                continue
+            if keep_brand:
+                continue
+            current = dict(row)
+            current_body = str(current.get("body") or "")
+            if not is_unmodified_branded_factory(key, current_body):
                 continue
             conn.execute(
-                "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
-                (stored, body, now, wid),
+                "UPDATE orchestration_prompts SET body = ?, updated_at = ? WHERE prompt_key = ? AND workspace_id = ?",
+                (body, now, current.get("prompt_key"), wid),
             )
         conn.commit()
 
@@ -1014,18 +1428,31 @@ def upsert_orchestration_prompt(prompt_key: str, body: str) -> dict:
 
 
 def list_orchestration_prompts() -> list[dict]:
+    wid = _ws()
+    prefix = f"{wid}:"
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT prompt_key, length(body) AS body_chars, updated_at FROM orchestration_prompts "
+            "SELECT prompt_key, body, updated_at FROM orchestration_prompts "
             "WHERE workspace_id = ? ORDER BY prompt_key ASC",
-            (_ws(),),
+            (wid,),
         ).fetchall()
-    out: list[dict] = []
+    by_key: dict[str, dict] = {}
     for r in rows or []:
         d = dict(r)
-        d["prompt_key"] = _bare_prompt_key(str(d.get("prompt_key") or ""))
-        out.append(d)
-    return out
+        stored = str(d.get("prompt_key") or "")
+        bare = _bare_prompt_key(stored)
+        body = str(d.get("body") or "")
+        item = {
+            "prompt_key": bare,
+            "body": body,
+            "body_chars": len(body),
+            "updated_at": d.get("updated_at"),
+        }
+        prev = by_key.get(bare)
+        # Préférer la ligne scopée workspace aux anciennes clés nues.
+        if prev is None or stored.startswith(prefix):
+            by_key[bare] = item
+    return list(by_key.values())
 
 
 def _scoped_behavior_key(setting_key: str) -> str:
@@ -1042,6 +1469,19 @@ def _bare_behavior_key(stored_key: str) -> str:
     if key.startswith(prefix):
         return key[len(prefix) :]
     return key
+
+
+def promote_brain_engine_once() -> None:
+    """Passe les espaces encore sur l'ancien moteur par défaut vers le second cerveau.
+
+    Une fois le passage fait, un choix explicite « legacy » est conservé.
+    """
+    if get_behavior_setting("_brain_promoted") is True:
+        return
+    current = str(get_behavior_setting("orchestration.engine") or "").strip().lower()
+    if current in {"", "legacy"}:
+        upsert_behavior_setting("orchestration.engine", "langgraph")
+    upsert_behavior_setting("_brain_promoted", True)
 
 
 def seed_behavior_defaults() -> None:
@@ -1064,6 +1504,7 @@ def seed_behavior_defaults() -> None:
                 (stored, payload, now, wid),
             )
         conn.commit()
+    promote_brain_engine_once()
 
 
 def get_behavior_setting(setting_key: str) -> Any | None:
@@ -1240,31 +1681,68 @@ def _ensure_llm_usage_table(conn) -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)")
         except Exception:
             pass
+        _ensure_llm_usage_billing_column(conn)
         return
     cur = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_usage_events'",
     ).fetchone()
-    if cur:
-        return
-    conn.execute(
-        """
-        CREATE TABLE llm_usage_events (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at      TEXT NOT NULL,
-            job_id          TEXT,
-            context_label   TEXT NOT NULL DEFAULT '',
-            tier            TEXT NOT NULL DEFAULT '',
-            model           TEXT NOT NULL DEFAULT '',
-            provider        TEXT NOT NULL DEFAULT '',
-            tokens_in       INTEGER NOT NULL DEFAULT 0,
-            tokens_out      INTEGER NOT NULL DEFAULT 0,
-            cost_usd        REAL NOT NULL DEFAULT 0
+    if not cur:
+        conn.execute(
+            """
+            CREATE TABLE llm_usage_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at      TEXT NOT NULL,
+                job_id          TEXT,
+                context_label   TEXT NOT NULL DEFAULT '',
+                tier            TEXT NOT NULL DEFAULT '',
+                model           TEXT NOT NULL DEFAULT '',
+                provider        TEXT NOT NULL DEFAULT '',
+                tokens_in       INTEGER NOT NULL DEFAULT 0,
+                tokens_out      INTEGER NOT NULL DEFAULT 0,
+                cost_usd        REAL NOT NULL DEFAULT 0,
+                billing_source  TEXT NOT NULL DEFAULT 'platform'
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)",
-    )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage_events(created_at)",
+        )
+    _ensure_llm_usage_billing_column(conn)
+
+
+_LEGACY_USAGE_MARKED_EXEMPT = False
+
+
+def _ensure_llm_usage_billing_column(conn) -> None:
+    """Source de facturation : platform (clé serveur), own (clé de l'espace), exempt (espace interne)."""
+    global _LEGACY_USAGE_MARKED_EXEMPT
+    from workspace_db import _table_columns
+
+    try:
+        cols = _table_columns(conn, "llm_usage_events")
+    except Exception:
+        return
+    if not cols:
+        return
+    if "billing_source" not in cols:
+        ddl = "VARCHAR(16) NOT NULL DEFAULT 'platform'" if _is_mariadb() else "TEXT NOT NULL DEFAULT 'platform'"
+        try:
+            conn.execute(f"ALTER TABLE llm_usage_events ADD COLUMN billing_source {ddl}")
+        except Exception:
+            pass
+    if _LEGACY_USAGE_MARKED_EXEMPT:
+        return
+    try:
+        from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID
+
+        conn.execute(
+            "UPDATE llm_usage_events SET billing_source = 'exempt' "
+            "WHERE workspace_id = ? AND (billing_source IS NULL OR billing_source = '' OR billing_source = 'platform')",
+            (LEGACY_ELUDE_WORKSPACE_ID,),
+        )
+        _LEGACY_USAGE_MARKED_EXEMPT = True
+    except Exception:
+        pass
 
 
 def log_llm_usage_event(
@@ -1277,13 +1755,24 @@ def log_llm_usage_event(
     tokens_in: int,
     tokens_out: int,
     cost_usd: float,
+    billing_source: str | None = None,
 ) -> None:
     now = datetime.utcnow().isoformat()
+    source = (billing_source or "").strip().lower()
+    if source not in {"platform", "own", "exempt"}:
+        try:
+            from services.llm_envelope import current_billing_source
+
+            source = current_billing_source()
+        except Exception:
+            source = "platform"
+        if source not in {"platform", "own", "exempt"}:
+            source = "platform"
     with get_conn() as conn:
         _ensure_llm_usage_table(conn)
         conn.execute(
             "INSERT INTO llm_usage_events (created_at, job_id, context_label, tier, model, provider, "
-            "tokens_in, tokens_out, cost_usd) VALUES (?,?,?,?,?,?,?,?,?)",
+            "tokens_in, tokens_out, cost_usd, workspace_id, billing_source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (
                 now,
                 _norm_job_id(job_id) or None,
@@ -1294,6 +1783,8 @@ def log_llm_usage_event(
                 int(tokens_in),
                 int(tokens_out),
                 float(cost_usd),
+                _ws(),
+                source[:16],
             ),
         )
         conn.commit()
@@ -1302,7 +1793,10 @@ def log_llm_usage_event(
 def usage_events_exist() -> bool:
     with get_conn() as conn:
         _ensure_llm_usage_table(conn)
-        row = conn.execute("SELECT 1 FROM llm_usage_events LIMIT 1").fetchone()
+        row = conn.execute(
+            "SELECT 1 FROM llm_usage_events WHERE workspace_id=? LIMIT 1",
+            (_ws(),),
+        ).fetchone()
     return row is not None
 
 
@@ -1317,11 +1811,13 @@ def usage_cost_breakdown() -> dict[str, float | int]:
     since_hour = (now - timedelta(hours=1)).isoformat()
     since_minute = (now - timedelta(minutes=1)).isoformat()
 
+    wid = _ws()
+
     def _sum(conn, where: str, params: tuple = ()) -> tuple[float, int, int]:
         row = conn.execute(
             f"SELECT COALESCE(SUM(cost_usd),0), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0) "
-            f"FROM llm_usage_events WHERE {where}",
-            params,
+            f"FROM llm_usage_events WHERE workspace_id=? AND ({where})",
+            (wid, *params),
         ).fetchone()
         if not row:
             return 0.0, 0, 0
@@ -1364,8 +1860,8 @@ def usage_daily_breakdown(days: int = 7) -> list[dict]:
             d = (today - timedelta(days=i)).isoformat()
             row = conn.execute(
                 "SELECT COALESCE(SUM(cost_usd),0), COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0) "
-                "FROM llm_usage_events WHERE substr(created_at,1,10) = ?",
-                (d,),
+                "FROM llm_usage_events WHERE workspace_id=? AND substr(created_at,1,10) = ?",
+                (_ws(), d),
             ).fetchone()
             cost = float(row[0] or 0) if row else 0.0
             ti = int(row[1] or 0) if row else 0
@@ -1405,6 +1901,43 @@ def append_job_mission_thread(
             (json.dumps(cur, ensure_ascii=False), now, job_id, _ws()),
         )
         conn.commit()
+
+
+def insert_planned_job(
+    job_id: str,
+    agent: str,
+    mission: str,
+    *,
+    source: str = "project",
+    mission_config: dict | None = None,
+) -> None:
+    """Mission visible (kanban, briefing) sans démarrer l'orchestration."""
+    now = datetime.utcnow().isoformat()
+    cfg_json = json.dumps(mission_config if isinstance(mission_config, dict) else {}, ensure_ascii=False)
+    wid = _ws()
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO jobs (id, agent, mission, status, logs, team_trace, "
+            "source, plan_json, events_json, mission_config_json, mission_thread_json, parent_job_id, chat_session_id, workspace_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'planned', '[]', '[]', ?, '{}', '[]', ?, '[]', NULL, NULL, ?, ?, ?)",
+            (job_id, agent, mission, source, cfg_json, wid, now, now),
+        )
+        conn.commit()
+
+
+def update_job_mission_text(job_id: str, mission: str) -> bool:
+    """Remplace la consigne d'une mission sans changer son statut."""
+    jid = (job_id or "").strip()
+    if not jid:
+        return False
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE jobs SET mission=?, updated_at=? WHERE id=? AND workspace_id=?",
+            ((mission or "")[:8000], now, jid, _ws()),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
 def save_job(
@@ -1487,6 +2020,8 @@ def update_job(
     with get_conn() as conn:
         conn.execute(f"UPDATE jobs SET {', '.join(sets)} WHERE id=? AND workspace_id=?", vals)
         conn.commit()
+    if events is not None:
+        append_mission_events_rows(job_id, events)
 
 
 def set_job_status_quick(job_id: str, status: str) -> None:
@@ -1521,8 +2056,8 @@ def get_chat_session_summary(session_id: str) -> str:
         return ""
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT summary FROM chat_sessions WHERE id=?",
-            (sid,),
+            "SELECT summary FROM chat_sessions WHERE id=? AND workspace_id=?",
+            (sid, _ws()),
         ).fetchone()
     if not row:
         return ""
@@ -1540,17 +2075,17 @@ def upsert_chat_session_summary(session_id: str, summary: str, turn_count: int) 
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at) "
-                "VALUES (?, ?, ?, '{}', ?) "
+                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at, workspace_id) "
+                "VALUES (?, ?, ?, '{}', ?, ?) "
                 "ON DUPLICATE KEY UPDATE summary = VALUES(summary), turn_count = VALUES(turn_count), updated_at = VALUES(updated_at)",
-                (sid, summ, turns, now),
+                (sid, summ, turns, now, _ws()),
             )
         else:
             conn.execute(
-                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at) "
-                "VALUES (?, ?, ?, '{}', ?) "
+                "INSERT INTO chat_sessions (id, summary, turn_count, entities_json, updated_at, workspace_id) "
+                "VALUES (?, ?, ?, '{}', ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET summary=excluded.summary, turn_count=excluded.turn_count, updated_at=excluded.updated_at",
-                (sid, summ, turns, now),
+                (sid, summ, turns, now, _ws()),
             )
         conn.commit()
 
@@ -1558,8 +2093,9 @@ def upsert_chat_session_summary(session_id: str, summary: str, turn_count: int) 
 def list_chat_conversations(*, limit: int = 80) -> list[dict]:
     lim = max(1, min(int(limit), 200))
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         rows = conn.execute(
-            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "SELECT id, title, messages_json, linked_parent_job_id, interlocutor, created_at, updated_at "
             "FROM chat_conversations WHERE workspace_id=? ORDER BY updated_at DESC LIMIT ?",
             (_ws(), lim),
         ).fetchall()
@@ -1572,14 +2108,7 @@ def list_chat_conversations(*, limit: int = 80) -> list[dict]:
             msgs = []
         if not isinstance(msgs, list):
             msgs = []
-        out.append({
-            "id": d.get("id"),
-            "title": d.get("title") or "",
-            "messages": msgs,
-            "linked_parent_job_id": d.get("linked_parent_job_id"),
-            "created_at": d.get("created_at"),
-            "updated_at": d.get("updated_at"),
-        })
+        out.append(_chat_conversation_public(d, msgs))
     return out
 
 
@@ -1588,8 +2117,9 @@ def get_chat_conversation(conv_id: str) -> dict | None:
     if not cid:
         return None
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         row = conn.execute(
-            "SELECT id, title, messages_json, linked_parent_job_id, created_at, updated_at "
+            "SELECT id, title, messages_json, linked_parent_job_id, interlocutor, created_at, updated_at "
             "FROM chat_conversations WHERE id=? AND workspace_id=?",
             (cid, _ws()),
         ).fetchone()
@@ -1602,14 +2132,7 @@ def get_chat_conversation(conv_id: str) -> dict | None:
         msgs = []
     if not isinstance(msgs, list):
         msgs = []
-    return {
-        "id": d.get("id"),
-        "title": d.get("title") or "",
-        "messages": msgs,
-        "linked_parent_job_id": d.get("linked_parent_job_id"),
-        "created_at": d.get("created_at"),
-        "updated_at": d.get("updated_at"),
-    }
+    return _chat_conversation_public(d, msgs)
 
 
 def upsert_chat_conversation(
@@ -1618,6 +2141,7 @@ def upsert_chat_conversation(
     title: str = "",
     messages: list | None = None,
     linked_parent_job_id: str | None = None,
+    interlocutor: str | None = None,
 ) -> dict:
     cid = (conv_id or "").strip()[:64]
     if not cid:
@@ -1630,41 +2154,89 @@ def upsert_chat_conversation(
     link = (linked_parent_job_id or "").strip()[:16] or None
     existing = get_chat_conversation(cid)
     created = existing.get("created_at") if existing else now
+    who = _clean_interlocutor(interlocutor)
+    if who is None and existing:
+        who = _clean_interlocutor(str(existing.get("interlocutor") or ""))
     with get_conn() as conn:
+        _ensure_chat_conversations_columns(conn)
         if _is_mariadb():
             conn.execute(
                 "INSERT INTO chat_conversations "
-                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(id, title, messages_json, linked_parent_job_id, interlocutor, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON DUPLICATE KEY UPDATE title=VALUES(title), messages_json=VALUES(messages_json), "
-                "linked_parent_job_id=VALUES(linked_parent_job_id), updated_at=VALUES(updated_at)",
-                (cid, tit, msgs_json, link, _ws(), created, now),
+                "linked_parent_job_id=VALUES(linked_parent_job_id), interlocutor=VALUES(interlocutor), "
+                "updated_at=VALUES(updated_at)",
+                (cid, tit, msgs_json, link, who, _ws(), created, now),
             )
         else:
             conn.execute(
                 "INSERT INTO chat_conversations "
-                "(id, title, messages_json, linked_parent_job_id, workspace_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(id, title, messages_json, linked_parent_job_id, interlocutor, workspace_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET title=excluded.title, messages_json=excluded.messages_json, "
-                "linked_parent_job_id=excluded.linked_parent_job_id, updated_at=excluded.updated_at",
-                (cid, tit, msgs_json, link, _ws(), created, now),
+                "linked_parent_job_id=excluded.linked_parent_job_id, interlocutor=excluded.interlocutor, "
+                "updated_at=excluded.updated_at",
+                (cid, tit, msgs_json, link, who, _ws(), created, now),
             )
         conn.commit()
     row = get_chat_conversation(cid)
-    return row or {"id": cid, "title": tit, "messages": messages or [], "updated_at": now}
+    return row or {
+        "id": cid,
+        "title": tit,
+        "messages": messages or [],
+        "interlocutor": who,
+        "updated_at": now,
+    }
+
+
+def forget_chat_session_if_empty(session_id: str) -> None:
+    """Retire la conversation si plus aucun job chat ne la référence."""
+    sid = (session_id or "").strip()[:64]
+    if not sid:
+        return
+    ws = _ws()
+    with get_conn() as conn:
+        left = conn.execute(
+            "SELECT 1 FROM jobs WHERE chat_session_id=? AND workspace_id=? AND source LIKE 'chat%' LIMIT 1",
+            (sid, ws),
+        ).fetchone()
+        if left:
+            return
+        conn.execute(
+            "DELETE FROM chat_conversations WHERE id=? AND workspace_id=?",
+            (sid, ws),
+        )
+        conn.commit()
 
 
 def delete_chat_conversation(conv_id: str) -> bool:
+    """Efface la conversation et les jobs chat de cette session. La mission parente reste."""
     cid = (conv_id or "").strip()[:64]
     if not cid:
         return False
+    ws = _ws()
+    job_ids: list[str] = []
     with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, source FROM jobs WHERE chat_session_id=? AND workspace_id=?",
+            (cid, ws),
+        ).fetchall()
+        for row in rows or []:
+            data = dict(row)
+            if str(data.get("source") or "").lower().startswith("chat"):
+                jid = _norm_job_id(data.get("id"))
+                if jid:
+                    job_ids.append(jid)
         cur = conn.execute(
             "DELETE FROM chat_conversations WHERE id=? AND workspace_id=?",
-            (cid, _ws()),
+            (cid, ws),
         )
         conn.commit()
-    return bool(getattr(cur, "rowcount", 0))
+        removed = bool(getattr(cur, "rowcount", 0))
+    for jid in job_ids:
+        delete_job_cascade(jid)
+    return removed or bool(job_ids)
 
 
 def update_job_orchestration_phase(job_id: str, phase: str) -> None:
@@ -1752,8 +2324,8 @@ def append_agent_definition_history(agent_key: str, body: dict[str, Any]) -> Non
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO agent_definitions_history (agent_key, body_json, created_at) VALUES (?, ?, ?)",
-            (agent_key[:64], json.dumps(body, ensure_ascii=False), now),
+            "INSERT INTO agent_definitions_history (agent_key, body_json, created_at, workspace_id) VALUES (?, ?, ?, ?)",
+            (agent_key[:64], json.dumps(body, ensure_ascii=False), now, _ws()),
         )
         conn.commit()
 
@@ -1762,8 +2334,8 @@ def list_agent_definition_history(agent_key: str, limit: int = 20) -> list[dict]
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent_key, body_json, created_at FROM agent_definitions_history "
-            "WHERE agent_key=? ORDER BY id DESC LIMIT ?",
-            (agent_key[:64], max(1, min(limit, 100))),
+            "WHERE agent_key=? AND workspace_id=? ORDER BY id DESC LIMIT ?",
+            (agent_key[:64], _ws(), max(1, min(limit, 100))),
         ).fetchall()
     out = []
     for row in rows:
@@ -1778,10 +2350,12 @@ def list_agent_definition_history(agent_key: str, limit: int = 20) -> list[dict]
 
 def append_orchestration_prompt_history(prompt_key: str, body: str) -> None:
     now = datetime.utcnow().isoformat()
+    stored = _scoped_prompt_key(prompt_key)[:64]
+    wid = _ws()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO orchestration_prompts_history (prompt_key, body, created_at) VALUES (?, ?, ?)",
-            (prompt_key[:64], body, now),
+            "INSERT INTO orchestration_prompts_history (prompt_key, body, created_at, workspace_id) VALUES (?, ?, ?, ?)",
+            (stored, body, now, wid),
         )
         conn.commit()
 
@@ -1789,8 +2363,8 @@ def append_orchestration_prompt_history(prompt_key: str, body: str) -> None:
 def get_agent_tool_permission(agent_key: str, tool_tag: str) -> str:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT permission_level FROM agent_tool_permissions WHERE agent_key=? AND tool_tag=?",
-            (agent_key[:64], tool_tag[:64]),
+            "SELECT permission_level FROM agent_tool_permissions WHERE agent_key=? AND tool_tag=? AND workspace_id=?",
+            (agent_key[:64], tool_tag[:64], _ws()),
         ).fetchone()
     if not row:
         return "execute"
@@ -1810,19 +2384,26 @@ def insert_mission_trace(
     cost_usd: float = 0,
     latency_ms: int = 0,
     behavior_snapshot_hash: str = "",
+    kind: str = "",
+    excerpt: str = "",
+    ref_key: str = "",
 ) -> None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        _ensure_mission_trace_columns(conn)
         conn.execute(
             """
             INSERT INTO mission_traces (
                 job_id, span_id, graph_node, agent, provider, model,
-                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash,
+                kind, excerpt, ref_key, created_at, workspace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id, span_id, graph_node, agent, provider, model,
-                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash, now,
+                tokens_in, tokens_out, cost_usd, latency_ms, behavior_snapshot_hash,
+                str(kind or "")[:32], str(excerpt or "")[:800], str(ref_key or "")[:64],
+                now, _ws(),
             ),
         )
         conn.commit()
@@ -2000,9 +2581,194 @@ def get_latest_chat_followup_snapshot(parent_job_id: str) -> dict[str, Any] | No
 def list_jobs(limit: int = 50) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?", (_ws(), limit)
+            "SELECT * FROM jobs WHERE workspace_id=? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (_ws(), limit),
         ).fetchall()
     return [_hydrate_job_row(dict(row)) for row in rows]
+
+
+def list_job_refs_for_agent_group(group_id: str, *, limit: int = 400) -> list[dict[str, Any]]:
+    """Missions dont mission_config.agent_group_id pointe vers ce groupe."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 400), 800))
+    ws = _ws()
+    rows = None
+    with get_conn() as conn:
+        try:
+            if _is_mariadb():
+                rows = conn.execute(
+                    "SELECT id, status, mission, agent, created_at FROM jobs "
+                    "WHERE workspace_id=? AND JSON_UNQUOTE(JSON_EXTRACT(mission_config_json, '$.agent_group_id'))=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (ws, gid, lim),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, status, mission, agent, created_at FROM jobs "
+                    "WHERE workspace_id=? AND json_extract(mission_config_json, '$.agent_group_id')=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (ws, gid, lim),
+                ).fetchall()
+        except Exception:
+            rows = conn.execute(
+                "SELECT id, status, mission, agent, created_at, mission_config_json FROM jobs "
+                "WHERE workspace_id=? AND mission_config_json LIKE ? "
+                "ORDER BY created_at DESC LIMIT ?",
+                (ws, f"%{gid}%", lim),
+            ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        raw_cfg = d.get("mission_config_json")
+        if raw_cfg:
+            try:
+                mc = json.loads(raw_cfg) if isinstance(raw_cfg, str) else raw_cfg
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(mc, dict) or str(mc.get("agent_group_id") or "").strip() != gid:
+                continue
+        out.append(
+            {
+                "id": str(d.get("id") or ""),
+                "status": str(d.get("status") or ""),
+                "mission": str(d.get("mission") or "")[:160],
+                "agent": str(d.get("agent") or ""),
+                "created_at": str(d.get("created_at") or ""),
+            }
+        )
+    return out
+
+
+_ACTIVE_JOB_STATUSES = ("running", "pending", "awaiting_validation", "paused")
+
+
+def list_active_job_refs_for_agent(agent_key: str, *, limit: int = 40) -> list[dict[str, Any]]:
+    """Missions non terminées dont cet agent est le pilote ou une ligne d'équipe."""
+    key = (agent_key or "").strip()
+    if not key:
+        return []
+    lim = max(1, min(int(limit or 40), 100))
+    marks = ",".join("?" * len(_ACTIVE_JOB_STATUSES))
+    rows = None
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, status, mission, agent, team_trace FROM jobs "
+            f"WHERE workspace_id=? AND status IN ({marks}) AND (agent=? OR team_trace LIKE ?) "
+            "ORDER BY created_at DESC LIMIT ?",
+            (_ws(), *_ACTIVE_JOB_STATUSES, key, f"%{key}%", lim),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        touched = str(d.get("agent") or "").strip() == key
+        if not touched:
+            try:
+                team = json.loads(d.get("team_trace") or "[]")
+            except json.JSONDecodeError:
+                team = []
+            if isinstance(team, list):
+                touched = any(
+                    isinstance(item, dict) and str(item.get("key") or "").strip() == key for item in team
+                )
+        if not touched:
+            continue
+        out.append(
+            {
+                "id": str(d.get("id") or ""),
+                "status": str(d.get("status") or ""),
+                "mission": str(d.get("mission") or "")[:160],
+                "agent": str(d.get("agent") or ""),
+            }
+        )
+    return out
+
+
+def list_open_session_refs_for_agent(agent_key: str, *, limit: int = 20) -> list[dict[str, Any]]:
+    """Cadrages encore ouverts (brouillon) dont cet agent est l'interlocuteur."""
+    key = (agent_key or "").strip()
+    if not key:
+        return []
+    lim = max(1, min(int(limit or 20), 50))
+    try:
+        with get_conn() as conn:
+            _ensure_mission_sessions_columns(conn)
+            rows = conn.execute(
+                "SELECT id, title, status, agent FROM mission_sessions "
+                "WHERE agent=? AND status='draft' AND workspace_id=? ORDER BY updated_at DESC LIMIT ?",
+                (key, _ws(), lim),
+            ).fetchall()
+    except Exception:
+        return []
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+        }
+        for r in (rows or [])
+    ]
+
+
+def list_mission_session_refs_for_group(group_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 50), 100))
+    with get_conn() as conn:
+        _ensure_mission_sessions_columns(conn)
+        rows = conn.execute(
+            "SELECT id, title, status, agent FROM mission_sessions "
+            "WHERE agent_group_id=? AND workspace_id=? ORDER BY updated_at DESC LIMIT ?",
+            (gid, _ws(), lim),
+        ).fetchall()
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+            "agent": str(dict(r).get("agent") or ""),
+        }
+        for r in (rows or [])
+    ]
+
+
+def list_blueprint_refs_for_group(group_id: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    gid = (group_id or "").strip()
+    if not gid:
+        return []
+    lim = max(1, min(int(limit or 30), 80))
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        rows = conn.execute(
+            "SELECT id, title, status FROM team_blueprints WHERE group_id=? AND workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (gid, _ws(), lim),
+        ).fetchall()
+    return [
+        {
+            "id": str(dict(r).get("id") or ""),
+            "title": str(dict(r).get("title") or ""),
+            "status": str(dict(r).get("status") or ""),
+        }
+        for r in (rows or [])
+    ]
+
+
+def delete_agent_group_row(group_id: str) -> bool:
+    gid = (group_id or "").strip()
+    if not gid:
+        return False
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        conn.execute("DELETE FROM agent_group_memory WHERE group_id=?", (gid,))
+        conn.execute("DELETE FROM team_blueprints WHERE group_id=?", (gid,))
+        cur = conn.execute(
+            "DELETE FROM agent_groups WHERE id=? AND workspace_id=? AND is_system=0",
+            (_agent_group_storage_id(gid), _ws()),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
 def list_jobs_prompt_digest(*, limit: int = 12, exclude_job_id: str | None = None) -> list[dict]:
@@ -2231,121 +2997,12 @@ def job_close_mission_by_user(job_id: str) -> bool:
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
-def job_set_awaiting_hitl(job_id: str, gate_payload: dict) -> bool:
-    """Suspend le job en attente de validation HITL humaine."""
-    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
-    if not jid:
-        return False
-    now = datetime.utcnow().isoformat()
-    gate_json = json.dumps(gate_payload, ensure_ascii=False)
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        cur = conn.execute(
-            "UPDATE jobs SET status = 'awaiting_validation', hitl_gate_json = ?, hitl_resolved_at = NULL, "
-            "hitl_comment = '', hitl_resolution_json = NULL, updated_at = ? "
-            "WHERE id = ? AND workspace_id = ? AND status IN ('running', 'pending')",
-            (gate_json, now, jid, _ws()),
-        )
-        conn.commit()
-        return int(getattr(cur, "rowcount", 0) or 0) > 0
-
-
-def job_resume_after_hitl(
-    job_id: str,
-    *,
-    approved: bool | None = None,
-    comment: str = "",
-    decision: str | None = None,
-    resolution: dict | None = None,
-) -> bool:
-    """Reprend ou annule un job suspendu en attente HITL.
-
-    decision : approve | reject | amend (prioritaire sur approved legacy).
-    resolution : pour amend — ex. {"amended_plan": {...}, "feedback": "..."}.
-    """
-    jid = resolve_job_id(job_id) or _norm_job_id(job_id)
-    if not jid:
-        return False
-    dec = (decision or "").strip().lower()
-    if dec not in ("approve", "reject", "amend"):
-        if approved is False:
-            dec = "reject"
-        else:
-            dec = "approve"
-    if dec == "reject":
-        new_status = "cancelled"
-        res_blob = None
-    else:
-        new_status = "running"
-        if dec == "amend" and isinstance(resolution, dict) and resolution:
-            res_blob = json.dumps(resolution, ensure_ascii=False)
-        else:
-            res_blob = None
-    now = datetime.utcnow().isoformat()
-    comment_s = (comment or "")[:8000]
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        cur = conn.execute(
-            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
-            "updated_at = ? WHERE id = ? AND workspace_id = ? AND status = 'awaiting_validation'",
-            (new_status, now, comment_s, res_blob, now, jid, _ws()),
-        )
-        if int(getattr(cur, "rowcount", 0) or 0) > 0:
-            conn.commit()
-            return True
-        # Reprise si gate ouverte mais statut désynchronisé (cache mémoire / reprise serveur).
-        row = conn.execute(
-            "SELECT status, hitl_gate_json, hitl_resolved_at FROM jobs WHERE id = ? AND workspace_id = ?",
-            (jid, _ws()),
-        ).fetchone()
-        if not row:
-            conn.commit()
-            return False
-        d = dict(row)
-        gate_raw = (d.get("hitl_gate_json") or "").strip()
-        resolved = (d.get("hitl_resolved_at") or "").strip()
-        if not gate_raw or resolved:
-            conn.commit()
-            return False
-        cur = conn.execute(
-            "UPDATE jobs SET status = ?, hitl_resolved_at = ?, hitl_comment = ?, hitl_resolution_json = ?, "
-            "updated_at = ? WHERE id = ? AND workspace_id = ?",
-            (new_status, now, comment_s, res_blob, now, jid, _ws()),
-        )
-        conn.commit()
-        return int(getattr(cur, "rowcount", 0) or 0) > 0
-
-
-def get_hitl_gate(job_id: str) -> dict | None:
-    """Retourne le payload de la gate HITL pour un job, ou None."""
-    with get_conn() as conn:
-        _ensure_jobs_hitl_column(conn)
-        row = conn.execute(
-            "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs "
-            "WHERE id = ? AND workspace_id = ?",
-            (job_id, _ws()),
-        ).fetchone()
-    if not row:
-        return None
-    d = dict(row)
-    try:
-        gate = json.loads(d.get("hitl_gate_json") or "{}")
-    except json.JSONDecodeError:
-        gate = {}
-    res: dict | None = None
-    raw_res = d.get("hitl_resolution_json")
-    if raw_res:
-        try:
-            parsed = json.loads(raw_res)
-            res = parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            res = None
-    return {
-        "gate": gate,
-        "resolved_at": d.get("hitl_resolved_at"),
-        "comment": d.get("hitl_comment"),
-        "resolution": res,
-    }
+# HITL jobs : implémentation dans database_jobs.py (découpe progressive).
+from database_jobs import (  # noqa: E402
+    get_hitl_gate,
+    job_resume_after_hitl,
+    job_set_awaiting_hitl,
+)
 
 
 def _ensure_jobs_hitl_column(conn) -> None:
@@ -2367,38 +3024,65 @@ def _ensure_jobs_hitl_column(conn) -> None:
     conn.commit()
 
 
+def _ensure_mission_sessions_columns(conn) -> None:
+    """Colonnes optionnelles des sessions de cadrage (flotte / périmètre)."""
+    if _is_mariadb():
+        cur = conn.execute("SHOW COLUMNS FROM mission_sessions")
+        cols = {str(row["Field"]) for row in cur.fetchall()}
+    else:
+        cur = conn.execute("PRAGMA table_info(mission_sessions)")
+        cols = {row[1] for row in cur.fetchall()}
+    if "agent_group_id" not in cols:
+        conn.execute("ALTER TABLE mission_sessions ADD COLUMN agent_group_id TEXT")
+
+
 def _hydrate_session_row(d: dict) -> dict:
     out = dict(d)
     try:
         out["messages"] = json.loads(out.get("messages") or "[]")
     except json.JSONDecodeError:
         out["messages"] = []
+    gid = str(out.get("agent_group_id") or "").strip()
+    out["agent_group_id"] = gid or None
     return out
 
 
-def create_mission_session(session_id: str, agent: str, title: str = "") -> None:
+def create_mission_session(
+    session_id: str,
+    agent: str,
+    title: str = "",
+    *,
+    agent_group_id: str | None = None,
+) -> None:
     now = datetime.utcnow().isoformat()
+    gid = (agent_group_id or "").strip() or None
     with get_conn() as conn:
+        _ensure_mission_sessions_columns(conn)
         conn.execute(
-            "INSERT INTO mission_sessions (id, agent, title, status, messages, linked_job_id, validated_brief, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'draft', '[]', NULL, NULL, ?, ?)",
-            (session_id, agent, title or "", now, now),
+            "INSERT INTO mission_sessions (id, agent, title, status, messages, linked_job_id, validated_brief, created_at, updated_at, agent_group_id, workspace_id) "
+            "VALUES (?, ?, ?, 'draft', '[]', NULL, NULL, ?, ?, ?, ?)",
+            (session_id, agent, title or "", now, now, gid, _ws()),
         )
         conn.commit()
 
 
 def get_mission_session(session_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM mission_sessions WHERE id=?", (session_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM mission_sessions WHERE id=? AND workspace_id=?",
+            (session_id, _ws()),
+        ).fetchone()
     if not row:
         return None
     return _hydrate_session_row(dict(row))
 
 
 def list_mission_sessions(limit: int = 40) -> list[dict]:
+    lim = max(1, min(int(limit or 40), 200))
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT * FROM mission_sessions ORDER BY updated_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM mission_sessions WHERE workspace_id=? ORDER BY updated_at DESC LIMIT ?",
+            (_ws(), lim),
         ).fetchall()
     return [_hydrate_session_row(dict(row)) for row in rows]
 
@@ -2412,8 +3096,8 @@ def append_session_message(session_id: str, role: str, content: str) -> dict | N
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE mission_sessions SET messages=?, updated_at=? WHERE id=?",
-            (json.dumps(msgs, ensure_ascii=False), now, session_id),
+            "UPDATE mission_sessions SET messages=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (json.dumps(msgs, ensure_ascii=False), now, session_id, _ws()),
         )
         conn.commit()
     return {**row, "messages": msgs}
@@ -2434,7 +3118,7 @@ def mission_session_commit(
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE mission_sessions SET status=?, linked_job_id=?, validated_brief=?, messages=?, updated_at=? WHERE id=?",
+            "UPDATE mission_sessions SET status=?, linked_job_id=?, validated_brief=?, messages=?, updated_at=? WHERE id=? AND workspace_id=?",
             (
                 "committed",
                 linked_job_id,
@@ -2442,6 +3126,7 @@ def mission_session_commit(
                 json.dumps(msgs, ensure_ascii=False),
                 now,
                 session_id,
+                _ws(),
             ),
         )
         conn.commit()
@@ -2450,7 +3135,10 @@ def mission_session_commit(
 def delete_mission_session(session_id: str) -> bool:
     """Supprime une ligne mission_sessions. Retourne True si une ligne a été effacée."""
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM mission_sessions WHERE id=?", (session_id,))
+        cur = conn.execute(
+            "DELETE FROM mission_sessions WHERE id=? AND workspace_id=?",
+            (session_id, _ws()),
+        )
         conn.commit()
         return cur.rowcount > 0
 
@@ -2476,7 +3164,16 @@ def _memory_user_deletable_keys() -> frozenset[str]:
 
 CUSTOM_AGENT_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{1,47}$")
 _CUSTOM_AGENT_RESERVED = frozenset(
-    {"global", "coordinateur", "commercial", "community_manager", "developpeur", "comptable", "auto_summary"},
+    {
+        "global",
+        "coordinateur",
+        "commercial",
+        "community_manager",
+        "developpeur",
+        "comptable",
+        "auto_summary",
+        "assistant",
+    },
 )
 ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
     {
@@ -2497,6 +3194,7 @@ ALLOWED_AGENT_TOOL_TAGS: frozenset[str] = frozenset(
         "youtube",
         "pinterest",
         "social_auto",
+        "teams",
     },
 )
 
@@ -2516,12 +3214,16 @@ def _ensure_custom_agents_table(conn) -> None:
         )
         """
     )
+    _add_workspace_column(conn, "custom_agents")
 
 
 def list_custom_agent_keys_raw() -> list[str]:
     with get_conn() as conn:
         _ensure_custom_agents_table(conn)
-        rows = conn.execute("SELECT agent_key FROM custom_agents ORDER BY agent_key").fetchall()
+        rows = conn.execute(
+            "SELECT agent_key FROM custom_agents WHERE workspace_id=? ORDER BY agent_key",
+            (_ws(),),
+        ).fetchall()
     out: list[str] = []
     for r in rows or []:
         try:
@@ -2537,15 +3239,16 @@ def _memory_context_allowed_keys() -> frozenset[str]:
     return _CONTEXT_KEYS_LEGACY | _SYSTEM_ENTERPRISE_CONTEXT_KEYS | frozenset(list_custom_agent_keys_raw())
 
 
-# Cache lecture enterprise_memory (singleton) — invalidé à chaque écriture.
-_ENTERPRISE_MEM_CACHE: dict[str, Any] | None = None
-_ENTERPRISE_MEM_CACHE_AT: float = 0.0
-_ENTERPRISE_MEM_TTL_SEC = 2.0
+# Mémoire entreprise : implémentation dans database_memory.py (découpe progressive).
+from database_memory import (  # noqa: E402
+    append_recent_mission,
+    delete_enterprise_context_keys,
+    get_enterprise_memory,
+    init_enterprise_memory_row,
+    invalidate_enterprise_memory_cache,
+    merge_enterprise_contexts,
+)
 
-
-def invalidate_enterprise_memory_cache() -> None:
-    global _ENTERPRISE_MEM_CACHE
-    _ENTERPRISE_MEM_CACHE = None
 
 
 def validate_custom_agent_key(raw: str) -> tuple[str, str | None]:
@@ -2567,7 +3270,8 @@ def fetch_custom_agents_definitions_merge_shape() -> dict[str, dict[str, Any]]:
     with get_conn() as conn:
         _ensure_custom_agents_table(conn)
         rows = conn.execute(
-            "SELECT agent_key, label, role, system_prompt, tools_json FROM custom_agents ORDER BY agent_key"
+            "SELECT agent_key, label, role, system_prompt, tools_json FROM custom_agents WHERE workspace_id=? ORDER BY agent_key",
+            (_ws(),),
         ).fetchall()
     out: dict[str, dict[str, Any]] = {}
     for row in rows or []:
@@ -2615,7 +3319,16 @@ def upsert_custom_agent(
     role_s = (role or "").strip()
     with get_conn() as conn:
         _ensure_custom_agents_table(conn)
-        prev = conn.execute("SELECT created_at FROM custom_agents WHERE agent_key=?", (canon,)).fetchone()
+        owner = conn.execute(
+            "SELECT workspace_id, created_at FROM custom_agents WHERE agent_key=?",
+            (canon,),
+        ).fetchone()
+        wid = _ws()
+        if owner is not None:
+            owned = str(dict(owner).get("workspace_id") or "")
+            if owned and owned != wid:
+                raise ValueError("clé déjà utilisée dans un autre espace")
+        prev = owner if owner is not None and str(dict(owner).get("workspace_id") or wid) == wid else None
         created = now
         if prev is not None:
             try:
@@ -2627,9 +3340,9 @@ def upsert_custom_agent(
                     created = now
         conn.execute(
             "INSERT OR REPLACE INTO custom_agents "
-            "(agent_key, label, role, system_prompt, tools_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (canon, lab, role_s, sys_clean, json.dumps(tools_f, ensure_ascii=False), created, now),
+            "(agent_key, label, role, system_prompt, tools_json, created_at, updated_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (canon, lab, role_s, sys_clean, json.dumps(tools_f, ensure_ascii=False), created, now, wid),
         )
         conn.commit()
 
@@ -2640,160 +3353,390 @@ def delete_custom_agent(agent_key: str) -> bool:
         raise ValueError(err)
     with get_conn() as conn:
         _ensure_custom_agents_table(conn)
-        cur = conn.execute("DELETE FROM custom_agents WHERE agent_key=?", (canon,))
+        cur = conn.execute(
+            "DELETE FROM custom_agents WHERE agent_key=? AND workspace_id=?",
+            (canon, _ws()),
+        )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
-def init_enterprise_memory_row() -> None:
-    """Contexte entreprise par espace Korymb."""
+def _ensure_agent_groups_tables(conn) -> None:
+    text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS agent_groups (
+            id {text_pk} PRIMARY KEY,
+            slug TEXT NOT NULL,
+            label TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            lead_agent_key TEXT NOT NULL,
+            member_keys_json TEXT NOT NULL DEFAULT '[]',
+            policy_json TEXT NOT NULL DEFAULT '{{}}',
+            is_system INTEGER NOT NULL DEFAULT 0,
+            template_key TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS team_blueprints (
+            id {text_pk} PRIMARY KEY,
+            status TEXT NOT NULL DEFAULT 'proposed',
+            title TEXT NOT NULL DEFAULT '',
+            intent TEXT NOT NULL DEFAULT '',
+            dry_run_summary TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{{}}',
+            group_id TEXT,
+            chat_session_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS agent_group_memory (
+            group_id {text_pk} PRIMARY KEY,
+            notes TEXT NOT NULL DEFAULT '',
+            inherit_shared INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    for table in ("agent_groups", "team_blueprints", "agent_group_memory"):
+        _add_workspace_column(conn, table)
+
+
+def upsert_agent_group(
+    group_id: str,
+    *,
+    slug: str,
+    label: str,
+    description: str,
+    status: str,
+    lead_agent_key: str,
+    member_keys: list[str],
+    policy: dict[str, Any],
+    is_system: bool,
+    template_key: str | None,
+) -> dict[str, Any]:
     now = datetime.utcnow().isoformat()
+    gid = (group_id or "").strip()
+    if not gid:
+        raise ValueError("group_id vide")
+    sid = _agent_group_storage_id(gid)
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        prev = conn.execute(
+            "SELECT created_at, workspace_id, is_system FROM agent_groups WHERE id=?",
+            (sid,),
+        ).fetchone()
+        created = now
+        group_ws = _ws()
+        if prev is not None:
+            try:
+                pd = dict(prev)
+                created = str(pd["created_at"])
+            except Exception:
+                pd = {}
+                created = str(prev[0]) if prev else now
+            owned = str(pd.get("workspace_id") or "")
+            already_system = int(pd.get("is_system") or 0) == 1
+            if owned and owned != group_ws and not already_system and not is_system:
+                raise ValueError("groupe d'un autre espace")
+            if (already_system or is_system) and owned:
+                group_ws = owned
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_groups "
+            "(id, slug, label, description, status, lead_agent_key, member_keys_json, policy_json, "
+            "is_system, template_key, created_at, updated_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                sid,
+                (slug or gid)[:80],
+                (label or gid)[:160],
+                (description or "")[:2000],
+                (status or "active")[:32],
+                (lead_agent_key or "coordinateur")[:80],
+                json.dumps(list(member_keys or []), ensure_ascii=False),
+                json.dumps(policy or {}, ensure_ascii=False),
+                1 if is_system else 0,
+                (template_key or None),
+                created,
+                now,
+                group_ws,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM agent_groups WHERE id=?", (sid,)).fetchone()
+    return _public_agent_group_row(dict(row))
+
+
+def _agent_group_storage_id(group_id: str) -> str:
+    """L'équipe principale est une fiche par espace. L'espace legacy garde l'id historique."""
+    gid = (group_id or "").strip()
+    if gid != "entreprise" and not gid.startswith("entreprise:"):
+        return gid
+    from workspace_db import _DEFAULT_WORKSPACE_ID
+
+    wid = _ws()
+    if not wid or wid == _DEFAULT_WORKSPACE_ID:
+        return "entreprise"
+    return f"entreprise:{wid}"[:191]
+
+
+def _public_agent_group_row(row: dict) -> dict:
+    d = dict(row)
+    stored = str(d.get("id") or "")
+    if stored == "entreprise" or stored.startswith("entreprise:"):
+        d["id"] = "entreprise"
+    d["member_keys"] = d.get("member_keys_json")
+    d["policy"] = d.get("policy_json")
+    return d
+
+
+def get_agent_group(group_id: str) -> dict[str, Any] | None:
+    gid = (group_id or "").strip()
+    if not gid:
+        return None
+    sid = _agent_group_storage_id(gid)
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute(
+            "SELECT * FROM agent_groups WHERE id=? AND workspace_id=?",
+            (sid, _ws()),
+        ).fetchone()
+    if not row:
+        return None
+    return _public_agent_group_row(dict(row))
+
+
+def list_agent_groups(*, include_archived: bool = False) -> list[dict[str, Any]]:
     wid = _ws()
     with get_conn() as conn:
-        text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
+        _ensure_agent_groups_tables(conn)
+        if include_archived:
+            rows = conn.execute(
+                "SELECT * FROM agent_groups WHERE workspace_id=? ORDER BY is_system DESC, label ASC",
+                (wid,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM agent_groups WHERE workspace_id=? AND status != 'archived' "
+                "ORDER BY is_system DESC, label ASC",
+                (wid,),
+            ).fetchall()
+    return [_public_agent_group_row(dict(row)) for row in rows or []]
+
+
+def insert_team_blueprint(
+    blueprint_id: str,
+    *,
+    status: str,
+    title: str,
+    intent: str,
+    dry_run_summary: str,
+    payload: dict[str, Any],
+    chat_session_id: str | None = None,
+    group_id: str | None = None,
+) -> dict[str, Any]:
+    now = datetime.utcnow().isoformat()
+    bid = (blueprint_id or "").strip()
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
         conn.execute(
-            f"""
-            CREATE TABLE IF NOT EXISTS enterprise_memory (
-                workspace_id {text_pk} PRIMARY KEY,
-                contexts_json TEXT NOT NULL DEFAULT '{{}}',
-                recent_missions_json TEXT NOT NULL DEFAULT '[]',
-                updated_at TEXT NOT NULL
-            )
-            """
+            "INSERT INTO team_blueprints "
+            "(id, status, title, intent, dry_run_summary, payload_json, group_id, chat_session_id, created_at, updated_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                bid,
+                (status or "proposed")[:32],
+                (title or "")[:200],
+                (intent or "")[:4000],
+                (dry_run_summary or "")[:4000],
+                json.dumps(payload or {}, ensure_ascii=False),
+                group_id,
+                chat_session_id,
+                now,
+                now,
+                _ws(),
+            ),
         )
+        conn.commit()
         row = conn.execute(
-            "SELECT workspace_id FROM enterprise_memory WHERE workspace_id=?",
-            (wid,),
+            "SELECT * FROM team_blueprints WHERE id=? AND workspace_id=?",
+            (bid, _ws()),
+        ).fetchone()
+    d = dict(row)
+    d["payload"] = d.get("payload_json")
+    return d
+
+
+def get_team_blueprint(blueprint_id: str) -> dict[str, Any] | None:
+    bid = (blueprint_id or "").strip()
+    if not bid:
+        return None
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute(
+            "SELECT * FROM team_blueprints WHERE id=? AND workspace_id=?",
+            (bid, _ws()),
+        ).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["payload"] = d.get("payload_json")
+    return d
+
+
+def list_team_blueprints(*, limit: int = 30) -> list[dict[str, Any]]:
+    lim = max(1, min(int(limit or 30), 100))
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        rows = conn.execute(
+            "SELECT * FROM team_blueprints WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+            (_ws(), lim),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows or []:
+        d = dict(row)
+        d["payload"] = d.get("payload_json")
+        out.append(d)
+    return out
+
+
+def update_team_blueprint(
+    blueprint_id: str,
+    *,
+    status: str | None = None,
+    group_id: str | None = None,
+    dry_run_summary: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    bid = (blueprint_id or "").strip()
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        row = conn.execute(
+            "SELECT * FROM team_blueprints WHERE id=? AND workspace_id=?",
+            (bid, _ws()),
         ).fetchone()
         if not row:
-            conn.execute(
-                "INSERT INTO enterprise_memory (contexts_json, recent_missions_json, updated_at, workspace_id) "
-                "VALUES ('{}', '[]', ?, ?)",
-                (now, wid),
-            )
+            raise ValueError("blueprint introuvable")
+        d = dict(row)
+        conn.execute(
+            "UPDATE team_blueprints SET status=?, group_id=?, dry_run_summary=?, payload_json=?, updated_at=? WHERE id=? AND workspace_id=?",
+            (
+                (status if status is not None else d.get("status")) or "proposed",
+                group_id if group_id is not None else d.get("group_id"),
+                dry_run_summary if dry_run_summary is not None else d.get("dry_run_summary") or "",
+                json.dumps(payload, ensure_ascii=False)
+                if payload is not None
+                else (d.get("payload_json") or "{}"),
+                now,
+                bid,
+                _ws(),
+            ),
+        )
         conn.commit()
 
 
-def get_enterprise_memory() -> dict:
-    global _ENTERPRISE_MEM_CACHE, _ENTERPRISE_MEM_CACHE_AT
-    init_enterprise_memory_row()
-    now_m = time.monotonic()
-    if _ENTERPRISE_MEM_CACHE is not None and (now_m - _ENTERPRISE_MEM_CACHE_AT) < _ENTERPRISE_MEM_TTL_SEC:
-        return copy.deepcopy(_ENTERPRISE_MEM_CACHE)
+def _group_memory_overlay(group_id: str) -> dict[str, Any] | None:
+    """Notes d'un groupe système partagé, isolées par espace (ne remplace pas la ligne d'un autre tenant)."""
+    data = load_settings_store("group_memory")
+    bucket = data.get(group_id) if isinstance(data, dict) else None
+    return bucket if isinstance(bucket, dict) else None
+
+
+def get_agent_group_memory(group_id: str) -> dict[str, Any]:
+    """Notes mémoire isolées d'un groupe d'agents."""
+    gid = (group_id or "").strip()
+    if not gid:
+        return {"group_id": "", "notes": "", "inherit_shared": False, "updated_at": None}
+    overlay = _group_memory_overlay(gid)
+    if overlay is not None:
+        return {
+            "group_id": gid,
+            "notes": str(overlay.get("notes") or ""),
+            "inherit_shared": bool(overlay.get("inherit_shared")),
+            "updated_at": overlay.get("updated_at"),
+        }
     with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
         row = conn.execute(
-            "SELECT contexts_json, recent_missions_json, updated_at FROM enterprise_memory WHERE workspace_id=?",
-            (_ws(),),
+            "SELECT group_id, notes, inherit_shared, updated_at, workspace_id FROM agent_group_memory WHERE group_id=?",
+            (gid,),
         ).fetchone()
-    allowed = _memory_context_allowed_keys()
     if not row:
-        out = {"contexts": {k: "" for k in allowed}, "recent_missions": [], "updated_at": None}
-        _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
-        _ENTERPRISE_MEM_CACHE_AT = now_m
-        return copy.deepcopy(out)
-    try:
-        ctx = json.loads(row["contexts_json"] or "{}")
-    except json.JSONDecodeError:
-        ctx = {}
-    if not isinstance(ctx, dict):
-        ctx = {}
-    base = {k: "" for k in allowed}
-    for k, v in ctx.items():
-        if k in allowed and isinstance(v, str):
-            base[k] = v
-    try:
-        recent = json.loads(row["recent_missions_json"] or "[]")
-    except json.JSONDecodeError:
-        recent = []
-    if not isinstance(recent, list):
-        recent = []
-    out = {
-        "contexts": base,
-        "recent_missions": recent,
-        "updated_at": row["updated_at"],
+        return {"group_id": gid, "notes": "", "inherit_shared": False, "updated_at": None}
+    d = dict(row)
+    owned = str(d.get("workspace_id") or "")
+    if owned and owned != _ws():
+        return {"group_id": gid, "notes": "", "inherit_shared": False, "updated_at": None}
+    return {
+        "group_id": str(d.get("group_id") or gid),
+        "notes": str(d.get("notes") or ""),
+        "inherit_shared": bool(int(d.get("inherit_shared") or 0)),
+        "updated_at": d.get("updated_at"),
     }
-    _ENTERPRISE_MEM_CACHE = copy.deepcopy(out)
-    _ENTERPRISE_MEM_CACHE_AT = now_m
-    return copy.deepcopy(out)
 
 
-def merge_enterprise_contexts(updates: dict[str, str] | None) -> dict:
-    """Fusionne les champs de contexte (texte libre par rôle + global)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    cur = get_enterprise_memory()
-    allowed = _memory_context_allowed_keys()
-    base = dict(cur["contexts"])
-    for k, v in (updates or {}).items():
-        if k in allowed and isinstance(v, str):
-            base[k] = v
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(base, ensure_ascii=False), now, _ws()),
-        )
-        conn.commit()
-    invalidate_enterprise_memory_cache()
-    return get_enterprise_memory()
-
-
-def delete_enterprise_context_keys(keys: list[str]) -> dict:
-    """Retire des volets mémoire éditables du JSON persisté (snapshot recommandé avant)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    deletable = _memory_user_deletable_keys()
-    to_drop = [str(k).strip() for k in (keys or []) if str(k).strip() in deletable]
-    if not to_drop:
-        return get_enterprise_memory()
-    cur = get_enterprise_memory()
-    base = dict(cur.get("contexts") or {})
-    for k in to_drop:
-        base.pop(k, None)
-    to_save = {k: v for k, v in base.items() if isinstance(v, str) and v.strip()}
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE enterprise_memory SET contexts_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(to_save, ensure_ascii=False), now, _ws()),
-        )
-        conn.commit()
-    invalidate_enterprise_memory_cache()
-    return get_enterprise_memory()
-
-
-def append_recent_mission(job_id: str, mission: str, preview: str) -> None:
-    """Ajoute une entrée dans l'historique des missions (mémoire opérationnelle, texte long pour le CIO)."""
-    init_enterprise_memory_row()
-    invalidate_enterprise_memory_cache()
-    cur = get_enterprise_memory()
-    lst = list(cur.get("recent_missions") or [])
-    lst.append(
-        {
-            "job_id": job_id,
-            "mission": (mission or "")[:2000],
-            "preview": (preview or "")[:10000],
-            "ts": datetime.utcnow().isoformat(),
-        },
+def upsert_agent_group_memory(
+    group_id: str,
+    *,
+    notes: str | None = None,
+    inherit_shared: bool | None = None,
+) -> dict[str, Any]:
+    gid = (group_id or "").strip()
+    if not gid:
+        raise ValueError("group_id vide")
+    cur = get_agent_group_memory(gid)
+    next_notes = notes if notes is not None else cur.get("notes") or ""
+    next_notes = str(next_notes)[:16_000]
+    next_inherit = (
+        bool(inherit_shared) if inherit_shared is not None else bool(cur.get("inherit_shared"))
     )
-    lst = lst[-10:]
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        _ensure_agent_groups_tables(conn)
+        owner = conn.execute(
+            "SELECT workspace_id FROM agent_group_memory WHERE group_id=?",
+            (gid,),
+        ).fetchone()
+        owned = str(dict(owner).get("workspace_id") or "") if owner else ""
+        if owner is not None and owned and owned != _ws():
+            data = load_settings_store("group_memory")
+            if not isinstance(data, dict):
+                data = {}
+            data[gid] = {
+                "notes": next_notes,
+                "inherit_shared": next_inherit,
+                "updated_at": now,
+            }
+            save_settings_store("group_memory", data)
+            return get_agent_group_memory(gid)
         conn.execute(
-            "UPDATE enterprise_memory SET recent_missions_json=?, updated_at=? WHERE workspace_id=?",
-            (json.dumps(lst, ensure_ascii=False), now, _ws()),
+            "INSERT OR REPLACE INTO agent_group_memory (group_id, notes, inherit_shared, updated_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (gid, next_notes, 1 if next_inherit else 0, now, _ws()),
         )
         conn.commit()
-    invalidate_enterprise_memory_cache()
+    return get_agent_group_memory(gid)
 
 
 # ── Mission Templates ─────────────────────────────────────────────────────────
 
 def list_mission_templates() -> list[dict]:
+    wid = _ws()
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
-            "FROM mission_templates ORDER BY updated_at DESC"
+            "FROM mission_templates WHERE workspace_id=? ORDER BY updated_at DESC",
+            (wid,),
         ).fetchall()
     out = []
     for r in rows:
@@ -2811,11 +3754,12 @@ def list_mission_templates() -> list[dict]:
 
 
 def get_mission_template(template_id: str) -> dict | None:
+    wid = _ws()
     with get_conn() as conn:
         row = conn.execute(
             "SELECT id, name, description, agent, mission_text, variables_json, config_json, created_at, updated_at "
-            "FROM mission_templates WHERE id=?",
-            (template_id,),
+            "FROM mission_templates WHERE id=? AND workspace_id=?",
+            (template_id, wid),
         ).fetchone()
     if not row:
         return None
@@ -2872,8 +3816,12 @@ def upsert_mission_template(
 
 
 def delete_mission_template(template_id: str) -> bool:
+    wid = _ws()
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM mission_templates WHERE id=?", (template_id,))
+        cur = conn.execute(
+            "DELETE FROM mission_templates WHERE id=? AND workspace_id=?",
+            (template_id, wid),
+        )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
@@ -2886,8 +3834,8 @@ def snapshot_memory_history(comment: str = "") -> int:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         cur = conn.execute(
-            "INSERT INTO memory_history (contexts_json, comment, created_at) VALUES (?, ?, ?)",
-            (json.dumps(mem["contexts"], ensure_ascii=False), (comment or "").strip(), now),
+            "INSERT INTO memory_history (contexts_json, comment, created_at, workspace_id) VALUES (?, ?, ?, ?)",
+            (json.dumps(mem["contexts"], ensure_ascii=False), (comment or "").strip(), now, _ws()),
         )
         conn.commit()
         return int(cur.lastrowid or 0)
@@ -2898,8 +3846,8 @@ def list_memory_history(limit: int = 20) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, comment, created_at, substr(contexts_json, 1, 120) AS preview "
-            "FROM memory_history ORDER BY id DESC LIMIT ?",
-            (limit,),
+            "FROM memory_history WHERE workspace_id=? ORDER BY id DESC LIMIT ?",
+            (_ws(), limit),
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -2907,8 +3855,8 @@ def list_memory_history(limit: int = 20) -> list[dict]:
 def get_memory_history_snapshot(snapshot_id: int) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, contexts_json, comment, created_at FROM memory_history WHERE id=?",
-            (snapshot_id,),
+            "SELECT id, contexts_json, comment, created_at FROM memory_history WHERE id=? AND workspace_id=?",
+            (snapshot_id, _ws()),
         ).fetchone()
     if not row:
         return None
@@ -3015,8 +3963,8 @@ def create_scheduled_task(
         conn.execute(
             "INSERT INTO scheduled_tasks (id, name, description, task_type, agent, mission_template, "
             "params_json, schedule_type, schedule_config, enabled, requires_approval, "
-            "budget_tokens_per_run, budget_runs_per_day, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "budget_tokens_per_run, budget_runs_per_day, created_at, updated_at, workspace_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id, name, description, task_type, agent, mission_template,
                 json.dumps(params or {}, ensure_ascii=False),
@@ -3024,7 +3972,7 @@ def create_scheduled_task(
                 json.dumps(schedule_config or {}, ensure_ascii=False),
                 int(enabled), int(requires_approval),
                 int(budget_tokens_per_run), int(budget_runs_per_day),
-                now, now,
+                now, now, _ws(),
             ),
         )
         conn.commit()
@@ -3033,18 +3981,36 @@ def create_scheduled_task(
 
 def get_scheduled_task(task_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM scheduled_tasks WHERE id=? AND workspace_id=?",
+            (task_id, _ws()),
+        ).fetchone()
     if not row:
         return None
     return _hydrate_scheduled_task(dict(row))
 
 
-def list_scheduled_tasks() -> list[dict]:
+def list_scheduled_tasks(*, all_workspaces: bool = False) -> list[dict]:
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
-        ).fetchall()
+        if all_workspaces:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_tasks ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM scheduled_tasks WHERE workspace_id=? ORDER BY created_at DESC",
+                (_ws(),),
+            ).fetchall()
     return [_hydrate_scheduled_task(dict(r)) for r in rows]
+
+
+def get_scheduled_task_any(task_id: str) -> dict | None:
+    """Charge une tâche sans filtre d'espace — réservé au scheduler, qui pose ensuite le tenant."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT * FROM scheduled_tasks WHERE id=?", (task_id,)).fetchone()
+    if not row:
+        return None
+    return _hydrate_scheduled_task(dict(row))
 
 
 def update_scheduled_task(
@@ -3098,14 +4064,18 @@ def update_scheduled_task(
         sets.append("next_run_at=?"); vals.append(next_run_at)
     vals.append(task_id)
     with get_conn() as conn:
-        conn.execute(f"UPDATE scheduled_tasks SET {', '.join(sets)} WHERE id=?", vals)
+        vals.append(_ws())
+        conn.execute(f"UPDATE scheduled_tasks SET {', '.join(sets)} WHERE id=? AND workspace_id=?", vals)
         conn.commit()
     return get_scheduled_task(task_id)
 
 
 def delete_scheduled_task(task_id: str) -> bool:
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
+        cur = conn.execute(
+            "DELETE FROM scheduled_tasks WHERE id=? AND workspace_id=?",
+            (task_id, _ws()),
+        )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
@@ -3126,9 +4096,9 @@ def create_autonomous_output(
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO autonomous_outputs (id, task_id, job_id, output_type, target_platform, "
-            "target_ref, title, content, status, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (output_id, task_id, job_id, output_type, target_platform, target_ref, title, content, "pending", now, now),
+            "target_ref, title, content, status, created_at, updated_at, workspace_id) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (output_id, task_id, job_id, output_type, target_platform, target_ref, title, content, "pending", now, now, _ws()),
         )
         conn.commit()
     return get_autonomous_output(output_id)  # type: ignore[return-value]
@@ -3136,7 +4106,10 @@ def create_autonomous_output(
 
 def get_autonomous_output(output_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM autonomous_outputs WHERE id=?", (output_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM autonomous_outputs WHERE id=? AND workspace_id=?",
+            (output_id, _ws()),
+        ).fetchone()
     return dict(row) if row else None
 
 
@@ -3147,8 +4120,8 @@ def list_autonomous_outputs(
     output_type: str | None = None,
     limit: int = 50,
 ) -> list[dict]:
-    clauses: list[str] = []
-    params: list = []
+    clauses: list[str] = ["workspace_id=?"]
+    params: list = [_ws()]
     if status:
         clauses.append("status=?"); params.append(status)
     if task_id:
@@ -3184,7 +4157,11 @@ def update_autonomous_output_status(
         sets.append("published_at=?"); vals.append(published_at)
     vals.append(output_id)
     with get_conn() as conn:
-        conn.execute(f"UPDATE autonomous_outputs SET {', '.join(sets)} WHERE id=?", vals)
+        vals.append(_ws())
+        conn.execute(
+            f"UPDATE autonomous_outputs SET {', '.join(sets)} WHERE id=? AND workspace_id=?",
+            vals,
+        )
         conn.commit()
     return get_autonomous_output(output_id)
 
@@ -3230,6 +4207,8 @@ def delete_job_cascade(job_id: str) -> bool:
         for table, col in (
             ("mission_traces", "job_id"),
             ("mission_checkpoints", "job_id"),
+            ("lg_checkpoints", "thread_id"),
+            ("lg_checkpoint_writes", "thread_id"),
             ("hitl_plan_snapshots", "job_id"),
             ("quality_verdicts", "job_id"),
             ("learning_suggestions", "job_id"),
@@ -3283,6 +4262,10 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
     primary = get_job(jid)
     if not primary:
         return [jid]
+
+    source = str(primary.get("source") or "").strip().lower()
+    if source.startswith("chat"):
+        return _chat_job_delete_cluster_ids(jid, primary)
 
     ids: set[str] = set()
     agent = str(primary.get("agent") or "coordinateur").strip()
@@ -3356,6 +4339,44 @@ def collect_job_delete_cluster_ids(job_id: str) -> list[str]:
         for start in list(ids):
             add_descendants(start)
 
+    return _cluster_delete_order([x for x in ids if x])
+
+
+def _chat_job_delete_cluster_ids(job_id: str, primary: dict) -> list[str]:
+    """Jobs d'une même session chat. N'entraîne pas la mission parente ni les autres prompts identiques."""
+    ids: set[str] = {job_id}
+    session = str(primary.get("chat_session_id") or "").strip()
+    with get_conn() as conn:
+        ws = _ws()
+        if session:
+            rows = conn.execute(
+                "SELECT id, source FROM jobs WHERE chat_session_id=? AND workspace_id=?",
+                (session, ws),
+            ).fetchall()
+            for row in rows or []:
+                data = dict(row)
+                if not str(data.get("source") or "").lower().startswith("chat"):
+                    continue
+                rid = _norm_job_id(data.get("id"))
+                if rid:
+                    ids.add(rid)
+
+        def add_chat_descendants(parent: str) -> None:
+            children = conn.execute(
+                "SELECT id, source FROM jobs WHERE parent_job_id=? AND workspace_id=?",
+                (parent, ws),
+            ).fetchall()
+            for child in children or []:
+                data = dict(child)
+                if not str(data.get("source") or "").lower().startswith("chat"):
+                    continue
+                cid = _norm_job_id(data.get("id"))
+                if cid and cid not in ids:
+                    ids.add(cid)
+                    add_chat_descendants(cid)
+
+        for start in list(ids):
+            add_chat_descendants(start)
     return _cluster_delete_order([x for x in ids if x])
 
 
@@ -3486,13 +4507,7 @@ def mark_cio_questions_dismissed(job_id: str) -> bool:
         patched.append(ev)
     if not changed:
         return False
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return True
 
 
@@ -3523,13 +4538,7 @@ def mark_cio_questions_answered(job_id: str) -> bool:
         patched.append(ev)
     if not changed:
         return False
-    now = datetime.utcnow().isoformat()
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return True
 
 
@@ -3583,12 +4592,7 @@ def record_cio_arbitrage_answer(job_id: str, question: str, answer: str) -> dict
         "ts": now,
         "payload": {"question": q, "answer": a},
     })
-    with get_conn() as conn:
-        conn.execute(
-            "UPDATE jobs SET events_json=?, updated_at=? WHERE id=? AND workspace_id=?",
-            (json.dumps(patched, ensure_ascii=False), now, job_id, _ws()),
-        )
-        conn.commit()
+    persist_job_events(job_id, patched)
     return list_cio_arbitrage_answers(job_id)
 
 
@@ -3648,12 +4652,16 @@ def list_jobs_list_light(limit: int = 50) -> list[dict]:
 def _library_item_hash(item_id: str) -> str:
     import hashlib
 
-    return hashlib.sha256((item_id or "").strip().encode("utf-8")).hexdigest()
+    raw = f"{_ws()}\n{(item_id or '').strip()}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def list_library_dismissed_item_ids() -> set[str]:
     with get_conn() as conn:
-        rows = conn.execute("SELECT item_id FROM library_dismissals").fetchall()
+        rows = conn.execute(
+            "SELECT item_id FROM library_dismissals WHERE workspace_id=?",
+            (_ws(),),
+        ).fetchall()
     out: set[str] = set()
     for row in rows or []:
         if isinstance(row, dict):
@@ -3674,8 +4682,8 @@ def prune_legacy_library_member_dismissals() -> int:
     """Supprime les masquages membre (ancien format trop agressif) — garde les group:."""
     with get_conn() as conn:
         cur = conn.execute(
-            "DELETE FROM library_dismissals WHERE item_id NOT LIKE ?",
-            ("group:%",),
+            "DELETE FROM library_dismissals WHERE workspace_id=? AND item_id NOT LIKE ?",
+            (_ws(), "group:%"),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0)
@@ -3693,15 +4701,15 @@ def dismiss_library_item(item_id: str) -> dict:
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO library_dismissals (item_hash, item_id, created_at) VALUES (?, ?, ?) "
-                "ON DUPLICATE KEY UPDATE created_at = VALUES(created_at)",
-                (key, iid, now),
+                "INSERT INTO library_dismissals (item_hash, item_id, created_at, workspace_id) VALUES (?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE created_at = VALUES(created_at), workspace_id = VALUES(workspace_id)",
+                (key, iid, now, _ws()),
             )
         else:
             conn.execute(
-                "INSERT INTO library_dismissals (item_hash, item_id, created_at) VALUES (?, ?, ?) "
-                "ON CONFLICT(item_hash) DO UPDATE SET created_at = excluded.created_at",
-                (key, iid, now),
+                "INSERT INTO library_dismissals (item_hash, item_id, created_at, workspace_id) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(item_hash) DO UPDATE SET created_at = excluded.created_at, workspace_id = excluded.workspace_id",
+                (key, iid, now, _ws()),
             )
         conn.commit()
     return {"dismissed": True, "item_id": iid}
@@ -3756,13 +4764,24 @@ def list_jobs_active_rows(limit: int = 24) -> list[dict]:
     return [dict(row) for row in rows or []]
 
 
+def _project_id_from_mission_config(raw: str | None) -> str:
+    """Identifiant projet CRM stocké dans mission_config, sans hydrater tout le JSON métier."""
+    try:
+        mc = json.loads(raw or "{}")
+    except (json.JSONDecodeError, TypeError):
+        return ""
+    if not isinstance(mc, dict):
+        return ""
+    return str(mc.get("project_id") or "").strip()[:64]
+
+
 def list_jobs_cards_light(limit: int = 80) -> list[dict]:
     """Cartes missions / historique : champs utiles + extrait result, sans hydratation JSON lourde."""
     lim = max(1, min(int(limit), 120))
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, parent_job_id, user_validated_at, "
-            "hitl_gate_json, "
+            "hitl_gate_json, mission_config_json, "
             "SUBSTR(COALESCE(result, ''), 1, 5000) AS result "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
@@ -3777,6 +4796,8 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         except (json.JSONDecodeError, TypeError):
             gate = {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        pid = _project_id_from_mission_config(d.pop("mission_config_json", None))
+        d["mission_config"] = {"project_id": pid} if pid else {}
         out.append(d)
     return out
 
@@ -3813,17 +4834,19 @@ def insert_director_notification(
     job_id: str | None = None,
     output_id: str | None = None,
     action_url: str | None = None,
+    suggestion_id: str | None = None,
     notif_id: str | None = None,
 ) -> dict:
     import uuid as _uuid
 
     nid = (notif_id or _uuid.uuid4().hex[:16]).strip()[:32]
+    sid = (suggestion_id or "").strip()[:64] or None
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO director_notifications (id, kind, title, body, job_id, output_id, action_url, read_at, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-            (nid, kind[:32], title[:500], body[:4000], job_id, output_id, action_url, now),
+            "INSERT INTO director_notifications (id, kind, title, body, job_id, output_id, action_url, suggestion_id, read_at, created_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+            (nid, kind[:32], title[:500], body[:4000], job_id, output_id, action_url, sid, now, _ws()),
         )
         conn.commit()
     return get_director_notification(nid) or {"id": nid}
@@ -3831,17 +4854,20 @@ def insert_director_notification(
 
 def get_director_notification(notif_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM director_notifications WHERE id=?", (notif_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM director_notifications WHERE id=? AND workspace_id=?",
+            (notif_id, _ws()),
+        ).fetchone()
     return dict(row) if row else None
 
 
 def list_director_notifications(*, unread_only: bool = False, limit: int = 50) -> list[dict]:
     lim = max(1, min(int(limit), 200))
-    clause = "WHERE read_at IS NULL" if unread_only else ""
+    clause = "WHERE workspace_id=? AND read_at IS NULL" if unread_only else "WHERE workspace_id=?"
     with get_conn() as conn:
         rows = conn.execute(
             f"SELECT * FROM director_notifications {clause} ORDER BY created_at DESC LIMIT ?",
-            (lim,),
+            (_ws(), lim),
         ).fetchall()
     return [dict(r) for r in rows or []]
 
@@ -3849,7 +4875,10 @@ def list_director_notifications(*, unread_only: bool = False, limit: int = 50) -
 def mark_director_notification_read(notif_id: str) -> dict | None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
-        conn.execute("UPDATE director_notifications SET read_at=? WHERE id=?", (now, notif_id))
+        conn.execute(
+            "UPDATE director_notifications SET read_at=? WHERE id=? AND workspace_id=?",
+            (now, notif_id, _ws()),
+        )
         conn.commit()
     return get_director_notification(notif_id)
 
@@ -3858,8 +4887,65 @@ def mark_all_director_notifications_read() -> int:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         cur = conn.execute(
-            "UPDATE director_notifications SET read_at=? WHERE read_at IS NULL",
-            (now,),
+            "UPDATE director_notifications SET read_at=? WHERE workspace_id=? AND read_at IS NULL",
+            (now, _ws()),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+# Reçus d'un travail déjà fait : ils partent quand la mission est ouverte.
+_RECEIPT_NOTIFICATION_KINDS = ("info", "memory_applied")
+
+
+def mark_job_receipt_notifications_read(job_id: str) -> int:
+    jid = (job_id or "").strip()
+    if not jid:
+        return 0
+    now = datetime.utcnow().isoformat()
+    placeholders = ",".join(["?"] * len(_RECEIPT_NOTIFICATION_KINDS))
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE director_notifications SET read_at=? "
+            f"WHERE workspace_id=? AND job_id=? AND read_at IS NULL AND kind IN ({placeholders})",
+            (now, _ws(), jid, *_RECEIPT_NOTIFICATION_KINDS),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def mark_notifications_read_by_suggestion(suggestion_id: str) -> int:
+    sid = (suggestion_id or "").strip()
+    if not sid:
+        return 0
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE director_notifications SET read_at=? "
+            "WHERE workspace_id=? AND suggestion_id=? AND read_at IS NULL",
+            (now, _ws(), sid),
+        )
+        conn.commit()
+        return int(getattr(cur, "rowcount", 0) or 0)
+
+
+def mark_director_notifications_read_kinds(kinds: list[str]) -> int:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for raw in kinds:
+        k = str(raw or "").strip().lower()[:32]
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        cleaned.append(k)
+    if not cleaned:
+        return 0
+    now = datetime.utcnow().isoformat()
+    placeholders = ",".join(["?"] * len(cleaned))
+    with get_conn() as conn:
+        cur = conn.execute(
+            f"UPDATE director_notifications SET read_at=? WHERE workspace_id=? AND read_at IS NULL AND kind IN ({placeholders})",
+            (now, _ws(), *cleaned),
         )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0)
@@ -3870,7 +4956,10 @@ def delete_director_notification(notif_id: str) -> bool:
     if not nid:
         return False
     with get_conn() as conn:
-        cur = conn.execute("DELETE FROM director_notifications WHERE id=?", (nid,))
+        cur = conn.execute(
+            "DELETE FROM director_notifications WHERE id=? AND workspace_id=?",
+            (nid, _ws()),
+        )
         conn.commit()
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
@@ -3879,21 +4968,21 @@ def insert_hitl_plan_snapshot(job_id: str, plan: dict, *, source: str = "hitl_ga
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT COALESCE(MAX(version), 0) AS v FROM hitl_plan_snapshots WHERE job_id=?",
-            (job_id,),
+            "SELECT COALESCE(MAX(version), 0) AS v FROM hitl_plan_snapshots WHERE job_id=? AND workspace_id=?",
+            (job_id, _ws()),
         ).fetchone()
         version = int(dict(row).get("v") or 0) + 1 if row else 1
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at) VALUES (?, ?, ?, ?, ?)",
-                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now),
+                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now, _ws()),
             )
             snap_id = conn.execute("SELECT LAST_INSERT_ID() AS id").fetchone()
             sid = int(dict(snap_id).get("id") or 0)
         else:
             cur = conn.execute(
-                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at) VALUES (?, ?, ?, ?, ?)",
-                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now),
+                "INSERT INTO hitl_plan_snapshots (job_id, version, plan_json, source, created_at, workspace_id) VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, version, json.dumps(plan, ensure_ascii=False), source[:64], now, _ws()),
             )
             sid = int(getattr(cur, "lastrowid", 0) or 0)
         conn.commit()
@@ -3904,8 +4993,8 @@ def list_hitl_plan_snapshots(job_id: str) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, job_id, version, plan_json, source, created_at FROM hitl_plan_snapshots "
-            "WHERE job_id=? ORDER BY version ASC",
-            (job_id,),
+            "WHERE job_id=? AND workspace_id=? ORDER BY version ASC",
+            (job_id, _ws()),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -3931,17 +5020,17 @@ def insert_quality_verdict(
     with get_conn() as conn:
         if _is_mariadb():
             conn.execute(
-                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now),
+                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at, workspace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now, _ws()),
             )
             row = conn.execute("SELECT LAST_INSERT_ID() AS id").fetchone()
             vid = int(dict(row).get("id") or 0)
         else:
             cur = conn.execute(
-                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now),
+                "INSERT INTO quality_verdicts (job_id, phase, score, rejected, payload_json, created_at, workspace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (job_id, phase[:64], float(score), 1 if rejected else 0, blob, now, _ws()),
             )
             vid = int(getattr(cur, "lastrowid", 0) or 0)
         conn.commit()
@@ -3952,8 +5041,8 @@ def list_quality_verdicts(job_id: str) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, job_id, phase, score, rejected, payload_json, created_at FROM quality_verdicts "
-            "WHERE job_id=? ORDER BY created_at ASC",
-            (job_id,),
+            "WHERE workspace_id=? AND job_id=? ORDER BY created_at ASC",
+            (_ws(), job_id),
         ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -3974,9 +5063,9 @@ def insert_learning_suggestion(job_id: str, payload: dict, *, suggestion_id: str
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO learning_suggestions (id, job_id, status, payload_json, created_at, resolved_at) "
-            "VALUES (?, ?, 'pending', ?, ?, NULL)",
-            (sid, job_id, json.dumps(payload, ensure_ascii=False), now),
+            "INSERT INTO learning_suggestions (id, job_id, status, payload_json, created_at, resolved_at, workspace_id) "
+            "VALUES (?, ?, 'pending', ?, ?, NULL, ?)",
+            (sid, job_id, json.dumps(payload, ensure_ascii=False), now, _ws()),
         )
         conn.commit()
     return get_learning_suggestion(sid) or {"id": sid, "job_id": job_id, "status": "pending"}
@@ -3984,7 +5073,10 @@ def insert_learning_suggestion(job_id: str, payload: dict, *, suggestion_id: str
 
 def get_learning_suggestion(suggestion_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM learning_suggestions WHERE id=?", (suggestion_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM learning_suggestions WHERE id=? AND workspace_id=?",
+            (suggestion_id, _ws()),
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -4000,14 +5092,14 @@ def list_learning_suggestions(*, status: str | None = "pending", limit: int = 40
     if status:
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM learning_suggestions WHERE status=? ORDER BY created_at DESC LIMIT ?",
-                (status, lim),
+                "SELECT * FROM learning_suggestions WHERE workspace_id=? AND status=? ORDER BY created_at DESC LIMIT ?",
+                (_ws(), status, lim),
             ).fetchall()
     else:
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM learning_suggestions ORDER BY created_at DESC LIMIT ?",
-                (lim,),
+                "SELECT * FROM learning_suggestions WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+                (_ws(), lim),
             ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -4024,8 +5116,8 @@ def resolve_learning_suggestion(suggestion_id: str, status: str) -> dict | None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE learning_suggestions SET status=?, resolved_at=? WHERE id=?",
-            (status[:32], now, suggestion_id),
+            "UPDATE learning_suggestions SET status=?, resolved_at=? WHERE id=? AND workspace_id=?",
+            (status[:32], now, suggestion_id, _ws()),
         )
         conn.commit()
     return get_learning_suggestion(suggestion_id)
@@ -4047,8 +5139,8 @@ def insert_config_suggestion(
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO config_suggestions "
-            "(id, kind, target_key, title, body, payload_json, status, created_at, resolved_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NULL)",
+            "(id, kind, target_key, title, body, payload_json, status, created_at, resolved_at, workspace_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?)",
             (
                 sid,
                 (kind or "misc")[:48],
@@ -4057,6 +5149,7 @@ def insert_config_suggestion(
                 (body or "")[:4000],
                 json.dumps(payload or {}, ensure_ascii=False),
                 now,
+                _ws(),
             ),
         )
         conn.commit()
@@ -4070,7 +5163,10 @@ def insert_config_suggestion(
 
 def get_config_suggestion(suggestion_id: str) -> dict | None:
     with get_conn() as conn:
-        row = conn.execute("SELECT * FROM config_suggestions WHERE id=?", (suggestion_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM config_suggestions WHERE id=? AND workspace_id=?",
+            (suggestion_id, _ws()),
+        ).fetchone()
     if not row:
         return None
     d = dict(row)
@@ -4084,9 +5180,9 @@ def get_config_suggestion(suggestion_id: str) -> dict | None:
 def find_pending_config_suggestion(*, kind: str, target_key: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM config_suggestions WHERE status='pending' AND kind=? AND target_key=? "
+            "SELECT * FROM config_suggestions WHERE workspace_id=? AND status='pending' AND kind=? AND target_key=? "
             "ORDER BY created_at DESC LIMIT 1",
-            ((kind or "misc")[:48], (target_key or "")[:120]),
+            (_ws(), (kind or "misc")[:48], (target_key or "")[:120]),
         ).fetchone()
     if not row:
         return None
@@ -4103,14 +5199,14 @@ def list_config_suggestions(*, status: str | None = "pending", limit: int = 40) 
     if status:
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM config_suggestions WHERE status=? ORDER BY created_at DESC LIMIT ?",
-                (status, lim),
+                "SELECT * FROM config_suggestions WHERE workspace_id=? AND status=? ORDER BY created_at DESC LIMIT ?",
+                (_ws(), status, lim),
             ).fetchall()
     else:
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM config_suggestions ORDER BY created_at DESC LIMIT ?",
-                (lim,),
+                "SELECT * FROM config_suggestions WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
+                (_ws(), lim),
             ).fetchall()
     out: list[dict] = []
     for row in rows or []:
@@ -4127,8 +5223,8 @@ def resolve_config_suggestion(suggestion_id: str, status: str) -> dict | None:
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
         conn.execute(
-            "UPDATE config_suggestions SET status=?, resolved_at=? WHERE id=?",
-            (status[:32], now, suggestion_id),
+            "UPDATE config_suggestions SET status=?, resolved_at=? WHERE id=? AND workspace_id=?",
+            (status[:32], now, suggestion_id, _ws()),
         )
         conn.commit()
     return get_config_suggestion(suggestion_id)
@@ -4140,9 +5236,9 @@ def count_recent_jobs_with_status_prefix(prefix: str, *, limit: int = 200) -> in
     with get_conn() as conn:
         row = conn.execute(
             "SELECT COUNT(*) AS c FROM ("
-            "SELECT status FROM jobs WHERE status LIKE ? ORDER BY updated_at DESC LIMIT ?"
+            "SELECT status FROM jobs WHERE workspace_id=? AND status LIKE ? ORDER BY updated_at DESC LIMIT ?"
             ") t",
-            (f"{(prefix or '')[:24]}%", lim),
+            (_ws(), f"{(prefix or '')[:24]}%", lim),
         ).fetchone()
     return int(row["c"] if row else 0)
 
@@ -4156,7 +5252,8 @@ def list_reprise_checklist_actions() -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT domain_id, item_text, action, note, output_id, created_at, updated_at "
-            "FROM reprise_checklist_actions ORDER BY updated_at DESC",
+            "FROM reprise_checklist_actions WHERE workspace_id=? ORDER BY updated_at DESC",
+            (_ws(),),
         ).fetchall()
     return [dict(r) for r in rows or []]
 
@@ -4165,8 +5262,8 @@ def get_reprise_checklist_action(domain_id: str, item_text: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT domain_id, item_text, action, note, output_id, created_at, updated_at "
-            "FROM reprise_checklist_actions WHERE domain_id=? AND item_text=?",
-            (domain_id.strip(), item_text.strip()),
+            "FROM reprise_checklist_actions WHERE workspace_id=? AND domain_id=? AND item_text=?",
+            (_ws(), domain_id.strip(), item_text.strip()),
         ).fetchone()
     return dict(row) if row else None
 
@@ -4195,21 +5292,25 @@ def upsert_reprise_checklist_action(
         if _is_mariadb():
             conn.execute(
                 "INSERT INTO reprise_checklist_actions "
-                "(domain_id, item_text, action, note, output_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                "ON DUPLICATE KEY UPDATE action=VALUES(action), note=VALUES(note), "
-                "output_id=VALUES(output_id), updated_at=VALUES(updated_at)",
-                (dom, item, act, note_trim, out_trim, created, now),
+                "(domain_id, item_text, action, note, output_id, created_at, updated_at, workspace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE "
+                "action=IF(workspace_id=VALUES(workspace_id), VALUES(action), action), "
+                "note=IF(workspace_id=VALUES(workspace_id), VALUES(note), note), "
+                "output_id=IF(workspace_id=VALUES(workspace_id), VALUES(output_id), output_id), "
+                "updated_at=IF(workspace_id=VALUES(workspace_id), VALUES(updated_at), updated_at)",
+                (dom, item, act, note_trim, out_trim, created, now, _ws()),
             )
         else:
             conn.execute(
                 "INSERT INTO reprise_checklist_actions "
-                "(domain_id, item_text, action, note, output_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "(domain_id, item_text, action, note, output_id, created_at, updated_at, workspace_id) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(domain_id, item_text) DO UPDATE SET "
                 "action=excluded.action, note=excluded.note, output_id=excluded.output_id, "
-                "updated_at=excluded.updated_at",
-                (dom, item, act, note_trim, out_trim, created, now),
+                "updated_at=excluded.updated_at "
+                "WHERE reprise_checklist_actions.workspace_id=excluded.workspace_id",
+                (dom, item, act, note_trim, out_trim, created, now, _ws()),
             )
         conn.commit()
     return get_reprise_checklist_action(dom, item) or {}
@@ -4222,8 +5323,8 @@ def delete_reprise_checklist_action(domain_id: str, item_text: str) -> bool:
         return False
     with get_conn() as conn:
         cur = conn.execute(
-            "DELETE FROM reprise_checklist_actions WHERE domain_id=? AND item_text=?",
-            (dom, item),
+            "DELETE FROM reprise_checklist_actions WHERE workspace_id=? AND domain_id=? AND item_text=?",
+            (_ws(), dom, item),
         )
         conn.commit()
     try:
@@ -4306,10 +5407,53 @@ def upsert_playbook(
 
 
 def list_mission_traces(job_id: str, *, limit: int = 200) -> list[dict]:
+    return search_mission_traces(job_id=job_id, limit=limit)
+
+
+def search_mission_traces(
+    *,
+    job_id: str | None = None,
+    agent: str = "",
+    kind: str = "",
+    ref_key: str = "",
+    since: str = "",
+    until: str = "",
+    limit: int = 200,
+) -> list[dict]:
+    """Retrouve des lignes du journal par mission, agent, type et période."""
     lim = max(1, min(int(limit), 500))
+    clauses = ["workspace_id=?"]
+    params: list[Any] = [_ws()]
+    if job_id:
+        clauses.append("job_id=?")
+        params.append(str(job_id)[:64])
+    if agent:
+        clauses.append("agent=?")
+        params.append(str(agent)[:64])
+    if kind:
+        clauses.append("kind=?")
+        params.append(str(kind)[:32])
+    if ref_key:
+        clauses.append("ref_key=?")
+        params.append(str(ref_key)[:64])
+    if since:
+        clauses.append("created_at>=?")
+        params.append(str(since)[:40])
+    if until:
+        clauses.append("created_at<=?")
+        params.append(str(until)[:40])
+    params.append(lim)
+    sql = (
+        "SELECT * FROM mission_traces WHERE "
+        + " AND ".join(clauses)
+        + " ORDER BY created_at ASC LIMIT ?"
+    )
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM mission_traces WHERE job_id=? ORDER BY created_at ASC LIMIT ?",
-            (job_id, lim),
-        ).fetchall()
-    return [dict(r) for r in rows or []]
+        _ensure_mission_trace_columns(conn)
+        rows = conn.execute(sql, params).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        item = dict(row)
+        item.pop("embedding", None)
+        out.append(item)
+    return out

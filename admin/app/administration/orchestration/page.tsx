@@ -3,8 +3,15 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../../lib/api";
+import { BusyNotice } from "../../../components/ui/BusyNotice";
 
-type PromptRow = { prompt_key: string; body_chars?: number; updated_at?: string | null };
+type PromptRow = { prompt_key: string; body?: string; body_chars?: number; updated_at?: string | null };
+
+function errorText(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  if (err) return String(err);
+  return "";
+}
 
 const KEYS = ["cio_plan_json_user", "cio_synthesis_with_team_user", "cio_synthesis_solo_suffix"] as const;
 
@@ -44,26 +51,41 @@ export default function OrchestrationPromptsPage() {
   const list = useQuery({
     queryKey: ["orchestration-prompts"],
     queryFn: async () => {
-      const { data } = await requestJson("/admin/orchestration-prompts", { headers: agentHeaders() });
+      const { data } = await requestJson("/admin/orchestration-prompts", {
+        headers: agentHeaders(),
+        retries: 2,
+      });
       return (data.prompts || []) as PromptRow[];
     },
+    retry: 2,
   });
+
+  const listRow = (list.data || []).find((r) => r.prompt_key === tab);
+  const listHasBody = typeof listRow?.body === "string";
 
   const detail = useQuery({
     queryKey: ["orchestration-prompt", tab],
     queryFn: async () => {
       const { data } = await requestJson(`/admin/orchestration-prompts/${encodeURIComponent(tab)}`, {
         headers: agentHeaders(),
+        retries: 2,
       });
       return data as { prompt_key: string; body: string };
     },
-    enabled: Boolean(tab),
+    enabled: Boolean(tab) && !listHasBody,
+    retry: 2,
   });
 
   useEffect(() => {
-    if (!detail.data?.prompt_key) return;
-    setDraft((prev) => ({ ...prev, [detail.data.prompt_key]: detail.data.body }));
-  }, [detail.data]);
+    const incoming =
+      typeof listRow?.body === "string"
+        ? listRow.body
+        : detail.data?.prompt_key === tab
+          ? detail.data.body
+          : undefined;
+    if (typeof incoming !== "string") return;
+    setDraft((prev) => (tab in prev ? prev : { ...prev, [tab]: incoming }));
+  }, [tab, listRow?.body, detail.data]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -82,25 +104,33 @@ export default function OrchestrationPromptsPage() {
 
   const reset = useMutation({
     mutationFn: async () => {
-      await requestJson(`/admin/orchestration-prompts/${encodeURIComponent(tab)}/reset`, {
+      const { data } = await requestJson(`/admin/orchestration-prompts/${encodeURIComponent(tab)}/reset`, {
         method: "POST",
         headers: agentHeaders(),
       });
+      return data as { body?: string };
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      if (typeof data?.body === "string") {
+        setDraft((prev) => ({ ...prev, [tab]: data.body as string }));
+      }
       await qc.invalidateQueries({ queryKey: ["orchestration-prompts"] });
       await qc.invalidateQueries({ queryKey: ["orchestration-prompt", tab] });
     },
   });
 
   const meta = (list.data || []).find((r) => r.prompt_key === tab);
+  const waitingForBody =
+    (list.isLoading || detail.isLoading || list.isFetching || detail.isFetching) && !(draft[tab] || "").length;
+  const loadErrorText = errorText(list.error || detail.error);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-slate-900">Prompts d’orchestration</h1>
         <p className="mt-1 text-sm text-slate-500 max-w-3xl leading-relaxed">
-          Ces textes pilotent le comportement “moteur” du CIO (plan JSON et structure de synthèse). Placeholders supportés :{" "}
+          Réglages experts du <strong>moteur</strong> de délégation (pas la fiche CIO ni la composition d’équipe).
+          Ces textes pilotent le plan JSON et la structure de synthèse. Placeholders :{" "}
           <span className="font-mono text-xs text-slate-700">{PLACEHOLDERS[tab]}</span>
         </p>
         <div className="mt-3 max-w-3xl rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-950">
@@ -124,8 +154,12 @@ export default function OrchestrationPromptsPage() {
         ))}
       </div>
 
-      {detail.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
-      {detail.isError ? <p className="text-sm text-red-700">Impossible de charger le prompt.</p> : null}
+      {list.isError || detail.isError ? (
+        <p className="text-sm text-red-700">
+          Impossible de charger le prompt
+          {loadErrorText ? ` — ${loadErrorText}` : "."}
+        </p>
+      ) : null}
 
       {meta?.updated_at ? (
         <p className="text-xs text-slate-400">
@@ -134,7 +168,15 @@ export default function OrchestrationPromptsPage() {
         </p>
       ) : null}
 
-      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      {waitingForBody ? (
+        <BusyNotice
+          active
+          variant="panel"
+          label="Lecture du prompt dans la base"
+          hint="Toujours au travail — la base est distante, 8 à 15 s c’est normal. Vous pouvez changer d’onglet."
+        />
+      ) : (
+      <div className="relative rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <textarea
           value={draft[tab] ?? ""}
           onChange={(e) => setDraft((prev) => ({ ...prev, [tab]: e.target.value }))}
@@ -149,7 +191,7 @@ export default function OrchestrationPromptsPage() {
             onClick={() => save.mutate()}
             className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800 disabled:opacity-40"
           >
-            {save.isPending ? "Sauvegarde…" : "Sauvegarder"}
+            {save.isPending ? "Sauvegarde en cours…" : "Sauvegarder"}
           </button>
           <button
             type="button"
@@ -159,7 +201,7 @@ export default function OrchestrationPromptsPage() {
             }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:opacity-40"
           >
-            {reset.isPending ? "Reset…" : "Réinitialiser"}
+            {reset.isPending ? "Réinitialisation…" : "Réinitialiser"}
           </button>
         </div>
         {save.isError ? (
@@ -169,6 +211,7 @@ export default function OrchestrationPromptsPage() {
           <p className="mt-2 text-sm text-red-700">{reset.error instanceof Error ? reset.error.message : String(reset.error)}</p>
         ) : null}
       </div>
+      )}
     </div>
   );
 }

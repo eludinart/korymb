@@ -696,12 +696,16 @@ def _tts_elevenlabs(text: str, voice: str) -> str | None:
     key = getenv("ELEVENLABS_API_KEY", "").strip()
     if not key:
         return None
-    vid = getenv("ELEVENLABS_VOICE_ID", "").strip() or (voice or "").strip()
-    model = getenv("ELEVENLABS_MODEL", "").strip() or "eleven_multilingual_v2"
+    vid = getenv("ELEVENLABS_VOICE_ID", "").strip() or (voice or "").strip() or "XB0fDUnXU5powFXDhCwa"
+    model = getenv("ELEVENLABS_MODEL", "").strip() or "eleven_flash_v2_5"
+    language = getenv("ELEVENLABS_LANGUAGE", "").strip() or "fr"
+    payload: dict[str, Any] = {"text": text[:5000], "model_id": model}
+    if language and "multilingual_v2" not in model:
+        payload["language_code"] = language
     r = httpx.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{vid}",
         headers={"xi-api-key": key, "Content-Type": "application/json"},
-        json={"text": text[:5000], "model_id": model},
+        json=payload,
         timeout=60,
     )
     r.raise_for_status()
@@ -709,6 +713,26 @@ def _tts_elevenlabs(text: str, voice: str) -> str | None:
         return None
     out = _write_tts_file(r.content)
     return out.replace("✅ Audio généré", "✅ Audio généré (ElevenLabs)", 1)
+
+
+def elevenlabs_speech_file(text: str) -> Path | None:
+    """MP3 ElevenLabs pour la conversation. None si la clé ou l'audio manque."""
+    content = (text or "").strip()
+    if not content:
+        return None
+    try:
+        line = _tts_elevenlabs(content, "")
+    except Exception:
+        logger.exception("voix elevenlabs indisponible")
+        return None
+    if not line:
+        return None
+    first = line.splitlines()[0]
+    marker = " : "
+    if marker not in first:
+        return None
+    path = Path(first.split(marker, 1)[1].strip())
+    return path if path.is_file() else None
 
 
 # ── Vidéo ────────────────────────────────────────────────────────────────────
@@ -759,7 +783,7 @@ def _video_storyboard(prompt: str, duration: int, ratio: str) -> str | None:
     frames = 3
     saved_ids: list[str] = []
     for idx in range(frames):
-        shot = f"{prompt}. Plan {idx + 1}/{frames}, cadrage {ratio}, lumière naturelle, pas de cliché voyance."
+        shot = f"{prompt}. Plan {idx + 1}/{frames}, cadrage {ratio}, lumière naturelle, visuel sobre et professionnel."
         try:
             if _mistral_ready():
                 out = _image_mistral(shot, "768x1280" if ratio in ("9:16", "9/16") else "1280x768")

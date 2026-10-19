@@ -10,13 +10,12 @@ from auth import resolve_tenant, require_admin
 from database import (
     JOB_ID_MAX_LEN,
     get_conn,
-    get_learning_suggestion,
     dismiss_inbox_item,
     list_director_notifications,
     mark_all_director_notifications_read,
     mark_director_notification_read,
+    mark_director_notifications_read_kinds,
     delete_director_notification,
-    resolve_learning_suggestion,
 )
 from services.director_platform import build_briefing, build_enriched_inbox
 
@@ -26,6 +25,41 @@ router = APIRouter(tags=["admin-platform"])
 class LearningResolveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: str = Field(pattern="^(approve|reject)$")
+
+
+class LearningBulkResolveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    decision: str = Field(pattern="^(approve|reject)$")
+    limit: int = Field(40, ge=1, le=100)
+
+
+class ScenarioSimulateBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(..., min_length=8, max_length=500)
+    context: str = Field("", max_length=2500)
+    thinking_mode: str = Field("auto", max_length=32)
+
+
+class MarkNotificationKindsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kinds: list[str] = Field(..., min_length=1, max_length=8)
+
+    @field_validator("kinds")
+    @classmethod
+    def _kinds(cls, value: list[str]) -> list[str]:
+        # Échos déjà visibles ailleurs : le fil chat, ou la page mémoire.
+        allowed = {"chat_result", "memory_applied"}
+        out: list[str] = []
+        seen: set[str] = set()
+        for raw in value:
+            k = str(raw or "").strip().lower()[:32]
+            if k not in allowed or k in seen:
+                continue
+            seen.add(k)
+            out.append(k)
+        if not out:
+            raise ValueError("Aucun type consommable (chat_result, memory_applied).")
+        return out
 
 
 class InboxDismissBody(BaseModel):
@@ -234,10 +268,36 @@ def _require_database_or_503() -> None:
         )
 
 
+@router.get("/overview/map", dependencies=[Depends(resolve_tenant)])
+def overview_operational_map():
+    """Graphe opérationnel : équipes, missions, projets, agents, connaissance."""
+    _require_database_or_503()
+    from services.operational_map import build_operational_map
+
+    return build_operational_map()
+
+
 @router.get("/admin/briefing", dependencies=[Depends(require_admin)])
 def admin_briefing(period: str = Query("today")):
     _require_database_or_503()
     return build_briefing(period=period)
+
+
+@router.post("/admin/scenarios/simulate", dependencies=[Depends(require_admin)])
+def admin_scenarios_simulate(body: ScenarioSimulateBody):
+    """Simulation légère multi-horizons (1 / 5 / 10 ans) pour une intention."""
+    from services.scenario_sim import simulate_decision_scenarios
+
+    try:
+        return simulate_decision_scenarios(
+            body.question,
+            context=body.context,
+            thinking_mode=body.thinking_mode,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Simulation impossible : {exc}") from exc
 
 
 @router.get("/admin/notifications", dependencies=[Depends(require_admin)])
@@ -260,6 +320,12 @@ def admin_notifications_mark_all_read():
     return {"marked": n}
 
 
+@router.post("/admin/notifications/mark-kinds-read", dependencies=[Depends(require_admin)])
+def admin_notifications_mark_kinds_read(body: MarkNotificationKindsBody):
+    n = mark_director_notifications_read_kinds(body.kinds)
+    return {"marked": n, "kinds": body.kinds}
+
+
 @router.delete("/admin/notifications/{notif_id}", dependencies=[Depends(require_admin)])
 def admin_notification_delete(notif_id: str):
     if not delete_director_notification(notif_id):
@@ -267,40 +333,30 @@ def admin_notification_delete(notif_id: str):
     return {"deleted": notif_id}
 
 
+@router.post("/admin/learning-suggestions/resolve-bulk", dependencies=[Depends(require_admin)])
+def admin_learning_suggestions_resolve_bulk(body: LearningBulkResolveBody):
+    """Intègre ou ignore en masse les suggestions mémoire en attente."""
+    from services.learning import resolve_learning_bulk
+
+    try:
+        return resolve_learning_bulk(decision=body.decision, limit=body.limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Impossible de traiter la mémoire en masse : {exc}") from exc
+
+
 @router.post("/admin/learning-suggestions/{suggestion_id}/resolve", dependencies=[Depends(require_admin)])
 def admin_learning_suggestion_resolve(suggestion_id: str, body: LearningResolveBody):
-    sug = get_learning_suggestion(suggestion_id)
+    from services.learning import resolve_learning_decision
+
+    try:
+        sug = resolve_learning_decision(suggestion_id, body.decision)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Impossible d'appliquer la mémoire : {exc}") from exc
     if not sug:
         raise HTTPException(status_code=404, detail="Suggestion introuvable.")
-    if body.decision == "approve":
-        payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
-        memory_updates = payload.get("suggested_memory_keys") if isinstance(payload.get("suggested_memory_keys"), dict) else {}
-        directive = payload.get("memory_directive") if isinstance(payload.get("memory_directive"), dict) else None
-        facts = payload.get("enterprise_facts") if isinstance(payload.get("enterprise_facts"), dict) else None
-        if memory_updates or directive or facts:
-            try:
-                from services.learning import apply_learning_payload_to_memory
-
-                apply_learning_payload_to_memory(
-                    payload if isinstance(payload, dict) else {},
-                    snapshot_comment="auto — learning suggestion approved",
-                )
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"Impossible d'appliquer la mémoire : {exc}") from exc
-        try:
-            from services.chat_intelligence import record_chat_apply_feedback
-
-            record_chat_apply_feedback(
-                title=str(payload.get("title") or "Mémoire"),
-                kind="memory",
-                detail=str((payload.get("memory_directive") or {}).get("detail") or "")[:240],
-            )
-        except Exception:
-            pass
-        resolve_learning_suggestion(suggestion_id, "approved")
-    else:
-        resolve_learning_suggestion(suggestion_id, "rejected")
-    return get_learning_suggestion(suggestion_id)
+    return sug
 
 
 @router.get("/admin/mission-analytics", dependencies=[Depends(require_admin)])

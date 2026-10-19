@@ -15,6 +15,7 @@ class RegisterBody(BaseModel):
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(default="", max_length=120)
     workspace_name: str = Field(default="", max_length=200)
+    starter_pack_id: str = Field(default="blank", max_length=64)
 
 
 class LoginBody(BaseModel):
@@ -45,6 +46,17 @@ class RedeemInviteBody(BaseModel):
 class CreateWorkspaceBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=200)
+    starter_pack_id: str = Field(default="blank", max_length=64)
+
+
+class ApplyStarterPackBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    starter_pack_id: str = Field(min_length=1, max_length=64)
+
+
+class UiModeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ui_mode: str = Field(pattern="^(essential|advanced)$")
 
 
 class InviteMemberBody(BaseModel):
@@ -69,9 +81,17 @@ def auth_register(body: RegisterBody):
             password=body.password,
             display_name=body.display_name,
             workspace_name=body.workspace_name,
+            starter_pack_id=body.starter_pack_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/starter-packs")
+def auth_list_starter_packs():
+    from services.starter_packs import list_starter_packs
+
+    return {"packs": list_starter_packs()}
 
 
 @router.post("/register-subscriber")
@@ -134,19 +154,61 @@ def auth_me(auth: dict = Depends(auth_svc.resolve_tenant)):
 
 
 @router.post("/workspaces")
-def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.resolve_tenant)):
-    if auth.get("mode") == "agent_secret":
+def auth_create_workspace(body: CreateWorkspaceBody, auth: dict = Depends(auth_svc.require_platform_owner)):
+    if auth.get("mode") != "user":
         raise HTTPException(status_code=400, detail="Création d'espace réservée aux utilisateurs connectés.")
     user_id = str(auth.get("user_id") or "")
     from workspace_db import create_workspace
 
-    workspace = create_workspace(body.name, user_id)
+    try:
+        workspace = create_workspace(body.name, user_id, starter_pack_id=body.starter_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     token = auth_svc.create_access_token(user_id=user_id, workspace_id=workspace["id"], role="admin")
     return {"workspace": workspace, "token": token, "role": "admin"}
 
 
+@router.post("/workspaces/apply-starter-pack")
+def auth_apply_starter_pack(
+    body: ApplyStarterPackBody,
+    auth: dict = Depends(auth_svc.require_admin),
+):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Application de modèle réservée aux utilisateurs connectés.")
+    workspace_id = str(auth.get("workspace_id") or "")
+    from services.starter_packs import apply_starter_pack
+
+    try:
+        return apply_starter_pack(workspace_id, body.starter_pack_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.patch("/workspace/ui-mode")
+def auth_set_ui_mode(body: UiModeBody, auth: dict = Depends(auth_svc.require_admin)):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Préférence réservée aux utilisateurs connectés.")
+    workspace_id = str(auth.get("workspace_id") or "")
+    from workspace_db import normalize_ui_mode, set_workspace_ui_mode
+
+    try:
+        workspace = set_workspace_ui_mode(workspace_id, body.ui_mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "workspace": {
+            "id": (workspace or {}).get("id"),
+            "name": (workspace or {}).get("name"),
+            "ui_mode": normalize_ui_mode(
+                (workspace or {}).get("ui_mode"),
+                workspace_id=workspace_id,
+            ),
+        }
+    }
+
+
 @router.get("/members")
-def auth_list_members(auth: dict = Depends(auth_svc.resolve_tenant)):
+def auth_list_members(auth: dict = Depends(auth_svc.require_operator)):
     if auth.get("mode") == "agent_secret":
         return {"members": []}
     from workspace_db import list_workspace_operators

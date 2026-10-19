@@ -105,7 +105,7 @@ export const CONNECTOR_META: Record<string, ConnectorMeta> = {
     aliases: ["ga4", "analytics"],
   },
   fleur_db: {
-    title: "Base Fleur d’ÅmÔurs",
+    title: "Base produit externe",
     what: "Lecture de la base métier (optionnel).",
     tags: ["MySQL"],
     aliases: ["fleur", "mysql"],
@@ -500,7 +500,7 @@ export const DIRECTORY_TILES: DirectoryTile[] = [
   {
     id: "fleur",
     cardId: "fleur_db",
-    title: "Base Fleur d’ÅmÔurs",
+    title: "Base produit externe",
     what: "Lecture de la base métier (optionnel).",
     tags: ["MySQL"],
     aliases: ["fleur", "mysql"],

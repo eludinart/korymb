@@ -152,7 +152,7 @@ function CourrierPageInner() {
                           : b.tone === "closed"
                             ? "bg-slate-600"
                             : "bg-emerald-700")
-                  : "inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400"
+                  : "inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-slate-400 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-400"
               }
               onClick={() => {
                 setBucket(b.id);
@@ -164,7 +164,7 @@ function CourrierPageInner() {
                 className={
                   active
                     ? "rounded-full bg-white/20 px-1.5 text-xs"
-                    : "rounded-full bg-slate-100 px-1.5 text-xs text-slate-600"
+                    : "rounded-full bg-slate-100 px-1.5 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                 }
               >
                 {n}
@@ -175,7 +175,7 @@ function CourrierPageInner() {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <section className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
           {mailbox.isLoading ? (
             <div className="p-4">
               <LoadingLine label="Chargement du courrier…" />
@@ -184,16 +184,16 @@ function CourrierPageInner() {
 
           {bucket === "drafts" ? (
             drafts.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">Aucun brouillon en attente de validation.</p>
+              <p className="p-4 text-sm text-slate-500 dark:text-slate-400">Aucun brouillon en attente de validation.</p>
             ) : (
-              <ul className="divide-y divide-slate-100">
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
                 {drafts.map((d) => (
                   <li key={d.id} className={`p-4 ${threadListAccent("drafts")}`}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{d.subject || d.title || "Brouillon e-mail"}</p>
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-50">{d.subject || d.title || "Brouillon e-mail"}</p>
                       <MailFlag tone="draft">À valider</MailFlag>
                     </div>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-400">
                       {d.contact?.name || d.to || "Destinataire"}
                       {d.created_at ? ` · ${formatDateTime(d.created_at)}` : ""}
                       {d.attachment_count ? ` · ${d.attachment_count} PJ` : ""}
@@ -206,13 +206,13 @@ function CourrierPageInner() {
               </ul>
             )
           ) : visible.length === 0 && !mailbox.isLoading ? (
-            <p className="p-4 text-sm text-slate-500">
+            <p className="p-4 text-sm text-slate-500 dark:text-slate-400">
               {bucket === "needs_reply"
                 ? "Aucune réponse en attente. Les nouveaux mails arriveront ici après la sync Gmail."
                 : "Aucun fil dans ce filtre."}
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {visible.map((t) => {
                 const active = selectedId === t.id;
                 const flag = bucketFlag(t.bucket);
@@ -221,22 +221,30 @@ function CourrierPageInner() {
                     <button
                       type="button"
                       className={`${threadListAccent(t.bucket)} w-full p-4 text-left ${
-                        active ? "bg-slate-50" : "hover:bg-slate-50"
-                      } ${t.bucket === "needs_reply" && !active ? "bg-teal-50/40" : ""}`}
+                        active
+                          ? "bg-slate-50 dark:bg-slate-800"
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/80"
+                      } ${t.bucket === "needs_reply" && !active ? "bg-teal-50/40 dark:bg-teal-950/30" : ""}`}
                       onClick={() => setSelectedId(t.id)}
                     >
                       <span className="flex items-start justify-between gap-2">
-                        <span className="text-sm font-semibold text-slate-900">{contactLabel(t)}</span>
+                        <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">{contactLabel(t)}</span>
                         <MailFlag tone={flag.tone}>{flag.label}</MailFlag>
                       </span>
-                      <span className="mt-0.5 block truncate text-sm text-slate-700">{t.subject || "(sans objet)"}</span>
+                      <span className="mt-0.5 block truncate text-sm text-slate-800 dark:text-slate-200">
+                        {t.subject || "(sans objet)"}
+                      </span>
                       {t.has_attachments ? (
-                        <span className="mt-1 inline-block text-[11px] font-semibold text-slate-600">Pièce jointe</span>
+                        <span className="mt-1 inline-block text-[11px] font-semibold text-slate-600 dark:text-slate-400">
+                          Pièce jointe
+                        </span>
                       ) : null}
                       {t.preview ? (
-                        <span className="mt-1 block line-clamp-2 text-xs text-slate-500">{t.preview}</span>
+                        <span className="mt-1 block line-clamp-2 text-xs text-slate-600 dark:text-slate-400">
+                          {t.preview}
+                        </span>
                       ) : null}
-                      <span className="mt-1 block text-[11px] text-slate-400">
+                      <span className="mt-1 block text-[11px] text-slate-500 dark:text-slate-400">
                         {formatDateTime(t.last_message_at || t.updated_at)}
                       </span>
                     </button>

@@ -94,7 +94,14 @@ def decode_access_token(token: str) -> dict[str, Any]:
         raise HTTPException(status_code=401, detail="Token invalide.") from exc
 
 
-def register_user(*, email: str, password: str, display_name: str = "", workspace_name: str = "") -> dict[str, Any]:
+def register_user(
+    *,
+    email: str,
+    password: str,
+    display_name: str = "",
+    workspace_name: str = "",
+    starter_pack_id: str = "blank",
+) -> dict[str, Any]:
     mail = email.strip().lower()
     if not mail or "@" not in mail:
         raise ValueError("E-mail invalide.")
@@ -102,7 +109,7 @@ def register_user(*, email: str, password: str, display_name: str = "", workspac
         raise ValueError("Un compte existe déjà avec cet e-mail.")
     user = create_user(mail, hash_password(password), display_name)
     ws_name = (workspace_name or display_name or mail.split("@")[0] or "Mon Korymb").strip()
-    workspace = create_workspace(ws_name, user["id"])
+    workspace = create_workspace(ws_name, user["id"], starter_pack_id=starter_pack_id)
     token = create_access_token(user_id=user["id"], workspace_id=workspace["id"], role="admin")
     return {
         "token": token,
@@ -275,7 +282,7 @@ def _send_guest_invite_email(
     import os
     from urllib.parse import quote
 
-    public = (os.getenv("KORYMB_PUBLIC_URL") or "https://korymb.eludein.art").strip().rstrip("/")
+    public = (os.getenv("KORYMB_PUBLIC_URL") or "http://127.0.0.1:3000").strip().rstrip("/")
     link = f"{public}/p/{quote(slug)}/invitation?email={quote(to)}&code={quote(code)}"
     body = (
         f"Bonjour {name},\n\n"
@@ -355,6 +362,10 @@ def _resolve_workspace_from_request(
             ws = workspaces[0]["id"] if workspaces else _DEFAULT_WORKSPACE_ID
         membership = get_membership(ws, user_id)
         if not membership:
+            from services.llm_envelope import is_platform_owner
+
+            if is_platform_owner(user_id) and get_workspace_by_id(ws):
+                return ws, user_id, "admin"
             raise HTTPException(status_code=403, detail="Accès refusé à cet espace Korymb.")
         role = normalize_role(str(membership.get("role") or "member"))
         return ws, user_id, role
@@ -387,9 +398,17 @@ async def resolve_tenant(
     if raw_token:
         token_payload = decode_access_token(raw_token)
     elif secret and secret == settings.agent_api_secret:
+        # Secret agent : X-Workspace-Id s'il pointe vers un espace existant ;
+        # sinon défaut legacy (compat Hermes / scripts sans header).
+        header_ws = (request.headers.get("X-Workspace-Id") or "").strip()
+        ws_id = _DEFAULT_WORKSPACE_ID
+        if header_ws:
+            if not get_workspace_by_id(header_ws):
+                raise HTTPException(status_code=404, detail="Espace Korymb introuvable.")
+            ws_id = header_ws
         clear_tenant_context()
-        set_tenant_context(workspace_id=_DEFAULT_WORKSPACE_ID)
-        return {"mode": "agent_secret", "workspace_id": _DEFAULT_WORKSPACE_ID}
+        set_tenant_context(workspace_id=ws_id)
+        return {"mode": "agent_secret", "workspace_id": ws_id}
     else:
         raise HTTPException(status_code=401, detail="Authentification requise.")
 
@@ -416,14 +435,47 @@ async def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[
     return auth
 
 
+async def require_platform_owner(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+    """Propriétaire de l'instance — pas tout admin d'espace, pas le secret agent."""
+    if auth.get("mode") != "user":
+        raise HTTPException(status_code=403, detail="Réservé au propriétaire de l'instance.")
+    from services.llm_envelope import is_platform_owner
+
+    if not is_platform_owner(str(auth.get("user_id") or "")):
+        raise HTTPException(status_code=403, detail="Réservé au propriétaire de l'instance.")
+    return auth
+
+
+async def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+    """Admin ou membre d'équipe. Le secret agent passe (scripts) ; le participant est refusé."""
+    if auth.get("mode") == "agent_secret":
+        return auth
+    if not is_operator_role(str(auth.get("role") or "")):
+        raise HTTPException(
+            status_code=403,
+            detail="Réservé à l'équipe de l'espace. Un compte participant ne peut pas faire cette action.",
+        )
+    return auth
+
+
 def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     user = get_user_by_id(user_id)
     workspace = get_workspace_by_id(workspace_id)
     membership = get_membership(workspace_id, user_id)
     workspaces = list_user_workspaces(user_id)
-    members = list_workspace_operators(workspace_id) if membership else []
     role = normalize_role(str((membership or {}).get("role") or "member"))
+    members = (
+        list_workspace_operators(workspace_id)
+        if membership and is_operator_role(role)
+        else []
+    )
     ws = dict(workspace or {})
+    from workspace_db import normalize_ui_mode
+    from services.llm_envelope import is_platform_owner
+
+    owner = is_platform_owner(user_id)
+    home_workspace_id = _platform_home_workspace_id(user_id) if owner else None
+    current_workspace_id = str(ws.get("id") or workspace_id or "").strip()
     return {
         "user": user,
         "workspace": {
@@ -432,12 +484,29 @@ def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
             "slug": ws.get("slug"),
             "public_enabled": workspace_public_enabled(ws),
             "tagline": ws.get("tagline") or "",
+            "starter_pack_id": ws.get("starter_pack_id") or "",
+            "ui_mode": normalize_ui_mode(ws.get("ui_mode"), workspace_id=str(ws.get("id") or "")),
         },
         "workspaces": workspaces,
         "members": members,
         "role": role,
+        "is_platform_owner": owner,
+        "home_workspace_id": home_workspace_id,
+        "visiting_client_space": bool(home_workspace_id and current_workspace_id != home_workspace_id),
         "membership_status": normalize_participant_status(
             (membership or {}).get("status"),
             role=role,
         ),
     }
+
+
+def _platform_home_workspace_id(user_id: str) -> str | None:
+    """Espace de l'entreprise du propriétaire d'instance — point de retour après une visite client."""
+    from services.workspace_brand import LEGACY_ELUDE_WORKSPACE_ID
+
+    if get_workspace_by_id(LEGACY_ELUDE_WORKSPACE_ID):
+        return LEGACY_ELUDE_WORKSPACE_ID
+    spaces = list_user_workspaces(user_id)
+    if not spaces:
+        return None
+    return str(spaces[0].get("id") or "") or None

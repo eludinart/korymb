@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _GENERIC_TITLE_RE = re.compile(r"^proposition\s*\d+\s*$", re.I)
 
-# operations = activité courante Élude In Art ; acquisition = reprise/cession (dormant sans contexte)
+# operations = activité courante du workspace ; acquisition = reprise/cession (dormant sans contexte)
 REPRISE_SCOPE_OPERATIONS = "operations"
 REPRISE_SCOPE_ACQUISITION = "acquisition"
 
@@ -289,6 +289,33 @@ def _has_reprise_context(corpus: str) -> bool:
     return bool(re.search(r"reprise|cession|acquisition|transmission|due diligence", corpus))
 
 
+# Domaines d'un métier précis : absents tant que le corpus de l'espace ne les mentionne pas.
+_SPECIALTY_DOMAIN_IDS = frozenset({"editorial_tarot"})
+
+
+def _corpus_word_count(corpus: str) -> int:
+    return len(re.findall(r"[a-zàâäéèêëïîôùûüç0-9]{4,}", corpus or ""))
+
+
+def _workspace_corpus_is_blank(corpus: str) -> bool:
+    """Texte trop court pour porter une activité documentée."""
+    return _corpus_word_count(corpus) < 3
+
+
+def _activity_memory_is_blank(ctx: dict[str, Any]) -> bool:
+    """Mémoire entreprise vide : un chat d'accueil ne déclenche pas la checklist."""
+    parts: list[str] = []
+    contexts = ctx.get("memory_contexts") if isinstance(ctx.get("memory_contexts"), dict) else {}
+    for value in contexts.values():
+        if str(value or "").strip():
+            parts.append(str(value))
+    for row in ctx.get("recent_missions") or []:
+        if isinstance(row, dict):
+            parts.append(str(row.get("mission") or ""))
+            parts.append(str(row.get("preview") or ""))
+    return _workspace_corpus_is_blank("\n".join(parts))
+
+
 def _format_director_reprise_decisions(actions: list[dict[str, Any]]) -> str:
     """Synthèse des choix dirigeant — à injecter dans les prompts pour ne pas reproposer l'éliminé."""
     ignored: list[str] = []
@@ -432,8 +459,8 @@ def _merge_user_actions(coverage: dict[str, Any], actions: list[dict[str, Any]])
         checklist_ratio = len(covered) / max(1, total_items) if total_items else 0.0
         keyword_score = len(domain.get("keyword_hits") or [])
         base_status = str(domain.get("status") or "missing")
-        if base_status == "dormant":
-            status = "dormant"
+        if base_status in ("dormant", "not_applicable"):
+            status = base_status
         else:
             status = _domain_status_after_actions(
                 keyword_score=keyword_score,
@@ -579,6 +606,9 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     ecosystem = ctx or build_ecosystem_proposal_context(max_chars=14_000)
     corpus = _collect_corpus(ecosystem)
     has_reprise = _has_reprise_context(corpus)
+    own_actions = list_reprise_checklist_actions()
+    # Le fil de chat (accueil, copilote) ne compte pas comme activité documentée.
+    blank = _activity_memory_is_blank(ecosystem) and not own_actions
 
     domains_out: list[dict[str, Any]] = []
     gaps: list[dict[str, Any]] = []
@@ -592,8 +622,17 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
 
         checklist_ratio = len(covered_items) / max(1, len(checklist))
         keyword_score = len(hits)
+        specialty_unmatched = domain["id"] in _SPECIALTY_DOMAIN_IDS and keyword_score == 0
 
-        if scope == REPRISE_SCOPE_ACQUISITION and not has_reprise:
+        if blank or specialty_unmatched:
+            status = "not_applicable"
+            covered_items, missing_items = [], []
+            dormant_reason = (
+                "Aucun contexte métier dans cet espace."
+                if blank
+                else "Ce domaine ne correspond pas à l'activité documentée dans cet espace."
+            )
+        elif scope == REPRISE_SCOPE_ACQUISITION and not has_reprise:
             status = "dormant"
             dormant_reason = (
                 "Hors périmètre actuel : aucune reprise/cession documentée en mémoire. "
@@ -624,22 +663,24 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
             entry["dormant_reason"] = dormant_reason
         domains_out.append(entry)
 
-        if status not in ("covered", "dormant"):
+        if status not in ("covered", "dormant", "not_applicable"):
             gaps.append({
                 **entry,
                 "priority": 0 if status == "missing" else 1,
             })
 
     gaps.sort(key=lambda g: (g.get("priority", 9), g.get("label") or ""))
-    active_domains = [d for d in domains_out if d.get("status") != "dormant"]
+    active_domains = [d for d in domains_out if d.get("status") not in ("dormant", "not_applicable")]
     covered_n = sum(1 for d in active_domains if d["status"] == "covered")
     partial_n = sum(1 for d in active_domains if d["status"] == "partial")
     missing_n = sum(1 for d in active_domains if d["status"] == "missing")
     dormant_n = sum(1 for d in domains_out if d["status"] == "dormant")
+    na_n = sum(1 for d in domains_out if d["status"] == "not_applicable")
 
     result = {
         "scanned_at": datetime.now(timezone.utc).isoformat(),
-        "coverage_score": round(covered_n / max(1, len(active_domains)), 2) if active_domains else 1.0,
+        "coverage_score": 0.0 if blank else (round(covered_n / max(1, len(active_domains)), 2) if active_domains else 1.0),
+        "workspace_empty": blank,
         "summary": {
             "total_domains": len(domains_out),
             "active_domains": len(active_domains),
@@ -647,10 +688,11 @@ def scan_reprise_coverage(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
             "partial": partial_n,
             "missing": missing_n,
             "dormant": dormant_n,
+            "not_applicable": na_n,
         },
-        "domains": domains_out,
-        "gaps": gaps,
-        "has_reprise_context": has_reprise,
+        "domains": [] if blank else domains_out,
+        "gaps": [] if blank else gaps,
+        "has_reprise_context": False if blank else has_reprise,
     }
     actions = list_reprise_checklist_actions()
     merged = _merge_user_actions(result, actions)
@@ -963,7 +1005,7 @@ def _generate_reprise_proposals_sync(
         decisions_block = director_decisions.strip() or "(aucune décision enregistrée)"
 
         prompt = textwrap.dedent(f"""
-            Tu es le CIO d'Élude In Art (micro-entreprise, Tarot Fleur d'Amour, activité réelle du dirigeant).
+            Tu es le CIO du workspace (activité réelle du dirigeant, contexte métier injecté ci-dessous).
             Tu dois proposer exactement {target} missions CONCRÈTES et ANCRÉES — pas de titres génériques
             (« Proposition 1 », « Mission test », etc. interdits).
 
@@ -987,7 +1029,7 @@ def _generate_reprise_proposals_sync(
             3. Pas d'anticipation « reprise M&A » (cautions bancaires, due diligence RH, valorisation)
                sauf si c'est explicitement documenté dans la mémoire ou une lacune acquisition active.
             4. Chaque mission doit combler un point checklist_missing listé — titre actionnable et spécifique
-               à l'activité actuelle (éditorial tarot, commercial, IT, clients…).
+               à l'activité actuelle (offres, adhérents ou clients, communication, organisation…).
             5. Le champ content : objectif, livrables (3-5 puces), critère de succès — uniquement faisable maintenant.
             6. Renseigne reprise_domain et checklist_items_addressed.
             7. source_kind = "reprise_gap", source_label = phrase courte factuelle.
@@ -1001,10 +1043,10 @@ def _generate_reprise_proposals_sync(
                 "content": "Objectif…\\nLivrables :\\n- …\\n- …\\nCritère de succès : …",
                 "why_now": "Pourquoi c'est bloquant pour la reprise",
                 "agents": ["commercial"],
-                "reprise_domain": "editorial_tarot",
-                "checklist_items_addressed": ["Lister les éditeurs partenaires"],
+                "reprise_domain": "commercial_marketing",
+                "checklist_items_addressed": ["Clarifier l'offre et les publics prioritaires"],
                 "source_kind": "reprise_gap",
-                "source_label": "Lacune éditeurs tarot non couverte",
+                "source_label": "Offre et publics encore flous",
                 "risk_flags": [],
                 "launch_mode": "supervised"
               }}

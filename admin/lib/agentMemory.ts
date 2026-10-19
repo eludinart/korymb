@@ -13,13 +13,13 @@ export const MEMORY_CONTEXT_TITLES: Record<MemoryContextKey, string> = {
   global: "Contexte global (entreprise + priorités — partagé avec le CIO)",
   commercial: "Commercial",
   community_manager: "Gestionnaire de communauté",
-  developpeur: "Développeur",
+  developpeur: "Développeur / état plateforme",
   comptable: "Comptable",
 };
 
 /** Le coordinateur (CIO) n'a pas de volet séparé : il lit le contexte global. */
 export const CIO_MEMORY_NOTE =
-  "Le CIO / coordinateur injecte le volet « Contexte global » dans son prompt (pas de clé coordinateur distincte).";
+  "Le CIO / coordinateur injecte le volet « Contexte global » dans son prompt. L’état technique Korymb vit dans « Développeur / état plateforme » (sync docs/PLATFORM_STATE.md).";
 
 /** Volet mémoire associé à la fiche d’un agent (CIO → contexte global). */
 export function memoryContextKeyForAgent(agentKey: string): string | null {

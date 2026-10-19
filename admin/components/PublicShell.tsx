@@ -11,15 +11,24 @@ import { PracticePoweredBy, PracticeTheme } from "./practice/PracticeTheme";
 export default function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const [me, setMe] = useState<AuthMeResponse | null>(null);
+  const [homeSettled, setHomeSettled] = useState(pathname !== "/");
 
   const load = useCallback(async () => {
+    const onHome = pathname === "/";
+    if (onHome) setHomeSettled(false);
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
-      setMe(res.ok ? ((await res.json()) as AuthMeResponse) : null);
+      const data = res.ok ? ((await res.json()) as AuthMeResponse) : null;
+      setMe(data);
+      if (onHome && (data?.role === "admin" || data?.role === "member")) {
+        window.location.replace("/chat");
+        return;
+      }
     } catch {
       setMe(null);
     }
-  }, []);
+    if (onHome) setHomeSettled(true);
+  }, [pathname]);
 
   useEffect(() => {
     void load();
@@ -45,8 +54,8 @@ export default function PublicShell({ children }: { children: React.ReactNode })
   const brandName = brand?.name || "Espace participant";
 
   const inner = (
-    <div className={isVitrine ? "flex min-h-screen flex-col" : "min-h-screen bg-gradient-to-b from-violet-50 via-white to-slate-50"}>
-      <header className="border-b bg-white/80 backdrop-blur-md" style={isVitrine ? { borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" } : undefined}>
+    <div className={isVitrine ? "flex min-h-screen flex-col" : "min-h-screen bg-gradient-to-b from-violet-50 via-white to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950"}>
+      <header data-pull-refresh="" className="border-b border-slate-200 bg-white/80 backdrop-blur-md dark:border-violet-900 dark:bg-slate-950/90" style={isVitrine ? { borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" } : undefined}>
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link href={isVitrine ? `/p/${encodeURIComponent(vitrineSlug)}` : "/"} className="flex min-w-0 items-center gap-3">
             {isVitrine && brand?.logo_url ? (
@@ -76,7 +85,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
                   </div>
                 ) : null}
                 {isOperator ? (
-                  <Link href="/briefing" className="rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
+                  <Link href="/chat" className="rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
                     Cockpit dirigeant
                   </Link>
                 ) : null}
@@ -103,12 +112,18 @@ export default function PublicShell({ children }: { children: React.ReactNode })
           </nav>
         </div>
       </header>
-      <main className={isVitrine ? "flex-1" : undefined}>{children}</main>
+      <main className={isVitrine ? "flex-1" : undefined}>
+        {pathname === "/" && !homeSettled ? (
+          <p className="px-4 py-16 text-center text-sm font-medium text-slate-500">Ouverture…</p>
+        ) : (
+          children
+        )}
+      </main>
       {isVitrine ? (
         <PracticePoweredBy />
       ) : (
-        <footer className="border-t bg-white/60 py-8 text-center text-xs text-slate-500">
-          Korymb — outil de gestion pour accompagner et livrer
+        <footer className="border-t border-slate-200 bg-white/60 py-8 text-center text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950/80 dark:text-slate-400">
+          Korymb — vous dites quoi faire, vous validez avant l’envoi.
         </footer>
       )}
     </div>

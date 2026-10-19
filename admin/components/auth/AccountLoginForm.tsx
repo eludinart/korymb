@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { formatHttpApiErrorPayload } from "../../lib/api";
+import { queryClient } from "../../lib/queryClient";
 
 export function AccountLoginForm({
   audience,
@@ -12,7 +13,6 @@ export function AccountLoginForm({
   audience: "operator" | "subscriber";
   workspaceSlug?: string;
 }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const workspace = workspaceSlug || searchParams.get("workspace") || "";
   const next = searchParams.get("next") || "";
@@ -43,23 +43,17 @@ export function AccountLoginForm({
         setError(formatHttpApiErrorPayload(data) || "Connexion impossible.");
         return;
       }
-      const role = String(data.role || "");
       const slug = String(data.workspace?.slug || workspace || "");
+      let dest = "/";
       if (isOperator) {
-        if (next.startsWith("/") && !next.startsWith("/a/") && !next.startsWith("/p/")) {
-          router.replace(next);
-        } else {
-          router.replace("/briefing");
-        }
+        dest = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/a/") && !next.startsWith("/p/") ? next : "/chat";
       } else if (next.startsWith("/a/")) {
-        router.replace(next);
+        dest = next;
       } else if (slug) {
-        router.replace(`/a/${encodeURIComponent(slug)}`);
-      } else {
-        router.replace("/");
+        dest = `/a/${encodeURIComponent(slug)}`;
       }
-      void role;
-      router.refresh();
+      queryClient.clear();
+      window.location.assign(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur réseau.");
     } finally {
@@ -69,20 +63,18 @@ export function AccountLoginForm({
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-6 px-4">
-      <div className="rounded-2xl border-2 border-violet-200 bg-white p-6 shadow-lg sm:p-8">
-        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700">
-          {isOperator ? "Korymb" : "Compte participant"}
+      <div className="rounded-2xl border-2 border-violet-200 bg-white p-6 shadow-lg dark:border-violet-800 dark:bg-slate-900 sm:p-8">
+        <p className="text-xs font-extrabold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+          {isOperator ? "Korymb" : "Mon espace"}
         </p>
-        <h1 className="mt-2 text-2xl font-extrabold text-slate-900">
-          {isOperator ? "Connexion Korymb" : "Connexion participant"}
-        </h1>
-        <p className="mt-2 text-sm text-slate-600">
+        <h1 className="mt-2 text-2xl font-extrabold text-slate-900 dark:text-slate-50">Connexion</h1>
+        <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
           {isOperator
-            ? "Ouvrez l’outil de gestion : briefing, missions, planning, CRM."
-            : "Accédez à vos séances et ressources. Ce n’est pas l’outil Korymb."}
+            ? "Conversation, personnes, calendrier et messages."
+            : "Rendez-vous et ressources qui vous sont destinés."}
         </p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <label className="block text-sm font-semibold text-slate-700">
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
             E-mail
             <input
               type="email"
@@ -90,10 +82,10 @@ export function AccountLoginForm({
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
-          <label className="block text-sm font-semibold text-slate-700">
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
             Mot de passe
             <input
               type="password"
@@ -101,10 +93,14 @@ export function AccountLoginForm({
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
             />
           </label>
-          {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
+          {error ? (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-950/50 dark:text-red-200">
+              {error}
+            </p>
+          ) : null}
           <button
             type="submit"
             disabled={loading}
@@ -114,20 +110,27 @@ export function AccountLoginForm({
           </button>
         </form>
         {isOperator ? (
-          <p className="mt-4 text-center text-sm text-slate-600">
-            <Link href="/" className="font-semibold text-slate-500 hover:text-violet-700">
+          <p className="mt-4 text-center text-sm text-slate-600 dark:text-slate-300">
+            <Link href="/" className="font-semibold text-slate-500 hover:text-violet-700 dark:text-slate-300 dark:hover:text-violet-300">
               ← Accueil Korymb
             </Link>
             <span className="mx-2">·</span>
             Pas encore d’espace ?{" "}
-            <Link href="/register" className="font-bold text-violet-700 hover:underline">
+            <Link href="/register" className="font-bold text-violet-700 hover:underline dark:text-violet-300">
               Créer un espace Korymb
             </Link>
-            <span className="mx-2">·</span>
-            Vous êtes participant ?{" "}
-            <Link href="/p/eludein/connexion" className="font-semibold text-emerald-800 hover:underline">
-              Connexion participant
-            </Link>
+            {workspace ? (
+              <>
+                <span className="mx-2">·</span>
+                Vous êtes participant ?{" "}
+                <Link
+                  href={`/p/${encodeURIComponent(workspace)}/connexion`}
+                  className="font-semibold text-emerald-800 hover:underline"
+                >
+                  Connexion participant
+                </Link>
+              </>
+            ) : null}
           </p>
         ) : (
           <p className="mt-4 text-center text-sm text-slate-600">
@@ -140,7 +143,7 @@ export function AccountLoginForm({
             <span className="mx-2">·</span>
             Pas encore de compte ?{" "}
             <Link
-              href={workspace ? `/p/${encodeURIComponent(workspace)}/inscription` : "/p/eludein/inscription"}
+              href={workspace ? `/p/${encodeURIComponent(workspace)}/inscription` : "/"}
               className="font-bold text-violet-700 hover:underline"
             >
               Demander l’inscription
@@ -148,7 +151,7 @@ export function AccountLoginForm({
             <span className="mx-2">·</span>
             Code invité ?{" "}
             <Link
-              href={workspace ? `/p/${encodeURIComponent(workspace)}/invitation` : "/p/eludein/invitation"}
+              href={workspace ? `/p/${encodeURIComponent(workspace)}/invitation` : "/"}
               className="font-bold text-emerald-800 hover:underline"
             >
               Première connexion

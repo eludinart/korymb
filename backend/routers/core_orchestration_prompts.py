@@ -16,29 +16,54 @@ class OrchestrationPromptPut(BaseModel):
     body: str = Field(..., min_length=1, max_length=500_000)
 
 
+def _safe_seed_orchestration_prompts() -> None:
+    try:
+        seed_orchestration_prompt_defaults()
+    except Exception:
+        pass
+
+
+def _prompt_body_or_default(prompt_key: str) -> str:
+    body = ""
+    try:
+        body = get_orchestration_prompt(prompt_key) or ""
+    except Exception:
+        body = ""
+    if body:
+        return body
+    return DEFAULT_ORCHESTRATION_PROMPTS.get(prompt_key, "")
+
+
 @router.get("/admin/orchestration-prompts", dependencies=[Depends(require_admin)])
 def orchestration_prompts_list():
-    seed_orchestration_prompt_defaults()
-    rows = list_orchestration_prompts()
+    _safe_seed_orchestration_prompts()
+    try:
+        rows = list_orchestration_prompts()
+    except Exception:
+        rows = []
     # Toujours exposer les clés attendues (même si la DB est vide pour une raison X)
     known = {r["prompt_key"]: r for r in rows}
     out = []
     for k in ORCHESTRATION_PROMPT_KEYS:
         if k in known:
-            out.append(known[k])
+            row = dict(known[k])
+            if not str(row.get("body") or ""):
+                row["body"] = DEFAULT_ORCHESTRATION_PROMPTS.get(k, "")
+                row["body_chars"] = len(str(row["body"]))
+            out.append(row)
         else:
-            out.append({"prompt_key": k, "body_chars": 0, "updated_at": None})
+            body = DEFAULT_ORCHESTRATION_PROMPTS.get(k, "")
+            out.append({"prompt_key": k, "body": body, "body_chars": len(body), "updated_at": None})
     return {"prompts": out}
 
 
 @router.get("/admin/orchestration-prompts/{prompt_key}", dependencies=[Depends(require_admin)])
 def orchestration_prompts_get(prompt_key: str):
-    seed_orchestration_prompt_defaults()
     k = (prompt_key or "").strip()
     if k not in ORCHESTRATION_PROMPT_KEYS:
         raise HTTPException(status_code=400, detail="prompt_key inconnu.")
-    body = get_orchestration_prompt(k) or DEFAULT_ORCHESTRATION_PROMPTS.get(k, "")
-    return {"prompt_key": k, "body": body}
+    _safe_seed_orchestration_prompts()
+    return {"prompt_key": k, "body": _prompt_body_or_default(k)}
 
 
 @router.put("/admin/orchestration-prompts/{prompt_key}", dependencies=[Depends(require_admin)])

@@ -6,7 +6,21 @@ import re
 from services.mission_labels import resolve_mission_id_refs_in_text
 
 _CHAT_DROP_SECTIONS = re.compile(
-    r"(?ms)^##\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES).*$"
+    r"(?ms)^#{1,3}\s+(?:Réponses\s+des\s+rôles|Livrables\s+bruts|QUESTIONS\s+STRATÉGIQUES(?:\s+DU\s+CIO)?)\b.*?(?=^#{1,3}\s|\Z)"
+)
+_CHAT_DROP_STRATEGIC_INLINE = re.compile(
+    r"(?ms)^(?:\*{0,2}|_{0,2})?QUESTIONS\s+STRATÉGIQUES(?:\s+DU\s+CIO)?(?:\*{0,2}|_{0,2})?\s*\n"
+    r"(?:^\s*\d+\.\s+.+\n?)+"
+)
+_CHAT_DROP_QUESTIONS_SECTION = re.compile(
+    r"(?ms)^##\s+Questions\s+pour\s+la\s+suite.*$"
+)
+_CHAT_DROP_QUESTIONS_INLINE = re.compile(
+    r"(?ms)^(?:#{1,3}\s*)?Questions\s+pour\s+la\s+suite\s*\n(?:\s*\d+\.\s+.+\n?)+"
+)
+_KORYMB_QCM_FENCE = re.compile(r"(?ms)```korymb-qcm\s*\n.*?```")
+_CLARIFYING_JSON_HINT = re.compile(
+    r'(?is)"clarifying_questions"\s*:\s*\[[^\]]*\]',
 )
 _LIVRABLE_ANNEX = re.compile(r"(?ms)\n####\s+LIVRABLE.*$")
 _MEMOIRE_ENTREPRISE = re.compile(
@@ -28,12 +42,29 @@ _CONSULT_HIST_LINE = re.compile(
 )
 
 
-def surface_chat_result(raw: str | None) -> str:
+def surface_chat_result(
+    raw: str | None,
+    *,
+    keep_questionnaire: bool = False,
+    user_text: str | None = None,
+    agent_group_id: str | None = None,
+) -> str:
     """Payload visible dans le chat — synthèse actionnable sans détail orchestration."""
     if not raw or not str(raw).strip():
         return (raw or "").strip()
     text = str(raw).strip()
     text = _CHAT_DROP_SECTIONS.sub("", text).strip()
+    text = _CHAT_DROP_STRATEGIC_INLINE.sub("", text).strip()
+    if keep_questionnaire:
+        from services.choice_questionnaire import ensure_interactive_qcm
+
+        # Convertit une liste « Questions pour la suite » en vrai QCM interactif.
+        text = ensure_interactive_qcm(text)
+    else:
+        text = _CHAT_DROP_QUESTIONS_SECTION.sub("", text).strip()
+        text = _CHAT_DROP_QUESTIONS_INLINE.sub("", text).strip()
+        text = _KORYMB_QCM_FENCE.sub("", text).strip()
+        text = _CLARIFYING_JSON_HINT.sub('"clarifying_questions": []', text)
     text = _LIVRABLE_ANNEX.sub("", text).strip()
     text = _MEMOIRE_ENTREPRISE.sub("", text).strip()
     text = _HISTORIQUE_MISSIONS.sub("", text).strip()
@@ -43,4 +74,14 @@ def surface_chat_result(raw: str | None) -> str:
     text = _CONSULT_HIST_LINE.sub("", text).strip()
     text = resolve_mission_id_refs_in_text(text)
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    try:
+        from services.chat_topic_guard import guard_chat_reply
+
+        text, _drifted = guard_chat_reply(
+            text,
+            user_text=user_text or "",
+            agent_group_id=agent_group_id,
+        )
+    except Exception:
+        pass
     return text or str(raw).strip()

@@ -1,16 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { accountDisplayName, type AuthMeResponse } from "../lib/authSession";
+import { queryClient } from "../lib/queryClient";
 import { ESPACE_NAV_LINKS, espaceHref, isEspaceLinkActive } from "../lib/espaceNav";
 import { useSubscriberHome } from "../lib/subscriberHome";
 import { PracticePoweredBy, PracticeTheme } from "./practice/PracticeTheme";
 
 export default function SubscriberShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  const router = useRouter();
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const home = useSubscriberHome();
 
@@ -39,15 +39,17 @@ export default function SubscriberShell({ children }: { children: React.ReactNod
   const userName = accountDisplayName(me);
 
   async function logout() {
+    const dest = slug ? `/p/${encodeURIComponent(slug)}` : "/";
+    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace(slug ? `/p/${encodeURIComponent(slug)}` : "/");
-    router.refresh();
+    queryClient.clear();
+    window.location.assign(dest);
   }
 
   return (
     <PracticeTheme identity={brand || { name: practiceLabel }}>
       <div className="flex min-h-screen flex-col">
-        <header className="border-b bg-white/80 backdrop-blur-md" style={{ borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" }}>
+        <header data-pull-refresh="" className="border-b bg-white/80 backdrop-blur-md" style={{ borderColor: "color-mix(in srgb, var(--practice-accent) 20%, white)" }}>
           <div className="mx-auto flex max-w-5xl flex-col gap-3 px-4 py-4 sm:px-6">
             <div className="flex items-start justify-between gap-4">
               <Link href={homeHref} className="flex min-w-0 items-center gap-3">
@@ -64,7 +66,7 @@ export default function SubscriberShell({ children }: { children: React.ReactNod
               </Link>
               <div className="flex shrink-0 items-center gap-2 sm:gap-3">
                 {isOperator ? (
-                  <Link href="/briefing" className="hidden rounded-full bg-violet-700 px-3 py-2 text-sm font-bold text-white hover:bg-violet-800 sm:inline">
+                  <Link href="/chat" className="hidden rounded-full bg-violet-700 px-3 py-2 text-sm font-bold text-white hover:bg-violet-800 sm:inline">
                     Cockpit
                   </Link>
                 ) : null}

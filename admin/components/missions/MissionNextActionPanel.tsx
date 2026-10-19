@@ -20,6 +20,8 @@ type Props = {
   busy?: boolean;
   finishBusy?: boolean;
   onFinish: () => void;
+  onStart?: () => void;
+  onShelve?: () => void;
   onApproveTicket?: (ticketId: string) => void;
   onFocusDecide?: () => void;
 };
@@ -34,6 +36,8 @@ export default function MissionNextActionPanel({
   busy = false,
   finishBusy = false,
   onFinish,
+  onStart,
+  onShelve,
   onApproveTicket,
   onFocusDecide,
 }: Props) {
@@ -113,15 +117,43 @@ export default function MissionNextActionPanel({
             </Link>
           ) : null}
 
-          {!tickets.length && action.type === "finish" ? (
+          {!tickets.length && action.type === "start" ? (
             <button
               type="button"
               disabled={finishBusy}
-              onClick={onFinish}
-              className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+              onClick={onStart}
+              className="w-full rounded-xl bg-violet-800 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-900 disabled:opacity-40"
             >
-              {finishBusy ? "…" : "Terminer la mission"}
+              {finishBusy ? "Lancement…" : "Lancer cette tâche"}
             </button>
+          ) : null}
+
+          {!tickets.length && action.type === "finish" ? (
+            <div className="space-y-2">
+              <button
+                type="button"
+                disabled={finishBusy}
+                onClick={onFinish}
+                className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40"
+              >
+                {finishBusy ? "…" : "Clôturer la mission"}
+              </button>
+              {onShelve ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={finishBusy}
+                    onClick={onShelve}
+                    className="w-full rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                  >
+                    Mettre de côté
+                  </button>
+                  <p className="text-[10px] leading-snug text-slate-500">
+                    Clôturer enregistre le succès et lance l&apos;apprentissage. Mettre de côté range le dossier sans ce rituel.
+                  </p>
+                </>
+              ) : null}
+            </div>
           ) : null}
 
           {action.type === "none" && !tickets.length ? (
@@ -133,14 +165,15 @@ export default function MissionNextActionPanel({
           ) : null}
 
           <div className="flex flex-wrap gap-2 pt-1">
-            {!closed && phase.id !== "ready" && phase.id !== "act" ? (
+            {!closed && phase.id !== "ready" && phase.id !== "act" && onShelve ? (
               <button
                 type="button"
                 disabled={finishBusy}
-                onClick={onFinish}
-                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                onClick={onShelve}
+                className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+                title="Range le dossier sans le rituel de succès"
               >
-                Terminer
+                Mettre de côté
               </button>
             ) : null}
             {origin.id === "studio" ? (
@@ -161,7 +194,7 @@ export default function MissionNextActionPanel({
               href={decisionsHrefForJob(jobId)}
               className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-900 hover:bg-violet-100"
             >
-              File Décisions
+              À valider
             </Link>
           </div>
         </div>

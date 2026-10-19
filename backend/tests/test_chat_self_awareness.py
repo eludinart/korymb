@@ -55,6 +55,24 @@ def test_chat_upsert_creates_proposal_not_contact(client):
     assert any(s.get("kind") == "crm_write" for s in pending)
 
 
+def test_chat_schedule_event_stays_a_proposal(client):
+    from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
+    from services.business_db import list_calendar_events
+
+    token = _activate_tool_run_ctx("jobchat03", "chat_sync:assistant", "assistant", chat_mode=True)
+    try:
+        out = _execute_tool(
+            "gestion_schedule_event",
+            {"title": "Séance devis modèle", "starts_at": "2026-11-02T09:00:00"},
+        )
+    finally:
+        _tool_run_ctx.reset(token)
+    data = json.loads(out)
+    assert data.get("proposal") is True
+    titles = [str(ev.get("title") or "") for ev in list_calendar_events()]
+    assert "Séance devis modèle" not in titles
+
+
 def test_apply_crm_write_proposal(client):
     from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
     from services.business_db import search_contacts
@@ -126,6 +144,46 @@ def test_propose_platform_change_tool(client):
     assert any(s.get("kind") == "platform_spec" and "bouton X" in str(s.get("title") or "") for s in pending)
 
 
+def test_confirmation_only_for_irreversible_actions():
+    from services.chat_intelligence import (
+        chat_message_needs_action,
+        chat_message_needs_confirmation,
+        irreversible_action_label,
+    )
+
+    assert chat_message_needs_action("cherche des sources sur ce chapitre") is True
+    assert chat_message_needs_confirmation("cherche des sources sur ce chapitre") is False
+    assert chat_message_needs_confirmation("rédige un mail de relance") is False
+    assert chat_message_needs_confirmation("prépare un plan pour demain") is False
+    assert chat_message_needs_confirmation("envoie le devis à Martin") is True
+    assert chat_message_needs_confirmation("publie le post LinkedIn") is True
+    assert chat_message_needs_confirmation("crée la fiche de Martin") is True
+    assert chat_message_needs_confirmation("crée le projet Pizza Lucio") is False
+    assert chat_message_needs_action("crée le projet Pizza Lucio à partir de la discussion") is True
+    assert chat_message_needs_action("modifie le projet Pizza Lucio") is True
+    assert chat_message_needs_confirmation("modifie le projet Pizza Lucio") is False
+    assert chat_message_needs_confirmation("Ajoute le coach Dupont au CRM") is True
+    assert irreversible_action_label("envoie le devis à Martin") == "Envoyer le devis à Martin"
+
+
+def test_team_chat_keeps_raw_history_with_summary(monkeypatch):
+    import routers.core_chat as core_chat
+
+    monkeypatch.setattr(core_chat, "get_chat_session_summary", lambda sid: "Résumé : devis en cours")
+    text = core_chat._build_chat_mission_txt(
+        "Envoie-le",
+        [
+            {"role": "user", "content": "Le client s'appelle Martin"},
+            {"role": "assistant", "content": "Noté."},
+        ],
+        "",
+        "sess-1",
+    )
+    assert "Martin" in text
+    assert "Résumé : devis en cours" in text
+    assert "Envoie-le" in text
+
+
 def test_classify_chat_intent():
     from services.chat_intelligence import (
         INTENT_CRM,
@@ -170,5 +228,9 @@ def test_targeted_memory_and_apply_feedback(client):
     record_chat_apply_feedback(title="CRM chat — Coach Apply", kind="crm_write", detail="ok")
     fb = load_chat_apply_feedback(limit=3)
     assert any("Coach Apply" in str(x.get("title") or "") for x in fb)
+    # Hors intent CRM : ne pas coller les Décisions (évite les réponses hors sujet).
     block2 = build_targeted_memory_block("quoi de neuf")
-    assert "Récemment validé" in block2 or "Coach Apply" in block2
+    assert "Récemment validé" not in block2
+    assert "Coach Apply" not in block2
+    block3 = build_targeted_memory_block("où en sont les décisions CRM ?")
+    assert "Récemment validé" in block3 or "Coach Apply" in block3

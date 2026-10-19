@@ -21,6 +21,28 @@
 - runtime settings are explicit overrides, updated via admin endpoints.
 - provider/model must always be treated as dynamic runtime values, not hardcoded defaults in feature logic.
 
+## Workspace bootstrap (starter packs)
+
+- Korymb stays **industry-agnostic**: no `vertical` flag in the engine.
+- Optional **starter packs** (`blank` | `accompagnement` | `contenu`) copy playbooks / mission templates / memory seed into a workspace at creation or later via Administration → Modèles.
+- Implementation: `backend/services/starter_packs.py`, column `korymb_workspaces.starter_pack_id` (audit only).
+- Details: `docs/STARTER-PACKS.md`.
+
+## Enveloppe IA (clé serveur)
+
+- Un espace sans clé LLM propre pour le fournisseur actif consomme la clé du serveur, dans un plafond mensuel (`korymb_workspaces.llm_monthly_token_cap`, défaut 500 000 tokens, UTC).
+- Chaque appel est journalisé avec `llm_usage_events.billing_source` : `platform`, `own` ou `exempt`.
+- L'espace Élude `ws-default-legacy` est exempt. Une clé enregistrée sur l'espace sort de l'enveloppe.
+- Le propriétaire d'instance (propriétaire de l'espace Élude, ou `KORYMB_PLATFORM_OWNER_EMAIL`) voit et règle les plafonds : `GET/PATCH /platform/llm-envelopes`. Le client lit le reste via `GET /config/envelope`.
+- Le dépassement ou la pause refuse l'appel avant le fournisseur.
+- Portefeuille (`/administration/portefeuille`, propriétaire seulement) : `GET /platform/portfolio` (à toi, en cours, IA du mois, dernière activité), `GET /platform/attention`, création / renommage / pause / archivage / suppression. `POST /platform/workspaces/{id}/open` puis cookie `korymb_workspace_id` entre dans l'espace. Le propriétaire peut ouvrir un espace dont il n'est pas membre, sans être ajouté à l'équipe. L'espace interne `ws-default-legacy` ne s'archive pas, ne se supprime pas et ne se met pas en pause. La suppression exige un archivage préalable et la saisie du nom.
+
+## UI mode (essential / advanced)
+
+- Workspace preference `ui_mode`: `essential` (default for new spaces) or `advanced` (legacy empty / Élude).
+- Essential: simplified Accueil briefing, filtered nav (no Carte/Studio by default), clearer Décisions copy.
+- Toggle: header « Passer en Avancé/Essentiel », Configuration → Mode d'interface, `PATCH /auth/workspace/ui-mode`.
+
 ## Reliability Principles
 
 - Validate every API payload at boundaries (Pydantic models).
@@ -44,11 +66,16 @@ Every feature touching LLM execution must verify:
 
 ## Orchestration (LangGraph)
 
-- Missions can run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
-- Checkpoints: `backend/graph/` + SQLite checkpointer (`backend/data/langgraph_checkpoints.db`).
+- Missions run via `orchestration.engine` behavior setting: `legacy` | `langgraph` | `shadow`.
+- **Operational default: `langgraph`.** The graph runs the mission for every workspace. Progress is stored in the same database as jobs (`lg_checkpoints`, `lg_checkpoint_writes`). If the graph fails, the legacy pipeline runs once and a `repli` trace is written. `legacy` remains an explicit per-workspace setting. `shadow` runs the graph and still serves the legacy answer.
+- HITL plan CIO : le worker enregistre le plan (`awaiting_validation`) et s'arrête (`HitlParked`). Le clic Valider relance l'exécution (`resume_orphan_hitl_execution`), même dans un autre processus. L'attente par thread (`services/hitl_wait.py`) reste pour les tests et le mode LangGraph.
 - HITL canonique: `GET /jobs/{id}/hitl`, `POST /jobs/{id}/hitl/resolve`.
 - Clôture dirigeant post-mission: `POST /jobs/{id}/validate-mission` (distinct du HITL).
 - Décisions (file dirigeant, pas le courrier) : `GET /admin/inbox` — agrège HITL, clôtures, questions CIO, scheduler, qualité, apprentissage. UI : `/inbox` libellé **Décisions**.
+- Agent secret auth: honors `X-Workspace-Id` when the workspace exists; otherwise defaults to `ws-default-legacy` (Hermes compat).
+- MariaDB: connection pool (`KORYMB_DB_POOL_SIZE`, default 8). Optional Alembic: `KORYMB_DB_MIGRATE=alembic` runs `upgrade head` before `init_db()`; `_ensure_*` remains the safety net.
+- Mission events: dual-write to `mission_events` via `persist_job_events` / `update_job(events=…)` alongside `jobs.events_json`.
+- DB split (progressive): `database_jobs.py` (HITL job columns), `database_memory.py` (enterprise memory); `database.py` remains the import façade.
 - Courrier prospection: `/gestion/courrier` · `GET /business/emails` · `POST /business/emails/sync` — sync Gmail auto (`gmail_prospect_sync`, 15 min).
 - Briefing: `GET /admin/briefing` — décisions du jour, missions actives, budget, analytics 24h.
 - Notifications in-app: table `director_notifications`, SSE `director_notification`, `GET/PATCH /admin/notifications`.
@@ -62,5 +89,6 @@ Every feature touching LLM execution must verify:
 - Audit/replay: `GET /jobs/{id}/audit-bundle`, `GET /jobs/{id}/traces`, `POST /jobs/{id}/clone`.
 - Garde-fou qualité: `quality_verdicts`, behavior `quality.min_score_to_complete`, `POST /jobs/{id}/quality-override`.
 - Notifications externes (phase 5): `notification.email_to`, `notification.webhook_url` via `services/notifications.py`.
-- Routes `/run/*` deprecated (header `Deprecation: true`) — préférer `/jobs/*`.
+- Routes `/run/*` deprecated (header `Deprecation: true`) — préférer `/jobs/*` (admin garde des fallbacks compat).
 - Vitrine publique : `GET /public/storefront/{slug}` (sans auth) + fichier public `GET /public/storefront/{slug}/events/{id}/file` + identité `GET /public/storefront/{slug}/brand/{logo|cover}`. Réglages : logo, couverture, lieu, contact, accent/papier/typo nommés. Inscription participant : `POST /auth/register-subscriber` (statut `pending` jusqu’à validation). Invitation : `POST /storefront/participants/invite` puis `POST /auth/redeem-invite`. Connexion : `/login` (opérateur) vs `/p/{slug}/connexion` (participant). Espace participant : `GET /subscriber/home` (filtre visibilité + participants actifs). UI : `/a/{slug}`, `/p/{slug}`, `/p/{slug}/inscription`, `/p/{slug}/invitation`, `/p/{slug}/connexion`. Un créneau porte `visibility` (`internal` | `selected` | `participants` | `public`) et `audience_user_ids` (participants choisis, distincts du CRM). `audience_contact_ids` reste un repli. `is_public` reste dérivé des visibilités `participants`/`public`. Téléchargement participant : `GET /subscriber/events/{id}/file`. Profil : `PATCH /auth/profile` (nom, mot de passe).
+- Classique (agent externe perso/technique) : `POST/GET /classique/tasks` (clé Bearer hachée, webhook HMAC), routage `services/classique_router.py` (métier → Korymb, perso/technique → Classique, mixte → concertation, indéterminé → Eric), pont Google Agenda `services/calendar_sync.py` (désactivé par défaut, 15 min). UI `/administration/classique`. Détails : `docs/CLASSIQUE-INTEGRATION.md`.

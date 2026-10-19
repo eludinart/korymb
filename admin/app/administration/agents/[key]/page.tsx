@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import AgentDeleteDialog from "../../../../components/admin/AgentDeleteDialog";
 import EnterpriseMemoryContextPanel from "../../../../components/EnterpriseMemoryContextPanel";
 import HealthDot from "../../../../components/HealthDot";
 import { memoryContextKeyForAgent } from "../../../../lib/agentMemory";
@@ -49,6 +50,7 @@ export default function AdministrationAgentDetailPage() {
   const [system, setSystem] = useState("");
   const [tools, setTools] = useState<string[]>([]);
   const [formMsg, setFormMsg] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!adminRow) return;
@@ -76,24 +78,6 @@ export default function AdministrationAgentDetailPage() {
       setFormMsg("Modifications enregistrées.");
       await qc.invalidateQueries({ queryKey: QK.agents });
       await qc.invalidateQueries({ queryKey: QK.adminAgents });
-    },
-    onError: (e: unknown) => {
-      setFormMsg(e instanceof Error ? e.message : String(e));
-    },
-  });
-
-  const deleteCustom = useMutation({
-    mutationFn: async () => {
-      const { data, res } = await requestJson(`/admin/agents/custom/${encodeURIComponent(agentKey)}`, {
-        method: "DELETE",
-        expectOk: false,
-      });
-      if (!res.ok) throw new Error(String(data?.detail || data?.error || `HTTP ${res.status}`));
-    },
-    onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: QK.agents });
-      await qc.invalidateQueries({ queryKey: QK.adminAgents });
-      router.push("/administration/agents");
     },
     onError: (e: unknown) => {
       setFormMsg(e instanceof Error ? e.message : String(e));
@@ -132,11 +116,15 @@ export default function AdministrationAgentDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
         <Link href="/administration/agents" className="text-sm text-violet-700 hover:underline">
-          ← Agents métiers
+          ← Fiches agents
         </Link>
-      </div>
+        <span className="text-slate-300">·</span>
+        <Link href="/administration/equipes" className="text-sm text-violet-700 hover:underline">
+          Équipes
+        </Link>
+        </div>
       {agents.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {agent ? (
         <>
@@ -244,15 +232,10 @@ export default function AdministrationAgentDetailPage() {
                 </button>
                 <button
                   type="button"
-                  disabled={deleteCustom.isPending}
-                  onClick={() => {
-                    if (typeof window !== "undefined" && window.confirm("Supprimer définitivement cet agent ?")) {
-                      deleteCustom.mutate();
-                    }
-                  }}
-                  className="rounded-xl border border-red-200 bg-white px-5 py-2.5 text-sm font-medium text-red-800 hover:bg-red-50 disabled:opacity-40"
+                  onClick={() => setConfirmDelete(true)}
+                  className="rounded-xl border border-red-200 bg-white px-5 py-2.5 text-sm font-medium text-red-800 hover:bg-red-50"
                 >
-                  {deleteCustom.isPending ? "Suppression…" : "Supprimer l’agent"}
+                  Supprimer l’agent
                 </button>
               </div>
             </form>
@@ -285,6 +268,14 @@ export default function AdministrationAgentDetailPage() {
             <p className="text-sm text-slate-500">Aucun volet mémoire dédié pour cet agent.</p>
           )}
         </>
+      ) : null}
+      {confirmDelete ? (
+        <AgentDeleteDialog
+          agentKey={agentKey}
+          label={agent?.label || agentKey}
+          onClose={() => setConfirmDelete(false)}
+          onDeleted={() => router.push("/administration/agents")}
+        />
       ) : null}
     </div>
   );

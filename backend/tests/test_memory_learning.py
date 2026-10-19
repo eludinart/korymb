@@ -41,27 +41,26 @@ def test_summarize_uses_dedicated_timestamp_not_row_updated_at(monkeypatch):
     assert "auto_summary_updated_at" in calls[0]
 
 
-def test_memory_directive_remember_and_forget():
+def test_memory_directive_remember_and_forget(monkeypatch):
     from database import merge_enterprise_contexts, get_enterprise_memory, list_learning_suggestions
     from services.memory_directives import apply_user_memory_directive
     from services.learning import apply_learning_payload_to_memory
+    from services import learning as learn
 
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
     merge_enterprise_contexts({"global": ""})
     applied = apply_user_memory_directive("Mémorise : client Acme préfère le ton formel")
     assert applied and applied["action"] == "remember"
-    assert applied.get("pending") is True
-    mem = get_enterprise_memory()
-    assert "Acme" not in str(mem.get("contexts", {}).get("global") or "")
-
-    pending = list_learning_suggestions(status="pending", limit=20)
-    assert any("Acme" in str(s.get("payload") or "") for s in pending)
-    sug = next(s for s in pending if "Acme" in str(s.get("payload") or ""))
-    apply_learning_payload_to_memory(sug["payload"], snapshot_comment="test apply")
+    assert applied.get("pending") is False
     mem_ok = get_enterprise_memory()
     assert "Acme" in mem_ok["contexts"]["global"]
 
     applied2 = apply_user_memory_directive("Oublie de la mémoire : Acme")
     assert applied2 and applied2["action"] == "forget_phrase"
+    assert applied2.get("pending") is True
+    pending = list_learning_suggestions(status="pending", limit=20)
+    assert any("Acme" in str(s.get("payload") or "") for s in pending)
+    sug = next(s for s in pending if "Acme" in str(s.get("payload") or ""))
     apply_learning_payload_to_memory(
         {
             "memory_directive": {"action": "forget_phrase", "key": "global", "detail": "Acme"},
@@ -70,6 +69,7 @@ def test_memory_directive_remember_and_forget():
     )
     mem2 = get_enterprise_memory()
     assert "Acme" not in mem2["contexts"]["global"]
+    assert sug.get("id")
 
 
 def test_delete_enterprise_context_keys(monkeypatch):
@@ -111,7 +111,9 @@ def test_learning_auto_apply_safe(monkeypatch):
         "suggested_memory_keys": {"global": "x"},
         "suggested_prompt_tweaks": ["change prompt"],
     }
-    assert learn.try_auto_apply_learning("s2", payload_tweaks) is False
+    # Les tweaks de prompts n'empêchent plus l'écriture mémoire automatique.
+    assert learn.try_auto_apply_learning("s2", payload_tweaks) is True
+    assert len(applied) == 2
 
 
 def test_storefront_sync_auto_applies_in_safe_mode(monkeypatch):
@@ -155,11 +157,11 @@ def test_chat_active_memory_includes_facts():
     from database import merge_enterprise_contexts
     from services.memory_inbox import merge_enterprise_facts, build_chat_active_memory_block
 
-    merge_enterprise_contexts({"global": "Priorité : ateliers Sïvåñà."})
+    merge_enterprise_contexts({"global": "Priorité : ateliers du lieu."})
     merge_enterprise_facts({"brand": "Élude In Art", "location": "Tourves"})
-    block = build_chat_active_memory_block()
+    block = build_chat_active_memory_block("Quelle est la priorité des ateliers ?")
     assert "Élude In Art" in block
-    assert "ateliers" in block.lower() or "Sïvåñà" in block or "Priorité" in block
+    assert "ateliers" in block.lower() or "priorite" in block.lower() or "Priorité" in block
 
 
 def test_propose_from_crm_creates_pending_when_auto_off(monkeypatch):
@@ -206,3 +208,105 @@ def test_config_suggestions_dedup(monkeypatch):
     out = cs.scan_config_suggestions()
     assert len(out) >= 1
     assert calls
+
+
+def test_learning_resolve_bulk_approve(client, monkeypatch):
+    from database import insert_learning_suggestion, list_learning_suggestions, merge_enterprise_contexts
+    from services import learning as learn
+
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "off")
+    merge_enterprise_contexts({"global": ""})
+    insert_learning_suggestion(
+        "",
+        {
+            "title": "Bulk A",
+            "learnings": ["a"],
+            "suggested_memory_keys": {"global": "- fait A pour bulk"},
+            "source": "manual",
+        },
+    )
+    insert_learning_suggestion(
+        "",
+        {
+            "title": "Bulk B",
+            "learnings": ["b"],
+            "suggested_memory_keys": {"global": "- fait B pour bulk"},
+            "source": "manual",
+        },
+    )
+    pending_before = list_learning_suggestions(status="pending", limit=20)
+    assert len(pending_before) >= 2
+
+    r = client.post("/admin/learning-suggestions/resolve-bulk", json={"decision": "approve", "limit": 40})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert int(body.get("resolved_count") or 0) >= 2
+
+    pending_after = list_learning_suggestions(status="pending", limit=20)
+    assert not any("fait A pour bulk" in str(s.get("payload") or "") for s in pending_after)
+    from database import get_enterprise_memory
+
+    mem = get_enterprise_memory()
+    assert "fait A" in str(mem.get("contexts", {}).get("global") or "")
+    assert "fait B" in str(mem.get("contexts", {}).get("global") or "")
+
+
+def test_seen_crm_memory_does_not_notify(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_from_crm_enrichment
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_from_crm_enrichment(
+        contact={"id": "ctc-quiet", "name": "Camille", "company": "Studio Nord", "contact_type": "prospect", "city": "Aix"}
+    )
+    assert sug is not None
+    assert sug.get("status") == "auto_applied"
+    assert notes == []
+
+
+def test_pending_memory_notifies_the_fact(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_from_crm_enrichment
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "off")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_from_crm_enrichment(
+        contact={"id": "ctc-ask", "name": "Camille", "company": "Studio Nord", "contact_type": "prospect", "city": "Aix"}
+    )
+    assert sug is not None
+    assert notes and notes[0]["kind"] == "learning_suggestion"
+    assert notes[0]["suggestion_id"] == sug.get("id")
+    assert "Camille" in notes[0]["body"]
+    assert "crm_enrichment" not in notes[0]["body"]
+
+
+def test_unseen_memory_leaves_a_receipt(monkeypatch):
+    from services import learning as learn
+    from services.memory_inbox import propose_memory_suggestion
+
+    notes: list[dict] = []
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    monkeypatch.setattr(
+        "services.director_platform.emit_director_notification",
+        lambda **kw: notes.append(kw) or {"id": "n"},
+    )
+    sug = propose_memory_suggestion(
+        title="Mémoire nuit",
+        learnings=["Fait arrivé hors écran."],
+        suggested_memory_keys={"global": "Fait arrivé hors écran."},
+        source="nightly",
+    )
+    assert sug is not None
+    assert sug.get("status") == "auto_applied"
+    assert notes and notes[0]["kind"] == "memory_applied"
+    assert notes[0]["body"].startswith("Mémorisé :")

@@ -1,4 +1,4 @@
-"""Export automatique Google Drive — parsing et anti-liens fictifs."""
+"""Export livrables Korymb — parsing, anti-liens fictifs, pas d'export auto sans demande."""
 from __future__ import annotations
 
 from services.drive_workspace import (
@@ -13,8 +13,11 @@ from services.drive_workspace import (
 
 
 def test_mission_implies_drive_export_prospection():
-    assert mission_implies_drive_export("liste de profils coachs PACA sur Resalib")
+    assert not mission_implies_drive_export("liste de profils coachs PACA sur Resalib")
+    assert not mission_implies_drive_export("fais un tableau de prospects")
     assert mission_implies_drive_export("crée un fichier CSV sur mon Google Drive")
+    assert mission_implies_drive_export("exporte en csv le tableau")
+    assert mission_implies_drive_export("enregistre en fichier le courrier")
 
 
 def test_parse_livrable_blocks():
@@ -172,7 +175,7 @@ def test_create_deliverable_saves_local_file(tmp_path, monkeypatch):
     assert "Madame" in blobs[0].read_text(encoding="utf-8")
 
 
-def test_finalize_saves_csv_without_google(tmp_path, monkeypatch):
+def test_finalize_skips_auto_file_without_explicit_request(tmp_path, monkeypatch):
     monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
     from services.drive_workspace import finalize_mission_drive_deliverables
 
@@ -185,6 +188,30 @@ def test_finalize_saves_csv_without_google(tmp_path, monkeypatch):
     cleaned, arts = finalize_mission_drive_deliverables(
         job_id=None,
         mission_txt="liste de profils coachs PACA",
+        root_mission_label="Prospects",
+        resultats={"commercial": table},
+        synthesis="Synthèse.",
+        events=None,
+        job_logs=logs,
+    )
+    assert arts == []
+    assert "espace Korymb" not in cleaned
+    assert not any("Livrable enregistré" in x for x in logs)
+
+
+def test_finalize_saves_csv_when_explicitly_requested(tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    from services.drive_workspace import finalize_mission_drive_deliverables
+
+    table = (
+        "#### LIVRABLE — Prospects PACA\n\n"
+        "| Nom | Ville |\n| --- | --- |\n"
+        + "\n".join(f"| Profil {i} | Toulon |" for i in range(5))
+    )
+    logs: list[str] = []
+    cleaned, arts = finalize_mission_drive_deliverables(
+        job_id=None,
+        mission_txt="exporte en csv la liste de profils coachs PACA",
         root_mission_label="Prospects",
         resultats={"commercial": table},
         synthesis="Synthèse.",

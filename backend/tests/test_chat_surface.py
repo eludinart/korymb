@@ -1,4 +1,5 @@
 from services.chat_surface import surface_chat_result
+from services.choice_questionnaire import ensure_interactive_qcm
 
 
 def test_surface_chat_strips_reprise_and_global_context():
@@ -23,3 +24,60 @@ Aujourd'hui nous sommes le 24 juin 2026."""
 
 def test_surface_chat_keeps_short_direct_answer():
     assert surface_chat_result("Bonjour, comment puis-je vous aider ?") == "Bonjour, comment puis-je vous aider ?"
+
+
+def test_surface_chat_strips_questions_pour_la_suite_and_qcm():
+    raw = """## Synthèse
+Priorise le PWA et le HITL.
+
+## Questions pour la suite
+1. Quelles améliorations d'interface prioriser ?
+2. Comment améliorer la mémoire ?
+
+```korymb-qcm
+{"title": "x", "questions": []}
+```
+"""
+    out = surface_chat_result(raw)
+    assert "Priorise le PWA" in out
+    assert "Questions pour la suite" not in out
+    assert "korymb-qcm" not in out
+    assert "améliorations d'interface" not in out
+
+
+def test_surface_chat_promotes_questions_to_qcm_when_requested():
+    raw = """Voici le cadrage.
+
+## Questions pour la suite
+1. Quelles données SUPPRIMER DÉFINITIVEMENT ? (Coche toutes celles qui ne servent plus)
+2. Quelle est TA PRIORITÉ ABSOLUE pour ce nettoyage ? (1 seul choix)
+"""
+    out = surface_chat_result(raw, keep_questionnaire=True)
+    assert "korymb-qcm" in out
+    assert "SUPPRIMER" in out
+    assert "selection" in out
+
+
+def test_ensure_interactive_qcm_noop_if_fence_present():
+    raw = "Intro\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": [{\"id\": \"a\", \"prompt\": \"P?\", \"selection\": \"multi\", \"options\": [{\"id\": \"1\", \"label\": \"A\"}]}]}\n```\n"
+    assert ensure_interactive_qcm(raw) == raw.strip()
+
+
+def test_surface_chat_can_keep_questionnaire_when_requested():
+    raw = "Voici le QCM:\n\n```korymb-qcm\n{\"title\": \"x\", \"questions\": [{\"id\": \"a\", \"prompt\": \"P?\", \"selection\": \"multi\", \"options\": [{\"id\": \"1\", \"label\": \"A\"}]}]}\n```\n"
+    out = surface_chat_result(raw, keep_questionnaire=True)
+    assert "korymb-qcm" in out
+
+
+def test_surface_chat_strips_strategic_cio_questions():
+    raw = """## Synthèse
+Priorise le PWA ensuite.
+
+QUESTIONS STRATÉGIQUES DU CIO
+1. Faut-il enrichir Irina Gondel ?
+2. Lancer un playbook e-mail ?
+"""
+    out = surface_chat_result(raw)
+    assert "PWA" in out
+    assert "QUESTIONS STRATÉGIQUES" not in out
+    assert "Irina" not in out

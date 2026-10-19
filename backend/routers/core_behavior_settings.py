@@ -60,6 +60,13 @@ def behavior_settings_put(setting_key: str, body: BehaviorPutBody):
     key = (setting_key or "").strip()
     if key not in BEHAVIOR_DEFAULTS:
         raise HTTPException(status_code=404, detail="Unknown behavior setting key")
+    if key == "orchestration.engine":
+        engine = str(body.value or "").strip().lower()
+        if engine not in {"legacy", "langgraph", "shadow"}:
+            raise HTTPException(
+                status_code=400,
+                detail="Moteur attendu : langgraph, legacy ou shadow.",
+            )
     return upsert_behavior_setting(key, body.value)
 
 

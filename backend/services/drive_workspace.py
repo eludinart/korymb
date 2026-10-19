@@ -1,21 +1,19 @@
 """
 Livrables mission — stockage local dans le compte workspace Korymb.
 
-Seuls les tableaux (→ CSV) et les pièces rédactionnelles type courrier
-(→ markdown), marquées `#### LIVRABLE — …`, sont enregistrés comme fichiers.
-Les synthèses de mission, plans d'action et méta-narration restent dans l'application.
+Par défaut, les pièces restent dans la réponse (blocs `#### LIVRABLE — …`),
+lisibles dans l'application. Un fichier séparé (CSV / markdown) n'est créé
+que si le dirigeant le demande explicitement, ou via l'outil d'enregistrement.
+Les synthèses, plans d'action et méta-narration ne deviennent jamais des fichiers.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import unicodedata
 from datetime import datetime
 from typing import Any
-
-import httpx
 
 from database import (
     append_job_drive_artifacts,
@@ -176,25 +174,38 @@ def validate_sheet_export_content(content: str) -> tuple[bool, str]:
 
 
 def mission_implies_drive_export(blob: str) -> bool:
-    """True si la mission demande explicitement un fichier livrable."""
+    """True si le dirigeant demande explicitement un fichier séparé (pas un simple tableau in-app)."""
     t = _ascii_fold(blob or "")
-    hints = (
+    explicit_phrases = (
         "google drive",
         "google sheet",
-        "tableau",
-        "spreadsheet",
         "fichier csv",
+        "export csv",
         "sur mon drive",
         "dans mon drive",
         "feuille de calcul",
-        "export csv",
-        "liste de profils",
+        "document separe",
+        "fichier separe",
+        "fichier telechargeable",
+        "telechargeable",
+        "enregistrer en csv",
+        "enregistrer en fichier",
+        "enregistre en csv",
+        "enregistre en fichier",
+        "creer un fichier",
+        "cree un fichier",
+        "generer un fichier",
+        "genere un fichier",
+        "exporte en csv",
+        "exporter en csv",
     )
-    if re.search(r"\b(regener|regenere|regénère)\b", t) and re.search(r"\b(tableau|fichier|csv|sheet)\b", t):
+    if any(h in t for h in explicit_phrases):
         return True
-    if "livrable" in t and re.search(r"\b(tableau|courrier|lettre|mail|csv|fichier)\b", t):
+    if re.search(r"\b(exporte|exporter|enregistrer|enregistre|genere|generer|cree|creer)\b", t) and re.search(
+        r"\b(csv|fichier|document|sheet|spreadsheet|drive)\b", t
+    ):
         return True
-    return any(h in t for h in hints)
+    return False
 
 
 def _has_markdown_table(text: str) -> bool:
@@ -355,74 +366,8 @@ def _existing_drive_ids_from_events(events: list | None) -> set[str]:
 
 
 def resolve_workspace_folder_id() -> str:
-    """Dossier Drive Korymb : env > mémoire > recherche/création automatique."""
-    env_id = str(os.getenv("GOOGLE_DRIVE_FOLDER_ID", "") or "").strip()
-    if env_id:
-        return env_id
-    try:
-        mem = get_enterprise_memory()
-        ws = (mem.get("contexts") or {}).get("drive_workspace")
-        if isinstance(ws, str):
-            ws = json.loads(ws) if ws.strip().startswith("{") else {}
-        if isinstance(ws, dict):
-            fid = str(ws.get("default_folder_id") or "").strip()
-            if fid:
-                return fid
-    except Exception:
-        pass
-    from tools import _get_google_drive_token
-
-    token = _get_google_drive_token()
-    if not token:
-        return ""
-    headers = {"Authorization": f"Bearer {token}"}
-    try:
-        q = "name='Korymb' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        r = httpx.get(
-            "https://www.googleapis.com/drive/v3/files",
-            params={"q": q, "fields": "files(id,name)", "pageSize": 1},
-            headers=headers,
-            timeout=20,
-        )
-        r.raise_for_status()
-        files = (r.json() or {}).get("files") or []
-        if files:
-            fid = str(files[0].get("id") or "")
-            if fid:
-                _persist_folder_id(fid)
-                return fid
-        meta = json.dumps({"name": "Korymb", "mimeType": "application/vnd.google-apps.folder"})
-        r2 = httpx.post(
-            "https://www.googleapis.com/drive/v3/files",
-            headers={**headers, "Content-Type": "application/json"},
-            content=meta,
-            timeout=20,
-        )
-        r2.raise_for_status()
-        fid = str((r2.json() or {}).get("id") or "")
-        if fid:
-            _persist_folder_id(fid)
-        return fid
-    except Exception:
-        logger.exception("resolve_workspace_folder_id")
-        return ""
-
-
-def _persist_folder_id(folder_id: str) -> None:
-    try:
-        mem = get_enterprise_memory()
-        ws_raw = (mem.get("contexts") or {}).get("drive_workspace")
-        ws: dict[str, Any] = {}
-        if isinstance(ws_raw, str) and ws_raw.strip().startswith("{"):
-            ws = json.loads(ws_raw)
-        elif isinstance(ws_raw, dict):
-            ws = dict(ws_raw)
-        ws["default_folder_id"] = folder_id
-        ws["folder_name"] = "Korymb"
-        ws["updated_at"] = datetime.utcnow().isoformat()
-        merge_enterprise_contexts({"drive_workspace": json.dumps(ws, ensure_ascii=False)})
-    except Exception:
-        logger.exception("_persist_folder_id")
+    """Compat : plus de dossier Google Drive pour les livrables (stockage Korymb local)."""
+    return ""
 
 
 def _register_in_memory(artifacts: list[dict[str, Any]], mission_preview: str) -> None:
@@ -431,7 +376,7 @@ def _register_in_memory(artifacts: list[dict[str, Any]], mission_preview: str) -
     try:
         mem = get_enterprise_memory()
         ws_raw = (mem.get("contexts") or {}).get("drive_workspace")
-        ws: dict[str, Any] = {"files": [], "default_folder_id": resolve_workspace_folder_id()}
+        ws: dict[str, Any] = {"files": []}
         if isinstance(ws_raw, str) and ws_raw.strip().startswith("{"):
             ws = json.loads(ws_raw)
         elif isinstance(ws_raw, dict):
@@ -444,11 +389,13 @@ def _register_in_memory(artifacts: list[dict[str, Any]], mission_preview: str) -
                 "name": a.get("name"),
                 "url": a.get("webViewLink"),
                 "kind": a.get("kind"),
+                "storage": a.get("storage") or "local",
                 "job_id": a.get("job_id"),
                 "mission": (mission_preview or "")[:200],
                 "ts": now,
             })
         ws["files"] = files[-50:]
+        ws.pop("default_folder_id", None)
         ws["updated_at"] = now
         merge_enterprise_contexts({"drive_workspace": json.dumps(ws, ensure_ascii=False)})
     except Exception:
@@ -468,9 +415,6 @@ def build_drive_workspace_memory_prompt() -> str:
         if not files:
             return ""
         lines = ["", "--- Espace fichiers Korymb (récents) ---"]
-        fid = str(ws.get("default_folder_id") or "").strip()
-        if fid:
-            lines.append(f"Dossier racine Korymb (id: {fid}).")
         for f in files[-12:]:
             name = f.get("name") or "?"
             url = f.get("url") or ""
@@ -478,8 +422,9 @@ def build_drive_workspace_memory_prompt() -> str:
             if url:
                 lines.append(f"- {name} : {url}" + (f" — {mission[:80]}" if mission else ""))
         lines.append(
-            "Les livrables fichiers sont enregistrés dans votre espace Korymb. "
-            "Ne cite jamais de lien de fichier inventé — uniquement ceux listés ci-dessus ou retournés par un outil."
+            "Les fichiers livrables sont dans l'espace Korymb (pas Google Drive). "
+            "Ne cite jamais de lien inventé — uniquement ceux listés ci-dessus ou retournés par un outil. "
+            "Ne crée un fichier séparé que si le dirigeant le demande."
         )
         return "\n".join(lines)
     except Exception:
@@ -527,7 +472,7 @@ def _append_drive_section(text: str, artifacts: list[dict[str, Any]]) -> str:
         else:
             lines.append(f"- **{name}** ({kind}) — id: `{a.get('id')}`")
     lines.append("")
-    lines.append("*Enregistrés automatiquement dans votre compte Korymb.*")
+    lines.append("*Enregistrés dans votre espace Korymb (sur demande).*")
     base = (text or "").rstrip()
     return base + "\n" + "\n".join(lines) if base else "\n".join(lines)
 
@@ -595,8 +540,9 @@ def finalize_mission_drive_deliverables(
     job_logs: list[str] | None = None,
 ) -> tuple[str, list[dict[str, Any]]]:
     """
-    Enregistre les livrables opérationnels dans l'espace Korymb (disque serveur),
-    nettoie les liens fictifs, enrichit la synthèse avec les vrais liens.
+    Nettoie les liens fictifs. Crée un fichier séparé dans l'espace Korymb
+    uniquement si le dirigeant l'a demandé explicitement ; sinon le contenu
+    reste dans la réponse (in-app).
     """
     from tools import run_create_drive_deliverable
 
@@ -606,8 +552,18 @@ def finalize_mission_drive_deliverables(
 
     cleaned = strip_fabricated_drive_links(synthesis or "")
     existing_ids = _existing_drive_ids_from_events(events)
+    blob = f"{mission_txt}\n{root_mission_label}"
+    wants_file = mission_implies_drive_export(blob)
+
+    # Pas de fichier séparé automatique : le contenu reste dans la réponse in-app,
+    # sauf demande explicite du dirigeant (ou fichiers déjà créés via outil).
+    if not wants_file:
+        if existing_ids:
+            log(f"[korymb] Fichiers : {len(existing_ids)} déjà créé(s) via outil — pas d'export auto.")
+        return cleaned, []
+
     if existing_ids:
-        log(f"[korymb] Fichiers : {len(existing_ids)} déjà créé(s) via outils — export auto complémentaire.")
+        log(f"[korymb] Fichiers : {len(existing_ids)} déjà créé(s) via outils — export complémentaire si besoin.")
     candidates = _collect_export_candidates(
         mission_txt=mission_txt,
         root_mission_label=root_mission_label,
@@ -615,11 +571,8 @@ def finalize_mission_drive_deliverables(
         synthesis=cleaned,
         events=events,
     )
-    blob = f"{mission_txt}\n{root_mission_label}"
-    if not candidates and not mission_implies_drive_export(blob):
-        return cleaned, []
     if not candidates:
-        log("[korymb] Livrable fichier attendu mais aucun bloc #### LIVRABLE exportable.")
+        log("[korymb] Fichier demandé mais aucun bloc #### LIVRABLE exportable.")
         return cleaned, []
 
     artifacts: list[dict[str, Any]] = []
@@ -644,8 +597,8 @@ def finalize_mission_drive_deliverables(
         artifacts.append(art)
         log(f"[korymb] Livrable enregistré : {art.get('name')} → {art.get('webViewLink') or art.get('id')}")
 
-    if not artifacts and mission_implies_drive_export(blob):
-        log("[korymb] Livrable fichier attendu mais aucun fichier n'a pu être enregistré.")
+    if not artifacts:
+        log("[korymb] Fichier demandé mais aucun fichier n'a pu être enregistré.")
 
     if artifacts and job_id:
         try:

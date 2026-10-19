@@ -44,6 +44,9 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "behavior_settings",
     "llm_runtime_settings",
     "custom_agents",
+    "agent_groups",
+    "agent_group_memory",
+    "team_blueprints",
     "enterprise_memory",
     "mission_idempotency",
     "mission_checkpoints",
@@ -54,6 +57,7 @@ _WORKSPACE_TABLES_WITH_COLUMN: tuple[str, ...] = (
     "director_notifications",
     "hitl_plan_snapshots",
     "learning_suggestions",
+    "config_suggestions",
     "quality_verdicts",
     "playbooks",
     "reprise_checklist_actions",
@@ -83,11 +87,12 @@ def slugify(name: str) -> str:
 
 
 def ws_id() -> str:
-    """Workspace courant (contexte requête) ou workspace legacy par défaut."""
-    wid = get_workspace_id()
-    if wid:
-        return wid
-    return _DEFAULT_WORKSPACE_ID
+    """Workspace courant. Sans contexte de requête : vide.
+
+    Ne pas retomber sur l'espace historique Élude : un tour sans tenant
+    lirait sinon sa mémoire, sa marque et ses fichiers.
+    """
+    return (get_workspace_id() or "").strip()
 
 
 def scoped_store_key(store_key: str) -> str:
@@ -148,6 +153,11 @@ def _ensure_workspace_public_columns(conn) -> None:
         "typeface": "TEXT NOT NULL DEFAULT 'sans'",
         "logo_file_id": "TEXT NOT NULL DEFAULT ''",
         "cover_file_id": "TEXT NOT NULL DEFAULT ''",
+        "starter_pack_id": "TEXT NOT NULL DEFAULT ''",
+        "ui_mode": "TEXT NOT NULL DEFAULT ''",
+        "llm_monthly_token_cap": "INTEGER NOT NULL DEFAULT 500000",
+        "llm_paused": "INTEGER NOT NULL DEFAULT 0",
+        "archived_at": "TEXT NOT NULL DEFAULT ''",
     }
     for name, ddl in alterations.items():
         if name not in cols:
@@ -158,6 +168,44 @@ def _ensure_workspace_public_columns(conn) -> None:
 
 
 PARTICIPANT_STATUSES = ("pending", "guest", "active", "disabled")
+
+UI_MODES = frozenset({"essential", "advanced"})
+
+
+def normalize_ui_mode(raw: Any, *, workspace_id: str = "") -> str:
+    """
+    essential = surface simplifiée (défaut des nouveaux espaces).
+    advanced = toutes les pages (défaut implicite des espaces legacy sans valeur).
+    """
+    value = str(raw or "").strip().lower()
+    if value in UI_MODES:
+        return value
+    wid = (workspace_id or "").strip()
+    if wid == "ws-default-legacy":
+        return "advanced"
+    # Colonne vide sur un espace préexistant → advanced pour ne pas surprendre.
+    if not value and wid:
+        return "advanced"
+    return "essential"
+
+
+def set_workspace_ui_mode(workspace_id: str, ui_mode: str) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    mode = normalize_ui_mode(ui_mode, workspace_id=wid)
+    if str(ui_mode or "").strip().lower() not in UI_MODES:
+        raise ValueError("Mode d'interface invalide (essential ou advanced).")
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET ui_mode = ? WHERE id = ?",
+            (mode, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
 
 
 def normalize_participant_status(raw: Any, *, role: str = "") -> str:
@@ -361,10 +409,14 @@ def _backfill_workspace_ids(conn) -> None:
             continue
         if "workspace_id" not in cols:
             continue
-        conn.execute(
-            f"UPDATE {table} SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
-            (_DEFAULT_WORKSPACE_ID,),
-        )
+        try:
+            conn.execute(
+                f"UPDATE {table} SET workspace_id = ? WHERE workspace_id IS NULL OR workspace_id = ''",
+                (_DEFAULT_WORKSPACE_ID,),
+            )
+        except Exception:
+            # Une ligne vide ne doit pas écraser la ligne déjà portée par l'espace historique.
+            continue
 
 
 def create_user(email: str, password_hash: str, display_name: str = "") -> dict[str, Any]:
@@ -406,13 +458,36 @@ def get_user_by_id(user_id: str) -> dict[str, Any] | None:
     return out
 
 
-def create_workspace(name: str, owner_user_id: str) -> dict[str, Any]:
+def set_workspace_starter_pack_id(workspace_id: str, pack_id: str) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    pid = (pack_id or "").strip()[:64]
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET starter_pack_id = ? WHERE id = ?",
+            (pid, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
+
+
+def create_workspace(
+    name: str,
+    owner_user_id: str,
+    *,
+    starter_pack_id: str = "blank",
+) -> dict[str, Any]:
     from database import get_conn
 
     wid = new_workspace_id()
     slug = slugify(name)
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
         conn.execute(
             "INSERT INTO korymb_workspaces (id, name, slug, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?)",
             (wid, name.strip()[:200] or "Mon Korymb", slug, owner_user_id, now),
@@ -422,7 +497,18 @@ def create_workspace(name: str, owner_user_id: str) -> dict[str, Any]:
             (wid, owner_user_id, now),
         )
         conn.commit()
+    try:
+        set_workspace_ui_mode(wid, "essential")
+    except Exception:
+        pass
     seed_workspace_defaults(wid)
+    from services.starter_packs import apply_starter_pack, normalize_pack_id
+
+    try:
+        pack = normalize_pack_id(starter_pack_id)
+    except ValueError:
+        pack = "blank"
+    apply_starter_pack(wid, pack)
     return get_workspace_by_id(wid) or {"id": wid, "name": name}
 
 
@@ -784,6 +870,9 @@ def seed_workspace_defaults(workspace_id: str) -> None:
         seed_orchestration_prompt_defaults()
         seed_behavior_defaults()
         _seed_workspace_starters(workspace_id)
+        from services.agent_groups import ensure_enterprise_group
+
+        ensure_enterprise_group()
     finally:
         if prev:
             set_tenant_context(workspace_id=prev)
@@ -996,6 +1085,70 @@ def get_guest_membership_by_code(workspace_id: str, email: str, code: str) -> di
     return dict(row) if row else None
 
 
+def workspace_archived(row: dict[str, Any] | None) -> bool:
+    return bool(str((row or {}).get("archived_at") or "").strip())
+
+
+def set_workspace_archived(workspace_id: str, *, archived: bool) -> dict[str, Any] | None:
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not wid:
+        return None
+    stamp = datetime.utcnow().isoformat() if archived else ""
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        conn.execute(
+            "UPDATE korymb_workspaces SET archived_at = ? WHERE id = ?",
+            (stamp, wid),
+        )
+        conn.commit()
+    return get_workspace_by_id(wid)
+
+
+_PURGE_WORKSPACE_TABLES: tuple[str, ...] = (
+    "biz_email_messages",
+    "biz_email_threads",
+    "biz_event_audience",
+    "biz_event_audience_users",
+    "biz_interactions",
+    "biz_contact_enrichment_proposals",
+    "biz_calendar_events",
+    "biz_external_invoices",
+    "biz_quotes",
+    "biz_projects",
+    "biz_contacts",
+    "mission_events",
+    "lg_checkpoints",
+    "lg_checkpoint_writes",
+    *_WORKSPACE_TABLES_WITH_COLUMN,
+    "korymb_memberships",
+)
+
+
+def delete_workspace_records(workspace_id: str) -> None:
+    """Efface les lignes rattachées à l'espace, puis la fiche espace."""
+    from database import get_conn
+
+    wid = (workspace_id or "").strip()
+    if not re.fullmatch(r"ws-[A-Za-z0-9_-]{1,80}", wid):
+        raise ValueError("Identifiant d'espace invalide.")
+    with get_conn() as conn:
+        _ensure_workspace_public_columns(conn)
+        for table in _PURGE_WORKSPACE_TABLES:
+            if not re.fullmatch(r"[a-z_]+", table):
+                continue
+            try:
+                cols = _table_columns(conn, table)
+            except Exception:
+                continue
+            if "workspace_id" not in cols:
+                continue
+            conn.execute(f"DELETE FROM {table} WHERE workspace_id = ?", (wid,))
+        conn.execute("DELETE FROM korymb_workspaces WHERE id = ?", (wid,))
+        conn.commit()
+
+
 def update_workspace_name(workspace_id: str, name: str) -> dict[str, Any] | None:
     from database import get_conn
 
@@ -1049,7 +1202,7 @@ def seed_bootstrap_admin() -> None:
         return
 
     display = (settings.bootstrap_admin_display_name or email.split("@")[0])[:120]
-    ws_name = (settings.bootstrap_workspace_name or "Korymb — Élude In Art")[:200]
+    ws_name = (settings.bootstrap_workspace_name or "Mon espace Korymb")[:200]
 
     from database import get_conn
 

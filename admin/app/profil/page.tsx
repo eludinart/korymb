@@ -4,6 +4,8 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import type { AuthMeResponse } from "../../lib/authSession";
+import { queryClient } from "../../lib/queryClient";
+import { useUiMode } from "../../lib/uiMode";
 
 export default function ProfilPage() {
   const [me, setMe] = useState<AuthMeResponse | null>(null);
@@ -11,8 +13,11 @@ export default function ProfilPage() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const { showAdvanced, setUiMode, canSetUiMode, busy: uiBusy, error: uiModeError } = useUiMode();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -41,16 +46,20 @@ export default function ProfilPage() {
     setError("");
     setMessage("");
     try {
+      const visiting = Boolean(me?.visiting_client_space);
       const { res, data } = await requestJson("/auth/profile", {
         method: "PATCH",
         headers: agentHeaders(),
         body: JSON.stringify({
           display_name: displayName,
-          workspace_name: workspaceName,
+          ...(visiting ? {} : { workspace_name: workspaceName }),
+          ...(newPassword ? { current_password: currentPassword, new_password: newPassword } : {}),
         }),
       });
       if (!res.ok) throw new Error(formatHttpApiErrorPayload(data) || "Enregistrement impossible.");
-      setMessage("Profil mis à jour.");
+      setMessage(newPassword ? "Profil et mot de passe mis à jour." : "Profil mis à jour.");
+      setCurrentPassword("");
+      setNewPassword("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erreur.");
@@ -61,6 +70,7 @@ export default function ProfilPage() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    queryClient.clear();
     window.location.href = "/";
   }
 
@@ -79,23 +89,35 @@ export default function ProfilPage() {
     );
   }
 
-  const roleLabel = me.role === "admin" ? "Administrateur" : "Utilisateur";
+  const visiting = Boolean(me.visiting_client_space);
+  const roleLabel = visiting ? "Profil Élude · visite" : me.role === "admin" ? "Administrateur" : "Utilisateur";
 
   return (
     <div className="mx-auto max-w-2xl space-y-8">
       <header>
-        <h1 className="text-2xl font-extrabold text-slate-900">Mon profil</h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">{visiting ? "Compte Élude" : "Mon profil"}</h1>
         <p className="mt-1 text-sm text-slate-600">{me.user.email}</p>
       </header>
+
+      {visiting ? (
+        <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 text-sm text-amber-950">
+          <p className="text-[11px] font-extrabold uppercase tracking-wider">Espace consulté</p>
+          <p className="mt-1 text-base font-extrabold">{me.workspace?.name || "—"}</p>
+          <p className="mt-2">
+            Vous êtes sur l&apos;interface de ce client avec votre profil Élude. Le nom ci-dessous est le vôtre :
+            l&apos;enregistrer ne renomme pas cet espace et ne remplace pas les données du client.
+          </p>
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="rounded-full bg-violet-100 px-3 py-1 font-bold text-violet-900">{roleLabel}</span>
-          <span className="text-slate-500">Espace : {me.workspace?.name || "—"}</span>
+          {visiting ? null : <span className="text-slate-500">Espace : {me.workspace?.name || "—"}</span>}
         </div>
         <form className="mt-6 space-y-4" onSubmit={onSave}>
           <label className="block text-sm font-semibold text-slate-700">
-            Nom affiché
+            {visiting ? "Votre nom (compte Élude)" : "Nom affiché"}
             <input
               type="text"
               value={displayName}
@@ -103,7 +125,7 @@ export default function ProfilPage() {
               className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
             />
           </label>
-          {me.role === "admin" ? (
+          {me.role === "admin" && !visiting ? (
             <label className="block text-sm font-semibold text-slate-700">
               Nom de l&apos;espace Korymb
               <input
@@ -114,6 +136,28 @@ export default function ProfilPage() {
               />
             </label>
           ) : null}
+          <label className="block text-sm font-semibold text-slate-700">
+            Mot de passe actuel
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            />
+          </label>
+          <label className="block text-sm font-semibold text-slate-700">
+            Nouveau mot de passe
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              minLength={8}
+              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            />
+          </label>
+          <p className="text-xs text-slate-500">Laissez les mots de passe vides pour ne changer que le nom.</p>
           {message ? <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-800">{message}</p> : null}
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}
           <button
@@ -126,8 +170,38 @@ export default function ProfilPage() {
         </form>
       </section>
 
+      {canSetUiMode ? (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-sm font-extrabold text-slate-900">Mode de l&apos;espace</h2>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={uiBusy || !showAdvanced}
+              onClick={() => void setUiMode("essential").catch(() => undefined)}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold ${!showAdvanced ? "bg-violet-700 text-white" : "border border-slate-300 text-slate-700"} disabled:opacity-60`}
+            >
+              Essentiel
+            </button>
+            <button
+              type="button"
+              disabled={uiBusy || showAdvanced}
+              onClick={() => void setUiMode("advanced").catch(() => undefined)}
+              className={`rounded-xl px-4 py-2.5 text-sm font-bold ${showAdvanced ? "bg-violet-700 text-white" : "border border-slate-300 text-slate-700"} disabled:opacity-60`}
+            >
+              Avancé
+            </button>
+          </div>
+          <p className="mt-3 text-sm text-slate-600">
+            {showAdvanced
+              ? "Avancé : travaux, carte et moteur, en plus du quotidien."
+              : "Essentiel : ce qui a besoin de vous, sans le moteur."}
+          </p>
+          {uiModeError ? <p className="mt-2 text-sm text-red-700">{uiModeError}</p> : null}
+        </section>
+      ) : null}
+
       <section className="flex flex-wrap gap-3">
-        <Link href="/briefing" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">
+        <Link href="/chat" className="rounded-xl border-2 border-violet-300 px-4 py-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50">
           Cockpit dirigeant
         </Link>
         {me.workspace?.slug ? (

@@ -13,11 +13,9 @@ from typing import Any
 from integration_catalog import INTEGRATION_GROUPS, INTEGRATION_KEYS
 
 _WRITE_LOCK = Lock()
-_PERSISTED_CACHE: dict[str, Any] | None = None
-_PERSISTED_CACHE_AT = 0.0
+_PERSISTED_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _PERSISTED_CACHE_TTL_SEC = 2.0
-_LLM_RUNTIME_CACHE: dict[str, Any] | None = None
-_LLM_RUNTIME_CACHE_AT = 0.0
+_LLM_RUNTIME_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 _LLM_ENV_FALLBACK: dict[str, str] = {
     "ANTHROPIC_API_KEY": "anthropic_api_key",
@@ -38,23 +36,26 @@ _SECRET_FIELDS: dict[str, bool] = {
 
 
 def _invalidate_persisted_cache() -> None:
-    global _PERSISTED_CACHE, _PERSISTED_CACHE_AT, _LLM_RUNTIME_CACHE, _LLM_RUNTIME_CACHE_AT
-    _PERSISTED_CACHE = None
-    _PERSISTED_CACHE_AT = 0.0
-    _LLM_RUNTIME_CACHE = None
-    _LLM_RUNTIME_CACHE_AT = 0.0
+    _PERSISTED_CACHE.clear()
+    _LLM_RUNTIME_CACHE.clear()
+
+
+def _cache_workspace_id() -> str:
+    try:
+        from database import _ws
+
+        return _ws() or ""
+    except Exception:
+        return ""
 
 
 def _read_persisted(*, force: bool = False) -> dict[str, Any]:
-    """Charge les surcharges runtime (une requête DB, cache court en mémoire)."""
-    global _PERSISTED_CACHE, _PERSISTED_CACHE_AT
+    """Charge les surcharges runtime de l'espace courant (cache court, par espace)."""
+    wid = _cache_workspace_id()
     now = time.monotonic()
-    if (
-        not force
-        and _PERSISTED_CACHE is not None
-        and (now - _PERSISTED_CACHE_AT) < _PERSISTED_CACHE_TTL_SEC
-    ):
-        return _PERSISTED_CACHE
+    hit = _PERSISTED_CACHE.get(wid)
+    if not force and hit is not None and (now - hit[0]) < _PERSISTED_CACHE_TTL_SEC:
+        return hit[1]
     try:
         from database import load_integration_settings_raw
 
@@ -62,28 +63,24 @@ def _read_persisted(*, force: bool = False) -> dict[str, Any]:
         data = {k: v for k, v in raw.items() if k in INTEGRATION_KEYS}
     except Exception:
         data = {}
-    _PERSISTED_CACHE = data
-    _PERSISTED_CACHE_AT = now
+    _PERSISTED_CACHE[wid] = (now, data)
     return data
 
 
 def _llm_runtime_values() -> dict[str, Any]:
-    """Surcharges LLM (chat Mistral, etc.) — même TTL que les intégrations."""
-    global _LLM_RUNTIME_CACHE, _LLM_RUNTIME_CACHE_AT
+    """Surcharges LLM de l'espace courant — même TTL que les intégrations."""
+    wid = _cache_workspace_id()
     now = time.monotonic()
-    if (
-        _LLM_RUNTIME_CACHE is not None
-        and (now - _LLM_RUNTIME_CACHE_AT) < _PERSISTED_CACHE_TTL_SEC
-    ):
-        return _LLM_RUNTIME_CACHE
+    hit = _LLM_RUNTIME_CACHE.get(wid)
+    if hit is not None and (now - hit[0]) < _PERSISTED_CACHE_TTL_SEC:
+        return hit[1]
     try:
         from runtime_settings import merge_with_env
 
         data = merge_with_env()
     except Exception:
         data = {}
-    _LLM_RUNTIME_CACHE = data
-    _LLM_RUNTIME_CACHE_AT = now
+    _LLM_RUNTIME_CACHE[wid] = (now, data)
     return data
 
 

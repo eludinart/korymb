@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { requestJson, agentHeaders } from "../../../lib/api";
+import { useActionToast } from "../../../lib/actionToast";
 import SimpleAccordion from "../../../components/SimpleAccordion";
+import { agentRoleSoftClass } from "../../../lib/agentRoleUi";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -48,16 +50,8 @@ function formatDate(iso: string) {
   }
 }
 
-const AGENT_COLORS: Record<string, string> = {
-  coordinateur: "bg-violet-100 text-violet-800",
-  commercial: "bg-blue-100 text-blue-800",
-  community_manager: "bg-pink-100 text-pink-800",
-  developpeur: "bg-emerald-100 text-emerald-800",
-  comptable: "bg-amber-100 text-amber-800",
-};
-
 function agentBadge(key: string) {
-  return AGENT_COLORS[key] ?? "bg-slate-100 text-slate-700";
+  return agentRoleSoftClass(key);
 }
 
 // ── Empty form state ──────────────────────────────────────────────────────────
@@ -228,7 +222,7 @@ function TemplateDrawer({
               onChange={(e) => handleMissionChange(e.target.value)}
               rows={10}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
-              placeholder={"Génère le rapport commercial de la semaine {{semaine}} pour le client {{client}}."}
+              placeholder={"Prépare le compte-rendu de {{semaine}} pour {{destinataire}} (client, adhérent ou partenaire)."}
             />
           </div>
 
@@ -358,15 +352,14 @@ function LaunchModal({
 export default function TemplatesPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MissionTemplate | null>(null);
   const [launchTarget, setLaunchTarget] = useState<MissionTemplate | null>(null);
-  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
 
   const showToast = (msg: string, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 3500);
+    pushToast(msg, ok ? "ok" : "error");
   };
 
   const templates = useQuery({
@@ -413,7 +406,7 @@ export default function TemplatesPage() {
       qc.invalidateQueries({ queryKey: ["templates"] });
       setDrawerOpen(false);
       setEditTarget(null);
-      showToast("Template sauvegardé.");
+      showToast("Template enregistré.");
     },
     onError: (e: Error) => showToast(e.message || "Erreur sauvegarde", false),
   });
@@ -440,7 +433,7 @@ export default function TemplatesPage() {
     },
     onSuccess: (data) => {
       setLaunchTarget(null);
-      showToast(`Mission lancée — job ${data.job_id}`);
+      showToast(`Mission lancée — ${data.job_id}`);
       setTimeout(() => router.push("/missions"), 1200);
     },
     onError: (e: Error) => showToast(e.message || "Erreur lancement", false),
@@ -545,17 +538,6 @@ export default function TemplatesPage() {
           onLaunch={(vars) => launchMutation.mutate({ id: launchTarget.id, variables: vars })}
           launching={launchMutation.isPending}
         />
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div
-          className={`fixed bottom-[max(1rem,var(--safe-bottom))] right-4 z-50 min-h-[44px] max-w-[calc(100vw-2rem)] rounded-xl px-5 py-3 text-sm font-medium text-white shadow-lg ${
-            toast.ok ? "bg-emerald-600" : "bg-red-600"
-          }`}
-        >
-          {toast.msg}
-        </div>
       )}
     </div>
   );

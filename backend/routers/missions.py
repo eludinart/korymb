@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
+from database import JOB_ID_MAX_LEN
 from services.orchestrator import build_peer_review_plan, prepare_hitl_gate
 from services.hitl_unified import resolve_hitl
 
@@ -24,7 +25,7 @@ class PeerReviewPlanRequest(BaseModel):
 
 class HitlGateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    job_id: str = Field(min_length=4, max_length=16)
+    job_id: str = Field(min_length=4, max_length=JOB_ID_MAX_LEN)
     mission: str = Field(min_length=3, max_length=6000)
     result_preview: str = Field(min_length=3, max_length=12000)
     reviewer: str = Field(default="human_operator", min_length=3, max_length=120)

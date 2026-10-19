@@ -9,7 +9,7 @@ export type EspaceNavLink = {
 
 export const ESPACE_NAV_LINKS: readonly EspaceNavLink[] = [
   { id: "accueil", label: "Accueil", suffix: "", exact: true },
-  { id: "seances", label: "Mes séances", suffix: "/seances" },
+  { id: "seances", label: "Calendrier", suffix: "/seances" },
   { id: "ressources", label: "Mes ressources", suffix: "/ressources" },
   { id: "compte", label: "Mon compte", suffix: "/compte" },
 ] as const;

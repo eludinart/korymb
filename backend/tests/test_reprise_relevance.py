@@ -8,6 +8,54 @@ from services.reprise_audit import (
 )
 
 
+def test_blank_workspace_reprise_audit_is_empty(monkeypatch):
+    monkeypatch.setattr("database.list_reprise_checklist_actions", lambda: [])
+    coverage = scan_reprise_coverage({"memory_contexts": {}})
+    assert coverage["workspace_empty"] is True
+    assert coverage["gaps"] == []
+    assert coverage["domains"] == []
+    assert "tarot" not in str(coverage).lower()
+
+
+def test_chat_welcome_does_not_open_reprise_audit(monkeypatch):
+    monkeypatch.setattr("database.list_reprise_checklist_actions", lambda: [])
+    coverage = scan_reprise_coverage({
+        "memory_contexts": {},
+        "recent_missions": [],
+        "missions_digest": [{
+            "mission": "Décide avec moi et dis-moi quoi faire ensuite.",
+            "result": (
+                "Je suis l'assistant Korymb, votre copilote dans le cockpit. "
+                "Je suis là pour vous aider à prendre des décisions et à définir les prochaines étapes."
+            ),
+        }],
+        "thread_excerpts": [{
+            "mission": "Décide avec moi et dis-moi quoi faire ensuite.",
+            "thread_tail": [{
+                "role": "assistant",
+                "content": "Pour commencer, quel est le sujet principal que vous souhaitez aborder ?",
+            }],
+        }],
+    })
+    assert coverage["workspace_empty"] is True
+    assert coverage["gaps"] == []
+    assert coverage["domains"] == []
+
+
+def test_specialty_domain_stays_out_without_matching_activity(monkeypatch):
+    monkeypatch.setattr("database.list_reprise_checklist_actions", lambda: [])
+    coverage = scan_reprise_coverage({
+        "memory_contexts": {
+            "global": "Sorties en mer et découverte du littoral varois, devis pour les groupes scolaires et les familles.",
+        },
+    })
+    assert coverage["workspace_empty"] is False
+    tarot = next(d for d in coverage["domains"] if d["id"] == "editorial_tarot")
+    assert tarot["status"] == "not_applicable"
+    assert tarot["checklist_missing"] == []
+    assert "editorial_tarot" not in {g["id"] for g in coverage["gaps"]}
+
+
 def test_acquisition_domains_dormant_without_reprise_context():
     coverage = scan_reprise_coverage({"memory_contexts": {"global": "Ateliers tarot sur bateau, prospection coaches."}})
     assert coverage["has_reprise_context"] is False

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../components/ui/PageChrome";
 import { businessApi } from "../../lib/business";
-import { groupedGestionNavLinks } from "../../lib/gestionNav";
+import { groupedGestionNavLinks, gestionNavGroupCardBorderClass, gestionNavGroupHeadingClass } from "../../lib/gestionNav";
 
 export default function GestionHubPage() {
   const overview = useQuery({
@@ -32,7 +32,7 @@ export default function GestionHubPage() {
         accent="emerald"
         badge="Gestion entreprise"
         title="Vue d'ensemble"
-        description="Création de contenus (studio, playbooks, livrables) et activité commerciale (contacts, courrier, planning, devis). Les factures légales passent par Tiime."
+        description="Création de contenus, contextes d’équipes projet, et activité commerciale (contacts, courrier, planning, devis). Les factures légales passent par Tiime."
         actions={
           <>
             <Link href="/gestion/studio" className="btn-link-primary">
@@ -54,7 +54,7 @@ export default function GestionHubPage() {
 
       {groupedGestionNavLinks().map((group) => (
         <section key={group.id} className="space-y-3">
-          <h2 className={`text-xs font-extrabold uppercase tracking-wider ${group.id === "creation" ? "text-violet-800" : "text-emerald-800"}`}>
+          <h2 className={`text-xs font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}>
             {group.label}
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -64,11 +64,7 @@ export default function GestionHubPage() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`rounded-2xl border-2 bg-white p-4 shadow-sm transition hover:shadow-md ${
-                    group.id === "creation"
-                      ? "border-violet-100 hover:border-violet-300"
-                      : "border-emerald-100 hover:border-emerald-300"
-                  }`}
+                  className={`rounded-2xl border-2 bg-white p-4 shadow-sm transition hover:shadow-md ${gestionNavGroupCardBorderClass(group.id)}`}
                 >
                   <span className="text-2xl" aria-hidden>
                     {item.icon}

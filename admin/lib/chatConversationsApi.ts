@@ -8,6 +8,7 @@ function toServerConv(conv: ChatConversation) {
     title: conv.title,
     messages: conv.messages,
     linked_parent_job_id: conv.linkedParentJobId || null,
+    interlocutor: conv.interlocutor || null,
   };
 }
 
@@ -23,6 +24,7 @@ function fromServerRow(row: Record<string, unknown>): ChatConversation {
     messages: (Array.isArray(row.messages) ? row.messages : []) as ChatMsg[],
     updatedAt,
     linkedParentJobId: (row.linked_parent_job_id as string) || undefined,
+    interlocutor: typeof row.interlocutor === "string" && row.interlocutor.trim() ? row.interlocutor.trim() : undefined,
   };
 }
 

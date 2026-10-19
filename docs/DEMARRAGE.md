@@ -11,7 +11,7 @@ Guide pour lancer Korymb en local : backend FastAPI (port 8020) + frontend Next.
 
 Puis ouvrir :
 
-- Frontend : http://127.0.0.1:3000/briefing (ou /dashboard)
+- Frontend : http://127.0.0.1:3000/chat (conversation au démarrage ; /briefing pour Aujourd’hui)
 - Backend : http://127.0.0.1:8020/health
 
 Arrêt : `Ctrl+C` dans le terminal, ou `.\stop-dev-cursor.ps1`.
@@ -31,12 +31,11 @@ copy .env.example .env.local
 copy backend\.env.example backend\.env
 ```
 
-Vérifier que les secrets correspondent entre les deux fichiers :
+Le secret agent reste dans le backend, pour Hermes et les scripts. Le navigateur s'authentifie par le cookie de session.
 
-| Fichier | Variable |
-|---|---|
-| `backend/.env` | `AGENT_API_SECRET` |
-| `.env.local` | `KORYMB_AGENT_SECRET` et `NEXT_PUBLIC_KORYMB_AGENT_SECRET` |
+| Fichier        | Variable                                                                  |
+| -------------- | ------------------------------------------------------------------------- |
+| `backend/.env` | `AGENT_API_SECRET` (Hermes et scripts ; pas exposé au navigateur)         |
 
 La base de données est configurée dans `backend/.env.local` (`KORYMB_DB_ENGINE=mariadb`, `KORYMB_DB_PORT=3307`). En mode MariaDB, le backend passe par un tunnel SSH vers le VPS — d'où l'option `-MariaDbTunnel` ci-dessous.
 
@@ -58,11 +57,11 @@ Le démarrage complet prend environ 1 à 2 minutes (compilation Next incluse).
 
 ### Options du script
 
-| Option | Effet |
-|---|---|
+| Option           | Effet                                                                               |
+| ---------------- | ----------------------------------------------------------------------------------- |
 | `-MariaDbTunnel` | Ouvre le tunnel SSH MariaDB au démarrage. **Requis** si `KORYMB_DB_ENGINE=mariadb`. |
-| `-SkipVerify` | Ne pas attendre `/health` avant de lancer le frontend (dépannage). |
-| `-Reload` | Active `uvicorn --reload` (désactivé par défaut car instable sous Windows). |
+| `-SkipVerify`    | Ne pas attendre `/health` avant de lancer le frontend (dépannage).                  |
+| `-Reload`        | Active `uvicorn --reload` (désactivé par défaut car instable sous Windows).         |
 
 ## Vérifier que tout tourne
 
@@ -83,11 +82,11 @@ Attendu : `/health/database` retourne `"connected": true` avec `engine: mariadb`
 
 Les logs sont écrits dans `.dev-logs/` à la racine :
 
-| Fichier | Contenu |
-|---|---|
-| `backend.log` | stdout du backend (uvicorn) |
-| `backend.err.log` | stderr du backend (tracebacks Python) |
-| `frontend.out.log` / `frontend.err.log` | logs Next.js |
+| Fichier                                 | Contenu                               |
+| --------------------------------------- | ------------------------------------- |
+| `backend.log`                           | stdout du backend (uvicorn)           |
+| `backend.err.log`                       | stderr du backend (tracebacks Python) |
+| `frontend.out.log` / `frontend.err.log` | logs Next.js                          |
 
 Problèmes courants :
 
@@ -114,3 +113,30 @@ Toute page `app/**/page.tsx` qui utilise `useSearchParams` doit encapsuler son c
 - Backend et frontend tournent en **processus détachés** (pas en jobs PowerShell) : les jobs PS coupent uvicorn sous charge, et Next quitte après la première compilation s'il reste attaché au terminal parent.
 - Le script exige PowerShell 5.1+ et fonctionne dans le terminal intégré de Cursor.
 - Cible SSH du tunnel : `root@187.124.42.135` par défaut, surchargée par la variable d'environnement `KORYMB_VPS_SSH`.
+
+## Backend — fiabilité (réf. courte)
+
+| Variable                    | Effet                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------- |
+| `KORYMB_DB_POOL_SIZE`       | Taille du pool MariaDB (défaut `8`)                                             |
+| `KORYMB_DB_MIGRATE=alembic` | Au boot : `alembic upgrade head` puis `init_db()` / `_ensure_*`                 |
+
+Le moteur des missions est `langgraph` pour tous les espaces. `legacy` reste un choix explicite dans les réglages, et le repli automatique si le graphe casse.
+
+Auth agent (`X-Agent-Secret`) : propager `X-Workspace-Id` pour cibler un espace ; sans header → `ws-default-legacy` (Hermes).
+
+### HITL wait
+
+- Module `services/hitl_wait.py` : `threading.Event` par `job_id` + poll de repli (défaut **2 s**, pas de busy-loop).
+- `resolve_hitl` appelle `notify_hitl_resolved(job_id)` pour réveiller le worker immédiatement.
+- Defaults : `orchestration.cio.hitl_wait_max_seconds`, `orchestration.cio.hitl_poll_interval_seconds`.
+
+### Events / Alembic / découpe DB
+
+- Dual-write : `persist_job_events` / `update_job(events=…)` → `jobs.events_json` **et** table `mission_events`.
+- Alembic : révisions incrémentales `001_mission_events` et `002_lg_checkpoints` (pas un dump schéma complet) ; `_ensure_*` reste le filet.
+- Découpe progressive : `database_jobs.py` (HITL jobs), `database_memory.py` (mémoire entreprise) ; `database.py` reste la façade d’import.
+
+### Routes `/run/*`
+
+Conservées (admin / fallbacks) avec en-tête `Deprecation: true` — pas de 410 pour l’instant.

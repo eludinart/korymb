@@ -17,7 +17,7 @@ from workspace_db import ws_id
 # ── Constantes métier ─────────────────────────────────────────────────────────
 
 CONTACT_TYPES = ("prospect", "client", "partenaire", "autre")
-CONTACT_STATUSES = ("active", "inactive", "archived")
+CONTACT_STATUSES = ("active", "inactive", "archived", "disqualified")
 PROJECT_TYPES = ("seance", "stage", "module_pro", "accompagnement", "sivana", "autre")
 PROJECT_STATUSES = ("draft", "active", "on_hold", "completed", "cancelled")
 QUOTE_STATUSES = ("draft", "sent", "accepted", "refused", "expired")
@@ -43,6 +43,32 @@ CONTACT_PROFILE_FIELDS = (
 
 def _now() -> str:
     return datetime.utcnow().isoformat()
+
+
+_FR_MONTHS = (
+    "janvier", "février", "mars", "avril", "mai", "juin",
+    "juillet", "août", "septembre", "octobre", "novembre", "décembre",
+)
+
+
+def paris_stamp() -> str:
+    """Date lisible pour l'historique CRM (Europe/Paris)."""
+    from zoneinfo import ZoneInfo
+
+    now = datetime.now(ZoneInfo("Europe/Paris"))
+    return f"{now.day} {_FR_MONTHS[now.month - 1]} {now.year} à {now.hour}h{now.minute:02d}"
+
+
+def actor_label(auth: dict | None) -> str:
+    """Nom affiché de l'utilisateur connecté, ou « Korymb » hors session."""
+    if not isinstance(auth, dict) or auth.get("mode") != "user":
+        return "Korymb"
+    from workspace_db import get_user_by_id
+
+    user = get_user_by_id(str(auth.get("user_id") or "")) or {}
+    name = str(user.get("display_name") or "").strip()
+    email = str(user.get("email") or "").strip()
+    return (name or email or "Korymb")[:120]
 
 
 def _new_id(prefix: str) -> str:
@@ -1179,6 +1205,25 @@ def update_contact(contact_id: str, **fields: Any) -> dict | None:
     return get_contact(contact_id)
 
 
+def disqualify_contact(contact_id: str, *, actor: str) -> dict | None:
+    """Passe le contact en disqualifié et note l'action dans l'historique."""
+    contact = get_contact(contact_id)
+    if not contact:
+        return None
+    if str(contact.get("status") or "") == "disqualified":
+        return {"already": True, "contact": contact, "interaction": None}
+    updated = update_contact(contact_id, status="disqualified")
+    who = (actor or "").strip() or "Korymb"
+    summary = f"Disqualifié le {paris_stamp()} par {who}"[:500]
+    interaction = log_interaction(
+        contact_id=contact_id,
+        interaction_type="note",
+        summary=summary,
+        details=summary,
+    )
+    return {"already": False, "contact": updated, "interaction": interaction}
+
+
 def create_enrichment_proposal(
     *,
     contact_id: str,
@@ -1298,6 +1343,16 @@ def reject_enrichment_proposal(proposal_id: str) -> dict | None:
 _MD_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _EMAIL_RE = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 _PHONE_RE = re.compile(r"(?:\+33|0)\s*[1-9](?:[\s./-]?\d{2}){4}")
+_INTL_PHONE_RE = re.compile(r"\+(?:\d[\s./()-]?){8,15}\d")
+_INLINE_WRAP = r"[`*_\"'«»]*"
+_INLINE_LABELED_EMAIL_RE = re.compile(
+    rf"(?:e-?mail|courriel)\s*[:=]\s*{_INLINE_WRAP}\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{{2,}})",
+    re.I,
+)
+_INLINE_LABELED_PHONE_RE = re.compile(
+    rf"(?:t[ée]l[ée]phone|phone|portable|mobile|gsm|t[ée]l\.?)\s*[:=]\s*{_INLINE_WRAP}\s*([+\d][\d\s./()-]{{6,24}})",
+    re.I,
+)
 _URL_RE = re.compile(r"https?://[^\s)|>\]]+", re.I)
 _POSTAL_CITY_RE = re.compile(r"\b(\d{5})\s+([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'\- ]{1,40})", re.I)
 _EMPTY_EXTRACT = re.compile(
@@ -1335,7 +1390,15 @@ def _host_of(url: str) -> str:
         return ""
 
 
-_OWN_SITE_SUFFIXES = ("eludein.art",)
+def _own_site_suffixes() -> tuple[str, ...]:
+    try:
+        from services.workspace_brand import own_site_suffixes
+
+        return own_site_suffixes()
+    except Exception:
+        return ()
+
+
 _DIRECTORY_HOSTS = (
     "resalib.fr",
     "doctolib.fr",
@@ -1378,7 +1441,7 @@ def _host_matches_suffixes(host: str, suffixes: tuple[str, ...]) -> bool:
 
 
 def _is_own_site(host: str) -> bool:
-    return _host_matches_suffixes(host, _OWN_SITE_SUFFIXES)
+    return _host_matches_suffixes(host, _own_site_suffixes())
 
 
 def _is_directory_host(host: str) -> bool:
@@ -1427,7 +1490,7 @@ def distinctive_identity_tokens(contact: dict | None) -> list[str]:
 
 
 def website_belongs_to_contact(url: str, contact: dict | None) -> bool:
-    """True seulement si l'URL peut être le site du contact (pas Élude In Art, pas un annuaire)."""
+    """True seulement si l'URL peut être le site du contact (pas le site de l'espace, pas un annuaire)."""
     if not str(url or "").strip():
         return False
     if _is_junk_url(url, kind="website"):
@@ -1480,8 +1543,71 @@ def _split_address_parts(address: str) -> dict[str, str]:
     return out
 
 
+_ENRICH_SCALAR_KEYS = (
+    "email",
+    "phone",
+    "website",
+    "linkedin_url",
+    "address",
+    "city",
+    "postal_code",
+    "company",
+    "instagram",
+    "facebook",
+    "youtube",
+    "resalib",
+)
+
+
+def _propose_tool_params(text: str) -> dict[str, str]:
+    """Paramètres d'un appel `gestion_propose_contact_enrichment` resté en texte."""
+    out: dict[str, str] = {}
+    for block in re.findall(
+        r"<function=gestion_propose_contact_enrichment>(.*?)</function>",
+        text,
+        flags=re.I | re.S,
+    ):
+        for match in re.finditer(
+            r"<parameter=([A-Za-z0-9_]+)>\s*(.*?)\s*</parameter>",
+            block,
+            flags=re.I | re.S,
+        ):
+            key = match.group(1).strip().lower()
+            val = match.group(2).strip()
+            if key and val and key not in out:
+                out[key] = val
+    if out or "gestion_propose_contact_enrichment" not in text:
+        return out
+    for match in re.finditer(r"\{(?:[^{}]|\{[^{}]*\}){10,12000}\}", text, flags=re.S):
+        try:
+            data = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        args = data.get("arguments") if isinstance(data.get("arguments"), dict) else data
+        if not isinstance(args, dict):
+            continue
+        if not any(
+            key in args
+            for key in ("notes_append", "linkedin_url", "outreach_suggestions", "email", "phone", "instagram")
+        ):
+            continue
+        for key, val in args.items():
+            if val is None or key in out:
+                continue
+            if isinstance(val, list):
+                out[str(key).lower()] = json.dumps(val, ensure_ascii=False)
+            elif isinstance(val, (str, int, float)):
+                text_val = str(val).strip()
+                if text_val:
+                    out[str(key).lower()] = text_val
+        break
+    return out
+
+
 def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
-    """Parse le livrable d'exploration (tableaux / puces) → champs contact structurés."""
+    """Parse le livrable d'exploration (tableaux, puces, appel d'outil) → champs contact."""
     text = str(result or "").strip()
     if not text:
         return {}
@@ -1508,6 +1634,7 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
         if not val or _is_empty_extracted(val):
             return
         if key == "email":
+            val = val.replace("`", "")
             m = _EMAIL_RE.search(val)
             if not m:
                 return
@@ -1516,9 +1643,13 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
             if domain in {"pagesjaunes.fr", "example.com", "tavily.com", "google.com"}:
                 return
         elif key == "phone":
-            m = _PHONE_RE.search(val.replace("(0)", " "))
-            if m:
-                digits = re.sub(r"[^\d+]", "", m.group(0))
+            raw_phone = val.replace("(0)", " ")
+            intl = _INTL_PHONE_RE.search(raw_phone)
+            fr = _PHONE_RE.search(raw_phone)
+            if intl and "+" in intl.group(0):
+                val = re.sub(r"[^\d+]", "", intl.group(0))
+            elif fr:
+                digits = re.sub(r"[^\d+]", "", fr.group(0))
                 if digits.startswith("0") and len(digits) == 10:
                     digits = "+33" + digits[1:]
                 val = digits
@@ -1532,6 +1663,11 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 val = ("https://" + val) if not val.startswith("http") else val
             elif key == "instagram" and re.fullmatch(r"@?[A-Za-z0-9._]{2,40}", val):
                 val = f"https://www.instagram.com/{val.lstrip('@')}/"
+            elif key == "instagram":
+                hm = re.search(r"@([A-Za-z0-9._]{2,40})\b", val)
+                if not hm:
+                    return
+                val = f"https://www.instagram.com/{hm.group(1).strip('.')}/"
             elif key == "facebook" and re.fullmatch(r"@?[A-Za-z0-9.]{2,80}", val):
                 val = f"https://www.facebook.com/{val.lstrip('@')}"
             else:
@@ -1552,7 +1688,14 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
         if key not in proposed:
             proposed[key] = val
 
-    for raw in text.splitlines():
+    # Les notes et suggestions citent souvent un autre e-mail (siège, association).
+    scan_text = re.sub(
+        r"<parameter=(?:notes_append|outreach_suggestions|summary)>\s*.*?\s*</parameter>",
+        "",
+        text,
+        flags=re.I | re.S,
+    )
+    for raw in scan_text.splitlines():
         line = raw.strip()
         if not line:
             continue
@@ -1570,22 +1713,68 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
                 label = cells[0].lower().replace("*", "").strip()
                 value = cells[1]
         else:
+            probe = re.sub(r"^\d+[\.\)]\s+", "", line)
             m = re.match(
                 r"^(?:[-*]\s*)?\*{0,2}([A-Za-zÀ-ÿ /_-]{2,40})\*{0,2}\s*[:=]\s*(.+)$",
-                line,
+                probe,
             )
             if m:
                 label = m.group(1).lower().replace("*", "").strip()
                 value = m.group(2)
 
+        if "email" not in proposed:
+            found_email = _INLINE_LABELED_EMAIL_RE.search(line)
+            if found_email:
+                _set("email", found_email.group(1))
+        if "phone" not in proposed:
+            found_phone = _INLINE_LABELED_PHONE_RE.search(line)
+            if found_phone:
+                _set("phone", found_phone.group(1))
+
         if not label or not value:
             continue
+        matched = False
         for key, aliases in label_map:
             if any(a in label for a in aliases):
                 _set(key, value)
+                matched = True
                 break
+        if not matched and label in {"contact", "coordonnées", "coordonnees"}:
+            inline_email = re.search(
+                r"(?:e-?mail)\s*[:=]\s*([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})",
+                value,
+                re.I,
+            )
+            if inline_email:
+                _set("email", inline_email.group(1))
 
     # Pas de fallback « premier e-mail / URL du document » : trop d'homonymes et de sources.
+
+    tool_params = _propose_tool_params(text)
+    for key in _ENRICH_SCALAR_KEYS:
+        if tool_params.get(key):
+            proposed.pop(key, None)
+            _set(key, tool_params[key])
+    for key in ("notes_append", "outreach_suggestions"):
+        val = str(tool_params.get(key) or "").strip()
+        if val:
+            proposed[key] = val[:3500]
+    raw_sources = str(tool_params.get("sources") or "").strip()
+    if raw_sources:
+        try:
+            parsed_sources = json.loads(raw_sources)
+        except json.JSONDecodeError:
+            parsed_sources = None
+        if isinstance(parsed_sources, list):
+            tool_urls = [str(item).strip() for item in parsed_sources if str(item or "").strip()]
+        else:
+            tool_urls = [url.rstrip(".,;)") for url in _URL_RE.findall(raw_sources)]
+        for url in tool_urls:
+            if url not in sources and len(sources) < 12:
+                sources.append(url)
+    tool_summary = str(tool_params.get("summary") or "").strip()
+    if tool_summary:
+        proposed["_summary"] = tool_summary[:500]
 
     if "address" in proposed and ("city" not in proposed or "postal_code" not in proposed):
         parts = _split_address_parts(str(proposed["address"]))
@@ -1601,9 +1790,9 @@ def extract_contact_fields_from_exploration(result: str) -> dict[str, Any]:
 
     # Sépare notes factuelles vs suggestions d'approche dans le livrable markdown
     notes_facts, outreach = _split_exploration_narrative(text)
-    if notes_facts:
+    if notes_facts and "notes_append" not in proposed:
         proposed["notes_append"] = notes_facts
-    if outreach:
+    if outreach and "outreach_suggestions" not in proposed:
         proposed["outreach_suggestions"] = outreach
 
     if sources:
@@ -1626,6 +1815,8 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         "comment le contacter",
         "pitch",
         "fleur d",
+        "recommandation",
+        "limites et recommandations",
     )
     fact_headers = (
         "informations complémentaires",
@@ -1635,6 +1826,8 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         "siret",
         "profil",
         "à propos",
+        "faits et sources",
+        "faits",
     )
 
     sections: list[tuple[str, str]] = []
@@ -1644,11 +1837,14 @@ def _split_exploration_narrative(result: str) -> tuple[str, str]:
         line = raw.rstrip()
         heading = re.match(r"^#{1,4}\s+\**\s*(.+?)\s*\**\s*$", line.strip())
         numbered = re.match(r"^#{0,4}\s*\**\s*\d+\.\s+\**\s*(.+?)\s*\**\s*$", line.strip())
+        plain = re.match(r"^\**\s*([A-Za-zÀ-ÿ][^:\n]{2,70}?)\s*:\s*\**\s*$", line.strip())
         title = ""
         if heading:
             title = heading.group(1).strip().lower()
         elif numbered and any(k in line.lower() for k in ("approche", "complémentaire", "contact", "suggestion", "angle")):
             title = numbered.group(1).strip().lower()
+        elif plain:
+            title = plain.group(1).strip().lower()
         if title:
             if current_lines:
                 sections.append((current_title, "\n".join(current_lines).strip()))
@@ -1696,6 +1892,7 @@ def exploration_result_summary(result: str, *, max_chars: int = 1200) -> str | N
     """Résumé court à partir des champs extraits (ou extrait texte)."""
     fields = extract_contact_fields_from_exploration(result)
     fields.pop("_sources", None)
+    fields.pop("_summary", None)
     if fields:
         labels = {
             "email": "Email",
@@ -1814,18 +2011,26 @@ def fill_contact_from_exploration(
     extracted = extract_contact_fields_from_exploration(body)
     extracted = sanitize_proposed_against_contact(contact, extracted)
     sources_raw = extracted.pop("_sources", None)
+    tool_summary = str(extracted.pop("_summary", "") or "").strip()
     sources = sources_raw if isinstance(sources_raw, list) else []
     if not extracted:
+        empty_result = bool(
+            re.match(
+                r"^\(?\s*(?:aucune réponse textuelle|aucun résultat|no textual response)\s*\.?\s*\)?$",
+                body,
+                re.I,
+            )
+        )
         return {
             "contact": contact,
             "applied": False,
             "skipped": True,
-            "reason": "no_fields_extracted",
+            "reason": "empty_model_result" if empty_result else "no_fields_extracted",
             "job_id": jid,
             "fields": {},
         }
 
-    summary = exploration_result_summary(body) or "Enrichissement auto depuis exploration"
+    summary = tool_summary or exploration_result_summary(body) or "Enrichissement auto depuis exploration"
     proposal = create_enrichment_proposal(
         contact_id=contact_id,
         proposed=extracted,
@@ -1951,6 +2156,116 @@ def apply_enrichment_proposal(
     return result
 
 
+def workspace_approach_catalog(*, max_items: int = 12) -> str:
+    """Pistes d'approche de l'espace courant : vitrine, faits, projets et séances.
+
+    Rien n'est codé en dur : un autre workspace reçoit sa propre liste.
+    """
+    items: list[str] = []
+    seen: set[str] = set()
+
+    def add(line: str) -> None:
+        text = " ".join(str(line or "").split())
+        if not text or len(items) >= max_items:
+            return
+        key = _fold_ident(text)[:96]
+        if not key or key in seen:
+            return
+        seen.add(key)
+        items.append(text[:220])
+
+    wid = _ws()
+    try:
+        from workspace_db import get_workspace_by_id, parse_workspace_offers
+
+        row = get_workspace_by_id(wid) if wid else None
+    except Exception:
+        row = None
+    if isinstance(row, dict):
+        for offer in parse_workspace_offers(row.get("offers_json")):
+            title = str(offer.get("title") or "").strip()
+            summary = str(offer.get("summary") or "").strip()
+            kind = str(offer.get("kind") or "").strip()
+            bits = [title]
+            if kind:
+                bits.append(f"({kind})")
+            if summary:
+                bits.append(f"— {summary}")
+            add("Offre publiée : " + " ".join(bit for bit in bits if bit))
+
+    try:
+        from services.memory_inbox import get_enterprise_facts
+
+        facts = get_enterprise_facts()
+    except Exception:
+        facts = {}
+    if isinstance(facts, dict):
+        raw_offers = facts.get("offers")
+        if isinstance(raw_offers, list):
+            for offer in raw_offers:
+                add(f"Offre mémorisée : {offer}")
+        elif isinstance(raw_offers, str) and raw_offers.strip():
+            add(f"Offre mémorisée : {raw_offers}")
+        activity = facts.get("activity")
+        if isinstance(activity, str) and activity.strip():
+            add(f"Activité : {activity}")
+
+    if wid:
+        try:
+            with get_conn() as conn:
+                projects = conn.execute(
+                    "SELECT title, project_type FROM biz_projects WHERE workspace_id=? "
+                    "ORDER BY updated_at DESC LIMIT 8",
+                    (wid,),
+                ).fetchall()
+                events = conn.execute(
+                    "SELECT title, event_type FROM biz_calendar_events WHERE workspace_id=? "
+                    "ORDER BY starts_at DESC LIMIT 8",
+                    (wid,),
+                ).fetchall()
+            for project in projects:
+                data = dict(project)
+                title = str(data.get("title") or "").strip()
+                kind = str(data.get("project_type") or "").strip()
+                if title:
+                    add("Projet : " + title + (f" ({kind})" if kind else ""))
+            for event in events:
+                data = dict(event)
+                title = str(data.get("title") or "").strip()
+                kind = str(data.get("event_type") or "").strip()
+                if title:
+                    add("Séance : " + title + (f" ({kind})" if kind else ""))
+        except Exception:
+            pass
+
+    if not items:
+        return ""
+    return "\n".join(f"- {line}" for line in items)
+
+
+def _approach_piste_block() -> str:
+    catalog = workspace_approach_catalog()
+    if not catalog:
+        return (
+            "### Pistes de contact\n"
+            "Cet espace n'a pas encore d'offre ni d'activité enregistrée "
+            "(vitrine, science de l'entreprise, projets, séances). "
+            "N'invente pas de produit. Propose un canal et une question d'ouverture.\n\n"
+        )
+    return (
+        "### Pistes de contact\n"
+        "Cette liste vient de la vitrine, de la science de l'entreprise et des activités "
+        "déjà menées dans **cet** espace. Un autre espace a d'autres pistes. "
+        "N'invente pas d'offre absente d'ici et de la mémoire partagée.\n"
+        f"{catalog}\n\n"
+        "Choisis **une ou deux** pistes qui collent le mieux à ce contact "
+        "(métier, centres d'intérêt, historique). Nomme-les, dis pourquoi, "
+        "et écarte les autres en une phrase. "
+        "Ne t'arrête pas à la première offre de la liste si une autre colle mieux. "
+        "Si aucune ne colle, propose seulement le canal et une question d'ouverture.\n\n"
+    )
+
+
 def build_contact_exploration_mission(contact: dict) -> str:
     """Consigne mission Commercial pour exploration détaillée d'une fiche."""
     reach = contact.get("reachability") if isinstance(contact.get("reachability"), dict) else contact_reachability(contact)
@@ -1996,6 +2311,7 @@ def build_contact_exploration_mission(contact: dict) -> str:
         f"**Champs manquants prioritaires :** {missing}\n"
         f"**Joignabilité :** {reach.get('label')} ({reach.get('score')}%)\n\n"
         f"{prior_block}"
+        f"{_approach_piste_block()}"
         "### Objectif\n"
         "1) Compléter les **infos factuelles** du contact (coordonnées, métier, sources).\n"
         "2) Produire des **suggestions d'approche** pour le contacter — **séparées** des notes factuelles — "
@@ -2026,15 +2342,17 @@ def build_contact_exploration_mission(contact: dict) -> str:
         "- Un profil Instagram/Facebook/LinkedIn sans le nom ou la structure dans l’URL/titre = **hors sujet**.\n"
         "- Pages Jaunes, Google, Tavily, pages de résultats : ce ne sont **pas** le site du contact.\n"
         "- **Site web (`website`)** : uniquement le **site officiel personnel / cabinet** dont le nom de domaine "
-        "contient le nom (ou la structure). **Interdit** : eludein.art, app-fleurdamours, Resalib, Doctolib, "
+        "contient le nom (ou la structure). **Interdit** : le site de l'espace Korymb, les apps internes, Resalib, Doctolib, "
+        "annuaires et plateformes génériques.\n"
+        "- Les liens de **signature / vitrine de l'espace** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
         "Pages Jaunes, articles de blog local, page Facebook. Un annuaire va dans `resalib` / sources, pas dans `website`.\n"
-        "- Les liens de **signature Élude In Art** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
+        "- Les liens de **signature / vitrine de l'espace** dans un brouillon d'e-mail ne sont **jamais** le site du prospect.\n"
         "- Interdit : inventer, approximer, recopier le contact d’un homonyme ou d’un cabinet voisin.\n"
         "- Mieux vaut un champ vide qu’une fausse information.\n\n"
         "### Livrable (structure imposée)\n"
         "Dans l'outil `gestion_propose_contact_enrichment` :\n"
         "- `notes_append` : spécialité, SIRET, contexte métier, sources — **pas** d'angle de vente.\n"
-        "- `outreach_suggestions` : comment approcher (canal, accroche Fleur d'ÅmÔurs, offre, timing) "
+        "- `outreach_suggestions` : comment approcher (canal, **une ou deux pistes** de la liste ci-dessus, timing) "
         "en **approfondissant** ce qui a déjà été suggéré ou fait.\n"
         "- Puis un court résumé dirigeant."
     )
@@ -2069,6 +2387,7 @@ def build_contact_outreach_mission(contact: dict) -> str:
         f"**Site / LinkedIn :** {contact.get('website') or '—'} / {contact.get('linkedin_url') or '—'}\n"
         f"**Réseaux :** {json.dumps(socials, ensure_ascii=False) if socials else '(aucun)'}\n"
         f"**Notes factuelles :** {(contact.get('notes') or '(aucune)')[:900]}\n\n"
+        f"{_approach_piste_block()}"
         "### Historique (missions, interactions, suggestions déjà faites)\n"
         f"{history}\n\n"
         "### Objectif\n"
@@ -2086,8 +2405,8 @@ def build_contact_outreach_mission(contact: dict) -> str:
         "   - pas de `notes_append` sauf fait vraiment nouveau et utile\n\n"
         "### Structure attendue de `outreach_suggestions`\n"
         "- **Canal prioritaire** (email / LinkedIn / tél / autre) + pourquoi\n"
-        "- **Accroche** adaptée au métier (Tarot Fleur d'ÅmÔurs, maïeutique)\n"
-        "- **Offre / format** (atelier, module pro, démo, partenariat…)\n"
+        "- **Accroche** adaptée au métier du contact et au ton de la mémoire partagée\n"
+        "- **Offre / format** : une ou deux pistes de la liste ci-dessus, pas une offre inventée\n"
         "- **Ce qui change vs suggestions précédentes** (approfondissement explicite)\n"
         "- **Prochaine action** concrète (1 phrase)\n"
     )
@@ -2366,6 +2685,45 @@ def delete_project(project_id: str) -> bool:
         )
         conn.commit()
         return bool(getattr(cur, "rowcount", 0))
+
+
+class ProjectMilestoneNotFound(Exception):
+    """Projet ou étape absent pour cet espace."""
+
+
+class ProjectMilestoneConflict(Exception):
+    """Le libellé ne correspond plus à l'étape affichée."""
+
+
+def set_project_milestone_done(
+    project_id: str,
+    index: int,
+    *,
+    done: bool,
+    expected_label: str | None = None,
+) -> dict:
+    """Coche ou décoche une étape sans réécrire les autres champs du projet."""
+    project = get_project(project_id)
+    if not project:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    raw = project.get("milestones") or []
+    if not isinstance(raw, list) or index < 0 or index >= len(raw) or not isinstance(raw[index], dict):
+        raise ProjectMilestoneNotFound("Étape introuvable")
+    current = str(raw[index].get("label") or "")
+    if expected_label is not None and current.strip() != expected_label.strip():
+        raise ProjectMilestoneConflict("Cette étape a changé. Rechargez Aujourd'hui.")
+    milestones: list[Any] = []
+    for i, item in enumerate(raw):
+        if i == index and isinstance(item, dict):
+            nxt = dict(item)
+            nxt["done"] = bool(done)
+            milestones.append(nxt)
+        else:
+            milestones.append(item)
+    updated = update_project(project_id, milestones=milestones)
+    if not updated:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    return updated
 
 
 # ── Quotes ────────────────────────────────────────────────────────────────────

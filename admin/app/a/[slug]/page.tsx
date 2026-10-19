@@ -50,17 +50,17 @@ export default function SubscriberHomePage() {
       <header>
         <p className="practice-kicker">Chez {data.name}</p>
         <h1 className="practice-heading mt-2 text-3xl font-extrabold">{hello ? `Bonjour ${hello}` : "Bienvenue"}</h1>
-        <p className="mt-2 text-slate-600">Séances et ressources qui vous sont destinées.</p>
+        <p className="mt-2 text-slate-600">Rendez-vous et ressources qui vous sont destinés.</p>
       </header>
 
       {isOperator ? (
         <div className="rounded-2xl border-2 border-violet-200 bg-violet-50 px-4 py-4">
-          <p className="text-sm font-bold text-violet-950">Aperçu de l’espace participant</p>
+          <p className="text-sm font-bold text-violet-950">Aperçu de l’espace inscrit</p>
           <p className="mt-1 text-sm text-violet-800">
-            C’est ce que voient les inscrits. Pour piloter l’activité, ouvrez le cockpit dirigeant.
+            C’est ce que voient les inscrits. Pour gérer l’activité, ouvrez Aujourd’hui.
           </p>
           <Link href="/briefing" className="mt-3 inline-flex rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">
-            Ouvrir le cockpit dirigeant
+            Ouvrir Aujourd’hui
           </Link>
         </div>
       ) : null}
@@ -69,14 +69,14 @@ export default function SubscriberHomePage() {
         <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 px-4 py-4">
           <p className="text-sm font-bold text-amber-950">Inscription en attente de validation</p>
           <p className="mt-1 text-sm text-amber-900">
-            Votre demande a bien été envoyée. Les séances et ressources réservées aux inscrits apparaîtront ici une fois l’accès validé. Les contenus publics restent visibles sur la vitrine, sans compte.
+            Votre demande a bien été envoyée. Les rendez-vous et ressources réservés aux inscrits apparaîtront ici une fois l’accès validé. Les contenus publics restent visibles sur la page publique, sans compte.
           </p>
         </div>
       ) : null}
 
       {events[0] ? (
         <section className="practice-card p-5">
-          <p className="practice-kicker">Prochaine séance</p>
+          <p className="practice-kicker">Prochain rendez-vous</p>
           <h2 className="practice-heading mt-2 text-xl font-bold">{events[0].title}</h2>
           <p className="mt-2 text-sm text-slate-600">{formatStorefrontDate(events[0].starts_at)}</p>
           <p className="mt-1 text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--practice-ink)" }}>
@@ -85,12 +85,12 @@ export default function SubscriberHomePage() {
           </p>
         </section>
       ) : (
-        <p className="text-sm text-slate-600">Rien de prévu pour le moment dans Mes séances.</p>
+        <p className="text-sm text-slate-600">Rien de prévu pour le moment dans le calendrier.</p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Link href={`/a/${encodeURIComponent(data.slug)}/seances`} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
-          <p className="text-xs font-extrabold uppercase tracking-wide text-emerald-800">Mes séances</p>
+          <p className="text-xs font-extrabold uppercase tracking-wide text-emerald-800">Calendrier</p>
           <p className="mt-2 text-2xl font-extrabold text-slate-900">{counts.sessions}</p>
         </Link>
         <Link href={`/a/${encodeURIComponent(data.slug)}/ressources`} className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">

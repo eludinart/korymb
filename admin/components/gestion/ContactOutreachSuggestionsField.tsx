@@ -109,7 +109,7 @@ export default function ContactOutreachSuggestionsField({ contactId, value, onCh
           rows={5}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Ex. : email perso + accroche intelligence collective…"
+          placeholder="Ex. : email + accroche liée à leur activité, canal préféré…"
         />
       )}
 

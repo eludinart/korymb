@@ -5,9 +5,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
 import { businessApi, type BizProject } from "../../../lib/business";
 import { PROJECT_STATUS_LABELS, PROJECT_TYPE_LABELS, contactLabel } from "../_shared";
+import { useUndoRibbon } from "../../../lib/undoRibbon";
 
 export default function GestionProjetsPage() {
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
 
   const contacts = useQuery({ queryKey: ["business-contacts"], queryFn: () => businessApi.listContacts() });
   const projects = useQuery({ queryKey: ["business-projects"], queryFn: () => businessApi.listProjects() });
@@ -23,7 +25,7 @@ export default function GestionProjetsPage() {
         accent="emerald"
         badge="Projets"
         title="Suivi de projets"
-        description="Séances, stages SÏvåñà, modules pro — liés à vos contacts."
+        description="Dossiers liés aux personnes que vous suivez."
         actions={
           <Link href="/gestion/projets/nouveau" className="btn-primary">
             + Nouveau projet
@@ -66,7 +68,15 @@ export default function GestionProjetsPage() {
                   <select
                     className="input-field min-w-[8rem] flex-1 text-sm sm:flex-none"
                     value={p.status}
-                    onChange={(e) => setProjectStatus.mutate({ id: p.id, st: e.target.value })}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      const prev = p.status;
+                      if (next === prev) return;
+                      setProjectStatus.mutate({ id: p.id, st: next });
+                      pushUndo(`${p.title} : ${PROJECT_STATUS_LABELS[next] || next}`, () => {
+                        setProjectStatus.mutate({ id: p.id, st: prev });
+                      });
+                    }}
                   >
                     {Object.entries(PROJECT_STATUS_LABELS).map(([k, v]) => (
                       <option key={k} value={k}>

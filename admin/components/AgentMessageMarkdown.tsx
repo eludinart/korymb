@@ -33,25 +33,22 @@ function markdownDomProps(props: Record<string, unknown>) {
 /** Styles adaptés aux bulles assistant (fond clair). Pas de HTML brut (sûr par défaut). */
 const bubbleComponents: Components = {
   h1: ({ children, ...props }) => (
-    <h1
-      className="mt-4 mb-2 border-b border-slate-200 pb-1 text-base font-bold text-slate-900 first:mt-0"
-      {...markdownDomProps(props as Record<string, unknown>)}
-    >
+    <h1 className="mt-4 mb-2 border-b pb-1 text-base font-bold first:mt-0" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </h1>
   ),
   h2: ({ children, ...props }) => (
-    <h2 className="mt-4 mb-2 text-sm font-bold text-slate-900 first:mt-0" {...markdownDomProps(props as Record<string, unknown>)}>
+    <h2 className="mt-4 mb-2 text-sm font-bold first:mt-0" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </h2>
   ),
   h3: ({ children, ...props }) => (
-    <h3 className="mt-3 mb-1.5 text-sm font-semibold text-slate-800 first:mt-0" {...markdownDomProps(props as Record<string, unknown>)}>
+    <h3 className="mt-3 mb-1.5 text-sm font-semibold first:mt-0" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </h3>
   ),
   h4: ({ children, ...props }) => (
-    <h4 className="mt-3 mb-1 text-sm font-semibold text-slate-800" {...markdownDomProps(props as Record<string, unknown>)}>
+    <h4 className="mt-3 mb-1 text-sm font-semibold" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </h4>
   ),
@@ -77,19 +74,19 @@ const bubbleComponents: Components = {
     </li>
   ),
   strong: ({ children, ...props }) => (
-    <strong className="font-semibold text-slate-900" {...markdownDomProps(props as Record<string, unknown>)}>
+    <strong className="font-semibold" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </strong>
   ),
   em: ({ children, ...props }) => (
-    <em className="italic text-slate-800" {...markdownDomProps(props as Record<string, unknown>)}>
+    <em className="italic" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </em>
   ),
   a: ({ href, children, ...props }) => (
     <a
       href={href}
-      className="font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:text-violet-900"
+      className="md-link font-medium underline underline-offset-2"
       target="_blank"
       rel="noopener noreferrer"
       {...markdownDomProps(props as Record<string, unknown>)}
@@ -97,10 +94,10 @@ const bubbleComponents: Components = {
       {children}
     </a>
   ),
-  hr: (props) => <hr className="my-4 border-0 border-t border-slate-300" {...markdownDomProps(props as Record<string, unknown>)} />,
+  hr: (props) => <hr className="md-hr my-4 border-0 border-t" {...markdownDomProps(props as Record<string, unknown>)} />,
   blockquote: ({ children, ...props }) => (
     <blockquote
-      className="my-2 space-y-2 border-l-4 border-violet-200 bg-violet-50/60 py-1 pl-3 pr-2 text-slate-700"
+      className="md-blockquote my-2 space-y-2 border-l-4 py-1 pl-3 pr-2"
       {...markdownDomProps(props as Record<string, unknown>)}
     >
       {children}
@@ -108,7 +105,7 @@ const bubbleComponents: Components = {
   ),
   pre: ({ children, ...props }) => (
     <pre
-      className="my-2 whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-800"
+      className="md-pre my-2 whitespace-pre-wrap break-words rounded-lg border p-3 text-xs"
       {...markdownDomProps(props as Record<string, unknown>)}
     >
       {children}
@@ -125,41 +122,41 @@ const bubbleComponents: Components = {
       );
     }
     return (
-      <code className="rounded bg-slate-200/90 px-1 py-0.5 font-mono text-[0.85em] text-slate-900" {...dom}>
+      <code className="md-code-inline rounded px-1 py-0.5 font-mono text-[0.85em]" {...dom}>
         {children}
       </code>
     );
   },
   br: (props) => <br className="block" {...markdownDomProps(props as Record<string, unknown>)} />,
   table: ({ children, ...props }) => (
-    <div className="my-3 overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="md-table-wrap my-3 overflow-x-auto rounded-lg border shadow-sm">
       <table className="min-w-full border-collapse text-left text-xs" {...markdownDomProps(props as Record<string, unknown>)}>
         {children}
       </table>
     </div>
   ),
   thead: ({ children, ...props }) => (
-    <thead className="border-b border-slate-200 bg-slate-100/90" {...markdownDomProps(props as Record<string, unknown>)}>
+    <thead className="md-table-head border-b" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </thead>
   ),
   tbody: ({ children, ...props }) => (
-    <tbody className="divide-y divide-slate-100" {...markdownDomProps(props as Record<string, unknown>)}>
+    <tbody className="md-table-body divide-y" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </tbody>
   ),
   tr: ({ children, ...props }) => (
-    <tr className="hover:bg-slate-50/80" {...markdownDomProps(props as Record<string, unknown>)}>
+    <tr className="md-table-row" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </tr>
   ),
   th: ({ children, ...props }) => (
-    <th className="whitespace-nowrap px-3 py-2 font-semibold text-slate-800" {...markdownDomProps(props as Record<string, unknown>)}>
+    <th className="md-table-th whitespace-nowrap px-3 py-2 font-semibold" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </th>
   ),
   td: ({ children, ...props }) => (
-    <td className="px-3 py-2 align-top text-slate-700" {...markdownDomProps(props as Record<string, unknown>)}>
+    <td className="md-table-td px-3 py-2 align-top" {...markdownDomProps(props as Record<string, unknown>)}>
       {children}
     </td>
   ),

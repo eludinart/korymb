@@ -158,7 +158,7 @@ def _web_tools_probe_json(*, refresh: bool) -> JSONResponse:
     )
 
 
-_TOKENS_PAYLOAD_CACHE: tuple[float, dict] | None = None
+_TOKENS_PAYLOAD_CACHE: dict[str, tuple[float, dict]] = {}
 _TOKENS_PAYLOAD_TTL_S = 25.0
 
 
@@ -209,12 +209,15 @@ def _tokens_payload_uncached() -> dict:
 
 
 def tokens_payload() -> dict:
-    global _TOKENS_PAYLOAD_CACHE
+    from database import _ws
+
+    wid = _ws()
     now = time.time()
-    if _TOKENS_PAYLOAD_CACHE and (now - _TOKENS_PAYLOAD_CACHE[0]) < _TOKENS_PAYLOAD_TTL_S:
-        return _TOKENS_PAYLOAD_CACHE[1]
+    hit = _TOKENS_PAYLOAD_CACHE.get(wid)
+    if hit and (now - hit[0]) < _TOKENS_PAYLOAD_TTL_S:
+        return hit[1]
     body = _tokens_payload_uncached()
-    _TOKENS_PAYLOAD_CACHE = (now, body)
+    _TOKENS_PAYLOAD_CACHE[wid] = (now, body)
     return body
 
 
@@ -233,13 +236,20 @@ def _lifetime_tokens_total() -> int:
 
 
 def _runtime_sync_snapshot() -> dict:
+    from llm_free_pool import configured_hops, free_pool_active, order_hops, preferred_hop_id
+
     cfg = merge_with_env()
-    provider = normalize_llm_provider(None, cfg)
-    if is_chat_completions_provider(provider):
-        model, _, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
+    if free_pool_active(cfg):
+        ordered = order_hops(configured_hops(cfg), "lite", prefer_id=preferred_hop_id(cfg))
+        provider = "free_pool"
+        model = ordered[0].model if ordered else ""
     else:
-        provider = "anthropic"
-        model = cfg.get("anthropic_model")
+        provider = normalize_llm_provider(None, cfg)
+        if is_chat_completions_provider(provider):
+            model, _, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)
+        else:
+            provider = "anthropic"
+            model = cfg.get("anthropic_model")
     return {
         "ts": datetime.now(ZoneInfo("Europe/Paris")).isoformat(),
         "backend_version": BACKEND_VERSION,
@@ -322,9 +332,24 @@ def health_tools(refresh: bool = False):
     return _web_tools_probe_json(refresh=refresh)
 
 
-@router.get("/llm")
+@router.get("/llm", dependencies=[Depends(resolve_tenant)])
 def llm_public_info():
+    from llm_free_pool import configured_hops, free_pool_active, free_pool_public, order_hops, preferred_hop_id
+
     cfg = merge_with_env()
+    if free_pool_active(cfg):
+        ordered = order_hops(configured_hops(cfg), "lite", prefer_id=preferred_hop_id(cfg))
+        payload = {
+            "provider": "free_pool",
+            "model": ordered[0].model if ordered else "",
+            "tier": "lite",
+            "free_pool": free_pool_public(cfg),
+            "tier_labels": tier_config_public(cfg).get("tier_labels"),
+        }
+        return JSONResponse(
+            payload,
+            headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": str(BACKEND_VERSION)},
+        )
     provider = normalize_llm_provider(None, cfg)
     if is_chat_completions_provider(provider):
         model, tier_key, _, _ = resolve_llm_tier(cfg, "lite", provider=provider)

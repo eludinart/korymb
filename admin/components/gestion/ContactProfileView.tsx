@@ -1,7 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
-import AgentMessageMarkdown from "../AgentMessageMarkdown";
+import { useState, type ReactNode } from "react";
+import FactNotesView from "./FactNotesView";
+import OutreachSuggestionsView from "./OutreachSuggestionsView";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS } from "../../app/gestion/_shared";
 import type { BizContact } from "../../lib/business";
 import { httpHref, mailtoHref, mapsHref, telHref } from "../../lib/contactLinks";
@@ -53,6 +54,16 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
   const resalib = httpHref(socials.resalib);
   const maps = mapsHref([contact.address, contact.postal_code, contact.city]);
   const tags = contact.tags || [];
+  const [showEmpty, setShowEmpty] = useState(false);
+  const optional = [
+    { label: "LinkedIn", href: linkedin, text: contact.linkedin_url || "" },
+    { label: "Instagram", href: instagram, text: socials.instagram || "" },
+    { label: "Facebook", href: facebook, text: socials.facebook || "" },
+    { label: "YouTube", href: youtube, text: socials.youtube || "" },
+    { label: "Fiche en ligne", href: resalib, text: socials.resalib || "" },
+  ];
+  const filledOptional = optional.filter((row) => row.href);
+  const emptyOptional = optional.filter((row) => !row.href);
 
   return (
     <div className="space-y-5">
@@ -82,21 +93,18 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
         <Field label="Site web" empty={!site}>
           {site ? <ExternalLink href={site}>{contact.website}</ExternalLink> : "—"}
         </Field>
-        <Field label="LinkedIn" empty={!linkedin}>
-          {linkedin ? <ExternalLink href={linkedin}>{contact.linkedin_url}</ExternalLink> : "—"}
-        </Field>
-        <Field label="Instagram" empty={!instagram}>
-          {instagram ? <ExternalLink href={instagram}>{socials.instagram}</ExternalLink> : "—"}
-        </Field>
-        <Field label="Facebook" empty={!facebook}>
-          {facebook ? <ExternalLink href={facebook}>{socials.facebook}</ExternalLink> : "—"}
-        </Field>
-        <Field label="YouTube" empty={!youtube}>
-          {youtube ? <ExternalLink href={youtube}>{socials.youtube}</ExternalLink> : "—"}
-        </Field>
-        <Field label="Resalib / fiche métier" empty={!resalib}>
-          {resalib ? <ExternalLink href={resalib}>{socials.resalib}</ExternalLink> : "—"}
-        </Field>
+        {filledOptional.map((row) => (
+          <Field key={row.label} label={row.label}>
+            <ExternalLink href={row.href}>{row.text}</ExternalLink>
+          </Field>
+        ))}
+        {showEmpty
+          ? emptyOptional.map((row) => (
+              <Field key={row.label} label={row.label} empty>
+                —
+              </Field>
+            ))
+          : null}
         <Field label="Adresse" empty={!contact.address && !contact.city}>
           {maps ? (
             <ExternalLink href={maps}>
@@ -107,6 +115,16 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
           )}
         </Field>
       </div>
+
+      {emptyOptional.length > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowEmpty((v) => !v)}
+          className="text-sm font-bold text-emerald-800 underline-offset-2 hover:underline"
+        >
+          {showEmpty ? "Masquer les champs vides" : "Compléter la fiche"}
+        </button>
+      ) : null}
 
       {tags.length ? (
         <div className="flex flex-wrap gap-1.5">
@@ -121,7 +139,9 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
       <div>
         <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Notes factuelles</p>
         {contact.notes?.trim() ? (
-          <div className="mt-1 text-sm text-slate-800 whitespace-pre-wrap">{contact.notes}</div>
+          <div className="mt-2">
+            <FactNotesView source={contact.notes} />
+          </div>
         ) : (
           <p className="mt-1 text-sm text-slate-400">—</p>
         )}
@@ -130,8 +150,8 @@ export default function ContactProfileView({ contact }: { contact: BizContact })
       {contact.outreach_suggestions?.trim() ? (
         <div>
           <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Suggestions d’approche</p>
-          <div className="mt-1 rounded-xl border border-slate-100 bg-slate-50/60 px-3 py-2 text-sm">
-            <AgentMessageMarkdown source={contact.outreach_suggestions} />
+          <div className="mt-2">
+            <OutreachSuggestionsView source={contact.outreach_suggestions} />
           </div>
         </div>
       ) : null}

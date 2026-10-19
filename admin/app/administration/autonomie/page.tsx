@@ -72,10 +72,10 @@ const TASK_TYPE_LABELS: Record<string, string> = {
 };
 
 const TASK_TYPE_COLORS: Record<string, string> = {
-  mission: "bg-violet-100 text-violet-800",
-  veille: "bg-blue-100 text-blue-800",
-  mission_proposals: "bg-amber-100 text-amber-800",
-  gmail_prospect_sync: "bg-emerald-100 text-emerald-800",
+  mission: "bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100",
+  veille: "bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100",
+  mission_proposals: "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100",
+  gmail_prospect_sync: "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100",
 };
 
 function emptyForm() {
@@ -137,22 +137,22 @@ function TaskCard({
             onClick={() => onToggle(task)}
             className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
               task.enabled
-                ? "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                : "bg-green-100 text-green-800 hover:bg-green-200"
+                ? "bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+                : "bg-green-100 text-green-900 hover:bg-green-200 dark:bg-emerald-900 dark:text-emerald-100 dark:hover:bg-emerald-800"
             }`}
           >
             {task.enabled ? "Désactiver" : "Activer"}
           </button>
           <button
             onClick={() => onEdit(task)}
-            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200"
+            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
           >
             Modifier
           </button>
           <button
             onClick={() => onRunNow(task.id)}
             disabled={running}
-            className="rounded-lg bg-violet-100 px-3 py-1.5 text-xs font-medium text-violet-800 hover:bg-violet-200 disabled:opacity-50"
+            className="rounded-lg bg-violet-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-800 disabled:opacity-50 dark:bg-violet-600 dark:hover:bg-violet-500"
           >
             Lancer maintenant
           </button>
@@ -224,7 +224,7 @@ function TaskForm({
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
             className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-400"
-            placeholder="Ex : Veille bien-être hebdomadaire"
+            placeholder="Ex. : Veille hebdo — actualité du secteur et appels à projets"
           />
         </div>
 
@@ -289,7 +289,7 @@ function TaskForm({
               onChange={(e) => set("params_raw", e.target.value)}
               rows={4}
               className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-violet-400"
-              placeholder={'{\n  "topics": ["bien-être émotionnel", "spiritualité", "tarot"],\n  "rss_feeds": [],\n  "output_type": "veille_summary"\n}'}
+              placeholder={'{\n  "topics": ["veille concurrentielle", "partenariats", "contenu éditorial"],\n  "rss_feeds": [],\n  "output_type": "veille_summary"\n}'}
             />
           </div>
         )}

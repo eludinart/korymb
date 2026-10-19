@@ -88,6 +88,24 @@ def test_wordpress_enqueue_and_publish(client, monkeypatch):
     ticket = next(a for a in listed.json()["actions"] if a.get("kind") == "wordpress")
     resolved = client.post(f"/actions/{ticket['id']}/resolve", json={"decision": "approve"})
     assert resolved.status_code == 200, resolved.text
+    chain = resolved.json().get("chain") or {}
+    assert chain.get("link") == "https://eludein.art/?p=42"
+    assert any("Article WordPress publié" in step for step in chain.get("steps") or [])
+
+
+def test_wordpress_publish_failure_exposes_reason(client, monkeypatch):
+    monkeypatch.setattr("tools.wordpress.wordpress_configured", lambda: False)
+    monkeypatch.setattr(
+        "tools.wordpress.run_wordpress_create_post",
+        lambda *a, **k: "Erreur WordPress : Auth refusée",
+    )
+    out = _execute_tool("wordpress_create_post", {"title": "Echec WP raison", "content": "<p>Hello</p>"})
+    assert "[en file]" in out
+    listed = client.get("/actions?status=pending")
+    ticket = next(a for a in listed.json()["actions"] if "Echec WP raison" in (a.get("title") or ""))
+    resolved = client.post(f"/actions/{ticket['id']}/resolve", json={"decision": "approve"})
+    assert resolved.status_code == 502, resolved.text
+    assert "Auth refusée" in str(resolved.json().get("detail") or "")
 
 
 def test_telegram_webhook_approve(client, monkeypatch):

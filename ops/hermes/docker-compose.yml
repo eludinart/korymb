@@ -5,6 +5,13 @@ services:
   hermes-agent:
     image: ghcr.io/hostinger/hvps-hermes-agent:latest
     restart: unless-stopped
+    # Remote model: 1.5g is enough for the Python agent and leaves RAM for
+    # Coolify builds on the 8 GB host. memswap_limit = mem_limit so the cap
+    # is not doubled by the 4 GB swap file. One CPU so a tool loop cannot
+    # saturate the box during a build.
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    cpus: "1.0"
     group_add:
       - "988"
     ports:
@@ -30,6 +37,11 @@ services:
   hermes-webui:
     image: hermes-webui-local:latest
     restart: unless-stopped
+    # Node UI. 768m covers the ~350m steady state and stops a leak
+    # from eating the 8 GB host. memswap_limit matches mem_limit.
+    mem_limit: 768m
+    memswap_limit: 768m
+    cpus: "0.5"
     entrypoint:
       - /bin/bash
       - -c

@@ -26,6 +26,21 @@ def _provider_fallback_model(cfg: dict[str, Any], provider: str) -> str:
     return ""
 
 
+def model_fits_provider(model: str, provider: str) -> bool:
+    """Un id Mistral (ministral-8b-latest) n'est pas un modèle OpenRouter, et l'inverse non plus."""
+    m = (model or "").strip()
+    p = (provider or "").strip().lower()
+    if not m:
+        return False
+    if p == "openrouter":
+        return "/" in m
+    if p == "mistral":
+        return "/" not in m
+    if p == "anthropic":
+        return m.startswith("claude")
+    return True
+
+
 def resolve_llm_tier(
     cfg: dict[str, Any],
     profile: str,
@@ -47,23 +62,30 @@ def resolve_llm_tier(
     pin = _coerce_float(cfg.get("llm_price_input_per_million_usd"), 0.0)
     pout = _coerce_float(cfg.get("llm_price_output_per_million_usd"), 0.0)
 
-    if prof in tiers:
-        t = tiers[prof]
+    def _usable(tier_key: str) -> dict[str, Any] | None:
+        row = tiers.get(tier_key)
+        if not row:
+            return None
+        if not model_fits_provider(str(row.get("model") or ""), prov):
+            return None
+        return row
+
+    chosen = _usable(prof)
+    used_key = prof
+    if chosen is None:
+        for alt in _TIER_ORDER:
+            row = _usable(alt)
+            if row:
+                chosen = row
+                used_key = f"{prof}→{alt}"
+                break
+    if chosen is not None:
         return (
-            t["model"],
-            prof,
-            float(t["price_input_per_million_usd"] or pin),
-            float(t["price_output_per_million_usd"] or pout),
+            str(chosen["model"]),
+            used_key,
+            float(chosen["price_input_per_million_usd"] or pin),
+            float(chosen["price_output_per_million_usd"] or pout),
         )
-    for alt in _TIER_ORDER:
-        if alt in tiers:
-            t = tiers[alt]
-            return (
-                t["model"],
-                f"{prof}→{alt}",
-                float(t["price_input_per_million_usd"] or pin),
-                float(t["price_output_per_million_usd"] or pout),
-            )
     return fallback_model, "default", pin, pout
 
 

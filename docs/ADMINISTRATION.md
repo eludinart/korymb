@@ -82,6 +82,8 @@ Guide détaillé : [DEMARRAGE.md](DEMARRAGE.md).
 
 Guide déploiement : [COOLIFY_HARDENING.md](../COOLIFY_HARDENING.md).
 
+**Build Next sur le VPS** : l’hôte a ~8 GiB RAM et beaucoup de conteneurs. Sans swap, `next build` peut mourir en exit **255** au milieu de « Creating an optimized production build » (pas d’erreur TypeScript). Swap actif : `/swapfile` 4 GiB. Le `Dockerfile` limite le heap Node (`NODE_OPTIONS=--max-old-space-size=2048`). En cas de récidive : libérer le cache (`docker builder prune -af`) avant un redeploy, éviter deux builds Coolify en parallèle.
+
 Smoke test post-déploiement :
 
 ```bash
@@ -145,10 +147,22 @@ docker compose up -d --force-recreate   # après modification compose
 | Paramètre | Valeur |
 |-----------|--------|
 | Image | `ghcr.io/hostinger/hvps-hermes-agent:latest` |
-| Modèle | `custom` → Mistral (`mistral-large-latest`) |
+| Modèle | Gemini `gemini-2.5-flash`, puis bascule gratuite sans Mistral (voir ci-dessous) |
 | Terminal | `ssh` → `root@10.0.3.1` (passerelle Docker) |
 | execute_code | Docker (socket monté + init-docker-access) |
 | Réseaux Docker | `coolify`, `default` |
+
+Bascule, dans l'ordre, quand le modèle en cours est en quota, en erreur ou injoignable :
+
+1. **Gemini** `gemini-2.5-flash` (principal — quota gratuit, plus capable que flash-lite, distinct du Groq de Korymb)
+2. Gemini `gemini-3.1-flash-lite`
+3. OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free`
+4. OpenRouter `nvidia/nemotron-3.5-lightning:free`
+5. OpenRouter `google/gemma-4-31b-it:free`
+
+Mistral est interdit : ni modèle principal, ni secours, ni fournisseur déclaré. Groq n'est pas dans la chaîne tant que la clé répond 403.
+
+Les tâches annexes (compression, vision, extraction web) restent sur `gemini-3.1-flash-lite`.
 
 ### Hermes WebUI (intégré au compose agent)
 
@@ -221,7 +235,7 @@ Doc : [HERMES-INTELLIGENCE.md](HERMES-INTELLIGENCE.md).
 
 ### Optimisation complète (recommandé après changement infra)
 
-Un seul script remet en ordre agent, WebUI, sync hôte `/opt/data`, espaces, modèle Mistral et smoke tests :
+Un seul script remet en ordre agent, WebUI, sync hôte `/opt/data`, espaces et smoke tests. Il avertit si Mistral apparaît encore dans `config.yaml` :
 
 ```powershell
 .\scripts\hermes-optimize.ps1

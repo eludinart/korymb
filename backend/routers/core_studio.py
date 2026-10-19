@@ -15,7 +15,7 @@ class StudioGenerateBody(BaseModel):
     prompt: str = Field(min_length=8, max_length=8000)
     formats: list[str] = Field(min_length=1, max_length=8)
     tone: str = "invite"
-    audience: str = "coachs"
+    audience: str = "clients"
     cta: str = Field(default="", max_length=400)
     destination: str = "mission"
     visibility: str = "internal"

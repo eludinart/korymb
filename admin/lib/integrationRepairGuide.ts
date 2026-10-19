@@ -175,10 +175,10 @@ export function repairGuideForConnector(id: string, row?: IntegrationRow | null)
 }
 
 export function statusBadgeClass(tone: HealthTone): string {
-  if (tone === "ok") return "bg-emerald-100 text-emerald-800";
-  if (tone === "warn") return "bg-amber-100 text-amber-900";
-  if (tone === "bad") return "bg-red-100 text-red-800";
-  return "bg-slate-100 text-slate-600";
+  if (tone === "ok") return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100";
+  if (tone === "warn") return "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100";
+  if (tone === "bad") return "bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100";
+  return "bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-100";
 }
 
 export type ConnectorHealthView = {

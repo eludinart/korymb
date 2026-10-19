@@ -10,7 +10,13 @@ import { defaultMistralTiersJson } from "../../../lib/mistralReflectionTiers";
 
 type LlmProvider = "mistral" | "anthropic" | "openrouter";
 
-type Settings = Record<string, string | number | boolean | undefined>;
+type Settings = Record<string, string | number | boolean | undefined> & {
+  free_pool?: {
+    active?: boolean;
+    mode?: string;
+    hops?: { id: string; provider: string; model: string; role: string; billing?: string; quota?: string }[];
+  };
+};
 
 type TierRouting = {
   openrouter_fallback_model?: string;
@@ -110,7 +116,14 @@ function ApiKeyStatusRow({
   );
 }
 
-function ActiveProviderBadge({ provider }: { provider: string }) {
+function ActiveProviderBadge({ provider, poolActive }: { provider: string; poolActive?: boolean }) {
+  if (poolActive) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-950 ring-1 ring-emerald-100">
+        Quota gratuit actif
+      </span>
+    );
+  }
   const p = provider.toLowerCase();
   const styles: Record<string, string> = {
     mistral: "bg-orange-50 text-orange-950 ring-orange-100",
@@ -155,7 +168,16 @@ function syncDraftsFromSettings(d: Settings) {
     priceIn: String(d.llm_price_input_per_million_usd ?? ""),
     priceOut: String(d.llm_price_output_per_million_usd ?? ""),
     tiersJson: String(d.llm_tiers_json ?? ""),
+    freePool: String(d.llm_free_pool || "auto"),
   };
+}
+
+type FreeHop = { id?: string; provider?: string; model?: string; role?: string; billing?: string; quota?: string };
+
+function readFreePool(d: Settings | null): { active?: boolean; mode?: string; hops?: FreeHop[]; blocker?: string } | null {
+  const raw = (d as Record<string, unknown> | null)?.free_pool;
+  if (!raw || typeof raw !== "object") return null;
+  return raw as { active?: boolean; mode?: string; hops?: FreeHop[]; blocker?: string };
 }
 
 export default function KorymbLlmAdminPage() {
@@ -173,6 +195,7 @@ export default function KorymbLlmAdminPage() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [configMode, setConfigMode] = useState<"essential" | "expert">("essential");
   const [tiersDraft, setTiersDraft] = useState("");
+  const [freePoolMode, setFreePoolMode] = useState("auto");
 
   const [providerDraft, setProviderDraft] = useState<LlmProvider>("mistral");
   const [anthropicModel, setAnthropicModel] = useState("");
@@ -209,6 +232,7 @@ export default function KorymbLlmAdminPage() {
     setOpenrouterTitle(s.openrouterTitle);
     setPriceIn(s.priceIn);
     setPriceOut(s.priceOut);
+    setFreePoolMode(s.freePool === "on" || s.freePool === "off" ? s.freePool : "auto");
     setTiersDraft(s.tiersJson || (s.provider === "mistral" ? defaultMistralTiersJson() : ""));
   }, [data]);
 
@@ -343,6 +367,14 @@ export default function KorymbLlmAdminPage() {
     const okr = String(fd.get("openrouter_api_key") || "").trim();
     if (okr) body.openrouter_api_key = okr;
 
+    body.llm_free_pool = freePoolMode;
+    const gk = String(fd.get("groq_api_key") || "").trim();
+    if (gk) body.groq_api_key = gk;
+    const geminiKey = String(fd.get("gemini_api_key") || "").trim();
+    if (geminiKey) body.gemini_api_key = geminiKey;
+    const deepseekKey = String(fd.get("deepseek_api_key") || "").trim();
+    if (deepseekKey) body.deepseek_api_key = deepseekKey;
+
     const pin = priceIn.trim();
     const pout = priceOut.trim();
     if (pin) body.llm_price_input_per_million_usd = parseFloat(pin);
@@ -458,10 +490,98 @@ export default function KorymbLlmAdminPage() {
 
       {data ? (
         <form onSubmit={onSubmit} className="space-y-6 pb-32 sm:pb-28">
+          <section className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 shadow-sm sm:p-6">
+            <h2 className="text-base font-semibold text-slate-900">Quota gratuit</h2>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-slate-600">
+              Trois modèles Groq, puis Gemini, DeepSeek gratuit et Nemotron. Un plafond ou un délai passe au seau suivant. DeepSeek payant ne part que si sa clé est enregistrée.
+            </p>
+            <label className={`${labelClass} mb-1.5 mt-4 block`} htmlFor="llm_free_pool">
+              Mélange
+            </label>
+            <select
+              id="llm_free_pool"
+              name="llm_free_pool"
+              value={freePoolMode}
+              onChange={(e) => setFreePoolMode(e.target.value)}
+              className={`${inputClass} ${controlH} max-w-md font-medium`}
+            >
+              <option value="auto">Automatique dès qu’une clé Groq ou Gemini est là</option>
+              <option value="on">Toujours ce mélange</option>
+              <option value="off">Désactivé — fournisseur ci-dessous</option>
+            </select>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={`${labelClass} mb-1.5 block`} htmlFor="groq_api_key">
+                  Clé Groq
+                </label>
+                <p className="mb-1.5 text-xs text-slate-500">
+                  {data?.groq_api_key_set ? "Déjà enregistrée — ne remplis que pour la remplacer." : "console.groq.com — palier gratuit."}
+                </p>
+                <input
+                  id="groq_api_key"
+                  name="groq_api_key"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={data?.groq_api_key_set ? "Laisser vide pour conserver" : "gsk_…"}
+                  className={`${inputClass} font-mono`}
+                />
+              </div>
+              <div>
+                <label className={`${labelClass} mb-1.5 block`} htmlFor="gemini_api_key">
+                  Clé Gemini
+                </label>
+                <p className="mb-1.5 text-xs text-slate-500">
+                  {data?.gemini_api_key_set
+                    ? "Déjà enregistrée — le palier gratuit peut servir à l’entraînement des modèles Google."
+                    : "AI Studio — le palier gratuit peut servir à l’entraînement des modèles Google."}
+                </p>
+                <input
+                  id="gemini_api_key"
+                  name="gemini_api_key"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={data?.gemini_api_key_set ? "Laisser vide pour conserver" : "AIza…"}
+                  className={`${inputClass} font-mono`}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className={`${labelClass} mb-1.5 block`} htmlFor="deepseek_api_key">
+                  Clé DeepSeek — secours payant
+                </label>
+                <p className="mb-1.5 text-xs text-slate-500">
+                  {data?.deepseek_api_key_set
+                    ? "Déjà enregistrée. Dernier seau, après tous les gratuits. Laissez vide pour conserver."
+                    : "Optionnel. platform.deepseek.com — quelques euros suffisent pour le dernier recours."}
+                </p>
+                <input
+                  id="deepseek_api_key"
+                  name="deepseek_api_key"
+                  type="password"
+                  autoComplete="off"
+                  placeholder={data?.deepseek_api_key_set ? "Laisser vide pour conserver" : "sk-…"}
+                  className={`${inputClass} font-mono`}
+                />
+              </div>
+            </div>
+            {(readFreePool(data)?.hops || []).length ? (
+              <ul className="mt-4 space-y-1 text-xs text-slate-700">
+                {(readFreePool(data)?.hops || []).map((hop) => (
+                  <li key={hop.id} className="font-mono">
+                    {hop.role} · {hop.billing || "gratuit"} · {hop.provider} · {hop.model}
+                    {hop.quota ? <span className="ml-2 font-sans text-slate-500">{hop.quota}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-4 text-xs text-slate-500">
+                Aucun seau prêt. Ajoute une clé Groq ou Gemini, puis enregistre.
+              </p>
+            )}
+          </section>
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 bg-gradient-to-br from-slate-50 to-white px-5 py-5 sm:px-6">
               <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                <ActiveProviderBadge provider={providerDraft} />
+                <ActiveProviderBadge provider={providerDraft} poolActive={Boolean(readFreePool(data)?.active)} />
                 <button
                   type="button"
                   onClick={() => void load("refresh")}
@@ -493,7 +613,7 @@ export default function KorymbLlmAdminPage() {
                     onChange={(e) => setProviderDraft(e.target.value as LlmProvider)}
                     className={`${inputClass} ${controlH} font-medium`}
                   >
-                    <option value="mistral">Mistral AI (recommandé)</option>
+                    <option value="mistral">Mistral (secours payant)</option>
                     <option value="anthropic">Anthropic (API native)</option>
                     <option value="openrouter">OpenRouter (option)</option>
                   </select>

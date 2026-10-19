@@ -3,7 +3,7 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -28,8 +28,10 @@ from services.business_db import (
     build_contact_outreach_mission,
     complete_crm_follow_up,
     create_calendar_event,
+    actor_label,
     create_contact,
     create_external_invoice,
+    disqualify_contact,
     create_project,
     create_quote,
     delete_calendar_event,
@@ -57,6 +59,9 @@ from services.business_db import (
     rebalance_all_contacts_notes_outreach,
     rebalance_contact_notes_outreach,
     reject_enrichment_proposal,
+    ProjectMilestoneConflict,
+    ProjectMilestoneNotFound,
+    set_project_milestone_done,
     update_calendar_event,
     update_contact,
     update_external_invoice,
@@ -153,6 +158,11 @@ class ProjectUpdate(BaseModel):
     end_date: str | None = None
     milestones: list[dict] | None = None
     linked_job_ids: list[str] | None = None
+
+
+class MilestoneDoneBody(BaseModel):
+    done: bool = True
+    label: str = Field(default="", max_length=2000)
 
 
 class QuoteCreate(BaseModel):
@@ -313,6 +323,16 @@ async def business_update_contact(contact_id: str, body: ContactUpdate):
     return row
 
 
+@router.post("/business/contacts/{contact_id}/disqualify")
+async def business_disqualify_contact(contact_id: str, auth: dict = Depends(resolve_tenant)):
+    result = disqualify_contact(contact_id, actor=actor_label(auth))
+    if not result:
+        raise HTTPException(404, detail="Contact introuvable")
+    if result.get("already"):
+        raise HTTPException(409, detail="Contact déjà disqualifié.")
+    return result
+
+
 @router.delete("/business/contacts/{contact_id}", dependencies=[Depends(resolve_tenant)])
 async def business_delete_contact(contact_id: str):
     if not delete_contact(contact_id):
@@ -454,6 +474,8 @@ async def business_fill_contact_from_exploration(
         raise HTTPException(404, detail="Contact introuvable")
     if result.get("skipped") and result.get("reason") == "no_exploration_job":
         raise HTTPException(404, detail="Aucune exploration trouvée pour ce contact")
+    if result.get("skipped") and result.get("reason") == "empty_model_result":
+        raise HTTPException(400, detail="Le modèle n'a pas renvoyé de texte exploitable")
     if result.get("skipped") and result.get("reason") == "no_fields_extracted":
         raise HTTPException(400, detail="Impossible d'extraire des champs depuis le résultat d'exploration")
     return result
@@ -708,6 +730,17 @@ async def business_upload_resource_file(file: UploadFile = File(...)):
     return result
 
 
+@router.get("/business/resource-files/{file_id}/preview", dependencies=[Depends(resolve_tenant)])
+def business_preview_resource_file(file_id: str):
+    """Aperçu texte (CSV / markdown) pour lecture dans le cockpit — pas d'onglet brut."""
+    from services.resource_files import preview_local_file
+
+    payload = preview_local_file(file_id)
+    if not payload:
+        raise HTTPException(404, detail="Fichier introuvable")
+    return payload
+
+
 @router.get("/business/resource-files/{file_id}", dependencies=[Depends(resolve_tenant)])
 async def business_get_resource_file(file_id: str, inline: bool = Query(default=False)):
     from services.resource_files import as_fastapi_response, load_local_file
@@ -937,6 +970,28 @@ async def business_update_project(project_id: str, body: ProjectUpdate):
     if not row:
         raise HTTPException(404, detail="Projet introuvable")
     return row
+
+
+@router.post(
+    "/business/projects/{project_id}/milestones/{index}/done",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_set_milestone_done(
+    project_id: str,
+    body: MilestoneDoneBody,
+    index: int = Path(..., ge=0),
+):
+    try:
+        return set_project_milestone_done(
+            project_id,
+            index,
+            done=body.done,
+            expected_label=body.label.strip() or None,
+        )
+    except ProjectMilestoneNotFound as exc:
+        raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc
+    except ProjectMilestoneConflict as exc:
+        raise HTTPException(409, detail=str(exc) or "Cette étape a changé. Rechargez Aujourd'hui.") from exc
 
 
 @router.delete("/business/projects/{project_id}", dependencies=[Depends(resolve_tenant)])

@@ -121,6 +121,14 @@ def test_admin_briefing(client):
     assert "top_priorities" in body
     assert isinstance(body["top_priorities"], list)
     assert "memory_highlights" in body
+    assert "memory_digest" in body
+    assert isinstance(body["memory_digest"].get("lines"), list)
+    assert len(body["memory_digest"]["lines"]) <= 3
+    assert "day_anticipation" in body
+    assert isinstance(body["day_anticipation"].get("lines"), list)
+    assert "thinking_modes" in body
+    assert isinstance(body["thinking_modes"], list)
+    assert "inbox_severity" in body
     assert body["ritual_status"] in ("clear", "decisions_needed", "budget_alert", "config_blocked")
     assert "llm_readiness" in body
     assert "ready" in body["llm_readiness"]
@@ -130,6 +138,155 @@ def test_admin_briefing(client):
     assert isinstance(body["unconsulted_results"], list)
     assert "commercial" in body
     assert "counts" in body["commercial"]
+    assert "jarvis" in body
+    assert isinstance(body["jarvis"].get("line"), str)
+    assert body["jarvis"]["line"]
+    assert isinstance(body["jarvis"].get("suite"), list)
+    assert any(item.get("ready") is False for item in body["jarvis"]["suite"])
+    assert "board" in body
+    board = body["board"]
+    assert isinstance(board.get("urgent"), list)
+    assert isinstance(board.get("todo"), list)
+    assert isinstance(board.get("proposals"), list)
+    assert isinstance(board.get("warnings"), list)
+    counts = board.get("counts") or {}
+    assert counts["urgent"] >= len(board["urgent"])
+    assert counts["proposals"] >= len(board["proposals"])
+
+
+def test_ops_board_separates_urgent_and_proposals():
+    from services.director_platform import build_ops_board
+
+    board = build_ops_board(
+        [
+            {"kind": "hitl", "job_id": "job-hitl", "title": "Valider le plan", "severity": "high"},
+            {"kind": "closure", "job_id": "job-close", "title": "Clôturer le studio", "severity": "medium"},
+            {
+                "kind": "learning_suggestion",
+                "suggestion_id": "sug-1",
+                "title": "Retenir le ton de la marque",
+                "severity": "low",
+            },
+            {
+                "kind": "scheduler_output",
+                "output_id": "out-1",
+                "title": "Publier le récap du vendredi",
+                "severity": "low",
+            },
+        ],
+        extras=[{"id": "llm-blocker", "label": "Ajouter la clé LLM", "href": "/configuration", "kind": "config", "urgency": "critical"}],
+        recent_errors=[{"job_id": "job-err", "mission": "Relance Camille", "error": "timeout"}],
+        commercial={"counts": {"follow_ups_overdue": 2, "stale_quotes": 1, "email_threads_needs_reply": 3}},
+        budget={"budget_exceeded": False, "alert": False},
+    )
+    assert [row["id"] for row in board["urgent"][:2]] == ["llm-blocker", "job-hitl"]
+    assert any(row["id"] == "job-close" for row in board["todo"])
+    assert {row["kind"] for row in board["proposals"]} == {"learning_suggestion", "scheduler_output"}
+    wheres = {row["where"] for row in board["warnings"]}
+    assert "Configuration" in wheres
+    assert "Missions" in wheres
+    assert "Planning" in wheres
+    assert "Devis" in wheres
+    assert "Courrier" in wheres
+    assert board["counts"]["proposals"] == 2
+    assert board["counts"]["urgent"] == 2
+
+
+def test_jarvis_home_sentence():
+    from services.director_platform import build_jarvis_home
+
+    quiet = build_jarvis_home()
+    assert quiet["line"].startswith("Rien d'urgent")
+    assert quiet["next_action"]["label"] == "Demander"
+    assert quiet["yesterday"] is None
+
+    busy = build_jarvis_home(
+        decisions=[{"kind": "action_ticket", "title": "Envoyer à Camille", "href": "/inbox"}],
+        running=[{"mission": "Préparer le devis"}],
+        recent_missions=[{"mission": "Studio hier", "preview": "Trois pistes.", "span_ids": ["abc", "def"]}],
+    )
+    assert "à valider" in busy["line"]
+    assert "en cours" in busy["line"]
+    assert "suite d'hier" in busy["line"]
+    assert busy["yesterday"]["span_count"] == 2
+    assert busy["yesterday"]["href"] == "/chat"
+    assert busy["next_action"]["label"] == "Valider"
+
+    anchored = build_jarvis_home(
+        recent_missions=[
+            {
+                "mission": "Emmener le patient vers l'arrêt du tabac",
+                "preview": "Décision : un récit.",
+                "job_id": "jobtabac",
+                "chat_session_id": "conv-patient",
+            }
+        ],
+    )
+    assert anchored["yesterday"]["href"] == "/chat?session=conv-patient"
+
+
+def test_jarvis_resume_finds_the_conversation_of_the_note(monkeypatch):
+    from services import director_platform as dp
+
+    note = {
+        "job_id": "jobtabac",
+        "mission": "J'aimerais emmener mon patient dans une exploration de type boîte à changer",
+    }
+    conversations = [
+        {
+            "id": "conv-autre",
+            "messages": [{"id": "u-1", "role": "user", "content": "Autre sujet entièrement différent ici"}],
+        },
+        {
+            "id": "conv-patient",
+            "messages": [
+                {"id": "u-2", "role": "user", "content": note["mission"] + ", une belle histoire"},
+                {"id": "a-jobtabac", "role": "assistant", "content": "Décision : lire le texte en séance."},
+            ],
+        },
+    ]
+    assert dp._session_from_conversations(note, conversations) == "conv-patient"
+    assert dp._chat_resume_href({**note, "chat_session_id": "conv-patient"}) == "/chat?session=conv-patient"
+    monkeypatch.setattr(dp, "_lookup_chat_session_for_recent", lambda _entry: "")
+    assert dp._chat_resume_href({"job_id": "abcd1234", "mission": "court"}) == "/chat?job=abcd1234"
+    monkeypatch.setattr(dp, "_lookup_chat_session_for_recent", lambda _entry: "conv-patient")
+    assert dp._chat_resume_href(note) == "/chat?session=conv-patient"
+
+
+def test_severity_band_and_memory_digest():
+    from services.director_platform import _severity_band, _memory_digest, _day_anticipation
+
+    assert _severity_band("action_ticket") == "critical"
+    assert _severity_band("learning_suggestion") == "low"
+    assert _severity_band("hitl", urgency="critical") == "critical"
+    assert _severity_band("cio_question") == "high"
+
+    digest = _memory_digest(pending_count=2, highlights=[{"label": "Global", "snippet": "Client Acme"}])
+    assert digest["pending_count"] == 2
+    assert len(digest["lines"]) <= 3
+    assert any("suggestion" in ln.lower() for ln in digest["lines"])
+
+    day = _day_anticipation(limit=3)
+    assert isinstance(day.get("lines"), list)
+    assert len(day["lines"]) <= 3
+    assert day.get("href") == "/gestion/planning"
+
+
+def test_thinking_modes_normalize_and_prompt():
+    from services.thinking_modes import (
+        inject_thinking_mode,
+        list_thinking_modes_public,
+        normalize_thinking_mode,
+        thinking_mode_prompt_block,
+    )
+
+    assert normalize_thinking_mode("Artiste") == "artiste"
+    assert normalize_thinking_mode("nope") == "auto"
+    assert thinking_mode_prompt_block("auto") == ""
+    assert "Scientifique" in thinking_mode_prompt_block("scientifique")
+    assert "Mode de pensée" in inject_thinking_mode("Base.", "artiste")
+    modes = list_thinking_modes_public()
+    assert {m["id"] for m in modes} >= {"auto", "scientifique", "artiste"}
 
 
 def test_admin_briefing_llm_blocker(client, monkeypatch):
@@ -296,6 +453,26 @@ def test_chat_conversations_crud(client):
     get = client.get(f"/chat/conversations/{cid}")
     assert get.status_code == 200
     assert get.json()["messages"][0]["content"] == "Bonjour"
+    assert get.json().get("interlocutor") in (None, "")
+    kept = client.put(
+        f"/chat/conversations/{cid}",
+        json={
+            "title": "Test conv",
+            "messages": [{"id": "m1", "role": "user", "content": "Bonjour"}],
+            "interlocutor": "group:edition-livre",
+        },
+    )
+    assert kept.status_code == 200
+    assert kept.json()["interlocutor"] == "group:edition-livre"
+    preserved = client.put(
+        f"/chat/conversations/{cid}",
+        json={
+            "title": "Test conv",
+            "messages": [{"id": "m1", "role": "user", "content": "Bonjour"}],
+        },
+    )
+    assert preserved.status_code == 200
+    assert preserved.json()["interlocutor"] == "group:edition-livre"
     delete = client.delete(f"/chat/conversations/{cid}")
     assert delete.status_code == 200
     assert client.get(f"/chat/conversations/{cid}").status_code == 404
@@ -310,6 +487,109 @@ def test_admin_notifications_crud(client):
     r2 = client.patch(f"/admin/notifications/{nid}/read")
     assert r2.status_code == 200
     assert r2.json().get("read_at")
+    deleted = client.delete(f"/admin/notifications/{nid}")
+    assert deleted.status_code == 200
+    assert deleted.json().get("deleted") == nid
+    again = client.get("/admin/notifications?unread_only=false")
+    assert all(i["id"] != nid for i in again.json()["items"])
+    missing = client.delete(f"/admin/notifications/{nid}")
+    assert missing.status_code == 404
+
+
+def test_chat_result_notifications_are_ephemeral(monkeypatch):
+    from services import director_platform as dp
+
+    inserted: list[dict] = []
+    events: list[dict] = []
+    external: list[dict] = []
+
+    monkeypatch.setattr(dp, "insert_director_notification", lambda **kw: inserted.append(kw) or {"id": "persisted"})
+    monkeypatch.setattr(dp, "enqueue_job_sse_event", lambda payload: events.append(payload))
+
+    def fake_dispatch(**kw):
+        external.append(kw)
+        return {}
+
+    monkeypatch.setattr("services.notifications.dispatch_external_notification", fake_dispatch)
+
+    row = dp.emit_director_notification(
+        kind="chat_result",
+        title="Réponse Assistant prête",
+        body="### **Bonjour**",
+        job_id="jobchat01",
+        action_url="/chat?job=jobchat01",
+    )
+    assert str(row.get("id") or "").startswith("eph-")
+    assert inserted == []
+    assert external == []
+    assert events and events[0].get("ephemeral") is True
+    assert events[0].get("kind") == "chat_result"
+
+    hitl = dp.emit_director_notification(
+        kind="hitl",
+        title="Validation requise",
+        body="Un plan attend.",
+        job_id="jobhitl01",
+        action_url="/inbox?job=jobhitl01",
+    )
+    assert hitl.get("id") == "persisted"
+    assert inserted and inserted[0]["kind"] == "hitl"
+    assert external and external[0]["kind"] == "hitl"
+
+
+def test_dispatch_external_skips_chat_result(monkeypatch):
+    from services.notifications import dispatch_external_notification
+
+    called: list[tuple] = []
+    monkeypatch.setattr(
+        "services.notifications._send_email_stub",
+        lambda *a, **k: called.append(a),
+    )
+    monkeypatch.setenv("NOTIFICATION_EMAIL_TO", "ops@example.com")
+    out = dispatch_external_notification(kind="chat_result", title="Réponse prête", body="x")
+    assert out.get("reason") == "quiet_kind"
+    assert called == []
+
+
+def test_mark_notification_kinds_read(client):
+    from database import get_director_notification
+
+    chat = insert_director_notification(kind="chat_result", title="Echo chat", body="hello")
+    hitl = insert_director_notification(kind="hitl", title="Validation", body="plan")
+    r = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["chat_result", "hitl"]})
+    assert r.status_code == 200
+    assert r.json()["kinds"] == ["chat_result"]
+    assert get_director_notification(chat["id"]).get("read_at")
+    assert not get_director_notification(hitl["id"]).get("read_at")
+
+    denied = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["hitl"]})
+    assert denied.status_code == 422
+    applied = insert_director_notification(kind="memory_applied", title="Mémorisé", body="fait")
+    ok = client.post("/admin/notifications/mark-kinds-read", json={"kinds": ["memory_applied"]})
+    assert ok.status_code == 200
+    assert get_director_notification(applied["id"]).get("read_at")
+
+
+def test_opening_mission_clears_done_notifications_only(client):
+    from database import get_director_notification
+
+    save_job("jobseen01", "coordinateur", "Mission déjà vue", source="test")
+    receipt = insert_director_notification(
+        kind="memory_applied",
+        title="Mémorisé",
+        body="fait",
+        job_id="jobseen01",
+    )
+    decision = insert_director_notification(
+        kind="hitl",
+        title="Validation requise",
+        body="plan",
+        job_id="jobseen01",
+    )
+    r = client.post("/jobs/jobseen01/result-consulted")
+    assert r.status_code == 200
+    assert get_director_notification(receipt["id"]).get("read_at")
+    assert not get_director_notification(decision["id"]).get("read_at")
 
 
 def test_cio_answer_marks_answered(client):
@@ -553,6 +833,11 @@ def test_reprise_coverage_scan(client):
 
 
 def test_reprise_item_action_validates_and_updates_coverage(client):
+    from database import merge_enterprise_contexts
+
+    merge_enterprise_contexts({
+        "global": "Activité de formation et facturation clients, registre RGPD à tenir.",
+    })
     r0 = client.get("/admin/reprise/coverage")
     assert r0.status_code == 200
     domain = next(

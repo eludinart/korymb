@@ -7,11 +7,21 @@ type Props = {
   open: boolean;
   title: string;
   body: string;
+  notice?: string;
+  loading?: boolean;
+  downloadName?: string;
+  downloadText?: string;
   onClose: () => void;
 };
 
-function downloadMarkdown(filename: string, body: string) {
-  const blob = new Blob([body], { type: "text/markdown;charset=utf-8" });
+function downloadTextFile(filename: string, body: string) {
+  const lower = filename.toLowerCase();
+  const mime = lower.endsWith(".csv")
+    ? "text/csv;charset=utf-8"
+    : lower.endsWith(".txt")
+      ? "text/plain;charset=utf-8"
+      : "text/markdown;charset=utf-8";
+  const blob = new Blob([body], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -20,7 +30,16 @@ function downloadMarkdown(filename: string, body: string) {
   URL.revokeObjectURL(url);
 }
 
-export default function InAppDeliverableModal({ open, title, body, onClose }: Props) {
+export default function InAppDeliverableModal({
+  open,
+  title,
+  body,
+  notice,
+  loading = false,
+  downloadName,
+  downloadText,
+  onClose,
+}: Props) {
   const onKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -41,7 +60,9 @@ export default function InAppDeliverableModal({ open, title, body, onClose }: Pr
 
   if (!open) return null;
 
-  const fname = `livrable-${title.slice(0, 40).replace(/[^\w\-àâäéèêëïîôùûüç]+/gi, "_")}.md`;
+  const fname =
+    downloadName || `livrable-${title.slice(0, 40).replace(/[^\w\-àâäéèêëïîôùûüç]+/gi, "_")}.md`;
+  const copyPayload = downloadText || body;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal aria-labelledby="in-app-deliverable-title">
@@ -57,17 +78,19 @@ export default function InAppDeliverableModal({ open, title, body, onClose }: Pr
           <div className="flex shrink-0 gap-1.5">
             <button
               type="button"
-              onClick={() => void navigator.clipboard.writeText(body)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={loading || !copyPayload}
+              onClick={() => void navigator.clipboard.writeText(copyPayload)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
               Copier
             </button>
             <button
               type="button"
-              onClick={() => downloadMarkdown(fname, body)}
-              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              disabled={loading || !copyPayload}
+              onClick={() => downloadTextFile(fname, copyPayload)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
             >
-              .md
+              Télécharger
             </button>
             <button
               type="button"
@@ -79,10 +102,19 @@ export default function InAppDeliverableModal({ open, title, body, onClose }: Pr
           </div>
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <AgentMessageMarkdown
-            source={body}
-            className="text-sm leading-relaxed text-slate-800 [&_li]:text-sm [&_p]:text-sm"
-          />
+          {notice ? (
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-950">
+              {notice}
+            </p>
+          ) : null}
+          {loading ? (
+            <p className="text-sm font-medium text-slate-600">Chargement du livrable…</p>
+          ) : (
+            <AgentMessageMarkdown
+              source={body}
+              className="text-sm leading-relaxed text-slate-800 [&_li]:text-sm [&_p]:text-sm [&_table]:text-xs"
+            />
+          )}
         </div>
       </div>
     </div>

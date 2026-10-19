@@ -27,9 +27,8 @@ copy backend\.env.example backend\.env
 
 Then fill required secrets and keep them aligned:
 
-- `backend/.env` -> `AGENT_API_SECRET=...`
-- **`admin/.env.local`** -> `KORYMB_AGENT_SECRET=...` (obligatoire pour Next : missions, configuration LLM)
-- `admin/.env.local` -> `NEXT_PUBLIC_KORYMB_AGENT_SECRET=...` (meme valeur)
+- `backend/.env` -> `AGENT_API_SECRET=...` (clients machine : Hermes, scripts — jamais dans le navigateur)
+- Le cockpit Next s'authentifie par cookie httpOnly (`korymb_token`) via les routes `/api/korymb*`
 
 #### Dev branché sur MariaDB du VPS
 
@@ -58,6 +57,8 @@ Guide de démarrage détaillé (options, watchdog, logs, dépannage) : [docs/DEM
 Administration VPS (Korymb prod + Hermes Agent) : [docs/ADMINISTRATION.md](docs/ADMINISTRATION.md).
 
 Description métier complète pour Hermes : [docs/KORYMB-DESCRIPTION-HERMES.md](docs/KORYMB-DESCRIPTION-HERMES.md).
+
+Starter packs (amorçage optionnel, produit générique) : [docs/STARTER-PACKS.md](docs/STARTER-PACKS.md).
 
 Stop with:
 

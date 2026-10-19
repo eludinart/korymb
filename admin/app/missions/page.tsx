@@ -28,7 +28,17 @@ import MissionsArchivesList from "../../components/missions/MissionsArchivesList
 import MissionsHubToolbar, { type MissionsHubView } from "../../components/missions/MissionsHubToolbar";
 import MissionGuidedPanel from "../../components/missions/MissionGuidedPanel";
 import MissionQuickLaunch from "../../components/missions/MissionQuickLaunch";
+import MissionKanbanBoard from "../../components/missions/MissionKanbanBoard";
+import MissionProjectGroup from "../../components/missions/MissionProjectGroup";
+import { businessApi } from "../../lib/business";
+import {
+  groupMissionsByProject,
+  missionTaskTitle,
+  type ProjectMissionLink,
+} from "../../lib/missionProjectGroups";
 import { buildHistoryEntries, type HistoryEntry } from "../../lib/historyEntries";
+import { deleteChatConversationOnServer } from "../../lib/chatConversationsApi";
+import { deleteConversation } from "../../lib/chatSessions";
 import { deliverablesForMissionPanel } from "../../lib/extractTeamDeliverables";
 import { collectCioArbitrageAnswers, countPendingArbitrageQuestions } from "../../lib/cioArbitrageAnswers";
 import { buildMissionExecutiveBrief } from "../../lib/missionExecutiveBrief";
@@ -49,20 +59,22 @@ import { missionJobLine, missionTitleLabel } from "../../lib/missionLabel";
 import { adaptivePollInterval } from "../../lib/korymbEvents";
 import {
   collectMissionDeleteJobIds,
-  confirmDeleteMission,
   clusterStillVisible,
   deleteMissionJobBundle,
   invalidateAfterMissionDelete,
 } from "../../lib/deleteMissionBundle";
+import { useUndoRibbon } from "../../lib/undoRibbon";
 
+import { jobAgentGroupId, missionLeadLabel, teamBadgeLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 function MissionsContent() {
   const qc = useQueryClient();
+  const { pushUndo } = useUndoRibbon();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<string | null>(null);
-  const { busyId, feedback, error, setError, setFeedback, onCloseMission } = useMissionActions();
+  const { busyId, feedback, error, setError, setFeedback, onValidate, onShelveMission } = useMissionActions();
   const [cioResumeInput, setCioResumeInput] = useState("");
   const [cioResumeBusy, setCioResumeBusy] = useState(false);
   const [cioResumeLiveId, setCioResumeLiveId] = useState<string | null>(null);
@@ -72,7 +84,15 @@ function MissionsContent() {
   const [archiveDeleteBusy, setArchiveDeleteBusy] = useState(false);
   const [deleteMissionBusyId, setDeleteMissionBusyId] = useState<string | null>(null);
   const [ticketBusyId, setTicketBusyId] = useState<string | null>(null);
+  const [launchBusyId, setLaunchBusyId] = useState<string | null>(null);
   const [detailMode, setDetailMode] = useState<"daily" | "dossier">("daily");
+  const urlTeam = (searchParams.get("team") || "").trim();
+  const [teamFilter, setTeamFilter] = useState(() => urlTeam || "all");
+  const [groupByProject, setGroupByProject] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem("korymb_missions_group_by_project") !== "0";
+  });
+  const [collapsedProjectKeys, setCollapsedProjectKeys] = useState<ReadonlySet<string>>(() => new Set());
   // Toggle global : le CIO peut-il poser des questions en cours de mission ?
   const [cioQuestionsEnabled, setCioQuestionsEnabled] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -92,6 +112,25 @@ function MissionsContent() {
     },
   });
 
+  const groupsQuery = useQuery({
+    queryKey: ["agent-groups"],
+    queryFn: async () => {
+      const { data, res } = await requestJson("/agent-groups", { retries: 0, expectOk: false });
+      if (!res.ok) return [] as Array<{ id: string; label: string }>;
+      const list = (data as { groups?: unknown })?.groups;
+      return Array.isArray(list) ? (list as Array<{ id: string; label: string }>) : [];
+    },
+    staleTime: 60_000,
+  });
+
+  const groupsById = useMemo(() => {
+    const map: Record<string, { label?: string }> = { entreprise: { label: "Entreprise" } };
+    for (const g of groupsQuery.data || []) {
+      if (g?.id) map[g.id] = { label: g.label };
+    }
+    return map;
+  }, [groupsQuery.data]);
+
   const inboxQuery = useQuery({
     queryKey: ["admin-inbox"],
     queryFn: () => fetchAdminInboxItems(100),
@@ -108,7 +147,44 @@ function MissionsContent() {
     () => dedupeMissionListJobs(rows.filter((j) => String(j.source || "mission") !== "chat")),
     [rows],
   );
-  const sortedRows = useMemo(() => sortJobsForBossView(missionRows), [missionRows]);
+  const teamFilterOptions = useMemo(() => {
+    const ids = new Set<string>();
+    for (const j of missionRows) ids.add(jobAgentGroupId(j));
+    if (urlTeam) ids.add(urlTeam);
+    return Array.from(ids)
+      .map((id) => ({ id, label: teamBadgeLabel(id, groupsById) }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [missionRows, groupsById, urlTeam]);
+  const filteredMissionRows = useMemo(() => {
+    if (teamFilter === "all") return missionRows;
+    return missionRows.filter((j) => jobAgentGroupId(j) === teamFilter);
+  }, [missionRows, teamFilter]);
+  const sortedRows = useMemo(() => sortJobsForBossView(filteredMissionRows), [filteredMissionRows]);
+
+  const projectsQuery = useQuery({
+    queryKey: ["business-projects"],
+    queryFn: async () => {
+      try {
+        return await businessApi.listProjects();
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60_000,
+  });
+  const projectLinks = useMemo<ProjectMissionLink[]>(
+    () =>
+      (projectsQuery.data || []).map((project) => ({
+        id: project.id,
+        title: project.title,
+        jobIds: project.linked_job_ids || [],
+      })),
+    [projectsQuery.data],
+  );
+  const listEntries = useMemo(
+    () => (groupByProject ? groupMissionsByProject(sortedRows, projectLinks) : sortedRows.map((job) => ({ kind: "job" as const, job }))),
+    [groupByProject, sortedRows, projectLinks],
+  );
 
   // Pour chaque job parent, retrouver le job enfant le plus récent (continuation terminée)
   const latestChildByParent = useMemo(() => {
@@ -133,12 +209,18 @@ function MissionsContent() {
       ? "guided"
       : searchParams.get("view") === "archives"
         ? "archives"
-        : "active";
+        : searchParams.get("view") === "kanban"
+          ? "kanban"
+          : "active";
 
   useEffect(() => {
     const c = searchParams.get("create");
     if (c === "quick" || c === "1") setShowCreatePanel(true);
   }, [searchParams]);
+
+  useEffect(() => {
+    if (urlTeam) setTeamFilter(urlTeam);
+  }, [urlTeam]);
 
   const archiveEntries = useMemo(() => buildHistoryEntries(rows), [rows]);
 
@@ -149,6 +231,7 @@ function MissionsContent() {
     p.delete("create");
     if (view === "archives") p.set("view", "archives");
     else if (view === "guided") p.set("mode", "guided");
+    else if (view === "kanban") p.set("view", "kanban");
     p.delete("job");
     router.replace(p.toString() ? `/missions?${p.toString()}` : "/missions");
     setSelected(null);
@@ -163,8 +246,14 @@ function MissionsContent() {
     router.replace(`/missions?${p.toString()}`);
   };
 
-  const deleteMissionBundle = async (primaryJobId: string, mission?: string | null) => {
-    if (!confirmDeleteMission(primaryJobId, mission)) return;
+  const deleteMissionBundle = (primaryJobId: string, mission?: string | null) => {
+    const label = String(mission || primaryJobId).trim() || primaryJobId;
+    pushUndo(`Suppression de ${label}`, undefined, () => {
+      void performDeleteMission(primaryJobId, mission);
+    });
+  };
+
+  const performDeleteMission = async (primaryJobId: string, mission?: string | null) => {
     const jobIds = collectMissionDeleteJobIds(primaryJobId, rows);
     setDeleteMissionBusyId(primaryJobId);
     setError("");
@@ -202,6 +291,24 @@ function MissionsContent() {
     }
   };
 
+  const purgeArchiveEntry = async (entry: HistoryEntry) => {
+    await deleteMissionJobBundle(entry.jobIds, rows);
+    if (entry.type === "chat" && entry.id.startsWith("chat:")) {
+      const sessionId = entry.id.slice("chat:".length);
+      try {
+        await deleteChatConversationOnServer(sessionId);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!/404|introuvable/i.test(msg)) throw err;
+      }
+      deleteConversation(sessionId, { remote: false });
+    }
+    if (selected && entry.jobIds.includes(selected)) {
+      setSelected(null);
+      router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
+    }
+  };
+
   const deleteArchiveEntry = async (entry: HistoryEntry) => {
     const label =
       entry.type === "chat"
@@ -211,11 +318,7 @@ function MissionsContent() {
     setArchiveDeleteBusy(true);
     setError("");
     try {
-      await deleteMissionJobBundle(entry.jobIds, rows);
-      if (selected && entry.jobIds.includes(selected)) {
-        setSelected(null);
-        router.replace(hubView === "archives" ? "/missions?view=archives" : "/missions");
-      }
+      await purgeArchiveEntry(entry);
       setFeedback(entry.type === "chat" ? "Conversation supprimée." : `Mission « ${entry.title} » supprimée.`);
       invalidateAfterMissionDelete(qc);
     } catch (err) {
@@ -225,10 +328,60 @@ function MissionsContent() {
     }
   };
 
+  const deleteArchiveEntries = async (entries: HistoryEntry[]): Promise<boolean> => {
+    if (!entries.length) return false;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Supprimer ${entries.length} élément(s) des archives ?\n\nLe contenu disparaît définitivement de l'application.`,
+      )
+    ) {
+      return false;
+    }
+    setArchiveDeleteBusy(true);
+    setError("");
+    let ok = 0;
+    let firstError = "";
+    for (const entry of entries) {
+      try {
+        await purgeArchiveEntry(entry);
+        ok += 1;
+      } catch (err) {
+        if (!firstError) firstError = err instanceof Error ? err.message : String(err);
+      }
+    }
+    invalidateAfterMissionDelete(qc);
+    if (ok) setFeedback(`${ok} élément(s) supprimé(s).`);
+    if (firstError) setError(firstError);
+    setArchiveDeleteBusy(false);
+    return ok === entries.length;
+  };
+
   useEffect(() => {
     setMobileDetailPane("resultats");
     setDetailMode("daily");
   }, [selected]);
+
+  const launchPlannedMission = async (jobId: string) => {
+    setLaunchBusyId(jobId);
+    setError("");
+    setFeedback("");
+    try {
+      await requestJson(`/jobs/${encodeURIComponent(jobId)}/start`, {
+        method: "POST",
+        headers: agentHeaders(),
+        timeoutMs: 20_000,
+      });
+      setFeedback("Tâche lancée. L'équipe s'en occupe.");
+      void qc.invalidateQueries({ queryKey: QK.jobsCards });
+      void qc.invalidateQueries({ queryKey: ["job-detail-live", jobId] });
+      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLaunchBusyId(null);
+    }
+  };
 
   const approveTicketForMission = async (ticketId: string) => {
     setTicketBusyId(ticketId);
@@ -280,6 +433,25 @@ function MissionsContent() {
   const backendLikelyDown =
     /injoignable|8020|fetch failed|ECONNREFUSED|503/i.test(detailRefreshError) ||
     detailRefreshError === "HTTP 500";
+
+  const selectedGroupId = useMemo(
+    () => jobAgentGroupId(detail.data || {}),
+    [detail.data],
+  );
+  const leadShort = missionLeadLabel(selectedGroupId);
+  const leadTalkTitle =
+    leadShort === "CIO" ? "Discuter avec le CIO" : "Discuter avec le lead";
+  const leadSendLabel = leadShort === "CIO" ? "Envoyer au CIO" : "Envoyer au lead";
+  const leadPlaceholder =
+    leadShort === "CIO" ? "Votre message au CIO…" : "Votre message au lead…";
+  const leadQuestionsLabel =
+    leadShort === "CIO"
+      ? "Questions CIO pendant la mission"
+      : "Questions du lead pendant la mission";
+  const leadQuestionsSideLabel =
+    leadShort === "CIO"
+      ? "Questions CIO en cours de mission"
+      : "Questions du lead en cours de mission";
 
   const cioResumeLive = useJobDetail(cioResumeLiveId, {
     queryKey: ["mission-cio-resume-live", cioResumeLiveId],
@@ -538,6 +710,37 @@ function MissionsContent() {
     router.replace(base);
   };
 
+  const renderMissionCard = (j: Job, titleOverride?: string) => (
+    <MissionListCard
+      key={j.job_id}
+      job={j}
+      teamLabel={teamBadgeLabel(jobAgentGroupId(j), groupsById)}
+      teamGroupId={jobAgentGroupId(j)}
+      inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
+      busy={busyId === j.job_id}
+      deleteBusy={deleteMissionBusyId === j.job_id}
+      actionBusy={Boolean(ticketBusyId) || launchBusyId === j.job_id}
+      onSelect={(id) => openMission(id)}
+      onStart={(id) => void launchPlannedMission(id)}
+      onFinish={(id) => {
+        const job = sortedRows.find((x) => x.job_id === id);
+        void onValidate(id, job?.mission);
+      }}
+      onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
+      onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
+      titleOverride={titleOverride}
+    />
+  );
+
+  const toggleProjectGroup = (key: string) => {
+    setCollapsedProjectKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const onMissionCreated = (jobId: string) => {
     setShowCreatePanel(false);
     openMission(jobId);
@@ -558,9 +761,9 @@ function MissionsContent() {
         <MissionsHubToolbar
           view={hubView}
           onViewChange={setHubView}
-          showCreate={showCreatePanel && hubView === "active"}
+          showCreate={showCreatePanel && (hubView === "active" || hubView === "kanban")}
           onToggleCreate={() => {
-            if (hubView !== "active") {
+            if (hubView !== "active" && hubView !== "kanban") {
               setHubView("active");
               setShowCreatePanel(true);
               return;
@@ -573,14 +776,55 @@ function MissionsContent() {
           }}
           activeCount={sortedRows.length}
           archivesCount={archiveEntries.length}
+          teamFilterOptions={teamFilterOptions}
+          teamFilter={teamFilter}
+          onTeamFilterChange={setTeamFilter}
+          groupByProject={groupByProject}
+          onGroupByProjectChange={(value) => {
+            setGroupByProject(value);
+            localStorage.setItem("korymb_missions_group_by_project", value ? "1" : "0");
+          }}
         />
-        {!selected && hubView === "active" ? <MissionQuickLaunch /> : null}
+        {!selected && (hubView === "active" || hubView === "kanban") ? <MissionQuickLaunch /> : null}
         {hubView === "guided" ? (
           <MissionGuidedPanel />
+        ) : hubView === "kanban" ? (
+          <div className="space-y-4">
+            {showCreatePanel ? (
+              <MissionCreatePanel
+                initialAgentGroupId={urlTeam || (teamFilter !== "all" ? teamFilter : null)}
+                agentGroupLabel={
+                  urlTeam || (teamFilter !== "all" ? teamFilter : "")
+                    ? teamBadgeLabel(urlTeam || teamFilter, groupsById)
+                    : ""
+                }
+                onCreated={onMissionCreated}
+                onCancel={() => setShowCreatePanel(false)}
+              />
+            ) : null}
+            {jobs.isPending ? <p className="text-sm text-slate-500">Chargement…</p> : null}
+            <MissionKanbanBoard
+              jobs={sortedRows}
+              onSelect={openMission}
+              groupByProject={groupByProject}
+              projects={projectLinks}
+            />
+            <p className="text-sm">
+              <Link href="/carte" className="font-semibold text-violet-700 hover:underline">
+                Vue carte spatiale →
+              </Link>
+            </p>
+          </div>
         ) : (
         <>
         {showCreatePanel && hubView === "active" ? (
           <MissionCreatePanel
+            initialAgentGroupId={urlTeam || (teamFilter !== "all" ? teamFilter : null)}
+            agentGroupLabel={
+              urlTeam || (teamFilter !== "all" ? teamFilter : "")
+                ? teamBadgeLabel(urlTeam || teamFilter, groupsById)
+                : ""
+            }
             onCreated={onMissionCreated}
             onCancel={() => {
               setShowCreatePanel(false);
@@ -636,25 +880,29 @@ function MissionsContent() {
         ) : null}
         {hubView === "active" ? (
           <>
-            {sortedRows.map((j) => (
-              <MissionListCard
-                key={j.job_id}
-                job={j}
-                inboxItems={inboxItemsForJob(inboxItems, j.job_id)}
-                busy={busyId === j.job_id}
-                deleteBusy={deleteMissionBusyId === j.job_id}
-                actionBusy={Boolean(ticketBusyId)}
-                onSelect={(id) => openMission(id)}
-                onFinish={(id) => {
-                  const job = sortedRows.find((x) => x.job_id === id);
-                  void onCloseMission(id, job?.mission);
-                }}
-                onDelete={(id, mission) => void deleteMissionBundle(id, mission)}
-                onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
-              />
-            ))}
+            {listEntries.map((entry) =>
+              entry.kind === "job" ? (
+                renderMissionCard(entry.job)
+              ) : (
+                <MissionProjectGroup
+                  key={entry.key}
+                  title={entry.title}
+                  count={entry.jobs.length}
+                  href={entry.href}
+                  open={!collapsedProjectKeys.has(entry.key)}
+                  onToggle={() => toggleProjectGroup(entry.key)}
+                >
+                  {entry.jobs.map((job) =>
+                    renderMissionCard(job, missionTaskTitle(job.mission, entry.title) || undefined),
+                  )}
+                </MissionProjectGroup>
+              ),
+            )}
             {jobs.isSuccess && missionRows.length === 0 ? (
               <p className="text-sm text-slate-400">Aucune mission en cours. Lancez-en une ou consultez les archives.</p>
+            ) : null}
+            {jobs.isSuccess && missionRows.length > 0 && sortedRows.length === 0 ? (
+              <p className="text-sm text-slate-400">Aucune mission pour ce filtre d’équipe.</p>
             ) : null}
           </>
         ) : (
@@ -664,6 +912,7 @@ function MissionsContent() {
             busy={archiveDeleteBusy}
             onSelect={(id) => openMission(id)}
             onDelete={(entry) => void deleteArchiveEntry(entry)}
+            onDeleteMany={(entries) => deleteArchiveEntries(entries)}
           />
         )}
         </div>
@@ -673,7 +922,7 @@ function MissionsContent() {
                 <>
                   <p>
                     <strong className="text-slate-800">En cours</strong> — chaque carte montre l’état et la prochaine
-                    action (publier, agenda, décider, terminer).
+                    action (publier, agenda, décider, terminer). Les missions d’un même projet se regroupent.
                   </p>
                   <p className="text-xs text-slate-500">
                     La file du matin reste dans{" "}
@@ -801,16 +1050,26 @@ function MissionsContent() {
                 <div className="mt-2 max-h-[min(40vh,22rem)] shrink-0 overflow-y-auto overflow-x-hidden rounded-2xl border border-violet-200 bg-white shadow-sm ring-1 ring-violet-100/90">
                   {canCloseMission && canResumeCio ? (
                     <div className="border-b border-violet-100 p-3">
+                      {selectedJobStatus === "completed" ? (
+                        <button
+                          type="button"
+                          disabled={busyId === selected}
+                          onClick={() => void onValidate(String(selected), detail.data?.mission)}
+                          className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                        >
+                          {busyId === selected ? "…" : "Clôturer la mission"}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         disabled={busyId === selected}
-                        onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                        onClick={() => void onShelveMission(String(selected), detail.data?.mission)}
+                        className="mt-2 w-full rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-40"
                       >
-                        {busyId === selected ? "…" : "Terminer la mission"}
+                        Mettre de côté
                       </button>
                       <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                        Close le dossier — la poursuite CIO sera désactivée.
+                        Clôturer enregistre le succès et lance l&apos;apprentissage. Mettre de côté range le dossier sans ce rituel.
                       </p>
                     </div>
                   ) : missionClosedByUser ? (
@@ -841,7 +1100,7 @@ function MissionsContent() {
                     {canResumeCio && !cioResumeLiveId ? (
                       <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2">
                         <div className="min-w-0 pr-2">
-                          <p className="text-[11px] font-semibold text-slate-800">Questions CIO pendant la mission</p>
+                          <p className="text-[11px] font-semibold text-slate-800">{leadQuestionsLabel}</p>
                           <p className="text-[10px] text-slate-500">Le CIO peut solliciter des précisions.</p>
                         </div>
                         <button
@@ -889,7 +1148,7 @@ function MissionsContent() {
           >
             {showConversationSidebar && mobileDetailPane === "resultats" && showDecisionRail && canResumeCio && !cioResumeLiveId ? (
               <div className="rounded-2xl border border-violet-300 bg-violet-50/90 p-3 shadow-sm lg:hidden">
-                <p className="text-xs font-semibold text-violet-950">Discuter avec le CIO</p>
+                <p className="text-xs font-semibold text-violet-950">{leadTalkTitle}</p>
                 <p className="mt-1 text-[11px] text-violet-900/90">
                   Le champ de saisie est sur l&apos;onglet <span className="font-semibold">Résumé équipe</span>, ou utilisez le
                   formulaire ci‑dessous.
@@ -904,24 +1163,33 @@ function MissionsContent() {
                     disabled={cioResumeBusy}
                     rows={3}
                     className="w-full resize-y rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm disabled:opacity-50"
-                    placeholder="Votre message au CIO…"
-                    aria-label="Consigne pour le CIO"
+                    placeholder={leadPlaceholder}
+                    aria-label={leadTalkTitle}
                   />
                   <button
                     type="submit"
                     disabled={cioResumeBusy || !cioResumeInput.trim()}
                     className="w-full rounded-xl bg-violet-700 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-40"
                   >
-                    {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                    {cioResumeBusy ? "Envoi…" : leadSendLabel}
                   </button>
-                  {canCloseMission ? (
+                  {canCloseMission && selectedJobStatus === "completed" ? (
                     <button
                       type="button"
                       disabled={busyId === selected}
-                      onClick={() => void onCloseMission(String(selected), detail.data?.mission)}
+                      onClick={() => void onValidate(String(selected), detail.data?.mission)}
                       className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 disabled:opacity-40"
                     >
-                      {busyId === selected ? "…" : "Terminer la mission"}
+                      {busyId === selected ? "…" : "Clôturer la mission"}
+                    </button>
+                  ) : canCloseMission ? (
+                    <button
+                      type="button"
+                      disabled={busyId === selected}
+                      onClick={() => void onShelveMission(String(selected), detail.data?.mission)}
+                      className="w-full rounded-xl border border-dashed border-slate-300 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 disabled:opacity-40"
+                    >
+                      {busyId === selected ? "…" : "Mettre de côté"}
                     </button>
                   ) : null}
                 </form>
@@ -937,8 +1205,12 @@ function MissionsContent() {
                 inboxItems={inboxItemsForJob(inboxItems, String(selected || detail.data.job_id || ""))}
                 hasPendingQuestions={hasPendingCioQuestions}
                 busy={Boolean(ticketBusyId)}
-                finishBusy={busyId === selected}
-                onFinish={() => void onCloseMission(String(selected), detail.data?.mission)}
+                finishBusy={busyId === selected || launchBusyId === selected}
+                onFinish={() => void onValidate(String(selected), detail.data?.mission)}
+                onStart={() => {
+                  if (selected) void launchPlannedMission(String(selected));
+                }}
+                onShelve={() => void onShelveMission(String(selected), detail.data?.mission)}
                 onApproveTicket={(ticketId) => void approveTicketForMission(ticketId)}
                 onFocusDecide={() => {
                   setMobileDetailPane("resultats");
@@ -1072,10 +1344,10 @@ function MissionsContent() {
                         missionClosed={Boolean(
                           detail.data.user_validated_at || detail.data.mission_closed_by_user,
                         )}
-                        canValidateMission={canCloseMission}
+                        canValidateMission={canCloseMission && selectedJobStatus === "completed"}
                         validateBusy={busyId === selected}
-                        onValidateMission={() => void onCloseMission(selected)}
-                        validateLabel="Terminer la mission"
+                        onValidateMission={() => void onValidate(selected, detail.data?.mission)}
+                        validateLabel="Clôturer la mission"
                         onSaved={() => void qc.invalidateQueries({ queryKey: ["job-detail-live", selected] })}
                       />
                     ) : null}
@@ -1160,10 +1432,15 @@ function MissionsContent() {
                     </div>
                   </div>
                   <div className="rounded-xl border border-slate-200 bg-white p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Journal d&apos;exécution</p>
-                    <pre className="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
-                      {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
-                    </pre>
+                    <details className="group">
+                      <summary className="cursor-pointer list-none text-xs font-semibold uppercase tracking-wide text-slate-400 marker:content-none [&::-webkit-details-marker]:hidden">
+                        Journal d&apos;exécution{" "}
+                        <span className="font-normal normal-case text-slate-400 group-open:hidden">(ouvrir)</span>
+                      </summary>
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap text-xs text-slate-700">
+                        {((detail.data.logs || []) as string[]).join("\n") || "(aucune ligne de log pour l&apos;instant)"}
+                      </pre>
+                    </details>
                   </div>
                 </div>
               </CollapsibleMissionSection>
@@ -1173,7 +1450,11 @@ function MissionsContent() {
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4 shadow-sm">
                   {!cioResumeLiveId ? (
                     <>
-                      <h3 className="text-sm font-semibold text-slate-900">Poursuivre avec le CIO sur cette mission</h3>
+                      <h3 className="text-sm font-semibold text-slate-900">
+                        {leadShort === "CIO"
+                          ? "Poursuivre avec le CIO sur cette mission"
+                          : "Poursuivre avec le lead sur cette mission"}
+                      </h3>
                       <p className="mt-1 text-xs leading-relaxed text-slate-600">
                         Vous restez sur <span className="font-medium text-slate-800">la même mission</span> : la suite est
                         enregistrée dans le fil de cadrage et le livrable est mis à jour ici après exécution.
@@ -1188,8 +1469,12 @@ function MissionsContent() {
                       </div>
                       <div className="mt-3 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <div>
-                          <p className="text-[11px] font-semibold text-slate-700">Questions CIO en cours de mission</p>
-                          <p className="text-[10px] text-slate-400">Le CIO peut vous poser des précisions pendant l&apos;exécution</p>
+                          <p className="text-[11px] font-semibold text-slate-700">{leadQuestionsSideLabel}</p>
+                          <p className="text-[10px] text-slate-400">
+                            {leadShort === "CIO"
+                              ? "Le CIO peut vous poser des précisions pendant l'exécution"
+                              : "Le lead peut vous poser des précisions pendant l'exécution"}
+                          </p>
                         </div>
                         <button
                           type="button"
@@ -1217,7 +1502,7 @@ function MissionsContent() {
                           disabled={cioResumeBusy || !cioResumeInput.trim()}
                           className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-800 disabled:opacity-40"
                         >
-                          {cioResumeBusy ? "Envoi…" : "Envoyer au CIO"}
+                          {cioResumeBusy ? "Envoi…" : leadSendLabel}
                         </button>
                       </form>
                     </>

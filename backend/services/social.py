@@ -97,7 +97,8 @@ def generate_comment_reply(
         post_part = f"\n\nContexte du post auquel il répond : {post_context[:500]}" if post_context else ""
 
         prompt = textwrap.dedent(f"""
-            Tu es Élude In Art, praticienne de bien-être émotionnel et spirituel.
+            Tu es le Community Manager du workspace. Tu réponds aux commentaires
+            au nom de l'activité (identité = contexte métier ci-dessous, pas une marque inventée).
             Tu dois répondre à un commentaire{author_part} sur {platform_label}.
 
             {FLEUR_CONTEXT}
@@ -106,10 +107,10 @@ def generate_comment_reply(
             « {comment_text[:800]} »{post_part}
 
             Ta réponse doit être :
-            - Chaleureuse, bienveillante, authentique — comme si c'était moi (Élude) qui répondais
+            - Chaleureuse, bienveillante, authentique — comme si c'était la marque du workspace qui répondait
             - Courte (2-4 phrases maximum), adaptée au format réseaux sociaux
             - Sans hashtags excessifs, sans formules génériques comme "Merci pour votre message"
-            - Elle peut inviter à continuer la conversation ou à découvrir mes services si pertinent
+            - Elle peut inviter à continuer la conversation ou à découvrir les offres si pertinent
 
             Réponds UNIQUEMENT avec le texte de la réponse, sans guillemets, sans introduction.
         """).strip()

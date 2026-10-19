@@ -11,6 +11,7 @@ from urllib.parse import quote
 from fastapi.responses import Response
 
 from services.business_db import _new_id, _now, _ws
+from workspace_db import _DEFAULT_WORKSPACE_ID
 
 
 def _uid() -> str:
@@ -63,6 +64,9 @@ INLINE_MIME_PREFIXES = (
 )
 BRAND_IMAGE_EXT = frozenset({".png", ".jpg", ".jpeg", ".webp", ".gif"})
 BRAND_MAX_BYTES = 4 * 1024 * 1024
+DB_TEXT_MAX_BYTES = 2 * 1024 * 1024
+PREVIEW_MAX_CHARS = 400_000
+TEXT_PREVIEW_MIMES = frozenset({"text/csv", "text/plain", "text/markdown", "text/x-markdown"})
 _FILES_ROOT = Path(__file__).resolve().parents[1] / "data" / "resource-files"
 
 
@@ -141,6 +145,7 @@ def save_upload(*, filename: str, mime: str, data: bytes) -> dict[str, Any]:
         "user_id": _uid(),
     }
     (folder / f"{fid}.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    _persist_db_copy(fid=fid, filename=name, mime=str(meta["mime"]), data=data)
     return {
         "success": True,
         "file": {k: meta[k] for k in ("id", "filename", "mime", "size", "source") if k in meta},
@@ -173,23 +178,19 @@ def save_brand_image(*, filename: str, mime: str, data: bytes) -> dict[str, Any]
     return save_upload(filename=name, mime=mime or "image/jpeg", data=data)
 
 
-def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
-    fid = (file_id or "").strip()
-    if not fid.startswith("rfil-") or ".." in fid or "/" in fid or "\\" in fid:
-        return None
-    wid = (workspace_id or _ws() or "").strip()
-    folder = files_dir(workspace_id=wid)
+def _load_blob(folder: Path, fid: str, *, accept_workspace_ids: set[str]) -> dict[str, Any] | None:
     blob = folder / fid
-    meta_path = folder / f"{fid}.json"
     if not blob.is_file():
         return None
     meta: dict[str, Any] = {}
+    meta_path = folder / f"{fid}.json"
     if meta_path.is_file():
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
             meta = {}
-    if str(meta.get("workspace_id") or wid) != wid:
+    meta_wid = str(meta.get("workspace_id") or "").strip()
+    if meta_wid and meta_wid not in accept_workspace_ids:
         return None
     return {
         "id": fid,
@@ -201,11 +202,150 @@ def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[st
     }
 
 
+def _is_text_preview(mime: str, filename: str) -> bool:
+    m = (mime or "").lower()
+    n = (filename or "").lower()
+    if m in TEXT_PREVIEW_MIMES or m.startswith("text/"):
+        return True
+    return n.endswith((".csv", ".md", ".txt"))
+
+
+def _preview_kind(mime: str, filename: str) -> str:
+    m = (mime or "").lower()
+    n = (filename or "").lower()
+    if m == "text/csv" or n.endswith(".csv"):
+        return "csv"
+    if "markdown" in m or n.endswith(".md"):
+        return "markdown"
+    return "text"
+
+
+def _persist_db_copy(*, fid: str, filename: str, mime: str, data: bytes) -> None:
+    if not _is_text_preview(mime, filename) or len(data) > DB_TEXT_MAX_BYTES:
+        return
+    try:
+        from database import get_conn
+
+        if _use_mysql_upsert():
+            sql = (
+                "INSERT INTO workspace_resource_files (id, workspace_id, filename, mime, size, content, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON DUPLICATE KEY UPDATE filename=VALUES(filename), mime=VALUES(mime), size=VALUES(size), "
+                "content=VALUES(content)"
+            )
+        else:
+            sql = (
+                "INSERT OR REPLACE INTO workspace_resource_files "
+                "(id, workspace_id, filename, mime, size, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+            )
+        with get_conn() as conn:
+            conn.execute(sql, (fid, _ws(), filename, mime[:160], len(data), data, _now()))
+            conn.commit()
+    except Exception:
+        # Disque reste la source locale ; la base est un filet anti-redéploiement Coolify.
+        return
+
+
+def _use_mysql_upsert() -> bool:
+    try:
+        from database import _is_mariadb
+
+        return bool(_is_mariadb())
+    except Exception:
+        return False
+
+
+def _load_from_db(fid: str, wid: str) -> dict[str, Any] | None:
+    """Charge un fichier scoppé au workspace courant uniquement (pas de repli legacy)."""
+    try:
+        from database import get_conn
+
+        with get_conn() as conn:
+            # Anciens blobs sans workspace_id : uniquement si on est déjà sur le legacy.
+            if wid == _DEFAULT_WORKSPACE_ID:
+                row = conn.execute(
+                    "SELECT id, workspace_id, filename, mime, size, content FROM workspace_resource_files "
+                    "WHERE id=? AND workspace_id IN (?, ?) "
+                    "ORDER BY CASE workspace_id WHEN ? THEN 0 ELSE 1 END LIMIT 1",
+                    (fid, wid, "", wid),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT id, workspace_id, filename, mime, size, content FROM workspace_resource_files "
+                    "WHERE id=? AND workspace_id=? LIMIT 1",
+                    (fid, wid),
+                ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    data = dict(row)
+    blob = data.get("content")
+    if isinstance(blob, memoryview):
+        blob = blob.tobytes()
+    if isinstance(blob, str):
+        blob = blob.encode("utf-8")
+    if not isinstance(blob, (bytes, bytearray)):
+        return None
+    return {
+        "id": fid,
+        "filename": str(data.get("filename") or "fichier"),
+        "mime": str(data.get("mime") or "application/octet-stream"),
+        "size": int(data.get("size") or len(blob)),
+        "path": None,
+        "content": bytes(blob),
+        "source": "db",
+    }
+
+
+def load_local_file(file_id: str, *, workspace_id: str | None = None) -> dict[str, Any] | None:
+    fid = (file_id or "").strip()
+    if not fid.startswith("rfil-") or ".." in fid or "/" in fid or "\\" in fid:
+        return None
+    wid = (workspace_id or _ws() or "").strip()
+    # Isolation : pas de lecture cross-tenant vers ws-default-legacy.
+    accepted = {wid, ""} if wid == _DEFAULT_WORKSPACE_ID else {wid}
+    item = _load_blob(files_dir(workspace_id=wid), fid, accept_workspace_ids=accepted)
+    if item:
+        return item
+    return _load_from_db(fid, wid)
+
+
 def read_file_bytes(file_info: dict[str, Any]) -> bytes:
+    raw = file_info.get("content")
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw)
     path = file_info.get("path")
     if isinstance(path, Path):
         return path.read_bytes()
     return b""
+
+
+def preview_local_file(file_id: str) -> dict[str, Any] | None:
+    item = load_local_file(file_id)
+    if not item:
+        return None
+    filename = str(item.get("filename") or "fichier")
+    mime = str(item.get("mime") or "application/octet-stream")
+    if not _is_text_preview(mime, filename):
+        return {
+            "id": item.get("id"),
+            "filename": filename,
+            "mime": mime,
+            "kind": "binary",
+            "text": "",
+            "error": "Aperçu intégré indisponible pour ce type de fichier.",
+        }
+    text = read_file_bytes(item).decode("utf-8", errors="replace")
+    if len(text) > PREVIEW_MAX_CHARS:
+        text = text[:PREVIEW_MAX_CHARS] + "\n\n… (extrait tronqué)"
+    return {
+        "id": item.get("id"),
+        "filename": filename,
+        "mime": mime,
+        "kind": _preview_kind(mime, filename),
+        "text": text,
+    }
 
 
 def as_fastapi_response(

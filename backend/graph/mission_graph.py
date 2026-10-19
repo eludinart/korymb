@@ -1,8 +1,6 @@
 """Construction du StateGraph mission."""
 from __future__ import annotations
 
-from functools import lru_cache
-
 from langgraph.graph import END, START, StateGraph
 
 from graph.checkpointer import get_checkpointer
@@ -16,7 +14,6 @@ from graph.nodes.mission_nodes import (
 )
 
 
-@lru_cache(maxsize=1)
 def build_mission_graph():
     g = StateGraph(MissionGraphState)
     g.add_node("init", node_init)

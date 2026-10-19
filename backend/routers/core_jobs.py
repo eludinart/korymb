@@ -40,6 +40,48 @@ router = APIRouter(tags=["jobs"])
 logger = logging.getLogger(__name__)
 
 
+def _pending_blueprint_for_payload(
+    job_like: dict | None,
+    row: dict | None,
+    logs: list | None,
+) -> str | None:
+    """L'id en mémoire disparaît avec le job ; on le retrouve dans le résultat et les logs."""
+    from services.assistant_chat import resolve_pending_blueprint_id
+
+    direct = str((job_like or {}).get("pending_blueprint_id") or "").strip()
+    blobs: list[str] = []
+    for src in (job_like or {}, row or {}):
+        blobs.append(str(src.get("result_surface") or ""))
+        blobs.append(str(src.get("result") or ""))
+    if isinstance(logs, list):
+        blobs.extend(str(x) for x in logs[-80:])
+    return resolve_pending_blueprint_id(*blobs, direct=direct or None)
+
+
+def _claim_guard_for_payload(job_like: dict | None, events: list | None) -> dict | None:
+    """Statut du garde-fou (ancré / partiel / inconnu) pour l'affichage chat."""
+    if isinstance(job_like, dict) and isinstance(job_like.get("claim_guard"), dict):
+        cg = job_like["claim_guard"]
+        if cg.get("status"):
+            return {
+                "status": str(cg.get("status")),
+                "intent": str(cg.get("intent") or ""),
+                "dropped_count": int(cg.get("dropped_count") or 0),
+            }
+    for ev in reversed(events or []):
+        if not isinstance(ev, dict) or ev.get("type") != "claim_guard":
+            continue
+        pl = ev.get("payload") if isinstance(ev.get("payload"), dict) else {}
+        if not pl.get("status"):
+            continue
+        return {
+            "status": str(pl.get("status")),
+            "intent": str(pl.get("intent") or ""),
+            "dropped_count": int(pl.get("dropped_count") or 0),
+        }
+    return None
+
+
 def _result_surface_for_payload(job_like: dict, row_db: dict | None = None) -> str | None:
     surf = job_like.get("result_surface")
     if isinstance(surf, str) and surf.strip():
@@ -116,7 +158,8 @@ def delete_job_impl(job_id: str) -> dict:
     from database import (
         collect_job_delete_cluster_ids,
         delete_job_cascade,
-        get_conn,
+        forget_chat_session_if_empty,
+        get_job as db_get_job_row,
         resolve_job_id,
         _cluster_delete_order,
     )
@@ -124,6 +167,11 @@ def delete_job_impl(job_id: str) -> dict:
     resolved = resolve_job_id(raw)
     if not resolved:
         raise HTTPException(status_code=404, detail="Job introuvable.")
+
+    primary = db_get_job_row(resolved) or {}
+    chat_session = ""
+    if str(primary.get("source") or "").lower().startswith("chat"):
+        chat_session = str(primary.get("chat_session_id") or "").strip()
 
     cluster = collect_job_delete_cluster_ids(resolved)
     if not cluster:
@@ -137,6 +185,11 @@ def delete_job_impl(job_id: str) -> dict:
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Job introuvable.")
+    if chat_session:
+        try:
+            forget_chat_session_if_empty(chat_session)
+        except Exception:
+            logger.exception("forget chat session %s", chat_session)
     return {"deleted": resolved, "deleted_ids": deleted, "count": len(deleted)}
 
 
@@ -588,6 +641,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "job_id": job_id, "status": job["status"], "agent": job["agent"], "mission": job["mission"],
             "result": job.get("result"),
             "result_surface": _result_surface_for_payload(job, row_db),
+            "claim_guard": _claim_guard_for_payload(job, ev),
             "team": job.get("team") or [],
             "logs": logs[log_offset:], "log_total": len(logs),
             "tokens_in": job.get("tokens_in", 0), "tokens_out": job.get("tokens_out", 0),
@@ -603,6 +657,8 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "parent_job_id": parent_out or None,
             "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
+            "pending_blueprint_id": _pending_blueprint_for_payload(job, row_db, logs),
+            "agent_group_id": job.get("agent_group_id"),
         }
         if fb:
             out["latest_chat_followup"] = fb
@@ -635,6 +691,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "job_id": job_id, "status": row["status"], "agent": row["agent"], "mission": row["mission"],
         "result": row.get("result"),
         "result_surface": _result_surface_for_payload(row),
+        "claim_guard": _claim_guard_for_payload(row, ev),
         "team": parse_team_field(row),
         "logs": logs[log_offset:], "log_total": len(logs),
         "tokens_in": row.get("tokens_in", 0), "tokens_out": row.get("tokens_out", 0),
@@ -650,6 +707,7 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
         "parent_job_id": row.get("parent_job_id") or None,
         "chat_session_id": row.get("chat_session_id") or None,
         "hitl": hitl_block,
+        "pending_blueprint_id": _pending_blueprint_for_payload(None, row, logs),
     }
     if fb:
         out["latest_chat_followup"] = fb
@@ -674,6 +732,12 @@ def mark_job_result_consulted(job_id: str):
         raise HTTPException(status_code=404, detail="Job introuvable.")
     if jid in active_jobs:
         active_jobs[jid]["result_consulted_at"] = out.get("result_consulted_at")
+    try:
+        from database import mark_job_receipt_notifications_read
+
+        mark_job_receipt_notifications_read(jid)
+    except Exception:
+        pass
     return out
 
 
@@ -758,6 +822,39 @@ def pause_running_job(job_id: str):
         "execution_live": False,
         "message": "Processus fantôme mis en pause en base. Utilisez Relancer pour repartir ou Arrêter pour nettoyer.",
     }
+
+
+@router.post("/jobs/{job_id}/start", dependencies=[Depends(resolve_tenant)])
+def start_planned_job(job_id: str, background_tasks: BackgroundTasks):
+    """Démarre une tâche « à faire » créée depuis le chat, sans en dupliquer une autre."""
+    jid = _norm_job_id(job_id)
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    row = db_get_job(jid)
+    if not row:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    if str(row.get("status") or "") != "planned":
+        raise HTTPException(status_code=409, detail="Seule une tâche à faire peut être lancée.")
+    mission = str(row.get("mission") or "").strip()
+    if not mission:
+        raise HTTPException(status_code=400, detail="Consigne vide.")
+    from services.agents import agents_def
+    from services.mission import _schedule_mission_execution
+
+    agent_key = str(row.get("agent") or "coordinateur")
+    if agent_key not in agents_def():
+        agent_key = "coordinateur"
+    cfg = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else None
+    _schedule_mission_execution(
+        background_tasks,
+        jid,
+        agent_key,
+        mission,
+        None,
+        str(row.get("source") or "project"),
+        mission_config=cfg,
+    )
+    return {"ok": True, "job_id": jid, "status": "accepted"}
 
 
 @router.post("/jobs/{job_id}/resume-work", dependencies=[Depends(resolve_tenant)])
@@ -931,9 +1028,49 @@ def delete_job(job_id: str):
 
 
 @router.get("/jobs/{job_id}/traces", dependencies=[Depends(resolve_tenant)])
-def job_traces(job_id: str, limit: int = 200):
-    from database import list_mission_traces
-    return {"job_id": job_id, "traces": list_mission_traces(job_id, limit=limit)}
+def job_traces(
+    job_id: str,
+    limit: int = 200,
+    agent: str = "",
+    kind: str = "",
+    since: str = "",
+    until: str = "",
+):
+    from database import search_mission_traces
+    from services.mission_journal import with_citation
+
+    rows = search_mission_traces(
+        job_id=job_id,
+        agent=agent,
+        kind=kind,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return {"job_id": job_id, "traces": [with_citation(row) for row in rows]}
+
+
+@router.get("/traces", dependencies=[Depends(resolve_tenant)])
+def search_traces(
+    job_id: str = "",
+    agent: str = "",
+    kind: str = "",
+    since: str = "",
+    until: str = "",
+    limit: int = 200,
+):
+    from database import search_mission_traces
+    from services.mission_journal import with_citation
+
+    rows = search_mission_traces(
+        job_id=job_id or None,
+        agent=agent,
+        kind=kind,
+        since=since,
+        until=until,
+        limit=limit,
+    )
+    return {"traces": [with_citation(row) for row in rows]}
 
 
 @router.get("/jobs/{job_id}/audit-bundle", dependencies=[Depends(resolve_tenant)])
@@ -1041,12 +1178,21 @@ def job_revise(job_id: str, body: JobReviseBody, background_tasks: BackgroundTas
 
 @router.post("/jobs/{job_id}/quality-override", dependencies=[Depends(resolve_tenant)])
 def job_quality_override(job_id: str, payload: dict):
-    from database import get_job, insert_quality_verdict
-    if not get_job(job_id):
+    from database import get_job, insert_quality_verdict, set_job_status_quick
+    from state import active_jobs
+
+    row = get_job(job_id)
+    if not row:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
     reason = str(payload.get("reason") or "").strip()
     insert_quality_verdict(job_id, phase="override", score=10.0, rejected=False, payload={"reason": reason, "override": True})
-    return {"ok": True, "job_id": job_id}
+    unblocked = False
+    if str(row.get("status") or "") == "quality_blocked":
+        set_job_status_quick(job_id, "completed")
+        if job_id in active_jobs:
+            active_jobs[job_id]["status"] = "completed"
+        unblocked = True
+    return {"ok": True, "job_id": job_id, "status": "completed" if unblocked else row.get("status"), "unblocked": unblocked}
 
 
 # ── Compat /run/* (proxys restrictifs) ───────────────────────────────────────

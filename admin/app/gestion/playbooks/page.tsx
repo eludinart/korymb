@@ -3,7 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { agentHeaders, requestJson } from "../../../lib/api";
+import { useActionToast } from "../../../lib/actionToast";
 import { PageHeader, PageShell } from "../../../components/ui/PageChrome";
+import { useUiMode } from "../../../lib/uiMode";
 
 type Playbook = {
   id: string;
@@ -15,6 +17,8 @@ type Playbook = {
 
 export default function PlaybooksPage() {
   const qc = useQueryClient();
+  const { pushToast } = useActionToast();
+  const { isAdvanced, isPlatformOwner } = useUiMode();
   const playbooks = useQuery({
     queryKey: ["playbooks"],
     queryFn: async () => {
@@ -36,9 +40,13 @@ export default function PlaybooksPage() {
     onSuccess: (data) => {
       void qc.invalidateQueries({ queryKey: ["playbooks"] });
       if (data?.job_id) {
+        pushToast("Mission lancée depuis le modèle.");
         window.location.href = `/missions?job=${encodeURIComponent(String(data.job_id))}`;
+      } else {
+        pushToast("Modèle lancé.");
       }
     },
+    onError: (e: Error) => pushToast(e.message || "Lancement impossible", "error"),
   });
 
   const list = Array.isArray(playbooks.data) ? playbooks.data : [];
@@ -50,14 +58,32 @@ export default function PlaybooksPage() {
     generic: list.filter((p) => !p.category || p.category === "generic"),
   };
 
+  /** Soft labels — category keys (fleur, sivana…) stay for DB / seed compat. */
+  const CAT_LABELS: Record<string, string> = {
+    studio: "Studio",
+    fleur: "Catalogue / produit",
+    sivana: "Lieu / site",
+    ops: "Ops",
+    generic: "Générique",
+  };
+
   return (
     <PageShell className="space-y-6">
       <PageHeader
         accent="violet"
         badge="Création"
-        title="Playbooks"
-        description="Scénarios prêts à lancer — studio, Fleur, Sivana. Supervisé (Décisions) ou autonome."
+        title="Modèles"
+        description="Demandes prêtes à lancer. Le résultat revient à valider, ou part tout seul si vous l'avez choisi."
       />
+      {isAdvanced && isPlatformOwner ? (
+        <p className="text-sm text-slate-600">
+          Pour créer ou modifier le texte des modèles avancés :{" "}
+          <Link href="/administration/templates" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
+            Templates missions
+          </Link>
+          .
+        </p>
+      ) : null}
       {playbooks.isLoading ? <p className="text-sm text-slate-400">Chargement…</p> : null}
       {playbooks.isError ? (
         <div className="rounded-xl border border-red-100 bg-red-50 p-4">
@@ -77,7 +103,7 @@ export default function PlaybooksPage() {
       ) : null}
       {(["studio", "fleur", "sivana", "ops", "generic"] as const).map((cat) => (
         <section key={cat} className="section-card">
-          <h2 className="section-title capitalize">{cat}</h2>
+          <h2 className="section-title">{CAT_LABELS[cat]}</h2>
           <ul className="mt-4 space-y-3">
             {grouped[cat].length === 0 ? (
               <li className="text-sm text-slate-500">Aucun playbook.</li>

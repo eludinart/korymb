@@ -1,4 +1,4 @@
-import { getActiveConversationId, loadConversations } from "./chatSessions";
+import { chatStorageKey, getActiveConversationId, loadConversations } from "./chatSessions";
 
 export type PendingChatJob = {
   jobId: string;
@@ -11,14 +11,22 @@ export type PendingChatJob = {
   progressPercent?: number;
   progressLabel?: string;
   progressStatus?: string;
+  /** Relais quotidien : l'assistant reste l'interlocuteur, la flotte travaille derrière. */
+  relayFleet?: { groupId: string; label: string };
 };
 
 const STORAGE_KEY = "korymb-chat-pending-jobs-v1";
 
+function pendingStorageKey() {
+  return chatStorageKey(STORAGE_KEY);
+}
+
 export function loadPendingChatJobs(): PendingChatJob[] {
   if (typeof window === "undefined") return [];
+  const key = pendingStorageKey();
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PendingChatJob[];
     if (!Array.isArray(parsed)) return [];
@@ -34,7 +42,9 @@ export function loadPendingChatJobs(): PendingChatJob[] {
 
 export function savePendingChatJobs(jobs: PendingChatJob[]) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(jobs));
+  const key = pendingStorageKey();
+  if (!key) return;
+  localStorage.setItem(key, JSON.stringify(jobs));
 }
 
 export function addPendingChatJob(job: PendingChatJob) {

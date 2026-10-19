@@ -1,0 +1,64 @@
+# État plateforme Korymb
+
+> Source de vérité **courte** pour le CIO / chat.  
+> Mise à jour : après chaque chantier utile (commit + deploy + smoke).  
+> Sync mémoire DB : `.\scripts\sync-platform-state-memory.ps1`
+
+**Dernière MAJ :** 2026-10-19 · Aujourd'hui affiche les jalons des projets actifs
+
+## Produit
+- QG IA multi-tenant : missions HITL, chat, inbox Décisions, Gestion, Administration.
+- UI : https://korymb.eludein.art · API : https://api-korymb.eludein.art
+- Stack : Next.js `admin/` + FastAPI `backend/` · charte **violet** (pas bleu `#0066cc`).
+- Modes : Essentiel / Avancé.
+
+## Navigation réelle
+- Primaire : Briefing, Carte, Missions, Chat, Inbox, Gestion.
+- Mobile : bouton texte **Menu** (pas un ☰ sans label).
+- Essentiel Gestion : Contacts, Messages, Planning, Devis, **Modèles** (`/gestion/playbooks`).
+- Templates avancés : `/administration/templates`.
+- Mémoire : `/administration/memory` · Scheduler : `/administration/autonomie`.
+- **Pas** de section produit « Rapports ».
+- Instance (propriétaire) : **Mes clients** `/administration/portefeuille` (signaux, ouvrir, créer, renommer, pause, file À traiter, archiver puis supprimer) et Enveloppes IA.
+- Visite client : bandeau **Profil Élude** + **Revenir à mon espace**. Le moteur (santé, orchestration, budget, configuration LLM, fiches agents) n'apparaît que pour ce profil. Un admin client garde équipes, intégrations, page publique, activité et science de l'entreprise.
+
+## Aujourd'hui
+- Le briefing (`GET /admin/briefing`) ajoute `project_milestones` : jalons ouverts et faits des projets **actifs**. Les ouverts sont triés par le préfixe `P1 ·` / `P2 ·`.
+- La page montre une section **Jalons** (faits repliés). Cocher un jalon enregistre `done` sur le projet. Aucun ticket d'action, aucune écriture dans l'inbox. Brouillon, pause, terminé et annulé restent absents.
+
+## Chat → projet
+- Depuis le chat, « crée le projet … » écrit un vrai dossier (`/gestion/projets`) et une carte « À faire » par tâche (Missions, kanban, carte, briefing).
+- « Modifie / renomme / coche / retire » un projet ou une tâche appelle `korymb_update_project`. Un playbook ou un template se corrige avec `korymb_save_*` et son id.
+- Les tâches ne lancent pas les agents toutes seules : bouton **Lancer**.
+- Interdit de dire que le chat ne peut pas créer ou modifier un projet, ou de renvoyer vers Projets → +.
+
+## Chat & QCM
+- Question « ce qui marche / ce qui bloque » : deux blocs courts tirés de ce fichier. Pas de roadmap.
+- Répondre d’abord ; QCM seulement sur demande explicite.
+- QCM interactif = fence `korymb-qcm` + widget cliquable.
+- Ne pas inventer un bug CSS `pointer-events: none` sur `.qcm-option`.
+- Pièces jointes → orchestration CIO ; mirror ack actif.
+
+## UX récente
+- Toast global : Mission lancée / Template enregistré / QCM envoyé / clôture.
+- Libellés : **Clôturer** / **Mettre de côté**.
+- Journal d’exécution replié.
+- Recherche mémoire (volets + snapshots).
+
+## Automatisation
+- Playbooks : `/gestion/playbooks` (ex. veille concurrence Fleur seed).
+- Récurrence : tâches autonomes (cron/interval), pas un badge HTML inventé.
+- WordPress = publication de posts après HITL, **pas** formulaire `/old-contact.php`.
+
+## Déploiements à surveiller
+- Front + back : création de projet depuis le chat — dossier Gestion, cartes « À faire », bouton Lancer.
+
+## Interdits (hallucinations fréquentes)
+- Métriques inventées (% abandon, tests 5s).
+- Correctifs « via Resalib » / maquette Figma Drive / patch Apache contact WP.
+- Inventer des écrans Accueil / Rapports / Paramètres hors IA Korymb.
+
+## Rituale maintainer
+1. Mettre à jour **ce fichier** (dates, commits, à redéployer).
+2. `.\scripts\sync-platform-state-memory.ps1` (pousse le volet `developpeur` en mémoire).
+3. Smoke : chat « quel est l’état de la plateforme Korymb ? »

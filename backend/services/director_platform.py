@@ -2,11 +2,19 @@
 from __future__ import annotations
 
 import json
+import re
+import uuid as _uuid
 from datetime import datetime, timedelta
 from typing import Any
+from urllib.parse import quote
+
+# Réponses chat : déjà visibles dans /chat — pas d'archive cloche ni d'email/webhook.
+EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
+SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "memory_applied"})
 
 from database import (
     _user_validated_set,
+    _ws,
     get_hitl_gate,
     list_autonomous_outputs,
     list_director_notifications,
@@ -110,6 +118,23 @@ def _urgency_level(days_open: int, sla_days: int) -> str:
     return "ok"
 
 
+def _severity_band(kind: str, *, urgency: str = "ok", overdue: bool = False) -> str:
+    """Coût d'erreur : critical > high > medium > low."""
+    k = str(kind or "").strip()
+    urg = str(urgency or "ok").strip()
+    if k == "action_ticket":
+        return "critical"
+    if k in {"hitl", "crm_follow_up"}:
+        if urg == "critical" or overdue:
+            return "critical"
+        return "high"
+    if k in {"cio_question", "mission_error"}:
+        return "high"
+    if k in {"closure", "quality", "config_suggestion"}:
+        return "medium"
+    return "low"
+
+
 def _enrich_inbox_item(item: dict, *, job_row: dict | None = None) -> dict:
     kind = str(item.get("kind") or "")
     created_at = str(item.get("created_at") or item.get("updated_at") or "")
@@ -123,6 +148,11 @@ def _enrich_inbox_item(item: dict, *, job_row: dict | None = None) -> dict:
     enriched["sla_days"] = sla
     enriched["days_overdue"] = days_overdue
     enriched["urgency"] = _urgency_level(days_open, sla)
+    enriched["severity"] = _severity_band(
+        kind,
+        urgency=enriched["urgency"],
+        overdue=bool(item.get("overdue")) or days_overdue > 0,
+    )
     enriched["progress_label"] = _progress_label(kind)
     enriched["priority_rank"] = priority_score + 1
     if job_row:
@@ -253,6 +283,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         elif st == "running":
             pass
         pending_cio_questions: list[str] = []
+        pending_cio_specs: dict = {}
         latest_cio_ts = None
         for ev in row.get("events") or []:
             if not isinstance(ev, dict) or ev.get("type") != "cio_question":
@@ -264,9 +295,24 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
             if not isinstance(raw_qs, list):
                 continue
             for q in raw_qs:
-                text = str(q).strip()
+                if isinstance(q, dict):
+                    text = str(q.get("prompt") or q.get("question") or "").strip()
+                    opts = q.get("options") if isinstance(q.get("options"), list) else []
+                    if text and opts and text not in pending_cio_specs:
+                        pending_cio_specs[text] = {
+                            "selection": q.get("selection") if q.get("selection") in ("single", "multi") else "multi",
+                            "options": opts,
+                        }
+                else:
+                    text = str(q).strip()
                 if text and text not in pending_cio_questions:
                     pending_cio_questions.append(text)
+            specs = pl.get("question_specs")
+            if isinstance(specs, dict):
+                for k, v in specs.items():
+                    key = str(k).strip()
+                    if key and key not in pending_cio_specs and isinstance(v, dict):
+                        pending_cio_specs[key] = v
             if ev.get("ts"):
                 latest_cio_ts = ev.get("ts")
         if pending_cio_questions:
@@ -279,6 +325,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "title": (first_q or mission)[:200],
                 "mission": mission[:160],
                 "questions": pending_cio_questions,
+                "question_specs": pending_cio_specs or None,
                 "created_at": cio_created,
                 "updated_at": cio_created,
                 "priority_score": _priority_score("cio_question"),
@@ -417,7 +464,13 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
     except Exception:
         pass
 
-    items.sort(key=lambda x: (x.get("priority_score", 9), str(x.get("updated_at") or "")))
+    items.sort(
+        key=lambda x: (
+            {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(x.get("severity") or "low"), 9),
+            x.get("priority_score", 9),
+            str(x.get("updated_at") or ""),
+        )
+    )
     visible = [i for i in items if not _is_dismissed(i)]
     return {"items": visible[:limit], "total": len(visible)}
 
@@ -477,10 +530,10 @@ def _build_top_priorities(
             "id": str(
                 item.get("ticket_id")
                 or item.get("event_id")
-                or item.get("job_id")
                 or item.get("output_id")
                 or item.get("suggestion_id")
-                or len(out)
+                or item.get("job_id")
+                or f"{item.get('kind')}-{len(out)}"
             ),
             "label": _priority_label(item),
             "href": _priority_href(item),
@@ -526,13 +579,146 @@ def _memory_highlights(limit: int = 3) -> list[dict]:
         return []
 
 
+def _day_anticipation(*, limit: int = 5) -> dict[str, Any]:
+    """Prochaines échéances planning (48 h) — anticipation légère pour le briefing."""
+    lines: list[str] = []
+    events_out: list[dict[str, Any]] = []
+    try:
+        from services.business_db import list_calendar_events
+
+        now = datetime.utcnow()
+        day0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        until = day0 + timedelta(days=2) - timedelta(microseconds=1)
+        rows = list_calendar_events(
+            from_at=day0.isoformat(),
+            to_at=until.isoformat(),
+            limit=40,
+        )
+        today_s = day0.date().isoformat()
+        tomorrow_s = (day0 + timedelta(days=1)).date().isoformat()
+        for row in rows:
+            status = str(row.get("status") or "").strip().lower()
+            if status in {"cancelled", "canceled"}:
+                continue
+            starts = str(row.get("starts_at") or "").strip()
+            title = str(row.get("title") or "Événement").strip()[:80]
+            if not starts or not title:
+                continue
+            day_part = starts[:10]
+            try:
+                dt = datetime.fromisoformat(starts.replace("Z", "+00:00").replace("+00:00", ""))
+                hhmm = dt.strftime("%H:%M")
+            except Exception:
+                hhmm = starts[11:16] if len(starts) >= 16 else ""
+            if day_part == today_s:
+                when = f"Aujourd'hui {hhmm}".strip()
+            elif day_part == tomorrow_s:
+                when = f"Demain {hhmm}".strip()
+            else:
+                when = f"{day_part} {hhmm}".strip()
+            loc = str(row.get("location") or "").strip()
+            line = f"{when} — {title}" + (f" ({loc})" if loc else "")
+            lines.append(line)
+            events_out.append({
+                "id": row.get("id"),
+                "title": title,
+                "starts_at": starts,
+                "when_label": when,
+                "href": f"/gestion/planning/{row.get('id')}" if row.get("id") else "/gestion/planning",
+            })
+            if len(lines) >= limit:
+                break
+    except Exception:
+        lines = []
+        events_out = []
+
+    if not lines:
+        lines = ["Rien d’urgent au planning sur les prochaines 48 h."]
+
+    # Relances CRM dues → une ligne d'anticipation métier
+    try:
+        from services.business_db import list_due_crm_follow_ups
+
+        due = list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=5)
+        overdue_n = sum(1 for e in due if e.get("overdue"))
+        if overdue_n:
+            lines.insert(0, f"{overdue_n} relance{'s' if overdue_n > 1 else ''} commerciale{'s' if overdue_n > 1 else ''} en retard.")
+        elif due:
+            lines.insert(0, f"{len(due)} relance{'s' if len(due) > 1 else ''} commerciale{'s' if len(due) > 1 else ''} due{'s' if len(due) > 1 else ''} aujourd'hui.")
+        lines = lines[:3]
+    except Exception:
+        lines = lines[:3]
+
+    return {
+        "lines": lines[:3],
+        "events": events_out[:limit],
+        "href": "/gestion/planning",
+    }
+
+
+def _memory_digest(*, pending_count: int = 0, highlights: list[dict] | None = None, limit: int = 3) -> dict[str, Any]:
+    """Résumé ultra-court (≤3 lignes) pour le briefing — checkpoint mémoire léger."""
+    lines: list[str] = []
+    pending = max(0, int(pending_count or 0))
+    if pending > 0:
+        lines.append(
+            f"{pending} suggestion{'s' if pending > 1 else ''} mémoire en attente — "
+            "tout intégrer ou ignorer en un geste dans Décisions."
+        )
+
+    try:
+        recent_auto = list_learning_suggestions(status="auto_applied", limit=6)
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        for sug in recent_auto:
+            created = str(sug.get("created_at") or sug.get("resolved_at") or "")
+            if today not in created:
+                continue
+            payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
+            title = str(payload.get("title") or "Mémoire").strip()[:80]
+            if title:
+                lines.append(f"Retenu automatiquement : {title}.")
+            if len(lines) >= limit:
+                break
+    except Exception:
+        pass
+
+    for h in highlights or []:
+        if len(lines) >= limit:
+            break
+        label = str(h.get("label") or h.get("key") or "").strip()
+        snippet = str(h.get("snippet") or "").strip()
+        if not snippet:
+            continue
+        short = snippet if len(snippet) <= 100 else snippet[:97] + "…"
+        lines.append(f"{label} : {short}" if label else short)
+
+    if not lines:
+        lines.append("Mémoire légère pour l’instant — dites « Mémorise : … » dans le chat pour enrichir.")
+
+    return {
+        "lines": lines[:limit],
+        "pending_count": pending,
+        "href": "/inbox" if pending else "/administration/memory",
+    }
+
+
 def _llm_readiness() -> dict[str, Any]:
     """Provider actif + présence de clé. Ne jamais renvoyer la clé."""
     try:
         from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
         from runtime_settings import merge_with_env
 
+        from llm_free_pool import configured_hops, free_pool_active
+
         cfg = merge_with_env()
+        if free_pool_active(cfg):
+            if configured_hops(cfg):
+                return {"ready": True, "provider": "free_pool", "blocker": None}
+            return {
+                "ready": False,
+                "provider": "free_pool",
+                "blocker": "Quota gratuit activé, mais aucune clé Groq, Gemini ou OpenRouter.",
+            }
         provider = normalize_llm_provider(None, cfg)
         if is_chat_completions_provider(provider, cfg):
             try:
@@ -569,11 +755,200 @@ def _recent_error_jobs(jobs: list[dict], *, limit: int = 3) -> list[dict]:
     return out
 
 
+def _jarvis_action_label(kind: str) -> str:
+    if kind in {"action_ticket", "hitl"}:
+        return "Valider"
+    if kind in {"cio_question", "closure"}:
+        return "Décider"
+    return "Ouvrir"
+
+
+def _session_from_conversations(entry: dict, conversations: list[dict]) -> str:
+    """Retrouve le fil dont le message ou le job correspond à la note affichée."""
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    needle = " ".join(str(entry.get("mission") or "").split()).casefold()[:72]
+    if job_id:
+        for conv in conversations:
+            if not isinstance(conv, dict):
+                continue
+            cid = str(conv.get("id") or "").strip()[:64]
+            if not cid:
+                continue
+            if str(conv.get("linked_parent_job_id") or "").strip() == job_id:
+                return cid
+            msgs = conv.get("messages") if isinstance(conv.get("messages"), list) else []
+            for msg in msgs:
+                if not isinstance(msg, dict):
+                    continue
+                mid = str(msg.get("id") or "")
+                if mid in {f"a-{job_id}", f"e-{job_id}", f"ack-{job_id}"}:
+                    return cid
+    if len(needle) < 24:
+        return ""
+    for conv in conversations:
+        if not isinstance(conv, dict):
+            continue
+        cid = str(conv.get("id") or "").strip()[:64]
+        if not cid:
+            continue
+        msgs = conv.get("messages") if isinstance(conv.get("messages"), list) else []
+        for msg in msgs:
+            if not isinstance(msg, dict) or str(msg.get("role") or "") != "user":
+                continue
+            text = " ".join(str(msg.get("content") or "").split()).casefold()
+            if text.startswith(needle) or (len(text) >= 24 and needle.startswith(text[:72])):
+                return cid
+            break
+    return ""
+
+
+def _lookup_chat_session_for_recent(entry: dict) -> str:
+    """Session du job, sinon le fil dont le premier message reprend la note."""
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    try:
+        if job_id:
+            from database import get_job
+
+            row = get_job(job_id) or {}
+            session = str(row.get("chat_session_id") or "").strip()[:64]
+            if session:
+                return session
+        from database import list_chat_conversations
+
+        return _session_from_conversations(entry, list_chat_conversations(limit=40))
+    except Exception:
+        return ""
+
+
+def _chat_resume_href(entry: dict) -> str:
+    """Ouvre le fil concerné. /chat seul crée une conversation vide."""
+    session = str(entry.get("chat_session_id") or "").strip()[:64]
+    job_id = str(entry.get("job_id") or "").strip()[:64]
+    mission = " ".join(str(entry.get("mission") or "").split())
+    if not session and (job_id or len(mission) >= 24):
+        session = _lookup_chat_session_for_recent(entry)
+    if session:
+        return f"/chat?session={quote(session, safe='')}"
+    if job_id:
+        return f"/chat?job={quote(job_id, safe='')}"
+    return "/chat"
+
+
+def build_jarvis_home(
+    *,
+    decisions: list[dict] | None = None,
+    running: list[dict] | None = None,
+    planned: list[dict] | None = None,
+    recent_missions: list[dict] | None = None,
+) -> dict[str, Any]:
+    """Phrase du matin, note d'hier, une action, et la suite visible."""
+    decisions = [d for d in (decisions or []) if isinstance(d, dict)]
+    running = [r for r in (running or []) if isinstance(r, dict)]
+    planned = [p for p in (planned or []) if isinstance(p, dict)]
+    recent = [m for m in (recent_missions or []) if isinstance(m, dict)]
+    bits: list[str] = []
+    if decisions:
+        n = len(decisions)
+        bits.append(f"{n} chose{'s' if n > 1 else ''} à valider")
+    if planned:
+        n = len(planned)
+        bits.append(f"{n} à faire")
+    if running:
+        n = len(running)
+        bits.append(f"{n} en cours")
+    yesterday = None
+    if recent:
+        last = recent[-1]
+        title = " ".join(str(last.get("mission") or "").split())[:90]
+        excerpt = " ".join(str(last.get("preview") or "").split())[:180]
+        spans = last.get("span_ids") if isinstance(last.get("span_ids"), list) else []
+        if title or excerpt:
+            yesterday = {
+                "title": title or "Note d'hier",
+                "excerpt": excerpt,
+                "span_count": len([s for s in spans if s]),
+                "href": _chat_resume_href(last),
+            }
+            bits.append("la suite d'hier")
+    if not bits:
+        line = "Rien d'urgent. Vous pouvez demander quelque chose, ou laisser la journée tranquille."
+    elif len(bits) == 1:
+        line = f"Aujourd'hui : {bits[0]}."
+    else:
+        line = "Aujourd'hui : " + ", ".join(bits[:-1]) + " et " + bits[-1] + "."
+
+    first = decisions[0] if decisions else None
+    if first:
+        next_action = {
+            "label": _jarvis_action_label(str(first.get("kind") or "")),
+            "detail": str(first.get("title") or first.get("mission") or "À valider")[:140],
+            "href": str(first.get("href") or "/inbox"),
+        }
+    elif planned:
+        mission = " ".join(str(planned[0].get("mission") or "").split())[:120]
+        next_action = {
+            "label": "Voir les tâches",
+            "detail": mission or "Un projet attend",
+            "href": "/missions?view=kanban",
+        }
+    elif running:
+        mission = " ".join(str(running[0].get("mission") or "").split())[:120]
+        next_action = {
+            "label": "Voir ce qui avance",
+            "detail": mission or "Un travail est en cours",
+            "href": "/chat",
+        }
+    else:
+        next_action = {
+            "label": "Demander",
+            "detail": "Une phrase suffit.",
+            "href": "/chat",
+        }
+
+    suite = [
+        {
+            "id": "source",
+            "label": "Voir d'où vient une réponse",
+            "detail": "Dans la conversation, ouvrez « D'où ça vient ».",
+            "href": "/chat",
+            "ready": True,
+        },
+        {
+            "id": "validate",
+            "label": "Rien ne part sans votre oui",
+            "detail": "Un envoi s'arrête ici, jusqu'au clic.",
+            "href": "/inbox",
+            "ready": True,
+        },
+        {
+            "id": "voice",
+            "label": "Parler à voix haute",
+            "detail": "Plus tard.",
+            "href": "",
+            "ready": False,
+        },
+        {
+            "id": "one-screen",
+            "label": "Un seul écran, sans menus",
+            "detail": "Plus tard.",
+            "href": "",
+            "ready": False,
+        },
+    ]
+    return {
+        "line": line,
+        "yesterday": yesterday,
+        "next_action": next_action,
+        "suite": suite,
+    }
+
+
 def _build_executive_summary(
     *,
     inbox_total: int,
     hitl_count: int,
     running_count: int,
+    todo_count: int = 0,
     budget: dict,
     analytics: dict,
     llm_blocker: str | None = None,
@@ -595,6 +970,8 @@ def _build_executive_summary(
         parts.append(dec + " bloquent l'avancement")
     elif running_count > 0:
         parts.append(f"Journée dégagée — {running_count} mission{'s' if running_count > 1 else ''} en cours")
+    elif todo_count > 0:
+        parts.append(f"{todo_count} tâche{'s' if todo_count > 1 else ''} à faire")
     elif not llm_blocker:
         parts.append("Aucune action urgente — votre file est vide")
 
@@ -634,6 +1011,284 @@ def _build_executive_summary(
         return first[0].upper() + first[1:] + "."
     return (first[0].upper() + first[1:]) + " ; " + " ; ".join(parts[1:]) + "."
 
+_PROPOSAL_KINDS = frozenset({"learning_suggestion", "config_suggestion", "scheduler_output"})
+
+_BOARD_WHERE = {
+    "hitl": "Décisions",
+    "action_ticket": "Décisions",
+    "cio_question": "Décisions",
+    "closure": "Décisions",
+    "quality": "Décisions",
+    "mission_error": "Missions",
+    "crm_follow_up": "Planning",
+    "learning_suggestion": "Mémoire",
+    "config_suggestion": "Configuration",
+    "scheduler_output": "Décisions",
+    "config": "Configuration",
+}
+
+
+def _board_item_id(item: dict) -> str:
+    return str(
+        item.get("id")
+        or item.get("ticket_id")
+        or item.get("event_id")
+        or item.get("output_id")
+        or item.get("suggestion_id")
+        or item.get("job_id")
+        or item.get("kind")
+        or ""
+    )
+
+
+def _inbox_board_row(item: dict) -> dict[str, str]:
+    kind = str(item.get("kind") or "")
+    return {
+        "id": _board_item_id(item),
+        "title": _priority_label(item),
+        "where": _BOARD_WHERE.get(kind, "Décisions"),
+        "href": str(item.get("href") or _priority_href(item)),
+        "kind": kind,
+        "severity": str(item.get("severity") or "low"),
+        "detail": str(item.get("progress_label") or _progress_label(kind)),
+    }
+
+
+def _extra_board_row(item: dict) -> dict[str, str]:
+    urgency = str(item.get("urgency") or "high")
+    severity = "critical" if urgency == "critical" else "high" if urgency in {"high", "warning"} else "medium"
+    href = str(item.get("href") or "/configuration")
+    kind = str(item.get("kind") or "config")
+    if item.get("where"):
+        where = str(item.get("where"))
+    elif "budget" in href:
+        where = "Budget"
+    else:
+        where = _BOARD_WHERE.get(kind, "Configuration")
+    return {
+        "id": _board_item_id(item) or kind,
+        "title": str(item.get("label") or item.get("title") or "Avertissement"),
+        "where": where,
+        "href": href,
+        "kind": kind,
+        "severity": severity,
+        "detail": "Bloque les missions" if severity == "critical" else "À surveiller",
+    }
+
+
+_STEP_PRIORITY_RE = re.compile(
+    r"^\s*P(?P<priority>\d{1,2})\s*[·•.|:\-]\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_STEP_STATUS_RE = re.compile(
+    r"^(?P<status>[^—–]{1,48}?)\s*[—–]\s*(?P<title>.+)$",
+)
+
+
+def parse_project_step_label(label: str) -> dict[str, Any]:
+    """Lit un préfixe « P1 · À faire — … » sans exiger ce format."""
+    raw = (label or "").strip()
+    priority: int | None = None
+    status = ""
+    title = raw
+    match = _STEP_PRIORITY_RE.match(raw)
+    rest = raw
+    if match:
+        priority = int(match.group("priority"))
+        rest = match.group("rest").strip()
+        title = rest or raw
+    status_match = _STEP_STATUS_RE.match(rest) if match else None
+    if status_match:
+        status = status_match.group("status").strip()
+        title = status_match.group("title").strip() or rest or raw
+    return {"priority": priority, "status": status, "title": title or raw}
+
+
+def _milestone_is_done(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "oui", "done", "fait"}
+    return bool(value)
+
+
+def build_project_milestones() -> dict[str, list[dict[str, Any]]]:
+    """Jalons des projets actifs, lus seuls. N'écrit ni inbox ni ticket d'action.
+
+    ``open`` est trié par le préfixe P1 / P2 lorsqu'il est présent. ``done`` garde
+    l'ordre du projet. Un échec de lecture laisse les deux listes vides.
+    """
+    empty: dict[str, list[dict[str, Any]]] = {"open": [], "done": []}
+    try:
+        from services.business_db import list_projects
+
+        projects = list_projects(status="active", limit=200)
+    except Exception:
+        return empty
+    open_rows: list[tuple[int, int, dict[str, Any]]] = []
+    done_rows: list[dict[str, Any]] = []
+    sequence = 0
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        milestones = project.get("milestones") or []
+        if not isinstance(milestones, list):
+            continue
+        project_id = str(project.get("id") or "").strip()
+        project_title = str(project.get("title") or "").strip()
+        href = f"/gestion/projets/{quote(project_id)}" if project_id else "/gestion/projets"
+        for index, item in enumerate(milestones):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label:
+                continue
+            parsed = parse_project_step_label(label)
+            priority = parsed.get("priority")
+            status = str(parsed.get("status") or "").strip()
+            title = str(parsed.get("title") or label).strip() or label
+            row = {
+                "project_id": project_id,
+                "project_title": project_title,
+                "index": index,
+                "label": label[:2000],
+                "title": title[:180],
+                "priority": priority if isinstance(priority, int) else None,
+                "status": status[:48],
+                "done": _milestone_is_done(item.get("done")),
+                "href": href,
+            }
+            if row["done"]:
+                done_rows.append(row)
+                continue
+            sequence += 1
+            rank = priority if isinstance(priority, int) else 10_000
+            open_rows.append((rank, sequence, row))
+    open_rows.sort(key=lambda item: (item[0], item[1]))
+    return {"open": [row for _, _, row in open_rows], "done": done_rows}
+
+
+def _warn_row(*, id: str, title: str, where: str, href: str, severity: str) -> dict[str, str]:
+    return {
+        "id": id,
+        "title": title,
+        "where": where,
+        "href": href,
+        "kind": "warning",
+        "severity": severity,
+        "detail": "",
+    }
+
+
+def build_ops_board(
+    inbox_items: list[dict],
+    *,
+    extras: list[dict] | None = None,
+    recent_errors: list[dict] | None = None,
+    commercial: dict | None = None,
+    budget: dict | None = None,
+) -> dict[str, Any]:
+    """Découpe le briefing en files lisibles : urgent, à faire, propositions, avertissements."""
+    actions: list[dict[str, str]] = []
+    proposals: list[dict[str, str]] = []
+    for item in inbox_items:
+        if not isinstance(item, dict):
+            continue
+        row = _inbox_board_row(item)
+        if row["kind"] in _PROPOSAL_KINDS:
+            proposals.append(row)
+        else:
+            actions.append(row)
+
+    urgent = [row for row in actions if row["severity"] in {"critical", "high"}]
+    todo = [row for row in actions if row["severity"] not in {"critical", "high"}]
+    extra_rows = [_extra_board_row(item) for item in (extras or []) if isinstance(item, dict)]
+    front = [row for row in extra_rows if row["severity"] in {"critical", "high"}]
+    urgent = front + urgent
+
+    warnings: list[dict[str, str]] = list(extra_rows)
+    seen = {row["id"] for row in urgent if row.get("id")}
+    for err in recent_errors or []:
+        if not isinstance(err, dict):
+            continue
+        job_id = str(err.get("job_id") or "").strip()
+        if not job_id or job_id in seen:
+            continue
+        mission = str(err.get("mission") or "").strip() or job_id
+        detail = str(err.get("error") or "").strip()
+        title = f"Échec — {mission}" if not detail else f"Échec — {mission} : {detail}"
+        warnings.append(_warn_row(
+            id=f"err-{job_id}",
+            title=title[:160],
+            where="Missions",
+            href=f"/missions?job={quote(job_id)}",
+            severity="high",
+        ))
+        seen.add(job_id)
+
+    counts = (commercial or {}).get("counts") if isinstance(commercial, dict) else {}
+    counts = counts if isinstance(counts, dict) else {}
+    overdue = int(counts.get("follow_ups_overdue") or 0)
+    due = int(counts.get("follow_ups_due_today") or 0)
+    if overdue:
+        warnings.append(_warn_row(
+            id="crm-overdue",
+            title=f"{overdue} relance{'s' if overdue > 1 else ''} en retard",
+            where="Planning",
+            href="/gestion/planning",
+            severity="high",
+        ))
+    elif due:
+        warnings.append(_warn_row(
+            id="crm-due",
+            title=f"{due} relance{'s' if due > 1 else ''} aujourd'hui",
+            where="Planning",
+            href="/gestion/planning",
+            severity="medium",
+        ))
+    stale = int(counts.get("stale_quotes") or 0)
+    if stale:
+        warnings.append(_warn_row(
+            id="stale-quotes",
+            title=f"{stale} devis sans suite",
+            where="Devis",
+            href="/gestion/devis",
+            severity="medium",
+        ))
+    needs_reply = int(counts.get("email_threads_needs_reply") or 0)
+    if needs_reply:
+        warnings.append(_warn_row(
+            id="mail-reply",
+            title=f"{needs_reply} message{'s' if needs_reply > 1 else ''} sans réponse",
+            where="Courrier",
+            href="/gestion/courrier",
+            severity="high",
+        ))
+
+    budget = budget or {}
+    budget_href = "/administration/budget"
+    already_budget = any(str(row.get("href") or "").startswith(budget_href) for row in warnings)
+    if (budget.get("budget_exceeded") or budget.get("alert")) and not already_budget:
+        warnings.append(_warn_row(
+            id="budget",
+            title="Budget IA dépassé" if budget.get("budget_exceeded") else "Alerte budget IA",
+            where="Budget",
+            href=budget_href,
+            severity="critical" if budget.get("budget_exceeded") else "high",
+        ))
+
+    return {
+        "urgent": urgent[:6],
+        "todo": todo[:8],
+        "proposals": proposals[:6],
+        "warnings": warnings[:8],
+        "counts": {
+            "urgent": len(urgent),
+            "todo": len(todo),
+            "proposals": len(proposals),
+            "warnings": len(warnings),
+        },
+    }
+
+
 def _ritual_status(inbox_total: int, budget: dict, *, llm_ready: bool = True) -> str:
     if not llm_ready:
         return "config_blocked"
@@ -648,6 +1303,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
     jobs = list_jobs_summary(limit=100)
     inbox = build_enriched_inbox(limit=50, jobs=jobs)
     running = [j for j in jobs if str(j.get("status") or "") == "running" and str(j.get("source") or "") != "chat"]
+    planned = [j for j in jobs if str(j.get("status") or "") == "planned" and str(j.get("source") or "") != "chat"]
     hitl_pending = [j for j in jobs if str(j.get("status") or "") == "awaiting_validation"]
     closures = [i for i in inbox["items"] if i.get("kind") == "closure"]
     scheduler_pending = [i for i in inbox["items"] if i.get("kind") == "scheduler_output"]
@@ -665,8 +1321,8 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         from database import get_conn
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT status FROM jobs WHERE updated_at >= ?",
-                (since.isoformat(),),
+                "SELECT status FROM jobs WHERE workspace_id=? AND updated_at >= ?",
+                (_ws(), since.isoformat()),
             ).fetchall()
         statuses = [str(dict(r).get("status") or "") for r in rows or []]
         analytics = {
@@ -694,6 +1350,36 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
             "kind": "config",
             "urgency": "critical",
         })
+    llm_envelope: dict[str, Any] = {}
+    try:
+        from services.llm_envelope import envelope_status
+
+        llm_envelope = envelope_status()
+        if llm_envelope.get("blocked"):
+            extra_priorities.append({
+                "id": "llm-envelope",
+                "label": (
+                    "L'IA de cet espace est en pause."
+                    if llm_envelope.get("paused")
+                    else "L'enveloppe IA de cet espace est atteinte pour ce mois."
+                ),
+                "href": "/administration/budget",
+                "kind": "config",
+                "urgency": "critical",
+            })
+        elif llm_envelope.get("warn"):
+            extra_priorities.append({
+                "id": "llm-envelope",
+                "label": (
+                    f"Enveloppe IA : {llm_envelope.get('percent')} % utilisée ce mois "
+                    f"({llm_envelope.get('tokens_remaining')} tokens restants)."
+                ),
+                "href": "/administration/budget",
+                "kind": "config",
+                "urgency": "high",
+            })
+    except Exception:
+        llm_envelope = {}
     commercial: dict[str, Any] = {}
     try:
         from services.business_db import get_commercial_morning_snapshot
@@ -714,6 +1400,7 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         inbox_total=inbox["total"],
         hitl_count=len(hitl_pending),
         running_count=len(running),
+        todo_count=len(planned),
         budget=budget_block,
         analytics=analytics,
         llm_blocker=str(llm_readiness.get("blocker") or "") or None,
@@ -721,12 +1408,65 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         unconsulted_count=len(unconsulted),
     )
 
+    memory_highlights = _memory_highlights()
+    pending_memory = sum(
+        1 for it in (inbox.get("items") or []) if str(it.get("kind") or "") == "learning_suggestion"
+    )
+    severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for it in inbox.get("items") or []:
+        band = str(it.get("severity") or "low")
+        if band in severity_counts:
+            severity_counts[band] += 1
+        else:
+            severity_counts["low"] += 1
+
+    thinking_modes_list: list[dict[str, str]] = []
+    try:
+        from services.thinking_modes import list_thinking_modes_public
+
+        thinking_modes_list = list_thinking_modes_public()
+    except Exception:
+        thinking_modes_list = []
+
+    recent_missions: list[dict] = []
+    try:
+        from database import get_enterprise_memory
+
+        mem = get_enterprise_memory()
+        raw_recent = mem.get("recent_missions") if isinstance(mem, dict) else []
+        recent_missions = [m for m in (raw_recent or []) if isinstance(m, dict)]
+    except Exception:
+        recent_missions = []
+    jarvis = build_jarvis_home(
+        decisions=list(inbox.get("items") or [])[:5],
+        running=running[:10],
+        planned=planned[:10],
+        recent_missions=recent_missions,
+    )
+
+    board = build_ops_board(
+        list(inbox.get("items") or []),
+        extras=extra_priorities,
+        recent_errors=recent_errors,
+        commercial=commercial,
+        budget=budget_block,
+    )
+    project_milestones = build_project_milestones()
+
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
+        "board": board,
+        "project_milestones": project_milestones,
+        "llm_envelope": llm_envelope,
         "executive_summary": executive_summary,
+        "jarvis": jarvis,
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
-        "memory_highlights": _memory_highlights(),
+        "memory_highlights": memory_highlights,
+        "memory_digest": _memory_digest(pending_count=pending_memory, highlights=memory_highlights),
+        "day_anticipation": _day_anticipation(),
+        "thinking_modes": thinking_modes_list,
+        "inbox_severity": severity_counts,
         "ritual_status": _ritual_status(
             inbox["total"],
             budget_block,
@@ -740,6 +1480,10 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "missions_running": [
             {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
             for j in running[:10]
+        ],
+        "missions_todo": [
+            {"job_id": j.get("id"), "mission": (j.get("mission") or "")[:120], "agent": j.get("agent"), "updated_at": j.get("updated_at")}
+            for j in planned[:12]
         ],
         "unconsulted_results": unconsulted,
         "unconsulted_results_count": len(unconsulted),
@@ -760,39 +1504,49 @@ def emit_director_notification(
     job_id: str | None = None,
     output_id: str | None = None,
     action_url: str | None = None,
+    suggestion_id: str | None = None,
 ) -> dict:
-    row = insert_director_notification(
-        kind=kind,
-        title=title,
-        body=body,
-        job_id=job_id,
-        output_id=output_id,
-        action_url=action_url,
-    )
-    enqueue_job_sse_event({
-        "type": "director_notification",
-        "kind": kind,
-        "title": title,
-        "body": body,
-        "job_id": job_id,
-        "output_id": output_id,
-        "action_url": action_url,
-        "id": row.get("id"),
-        "ts": datetime.utcnow().isoformat(),
-    })
-    try:
-        from services.notifications import dispatch_external_notification
-
-        dispatch_external_notification(
-            kind=kind,
+    kind_norm = (kind or "info").strip().lower()[:32]
+    ephemeral = kind_norm in EPHEMERAL_NOTIFICATION_KINDS
+    if ephemeral:
+        row = {"id": f"eph-{_uuid.uuid4().hex[:12]}"}
+    else:
+        row = insert_director_notification(
+            kind=kind_norm,
             title=title,
             body=body,
             job_id=job_id,
             output_id=output_id,
             action_url=action_url,
+            suggestion_id=suggestion_id,
         )
-    except Exception:
-        pass
+    enqueue_job_sse_event({
+        "type": "director_notification",
+        "kind": kind_norm,
+        "title": title,
+        "body": body,
+        "job_id": job_id,
+        "output_id": output_id,
+        "action_url": action_url,
+        "suggestion_id": suggestion_id,
+        "id": row.get("id"),
+        "ephemeral": ephemeral,
+        "ts": datetime.utcnow().isoformat(),
+    })
+    if not ephemeral and kind_norm not in SKIP_EXTERNAL_NOTIFICATION_KINDS:
+        try:
+            from services.notifications import dispatch_external_notification
+
+            dispatch_external_notification(
+                kind=kind_norm,
+                title=title,
+                body=body,
+                job_id=job_id,
+                output_id=output_id,
+                action_url=action_url,
+            )
+        except Exception:
+            pass
     return row
 
 

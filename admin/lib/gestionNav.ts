@@ -1,6 +1,6 @@
 /** Navigation Gestion entreprise — source unique (header, sidebar, Ctrl+K). */
 
-export type GestionNavGroupId = "creation" | "activite";
+export type GestionNavGroupId = "creation" | "equipes" | "activite";
 
 export type GestionNavLink = {
   href: string;
@@ -23,6 +23,7 @@ export const GESTION_HUB_HREF = "/gestion";
 
 export const GESTION_NAV_GROUP_LABELS: Record<GestionNavGroupId, string> = {
   creation: "Création",
+  equipes: "Équipes projet",
   activite: "Activité",
 };
 
@@ -36,6 +37,13 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
     exact: true,
   },
   {
+    href: "/carte",
+    label: "Carte",
+    hint: "Graphe équipes · missions · projets",
+    icon: "🗺️",
+    group: "equipes",
+  },
+  {
     href: "/gestion/studio",
     label: "Studio",
     hint: "Articles, PDF, podcasts, vidéo, réseaux",
@@ -44,28 +52,35 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   },
   {
     href: "/gestion/playbooks",
-    label: "Playbooks",
-    hint: "Scénarios prêts à lancer",
+    label: "Modèles",
+    hint: "Demandes prêtes à lancer",
     icon: "📋",
     group: "creation",
   },
   {
     href: "/gestion/livrables",
-    label: "Livrables",
-    hint: "Bibliothèque des pièces produites",
+    label: "Documents",
+    hint: "Pièces produites",
     icon: "📦",
     group: "creation",
   },
   {
+    href: "/gestion/equipes",
+    label: "Équipes projet",
+    hint: "Contextes de travail avec les autres groupes",
+    icon: "🤝",
+    group: "equipes",
+  },
+  {
     href: "/gestion/contacts",
-    label: "Contacts",
-    hint: "Prospects, clients, partenaires",
+    label: "Personnes",
+    hint: "Personnes et organisations",
     icon: "👤",
     group: "activite",
   },
   {
     href: "/gestion/courrier",
-    label: "Courrier",
+    label: "Messages",
     hint: "Réponses, en attente, brouillons",
     icon: "✉️",
     group: "activite",
@@ -73,14 +88,14 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   {
     href: "/gestion/projets",
     label: "Projets",
-    hint: "Séances, stages, modules pro",
+    hint: "Dossiers liés à votre activité",
     icon: "📁",
     group: "activite",
   },
   {
     href: "/gestion/planning",
-    label: "Planning",
-    hint: "Rendez-vous et documents à partager",
+    label: "Calendrier",
+    hint: "Rendez-vous et contenus à partager",
     icon: "📅",
     group: "activite",
   },
@@ -96,7 +111,7 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
 export const GESTION_QUICK_ACTIONS: readonly GestionQuickAction[] = [
   { id: "studio", href: "/gestion/studio", label: "Produire un contenu", hint: "Ouvrir le studio" },
   { id: "new-resource", href: "/gestion/planning/nouveau?resource=1", label: "Ajouter un document", hint: "PDF, vidéo, podcast" },
-  { id: "new-contact", href: "/gestion/contacts/nouveau", label: "Nouveau contact", hint: "Créer un contact" },
+  { id: "new-contact", href: "/gestion/contacts/nouveau", label: "Nouvelle personne", hint: "Ajouter quelqu'un" },
   { id: "new-event", href: "/gestion/planning/nouveau", label: "Planifier un rendez-vous", hint: "Ajouter au planning" },
   { id: "new-quote", href: "/gestion/devis/nouveau", label: "Nouveau devis", hint: "Créer un devis" },
 ] as const;
@@ -110,11 +125,60 @@ export function isGestionLinkActive(pathname: string, link: GestionNavLink): boo
   return pathname === link.href || pathname.startsWith(`${link.href}/`);
 }
 
-export function groupedGestionNavLinks(): { id: GestionNavGroupId; label: string; links: GestionNavLink[] }[] {
-  const order: GestionNavGroupId[] = ["creation", "activite"];
+/** Liens Gestion en mode Essentiel : quotidien + modèles prêts à lancer. */
+export const ESSENTIAL_GESTION_HREFS = new Set([
+  GESTION_HUB_HREF,
+  "/gestion/playbooks",
+  "/gestion/contacts",
+  "/gestion/courrier",
+  "/gestion/planning",
+  "/gestion/devis",
+]);
+
+export function filterGestionNavLinks(
+  links: readonly GestionNavLink[],
+  opts: { essential: boolean },
+): GestionNavLink[] {
+  if (!opts.essential) return [...links];
+  return links.filter((l) => ESSENTIAL_GESTION_HREFS.has(l.href));
+}
+
+export function groupedGestionNavLinks(essential = false): {
+  id: GestionNavGroupId;
+  label: string;
+  links: GestionNavLink[];
+}[] {
+  const filtered = filterGestionNavLinks(GESTION_NAV_LINKS, { essential });
+  const order: GestionNavGroupId[] = essential
+    ? ["creation", "activite"]
+    : ["creation", "equipes", "activite"];
   return order.map((id) => ({
     id,
     label: GESTION_NAV_GROUP_LABELS[id],
-    links: GESTION_NAV_LINKS.filter((link) => link.group === id && !link.exact) as GestionNavLink[],
-  }));
+    links: filtered.filter((link) => link.group === id && !link.exact) as GestionNavLink[],
+  })).filter((g) => g.links.length > 0);
+}
+
+export function gestionNavGroupHeadingClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "text-violet-700 dark:text-violet-300";
+  if (id === "equipes") return "text-sky-700 dark:text-sky-300";
+  return "text-emerald-700 dark:text-emerald-300";
+}
+
+export function gestionNavGroupCompactClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "text-violet-500 dark:text-violet-300";
+  if (id === "equipes") return "text-sky-500 dark:text-sky-300";
+  return "text-emerald-500 dark:text-emerald-300";
+}
+
+export function gestionNavGroupCardBorderClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "border-violet-100 hover:border-violet-300 dark:border-violet-800 dark:hover:border-violet-500";
+  if (id === "equipes") return "border-sky-100 hover:border-sky-300 dark:border-sky-800 dark:hover:border-sky-500";
+  return "border-emerald-100 hover:border-emerald-300 dark:border-emerald-800 dark:hover:border-emerald-500";
+}
+
+export function gestionNavGroupTitleHoverClass(id: GestionNavGroupId): string {
+  if (id === "creation") return "group-hover:text-violet-900 dark:group-hover:text-violet-200";
+  if (id === "equipes") return "group-hover:text-sky-900 dark:group-hover:text-sky-200";
+  return "group-hover:text-emerald-900 dark:group-hover:text-emerald-200";
 }

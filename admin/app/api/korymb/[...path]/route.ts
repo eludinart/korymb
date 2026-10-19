@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isProxyUnprotected, resolveProxySecret } from "../../../../lib/proxySecret";
+import { isProxyUnprotected } from "../../../../lib/proxyPaths";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
@@ -11,7 +11,9 @@ function targetPath(path: string[]) {
 function upstreamTimeoutMs(joinedPath: string): number {
   const p = joinedPath.toLowerCase();
   if (p === "health" || p === "health/live" || p === "health/database" || p === "llm") return 8_000;
+  if (p === "chat" || p === "chat/stream" || p === "chat/voice") return 120_000;
   if (p.startsWith("admin/reprise")) return 90_000;
+  if (p.startsWith("context-guide")) return 60_000;
   if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
   if (p.includes("emails/suggest-replies")) return 60_000;
   if (p.includes("emails/send")) return 60_000;
@@ -22,24 +24,27 @@ function upstreamTimeoutMs(joinedPath: string): number {
 
 /** Headers upstream propres — ne jamais cloner request.headers (hop-by-hop / content-length
  *  provoquent `fetch failed` côté undici sur PATCH/POST). */
-function withSecretHeaders(request: NextRequest, joinedPath: string, secret: string) {
+function withSessionHeaders(request: NextRequest, joinedPath = "") {
   const headers = new Headers();
   headers.set("Content-Type", "application/json");
-  headers.set("Accept", "application/json");
+  const p = joinedPath.toLowerCase();
+  headers.set(
+    "Accept",
+    p === "chat/voice"
+      ? "audio/mpeg"
+      : p === "chat/stream" || p.endsWith("/stream")
+        ? "text/event-stream"
+        : "application/json",
+  );
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-    if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
-  } else if (!isProxyUnprotected(joinedPath) && secret) {
-    headers.set("X-Agent-Secret", secret);
-  }
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   return headers;
 }
 
 async function proxy(request: NextRequest, path: string[]) {
   const joinedPath = path.join("/");
-  const secret = resolveProxySecret();
   if (!joinedPath) {
     return NextResponse.json({ error: "Path manquant" }, { status: 400 });
   }
@@ -54,12 +59,9 @@ async function proxy(request: NextRequest, path: string[]) {
   }
   if (!isProxyUnprotected(joinedPath)) {
     const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
-    if (!token && !secret) {
+    if (!token) {
       return NextResponse.json(
-        {
-          error:
-            "Authentification requise — connectez-vous ou configurez KORYMB_AGENT_SECRET côté serveur Next.",
-        },
+        { error: "Authentification requise — connectez-vous." },
         { status: 401 },
       );
     }
@@ -78,7 +80,7 @@ async function proxy(request: NextRequest, path: string[]) {
     const rawBody = hasBody ? await request.text() : "";
     response = await fetch(upstream, {
       method: request.method,
-      headers: withSecretHeaders(request, joinedPath, secret),
+      headers: withSessionHeaders(request, joinedPath),
       cache: "no-store",
       signal: controller.signal,
       // Chaîne vide → undefined : évite un Content-Length forcé à tort par undici
@@ -106,6 +108,27 @@ async function proxy(request: NextRequest, path: string[]) {
   }
 
   const contentType = response.headers.get("content-type") || "application/json";
+  if (contentType.includes("audio/") || contentType.includes("mpeg")) {
+    const audio = await response.arrayBuffer();
+    return new NextResponse(audio, {
+      status: response.status,
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "no-store, max-age=0",
+      },
+    });
+  }
+  if (contentType.includes("text/event-stream") && response.body) {
+    return new NextResponse(response.body, {
+      status: response.status,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
   const raw = await response.text();
   return new NextResponse(raw, {
     status: response.status,

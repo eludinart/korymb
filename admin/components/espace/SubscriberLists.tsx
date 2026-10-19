@@ -32,7 +32,7 @@ export function SubscriberSpaceStatus({
       <p className="mt-2 text-sm text-red-800">
         {error instanceof Error ? error.message : "Connectez-vous avec un compte participant."}
       </p>
-      <Link href={`/p/${encodeURIComponent(slug || "eludein")}`} className="mt-4 inline-block font-semibold underline">
+      <Link href={slug ? `/p/${encodeURIComponent(slug)}` : "/"} className="mt-4 inline-block font-semibold underline">
         Voir la vitrine
       </Link>
     </div>
@@ -100,7 +100,7 @@ function coverOf(ev: StorefrontEvent) {
 export function SessionList({ events, hideEmpty }: { events: StorefrontEvent[]; hideEmpty?: boolean }) {
   if (events.length === 0) {
     if (hideEmpty) return null;
-    return <p className="mt-3 text-sm text-slate-600">Aucune séance, atelier ou visio n’est encore ouvert.</p>;
+    return <p className="mt-3 text-sm text-slate-600">Aucun rendez-vous n’est encore ouvert.</p>;
   }
   return (
     <ul className="mt-4 grid gap-4 sm:grid-cols-2">

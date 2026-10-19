@@ -18,6 +18,25 @@ def test_post_run_creates_job(client):
     mock_sched.assert_called_once()
 
 
+def test_post_run_keeps_agent_group_in_config(client):
+    with patch("routers.core_missions._schedule_mission_execution") as mock_sched:
+        r = client.post(
+            "/run",
+            json={
+                "mission": "Chapitre 1 isolé",
+                "agent": "coordinateur",
+                "mission_config": {
+                    "agent_group_id": "grp_livre",
+                    "orchestrator_key": "editeur_en_chef",
+                },
+            },
+        )
+    assert r.status_code == 200
+    cfg = mock_sched.call_args.kwargs["mission_config"]
+    assert cfg["agent_group_id"] == "grp_livre"
+    assert cfg["orchestrator_key"] == "editeur_en_chef"
+
+
 def test_get_job_detail_shape(client):
     from database import save_job
 
@@ -31,6 +50,26 @@ def test_get_job_detail_shape(client):
     assert "status" in body
     assert "mission" in body
     assert "events" in body or "events_total" in body
+
+
+def test_jobs_cards_keep_project_id(client):
+    from database import insert_planned_job
+
+    insert_planned_job(
+        "prjcard1",
+        "coordinateur",
+        "Documentation — Pizza Lucio",
+        source="project",
+        mission_config={"mode": "cio", "project_id": "prj-abc", "origin": "chat"},
+    )
+    cards = client.get("/jobs/cards?limit=40")
+    assert cards.status_code == 200
+    row = next(j for j in cards.json()["jobs"] if j["job_id"] == "prjcard1")
+    assert row["mission_config"]["project_id"] == "prj-abc"
+
+    detail = client.get("/jobs/prjcard1")
+    assert detail.status_code == 200
+    assert detail.json()["mission_config"]["project_id"] == "prj-abc"
 
 
 def test_get_jobs_list(client):

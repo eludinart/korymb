@@ -8,7 +8,10 @@ import CioPlanHitlPanel from "../CioPlanHitlPanel";
 import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
+import { useActionToast } from "../../lib/actionToast";
 import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
+import type { QuestionSpecMap } from "../../lib/choiceQuestionnaire";
+import { specsFromQuestionItems } from "../../lib/choiceQuestionnaire";
 import {
   useCioAnswersAndResume,
   useHitlResolve,
@@ -44,10 +47,14 @@ export type InboxActionItem = {
   days_overdue?: number;
   sla_days?: number;
   urgency?: "ok" | "warning" | "critical";
+  /** Coût d'erreur : critical | high | medium | low */
+  severity?: "critical" | "high" | "medium" | "low" | string;
   progress_label?: string;
   priority_score?: number;
   priority_rank?: number;
   questions?: string[];
+  /** Options QCM par libellé de question (CIO). */
+  question_specs?: Record<string, { selection?: string; options?: Array<{ id?: string; label?: string } | string> }>;
   hitl_kind?: string;
   action_kind?: string;
   primary_cta?: string;
@@ -106,6 +113,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   );
   const [hidden, setHidden] = useState(false);
   const [chainFeedback, setChainFeedback] = useState<string[] | null>(null);
+  const [chainLink, setChainLink] = useState("");
+  const [doneFlash, setDoneFlash] = useState("");
+  const { pushToast } = useActionToast();
   const jobId = item.job_id || "";
 
   const jobAnswersQuery = useQuery({
@@ -143,27 +153,35 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     setHidden(true);
     onDismissed?.();
   };
-  const showChainThenHide = (data: { chain?: { steps?: string[] } } | undefined) => {
+  const flashDoneThenHide = (message: string) => {
+    setDoneFlash(message);
+    window.setTimeout(() => hideFromInbox(), 1400);
+  };
+  const showChainThenHide = (data: { chain?: { steps?: string[]; link?: string } } | undefined) => {
     const steps = data?.chain?.steps;
+    const link = String(data?.chain?.link || "").trim();
+    if (link) setChainLink(link);
     if (Array.isArray(steps) && steps.length) {
       setChainFeedback(steps.map(String));
-      window.setTimeout(() => hideFromInbox(), 1600);
+      if (!link) window.setTimeout(() => hideFromInbox(), 1600);
+    } else if (link) {
+      setChainFeedback(["Article publié avec succès"]);
     } else {
-      hideFromInbox();
+      flashDoneThenHide("Action effectuée.");
     }
   };
-  const validateMut = useValidateMission(jobId, hideFromInbox);
-  const closeMut = useCloseMission(jobId, hideFromInbox);
+  const validateMut = useValidateMission(jobId, () => flashDoneThenHide("Mission validée."));
+  const closeMut = useCloseMission(jobId, () => flashDoneThenHide("Mission terminée."));
   const schedApprove = useSchedulerApprove();
   const schedReject = useSchedulerReject();
   const learningMut = useLearningResolve();
-  const configMut = useConfigSuggestionResolve(hideFromInbox);
+  const configMut = useConfigSuggestionResolve(() => flashDoneThenHide("Suggestion appliquée."));
   const qualityMut = useQualityOverride(jobId);
-  const dismissMut = useInboxDismiss(hideFromInbox);
+  const dismissMut = useInboxDismiss(() => flashDoneThenHide("Retiré de Décisions."));
   const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
     showChainThenHide(data as { chain?: { steps?: string[] } });
   });
-  const completeFollowUpMut = useCompleteCrmFollowUp(hideFromInbox);
+  const completeFollowUpMut = useCompleteCrmFollowUp(() => flashDoneThenHide("Suivi marqué comme fait."));
 
   const busy =
     hitlResolve.isPending ||
@@ -184,7 +202,20 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     if (!item.ticket_id) return;
     actionResolve.mutate(
       { ticketId: item.ticket_id, decision: "approve" },
-      { onSuccess: (data) => showChainThenHide(data as { chain?: { steps?: string[] } }) },
+      {
+        onSuccess: (data) => {
+          const resolved = data as { chain?: { steps?: string[]; link?: string } };
+          if (item.action_kind === "wordpress") {
+            const link = String(resolved.chain?.link || "").trim();
+            pushToast(link ? `Article publié avec succès — ${link}` : "Article publié avec succès");
+          }
+          showChainThenHide(resolved);
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Action impossible";
+          pushToast(/^échec\s*:/i.test(msg) ? msg : `Échec : ${msg}`, "error");
+        },
+      },
     );
   };
 
@@ -216,10 +247,10 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const [rejectReason, setRejectReason] = useState("");
 
   const kindLabel: Record<string, string> = {
-    hitl: "HITL",
+    hitl: "Validation",
     action_ticket: "Envoi",
     crm_follow_up: "Relance",
-    cio_question: "Question CIO",
+    cio_question: "Question",
     closure: "Clôture",
     mission_error: "Échec",
     scheduler_output: "Approbation",
@@ -243,6 +274,19 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
   const cioQuestions =
     item.kind === "cio_question" ? (item.questions || []).map((q) => String(q).trim()).filter(Boolean) : [];
+  const cioQuestionSpecs = useMemo((): QuestionSpecMap => {
+    if (item.kind !== "cio_question") return {};
+    if (item.question_specs && typeof item.question_specs === "object") {
+      const { specs } = specsFromQuestionItems(
+        Object.entries(item.question_specs).map(([prompt, spec]) => ({
+          prompt,
+          ...(typeof spec === "object" && spec ? spec : {}),
+        })),
+      );
+      return specs;
+    }
+    return {};
+  }, [item.kind, item.question_specs]);
   const missionContext =
     item.mission ||
     (item.kind === "cio_question" &&
@@ -252,11 +296,21 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
       ? item.title
       : undefined);
 
-  if (hidden) return null;
-  if (chainFeedback) {
+  if (doneFlash) {
     return (
       <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
-        <p className="text-sm font-bold text-emerald-900">Fait — chaîne terminée</p>
+        <p className="text-sm font-bold text-emerald-900">{doneFlash}</p>
+      </li>
+    );
+  }
+  if (hidden) return null;
+  if (chainFeedback) {
+    const published = item.action_kind === "wordpress";
+    return (
+      <li className="action-card list-none border-emerald-300 bg-gradient-to-br from-emerald-50 to-white">
+        <p className="text-sm font-bold text-emerald-900">
+          {published ? "Article publié avec succès" : "Fait — chaîne terminée"}
+        </p>
         <ul className="mt-2 space-y-1">
           {chainFeedback.map((step) => (
             <li key={step} className="text-sm font-medium text-emerald-800">
@@ -264,6 +318,18 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             </li>
           ))}
         </ul>
+        {chainLink ? (
+          <a href={chainLink} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm font-semibold text-emerald-900 underline">
+            Voir l’article
+          </a>
+        ) : null}
+        {chainLink ? (
+          <div className="mt-3">
+            <button type="button" className="btn-secondary" onClick={() => hideFromInbox()}>
+              Fermer
+            </button>
+          </div>
+        ) : null}
       </li>
     );
   }
@@ -294,11 +360,11 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const doneLabel =
     item.kind === "mission_error"
       ? closeMut.isPending
-        ? "Clôture…"
-        : "Marquer comme terminé"
+        ? "Mise de côté…"
+        : "Mettre de côté"
       : validateMut.isPending
-        ? "Validation…"
-        : "Marquer comme terminé";
+        ? "Clôture…"
+        : "Clôturer";
 
   const markFollowUpDone = () => {
     if (!item.event_id) return;
@@ -320,8 +386,14 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
         onClick={onDismiss}
         disabled={busy}
         className="absolute right-3 top-3 z-10 touch-target flex items-center justify-center rounded-full border border-slate-200 bg-white text-lg leading-none text-slate-500 shadow-sm hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
-        aria-label={isClosureKind ? "Marquer comme terminé" : "Supprimer cette décision"}
-        title={isClosureKind ? "Marquer comme terminé — ne plus afficher" : "Supprimer — ne plus afficher"}
+        aria-label={isClosureKind ? (item.kind === "mission_error" ? "Mettre de côté" : "Clôturer") : "Mettre de côté"}
+        title={
+          isClosureKind
+            ? item.kind === "mission_error"
+              ? "Mettre de côté — retirer des décisions"
+              : "Clôturer — ne plus afficher"
+            : "Mettre de côté — ne plus afficher"
+        }
       >
         ×
       </button>
@@ -483,7 +555,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
               title="Retirer cette décision de votre briefing et de Décisions"
             >
-              {dismissMut.isPending ? "Suppression…" : "Supprimer"}
+              {dismissMut.isPending ? "…" : "Mettre de côté"}
             </button>
           ) : null}
         </div>
@@ -629,6 +701,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             <div className="space-y-3">
               <CioArbitrageQuestionnaire
                 questions={cioQuestions}
+                questionSpecs={cioQuestionSpecs}
                 savedAnswers={questionAnswers}
                 busy={cioAnswerMut.isPending}
                 onValidateAndLaunch={onCioValidate}
@@ -648,7 +721,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
           {item.kind === "closure" && jobId ? (
             <div className="space-y-2">
               <p className="text-sm text-slate-600">
-                La mission est terminée côté agents. Marquez-la comme terminée pour la retirer des décisions.
+                La mission est terminée côté agents. Clôturez-la pour la retirer des décisions.
               </p>
               <button type="button" disabled={busy} onClick={markClosureDone} className="btn-success">
                 {doneLabel}
@@ -663,7 +736,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                 disabled={busy}
                 onClick={markClosureDone}
                 className="btn-success"
-                title="Clôturer cette mission en échec (archivage dirigeant)"
+                title="Mettre de côté cette mission en échec"
               >
                 {doneLabel}
               </button>
@@ -828,11 +901,15 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
 
           {[hitlResolve.error, actionResolve.error, cioAnswerMut.error, validateMut.error, closeMut.error, schedApprove.error, schedReject.error, learningMut.error, configMut.error, qualityMut.error, dismissMut.error]
             .filter(Boolean)
-            .map((err, i) => (
-              <p key={i} className="mt-2 text-xs text-red-700">
-                {err instanceof Error ? err.message : String(err)}
+            .map((err, i) => {
+              const msg = err instanceof Error ? err.message : String(err);
+              const label = /^échec\s*:/i.test(msg) ? msg : `Échec : ${msg}`;
+              return (
+              <p key={i} className="mt-2 text-sm font-semibold text-red-700">
+                {label}
               </p>
-            ))}
+              );
+            })}
         </div>
       ) : null}
     </li>

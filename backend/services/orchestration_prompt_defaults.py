@@ -12,6 +12,11 @@ ORCHESTRATION_PROMPT_KEYS: tuple[str, ...] = (
     "cio_synthesis_solo_suffix",
 )
 
+# Socle d'un espace neuf : activité du compte, pas une marque d'un autre tenant.
+ACTIVITY_CONTEXT_PHRASE = "dans le contexte global de l'activité de cet espace"
+# Ancienne formule d'usine, encore en base sur les copies non modifiées.
+_LEGACY_BRAND_PHRASE = "dans le contexte global d'Elude In Art"
+
 DEFAULT_ORCHESTRATION_PROMPTS: dict[str, str] = {
     "cio_plan_json_user": """Mission : <<MISSION_TXT>>
 
@@ -75,7 +80,7 @@ Si reponse factuelle directe demandee, recopie-la depuis la contribution.
 Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite.
 Criteres stricts :
   - Question 1 : continuation directe de CETTE mission (approfondir un point precis, ajuster, relancer un axe).
-  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art
+  - Question 2 : nouvelle mission complementaire dans le contexte global de l'activité de cet espace
     (relie cette mission a la strategie, au produit, au marche, aux autres roles non mobilises).
   - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer
     (une opportunite, un arbitrage, un risque identifie pendant cette mission).
@@ -89,8 +94,22 @@ OBLIGATION DE FORME — inclus toujours EN DERNIER, apres ta reponse :
 ## QUESTIONS STRATEGIQUES DU CIO
 Pose 3 questions ouvertes au dirigeant pour l'ouvrir sur la suite :
   - Question 1 : continuation ou approfondissement de CETTE demande.
-  - Question 2 : nouvelle mission complementaire dans le contexte global d'Elude In Art
+  - Question 2 : nouvelle mission complementaire dans le contexte global de l'activité de cet espace
     (relie cette demande a la strategie, au produit, au marche, a un role non encore mobilise).
   - Question 3 : decision ou validation que le dirigeant doit trancher pour avancer.
 Ton direct CIO vers dirigeant, questions numerotees, contextualisees — jamais generiques.""",
 }
+
+
+def branded_factory_body(prompt_key: str) -> str:
+    """Ancienne copie d'usine (mention Elude In Art), pour reconnaître une ligne jamais éditée."""
+    body = DEFAULT_ORCHESTRATION_PROMPTS.get(prompt_key) or ""
+    return body.replace(ACTIVITY_CONTEXT_PHRASE, _LEGACY_BRAND_PHRASE)
+
+
+def is_unmodified_branded_factory(prompt_key: str, body: str) -> bool:
+    branded = branded_factory_body(prompt_key)
+    current = DEFAULT_ORCHESTRATION_PROMPTS.get(prompt_key) or ""
+    if not branded or branded == current:
+        return False
+    return (body or "").strip() == branded.strip()

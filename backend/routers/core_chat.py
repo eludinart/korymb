@@ -4,14 +4,15 @@ routers/core_chat.py — Route /chat.
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict
+from fastapi.responses import FileResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
+from tenant_context import spawn_thread
 from database import (
     save_job,
     update_job,
@@ -23,9 +24,16 @@ from database import (
     upsert_chat_conversation,
     delete_chat_conversation,
 )
-from services.agents import agents_def, FLEUR_CONTEXT, SUB_AGENT_COORDINATION_FR
+from services.agents import agents_def, SUB_AGENT_COORDINATION_FR
 from services.chat_surface import surface_chat_result
-from services.chat_mirror import generate_mirror_ack
+from services.chat_mirror import generate_mirror_ack_result
+from services.llm_degraded import (
+    degraded_chat_reply,
+    llm_outage_is_hard,
+    llm_outage_kind,
+    llm_outage_reason,
+)
+from services.workspace_brand import workspace_identity_block
 from services.memory import compress_chat_session, maybe_refresh_mission_summary
 from services.mission import (
     orchestrate_coordinateur_mission,
@@ -41,14 +49,41 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+class ChatAttachmentIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    filename: str = ""
+    mime: str = ""
+    size: int = 0
+
+
 class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    message: str
-    agent: str = "coordinateur"
+    message: str = ""
+    agent: str = "assistant"
     history: list[dict] = []
     linked_job_id: str | None = None
     chat_session_id: str | None = None
+    agent_group_id: str | None = None
+    attachments: list[ChatAttachmentIn] = Field(default_factory=list)
+    confirm_action: bool = False
+    thinking_mode: str = "auto"
+    chat_use_mode: str = "operationnel"
+
+
+def _recent_hist_lines(hist_snap: list[dict]) -> list[str]:
+    lines: list[str] = []
+    for item in (hist_snap or [])[-12:]:
+        if item.get("role") not in ("user", "assistant"):
+            continue
+        content = item.get("content", "")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        role = "Utilisateur" if item["role"] == "user" else "Interlocuteur"
+        lines.append(f"{role}: {content[:800]}")
+    return lines
 
 
 def _build_chat_mission_txt(
@@ -57,76 +92,133 @@ def _build_chat_mission_txt(
     linked_parent_id: str,
     session_id: str,
 ) -> str:
+    """Résumé compressé s'il existe, plus les derniers tours bruts."""
     session_summary = get_chat_session_summary(session_id) if session_id else ""
-    hist_lines: list[str] = []
-    if not session_summary:
-        for h in hist_snap:
-            if h.get("role") in ("user", "assistant"):
-                role = "Utilisateur" if h["role"] == "user" else "CIO"
-                c = h.get("content", "")
-                if isinstance(c, str):
-                    hist_lines.append(f"{role}: {c[:800]}")
+    hist_lines = _recent_hist_lines(hist_snap)
+    parts: list[str] = []
     parent_blob = (
         _mission_followup_context_from_parent(linked_parent_id)
         if linked_parent_id
         else ""
     )
     if parent_blob:
-        if session_summary:
-            return (
-                parent_blob
-                + f"État compressé de la session chat :\n{session_summary}\n\n"
-                f"Dernière demande à traiter maintenant :\n{msg_snap}"
-            )
-        conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-        return (
-            parent_blob
-            + (
-                "Échanges récents dans cette session (chat) :\n"
-                + conv
-                + "\n\nDernière demande à traiter maintenant :\n"
-                + msg_snap
-                if hist_snap
-                else "Nouvelle demande du dirigeant (à traiter maintenant) :\n" + msg_snap
-            )
-        )
+        parts.append(parent_blob.rstrip())
     if session_summary:
-        return (
-            f"État compressé de la session :\n{session_summary}\n\n"
-            f"Dernière demande à traiter maintenant :\n{msg_snap}"
-        )
-    conv = "\n".join(hist_lines) if hist_lines else "(début de conversation)"
-    return (
-        f"Échanges récents :\n{conv}\n\n"
-        f"Dernière demande à traiter maintenant :\n{msg_snap}"
-    )
+        parts.append(f"État compressé de la session :\n{session_summary}")
+    if hist_lines:
+        parts.append("Échanges récents :\n" + "\n".join(hist_lines))
+    elif not session_summary:
+        parts.append("Échanges récents :\n(début de conversation)")
+    parts.append(f"Dernière demande à traiter maintenant :\n{msg_snap}")
+    return "\n\n".join(parts)
+
+
+def _attachment_payload(request: ChatRequest) -> list[dict]:
+    from services.chat_attachments import normalize_attachment_refs
+
+    return normalize_attachment_refs([a.model_dump() for a in request.attachments])
+
+
+def _user_turn_text(message: str, att_block: str) -> str:
+    msg = (message or "").strip()
+    if msg and att_block:
+        return f"{msg}\n\n{att_block}"
+    if att_block:
+        return att_block
+    return msg
 
 
 @router.post("/chat", dependencies=[Depends(resolve_tenant)])
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
-    agent_cfg = agents_def().get(request.agent, agents_def()["coordinateur"])
+    agent_key = (request.agent or "assistant").strip().lower() or "assistant"
+    agent_cfg = agents_def().get(agent_key, agents_def().get("assistant") or agents_def()["coordinateur"])
+    att_snap = _attachment_payload(request)
+    msg_raw = (request.message or "").strip()
+    if not msg_raw and not att_snap:
+        raise HTTPException(status_code=400, detail="Message ou fichier requis.")
+    group_id = (request.agent_group_id or "").strip()[:64] or None
+
+    from services.chat_intelligence import chat_message_needs_confirmation, irreversible_action_label
+
+    if chat_message_needs_confirmation(msg_raw) and not request.confirm_action:
+        label = irreversible_action_label(msg_raw)
+        return {
+            "status": "needs_confirmation",
+            "agent": agent_key,
+            "agent_group_id": group_id,
+            "proposal": label,
+            "action_label": label,
+        }
 
     try:
-        if request.agent == "coordinateur":
+        if agent_key == "assistant":
+            from services.assistant_chat import (
+                normalize_chat_use_mode,
+                run_assistant_chat_sync,
+                start_assistant_chat_job,
+                CHAT_USE_MODE_QUOTIDIEN,
+            )
+            from services.chat_attachments import build_attachment_mission_block
+            from services.chat_intelligence import chat_message_needs_action, chat_turn_needs_team_tools
+
+            use_mode = normalize_chat_use_mode(request.chat_use_mode)
+            logger.info(
+                "chat route=assistant mode=%s session=%s",
+                use_mode,
+                (request.chat_session_id or "")[:24],
+            )
+            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+            turn = _user_turn_text(msg_raw, att_block)
+            hist = list(request.history or [])
+            # Quotidien : réponse sync (pas de job) sauf action, équipe ou pièce jointe.
+            needs_tools = chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist)
+            if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
+                return run_assistant_chat_sync(
+                    message=turn,
+                    history=hist,
+                    chat_use_mode=use_mode,
+                    chat_session_id=request.chat_session_id,
+                    use_tools=False,
+                )
+            return start_assistant_chat_job(
+                message=turn,
+                history=hist,
+                linked_job_id=request.linked_job_id,
+                chat_session_id=request.chat_session_id,
+                chat_use_mode=use_mode,
+            )
+
+        if agent_key == "coordinateur" or group_id:
+            from services.agent_groups import group_allowed_delegate_keys, group_orchestrator_key
+
+            run_agent = group_orchestrator_key(group_id) if group_id else "coordinateur"
+            allowed = list(group_allowed_delegate_keys(group_id) or ()) if group_id else None
             job_id = str(uuid.uuid4())[:8]
             now_iso = datetime.utcnow().isoformat()
             linked_parent_id = (request.linked_job_id or "").strip()[:16]
             session_id = (request.chat_session_id or "").strip()[:64] or ""
-            hist_snap = [] if linked_parent_id or session_id else list(request.history[-6:])
-            msg_snap = request.message
+            hist_snap = list(request.history[-12:])
+            msg_snap = msg_raw or (
+                "Fichiers joints : " + ", ".join(a.get("filename") or a.get("id") or "fichier" for a in att_snap)
+            )
+            from services.chat_intelligence import chat_message_needs_action
+
             save_job(
                 job_id,
-                "coordinateur",
-                (request.message or "")[:500],
+                run_agent,
+                (msg_snap or "")[:500],
                 source="chat",
                 parent_job_id=linked_parent_id or None,
                 chat_session_id=session_id or None,
             )
             job_logs: list[str] = []
+            from services.thinking_modes import normalize_thinking_mode
+
+            think_mode = normalize_thinking_mode(request.thinking_mode)
             active_jobs[job_id] = {
                 "status": "running",
-                "agent": "coordinateur",
-                "mission": (request.message or "")[:500],
+                "agent": run_agent,
+                "mission": (msg_snap or "")[:500],
                 "result": None,
                 "result_surface": None,
                 "logs": job_logs,
@@ -139,6 +231,8 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 "created_at": now_iso,
                 "parent_job_id": linked_parent_id or None,
                 "chat_session_id": session_id or None,
+                "agent_group_id": group_id,
+                "mission_config": {"thinking_mode": think_mode},
             }
             job_logs_ref = active_jobs[job_id]["logs"]
 
@@ -174,7 +268,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                             text = (
                                 f"**À retirer** dans `{key}` : {directive.get('detail', '')}\n\n{pending}"
                             )
-                        surface = surface_chat_result(text)
+                        surface = surface_chat_result(text, user_text=msg_snap, agent_group_id=group_id)
                         _add_daily_svc(0, 0)
                         if job_id in active_jobs:
                             active_jobs[job_id].update({
@@ -200,18 +294,49 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         "coordinateur",
                         {"label": agent_cfg["label"], "mode": "chat", "preview": (msg_snap or "")[:240]},
                     )
+                    from services.chat_attachments import build_attachment_mission_block
+
+                    att_block = build_attachment_mission_block(att_snap) if att_snap else ""
                     mission_txt = _build_chat_mission_txt(
-                        msg_snap, hist_snap, linked_parent_id, session_id,
+                        _user_turn_text(msg_snap, att_block),
+                        hist_snap,
+                        linked_parent_id,
+                        session_id,
                     )
-                    text, ti, to = orchestrate_coordinateur_mission(
-                        mission_txt,
-                        msg_snap,
-                        job_logs_ref,
-                        chat_mode=True,
+                    if request.confirm_action or chat_message_needs_action(msg_snap):
+                        text, ti, to = orchestrate_coordinateur_mission(
+                            mission_txt,
+                            msg_snap,
+                            job_logs_ref,
+                            chat_mode=True,
+                            job_id=job_id,
+                            cio_questions_enabled=False,
+                            allowed_agents=allowed,
+                            orchestrator_key=run_agent,
+                            agent_group_id=group_id,
+                        )
+                    else:
+                        from services.mission import answer_chat_turn_without_tools
+
+                        text, ti, to = answer_chat_turn_without_tools(
+                            mission_txt,
+                            msg_snap,
+                            job_logs_ref,
+                            job_id=job_id,
+                            orchestrator_key=run_agent,
+                            agent_group_id=group_id,
+                        )
+                    surface = surface_chat_result(text, user_text=msg_snap, agent_group_id=group_id)
+                    from services.claim_guard import seal_chat_texts
+
+                    text, surface, _claims = seal_chat_texts(
+                        text,
+                        surface,
+                        user_text=msg_snap,
+                        history=hist_snap,
+                        job_logs=job_logs_ref,
                         job_id=job_id,
-                        cio_questions_enabled=False,
                     )
-                    surface = surface_chat_result(text)
                     _add_daily_svc(ti, to)
                     team_snap = active_jobs[job_id].get("team", [])
                     pl = active_jobs[job_id].get("plan") or {}
@@ -249,7 +374,12 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         except Exception:
                             logger.exception("compress_chat_session (chat)")
                     try:
-                        append_recent_mission(job_id, msg_snap, surface or text or "")
+                        append_recent_mission(
+                            job_id,
+                            msg_snap,
+                            surface or text or "",
+                            chat_session_id=session_id or None,
+                        )
                     except Exception:
                         logger.exception("append_recent_mission (chat)")
                     try:
@@ -287,22 +417,41 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     except Exception:
                         logger.exception("emit_director_notification (chat completed)")
                 except Exception as e:
-                    user_result = _user_visible_job_failure_markdown(e)
-                    surface_err = surface_chat_result(user_result)
+                    outage = llm_outage_kind(e)
                     team_snap = active_jobs.get(job_id, {}).get("team", [])
                     pl = active_jobs.get(job_id, {}).get("plan") or {}
                     ev = active_jobs.get(job_id, {}).get("events") or []
-                    _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
-                    job_logs_ref.append(f"[korymb] Erreur : {e}")
+                    if outage:
+                        label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+                        user_result = degraded_chat_reply(
+                            msg_snap,
+                            agent_label=label,
+                            reason=llm_outage_reason(e),
+                        )
+                        surface_err = surface_chat_result(
+                            user_result, user_text=msg_snap, agent_group_id=group_id
+                        )
+                        job_status = "completed"
+                        job_logs_ref.append(f"[korymb] Mode dégradé ({outage}) : {e}")
+                        logger.warning("chat CIO mode dégradé (%s) : %s", outage, e)
+                    else:
+                        user_result = _user_visible_job_failure_markdown(e)
+                        surface_err = surface_chat_result(
+                            user_result, user_text=msg_snap, agent_group_id=group_id
+                        )
+                        job_status = f"error: {e}"
+                        _emit_job_event(job_id, "error", None, {"message": str(e)[:500]})
+                        job_logs_ref.append(f"[korymb] Erreur : {e}")
                     if job_id in active_jobs:
                         active_jobs[job_id].update({
-                            "status": f"error: {e}",
+                            "status": job_status,
                             "result": user_result,
                             "result_surface": surface_err,
+                            "degraded": bool(outage),
                         })
                     update_job(
                         job_id,
-                        f"error: {e}",
+                        job_status,
                         user_result,
                         job_logs_ref,
                         0,
@@ -321,32 +470,82 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                                 role="assistant",
                                 agent="coordinateur",
                                 content=(surface_err or user_result or ""),
-                                source="chat_suivi_mission_error",
+                                source="chat_suivi_mission" if outage else "chat_suivi_mission_error",
                             )
                         except Exception:
                             logger.exception("append_job_mission_thread (erreur CIO → parent)")
                     try:
                         from services.director_platform import emit_director_notification
 
-                        err_preview = (surface_err or user_result or "").replace("\n", " ").strip()[:160]
+                        preview = (surface_err or user_result or "").replace("\n", " ").strip()[:160]
                         action_url = (
                             f"/missions?job={lp}" if lp and lp != job_id
                             else f"/chat?session={session_id}&job={job_id}" if session_id
                             else f"/chat?job={job_id}"
                         )
-                        emit_director_notification(
-                            kind="chat_error",
-                            title="Échec de la demande chat",
-                            body=err_preview or "La mission chat s'est terminée en erreur.",
-                            job_id=job_id,
-                            action_url=action_url,
-                        )
+                        if outage:
+                            emit_director_notification(
+                                kind="chat_result",
+                                title="Réponse en mode dégradé",
+                                body=preview or "Le modèle est indisponible. Une réponse locale est prête.",
+                                job_id=job_id,
+                                action_url=action_url,
+                            )
+                        else:
+                            emit_director_notification(
+                                kind="chat_error",
+                                title="Échec de la demande chat",
+                                body=preview or "La mission chat s'est terminée en erreur.",
+                                job_id=job_id,
+                                action_url=action_url,
+                            )
                     except Exception:
                         logger.exception("emit_director_notification (chat error)")
                 finally:
                     active_jobs.pop(job_id, None)
 
-            mirror_ack = generate_mirror_ack(msg_snap)
+            lead_label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+            if request.confirm_action:
+                mirror_ack, mirror_err = (
+                    f"{lead_label} lance l'action que vous avez confirmée.",
+                    None,
+                )
+            else:
+                mirror_ack, mirror_err = generate_mirror_ack_result(
+                    msg_snap,
+                    agent_group_id=group_id,
+                )
+            if llm_outage_is_hard(llm_outage_kind(mirror_err)):
+                label = str(agents_def().get(run_agent, {}).get("label") or run_agent)
+                reason = llm_outage_reason(mirror_err)
+                reply = degraded_chat_reply(msg_snap, agent_label=label, reason=reason)
+                surface = surface_chat_result(reply, user_text=msg_snap, agent_group_id=group_id)
+                logger.warning("chat CIO refusé avant mission, mode dégradé : %s", mirror_err)
+                if job_id in active_jobs:
+                    active_jobs[job_id].update({
+                        "status": "completed",
+                        "result": reply,
+                        "result_surface": surface,
+                        "degraded": True,
+                    })
+                update_job(
+                    job_id,
+                    "completed",
+                    reply,
+                    job_logs_ref,
+                    0,
+                    0,
+                    source="chat",
+                    result_surface=surface,
+                )
+                active_jobs.pop(job_id, None)
+                return {
+                    "response": surface,
+                    "agent": run_agent,
+                    "degraded": True,
+                    "degraded_reason": reason,
+                    "agent_group_id": group_id,
+                }
             if linked_parent_id and linked_parent_id != job_id and mirror_ack:
                 try:
                     append_job_mission_thread(
@@ -359,21 +558,32 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 except Exception:
                     logger.exception("append_job_mission_thread (mirror_ack → parent)")
 
-            threading.Thread(
-                target=execute_chat_cio,
-                name=f"korymb-chat-{job_id[:24]}",
-                daemon=True,
-            ).start()
+            spawn_thread(execute_chat_cio, name=f"korymb-chat-{job_id[:24]}")
             return {
                 "status": "accepted",
                 "job_id": job_id,
-                "agent": "coordinateur",
+                "agent": run_agent,
                 "mirror_ack": mirror_ack,
+                "agent_group_id": group_id,
             }
+
+        if agent_key == "assistant":
+            from services.assistant_chat import normalize_chat_use_mode, start_assistant_chat_job
+            from services.chat_attachments import build_attachment_mission_block
+
+            logger.warning("chat assistant via fallback guard")
+            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+            return start_assistant_chat_job(
+                message=_user_turn_text(msg_raw, att_block),
+                history=list(request.history or []),
+                linked_job_id=request.linked_job_id,
+                chat_session_id=request.chat_session_id,
+                chat_use_mode=normalize_chat_use_mode(request.chat_use_mode),
+            )
 
         system_prompt = (
             agent_cfg["system"]
-            + FLEUR_CONTEXT
+            + workspace_identity_block(group_id)
             + SUB_AGENT_COORDINATION_FR
             + "\nRéponds de façon concise et directe."
         )
@@ -398,24 +608,49 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 )
             return {"response": reply, "agent": request.agent}
 
+        from services.chat_attachments import build_attachment_mission_block
+
+        att_block = build_attachment_mission_block(att_snap) if att_snap else ""
         messages = []
         for h in request.history[-10:]:
             if h.get("role") in ("user", "assistant"):
                 messages.append({"role": h["role"], "content": h["content"]})
-        messages.append({"role": "user", "content": request.message})
+        messages.append({"role": "user", "content": _user_turn_text(msg_raw, att_block)})
 
         link_th = (request.linked_job_id or "").strip()[:16]
         usage_kw: dict = {"usage_context": f"chat_sync:{request.agent}"}
         if link_th:
             usage_kw["usage_job_id"] = link_th
-        reply, ti, to = llm_chat_maybe_tools(
-            system_prompt,
-            messages,
-            agent_cfg.get("tools"),
-            job_logs=None,
-            max_tokens=2048,
-            **usage_kw,
+        try:
+            reply, ti, to = llm_chat_maybe_tools(
+                system_prompt,
+                messages,
+                agent_cfg.get("tools"),
+                job_logs=None,
+                max_tokens=2048,
+                **usage_kw,
+            )
+        except Exception as llm_exc:
+            if not llm_outage_kind(llm_exc):
+                raise
+            reason = llm_outage_reason(llm_exc)
+            label = str(agent_cfg.get("label") or request.agent)
+            reply = degraded_chat_reply(msg_raw or request.message or "", agent_label=label, reason=reason)
+            logger.warning("chat sync mode dégradé : %s", llm_exc)
+            return {
+                "response": surface_chat_result(reply),
+                "agent": request.agent,
+                "degraded": True,
+                "degraded_reason": reason,
+            }
+        from services.claim_guard import apply_chat_claim_guard
+
+        guarded = apply_chat_claim_guard(
+            reply,
+            user_text=msg_raw or request.message or "",
+            history=list(request.history or []),
         )
+        reply = guarded.text
         _add_daily_svc(ti, to)
         if link_th:
             try:
@@ -435,9 +670,98 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 )
             except Exception:
                 logger.exception("append_job_mission_thread (chat synchrone)")
-        return {"response": reply, "agent": request.agent}
+        return {"response": reply, "agent": request.agent, "claim_guard": guarded.payload()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=_user_visible_chat_sync_failure_text(e)) from e
+
+
+@router.post("/chat/stream", dependencies=[Depends(resolve_tenant)])
+async def chat_stream(request: ChatRequest):
+    """SSE streaming Assistant (mode quotidien, tours sans outils)."""
+    from services.assistant_chat import (
+        CHAT_USE_MODE_QUOTIDIEN,
+        iter_assistant_chat_stream,
+        normalize_chat_use_mode,
+        start_assistant_chat_job,
+    )
+    from services.chat_attachments import build_attachment_mission_block
+    from services.chat_intelligence import (
+        chat_message_needs_action,
+        chat_message_needs_confirmation,
+        chat_turn_needs_team_tools,
+        irreversible_action_label,
+    )
+
+    agent_key = (request.agent or "assistant").strip().lower() or "assistant"
+    use_mode = normalize_chat_use_mode(request.chat_use_mode)
+    # Stream = Assistant quotidien uniquement ; sinon bascule job JSON.
+    if agent_key != "assistant" or use_mode != CHAT_USE_MODE_QUOTIDIEN:
+        raise HTTPException(
+            status_code=400,
+            detail="Le streaming est réservé au mode Quotidien (agent Assistant).",
+        )
+
+    att_snap = _attachment_payload(request)
+    msg_raw = (request.message or "").strip()
+    if not msg_raw and not att_snap:
+        raise HTTPException(status_code=400, detail="Message ou fichier requis.")
+
+    if chat_message_needs_confirmation(msg_raw) and not request.confirm_action:
+        label = irreversible_action_label(msg_raw)
+        return {
+            "status": "needs_confirmation",
+            "agent": "assistant",
+            "proposal": label,
+            "action_label": label,
+        }
+
+    att_block = build_attachment_mission_block(att_snap) if att_snap else ""
+    turn = _user_turn_text(msg_raw, att_block)
+    hist = list(request.history or [])
+
+    if att_snap or chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist):
+        return start_assistant_chat_job(
+            message=turn,
+            history=hist,
+            linked_job_id=request.linked_job_id,
+            chat_session_id=request.chat_session_id,
+            chat_use_mode=use_mode,
+        )
+
+    def gen():
+        yield from iter_assistant_chat_stream(
+            message=turn,
+            history=hist,
+            chat_use_mode=use_mode,
+            chat_session_id=request.chat_session_id,
+        )
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+class ChatVoiceBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    text: str = Field(min_length=1, max_length=1500)
+
+
+@router.post("/chat/voice", dependencies=[Depends(resolve_tenant)])
+def chat_voice(body: ChatVoiceBody):
+    """MP3 ElevenLabs pour la conversation vocale. Voix et modèle viennent des intégrations."""
+    from tools.media_engines import elevenlabs_speech_file
+
+    path = elevenlabs_speech_file(body.text)
+    if path is None:
+        raise HTTPException(status_code=503, detail="La voix ElevenLabs n'est pas disponible.")
+    return FileResponse(path, media_type="audio/mpeg", filename="korymb.mp3")
 
 
 class ChatConversationBody(BaseModel):
@@ -447,6 +771,7 @@ class ChatConversationBody(BaseModel):
     title: str = ""
     messages: list[dict] = []
     linked_parent_job_id: str | None = None
+    interlocutor: str | None = None
 
 
 class ChatConversationImportBody(BaseModel):
@@ -478,6 +803,7 @@ def chat_conversations_upsert(conv_id: str, body: ChatConversationBody):
         title=(body.title or "")[:200],
         messages=body.messages if isinstance(body.messages, list) else [],
         linked_parent_job_id=body.linked_parent_job_id,
+        interlocutor=body.interlocutor,
     )
     return row
 
@@ -508,6 +834,7 @@ def chat_conversations_import(body: ChatConversationImportBody):
             title=str(raw.get("title") or "")[:200],
             messages=raw.get("messages") if isinstance(raw.get("messages"), list) else [],
             linked_parent_job_id=str(raw.get("linkedParentJobId") or raw.get("linked_parent_job_id") or "")[:16] or None,
+            interlocutor=str(raw.get("interlocutor") or "") or None,
         )
         imported += 1
     return {"imported": imported, "conversations": list_chat_conversations()}

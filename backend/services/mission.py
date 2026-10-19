@@ -8,7 +8,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -18,6 +17,7 @@ from fastapi import BackgroundTasks, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from config import settings
+from tenant_context import spawn_thread
 from database import (
     get_job as db_get_job,
     save_job,
@@ -34,6 +34,7 @@ from llm_client import llm_turn, llm_chat
 from agent_tool_use import llm_chat_maybe_tools, llm_turn_maybe_tools
 from state import (
     active_jobs,
+    HitlParked,
     KorymbJobCancelled,
     raise_if_job_cancelled as _raise_if_job_cancelled,
     add_daily as _add_daily,
@@ -44,12 +45,15 @@ from state import (
 )
 from services.agents import (
     agents_def,
-    FLEUR_CONTEXT,
     delegatable_subagent_keys_ordered,
     SUB_AGENT_COORDINATION_FR,
     MODE_CADRAGE_CIO,
     MODE_CADRAGE_AGENT,
     _ascii_fold,
+)
+from services.workspace_brand import (
+    group_sees_workspace_identity,
+    workspace_identity_block,
 )
 from services.memory import active_memory_prompt, operational_memory_digest_prompt
 from services.mission_labels import (
@@ -62,6 +66,21 @@ from services.behavior_defaults import behavior_default_value
 from debug_ndjson import append_session_ndjson
 
 logger = logging.getLogger(__name__)
+
+
+def _identity_block(agent_group_id: str | None = None) -> str:
+    """Pack marque workspace, ou consigne d'isolation si l'équipe a un périmètre fermé."""
+    return workspace_identity_block(agent_group_id)
+
+
+def _job_group_id(job_id: str | None) -> str | None:
+    if not job_id:
+        return None
+    cfg = (active_jobs.get(job_id) or {}).get("mission_config") or {}
+    if not isinstance(cfg, dict):
+        return None
+    gid = str(cfg.get("agent_group_id") or "").strip()
+    return gid or None
 
 
 def _behavior_value(key: str):
@@ -575,7 +594,7 @@ def _mission_suggests_commercial(text: str) -> bool:
         "prospect", "client", "vendre", "vente", "lead", "contact", "coach", "therapeute",
         "linkedin", "var", "recherche", "trouver", "liste", "email", "cible", "marche",
         "piste", "accompagnement", "qui contacter", "personnes",
-        "elude", "tarot", "fleur", "korymb", "entreprise", "activite", "offre", "strategie",
+        "adherent", "benevole", "association", "entreprise", "activite", "offre", "strategie",
         "organisation", "communication", "marketing", "partenaire", "reseau", "promotion",
         "developper", "outil", "site", "app", "atelier", "stage", "module",
     )
@@ -1120,14 +1139,39 @@ def _past_missions_context_block(
     return "\n".join(parts)
 
 
-def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = None) -> str:
-    """Bloc texte injecté dans le system prompt : mémoire entreprise + missions récentes (+ historique DB pour le CIO)."""
+def _korymb_memory_prompt_for(
+    agent_key: str,
+    *,
+    exclude_job_id: str | None = None,
+    agent_group_id: str | None = None,
+) -> str:
+    """Bloc texte injecté : mémoire partagée / équipe / aucune (+ missions récentes pour le CIO)."""
     try:
         from services.drive_workspace import build_drive_workspace_memory_prompt
 
         drive_blk = build_drive_workspace_memory_prompt()
     except Exception:
         drive_blk = ""
+
+    gid = (agent_group_id or "").strip() or None
+    if gid:
+        try:
+            from services.agent_groups import format_group_memory_prompt, group_memory_scope
+
+            scope = group_memory_scope(gid)
+            shared = group_sees_workspace_identity(gid)
+            if scope == "none":
+                return drive_blk if (shared and drive_blk) else ""
+            if scope == "group":
+                group_blk = format_group_memory_prompt(gid)
+                if shared and drive_blk and group_blk:
+                    return f"{group_blk}\n{drive_blk}".strip()
+                if shared:
+                    return group_blk or drive_blk or ""
+                return group_blk or ""
+        except Exception:
+            logger.exception("group memory resolve")
+
     try:
         mem = get_enterprise_memory()
     except Exception:
@@ -1174,7 +1218,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
     if not ctx("global") and not has_roles and not recent and not db_block and not facts_blk:
         return drive_blk if drive_blk else ""
 
-    lines: list[str] = ["", "--- Mémoire entreprise (persistante) ---"]
+    lines: list[str] = ["", "--- Mémoire partagée (persistante) ---"]
     if facts_blk:
         lines.append(facts_blk)
 
@@ -1232,7 +1276,7 @@ def _korymb_memory_prompt_for(agent_key: str, *, exclude_job_id: str | None = No
     if drive_blk:
         lines.append(drive_blk.strip())
 
-    lines.append("--- Fin mémoire entreprise ---")
+    lines.append("--- Fin mémoire partagée ---")
     return "\n".join(lines)
 
 
@@ -1309,38 +1353,10 @@ def _human_dialogue_cio_wrapup(agent_keys: list[str]) -> str:
 
 
 def _wait_for_cio_plan_hitl_resolution_legacy_poll(job_id: str, job_logs: list | None) -> dict:
-    """
-    Bloque jusqu'à résolution HITL (approve / reject / amend) pour le plan CIO.
-    Retourne {"decision": "approve"} ou {"decision": "amend", "amended_plan": {...}}.
-    Lève KorymbJobCancelled si le job est annulé ou rejeté.
-    """
-    max_wait = _behavior_int("orchestration.cio.hitl_wait_max_seconds", 7200)
-    poll_interval = _behavior_float("orchestration.cio.hitl_poll_interval_seconds", 0.28)
-    if poll_interval <= 0:
-        poll_interval = 0.28
-    for i in range(max_wait):
-        _raise_if_job_cancelled(job_id)
-        row = db_get_job(job_id)
-        if not row:
-            time.sleep(poll_interval)
-            continue
-        st = str(row.get("status") or "")
-        if st == "awaiting_validation":
-            time.sleep(poll_interval)
-            continue
-        if st == "cancelled":
-            if job_logs is not None:
-                job_logs.append("[korymb] Plan CIO — rejet ou annulation dirigeant (HITL).")
-            raise KorymbJobCancelled()
-        if st == "running":
-            res = row.get("hitl_resolution")
-            if isinstance(res, dict) and res.get("decision") == "amend" and isinstance(res.get("amended_plan"), dict):
-                return res
-            return {"decision": "approve"}
-        time.sleep(poll_interval)
-        if i > 0 and i % 200 == 0 and job_logs is not None:
-            job_logs.append("[korymb] Toujours en attente de validation du plan CIO (HITL)…")
-    raise RuntimeError("Délai dépassé en attente de validation du plan CIO (HITL).")
+    """Compat : délègue au wait Event + poll espacé."""
+    from services.hitl_wait import wait_for_cio_plan_hitl_resolution
+
+    return wait_for_cio_plan_hitl_resolution(job_id, job_logs)
 
 
 def _wait_for_cio_plan_hitl_resolution(job_id: str, job_logs: list | None) -> dict:
@@ -1437,7 +1453,9 @@ CHAT_MODE_RESPONSE_RULES = (
     "n'expose jamais le contexte global, les checklists reprise/RGPD/conformité, "
     "l'historique de missions, ni les métadonnées d'orchestration. "
     "Si tu fais référence à une mission passée, cite son **intitulé** (consigne), jamais son numéro #job_id. "
-    "Pas de préambule du type « je consulte l'historique » : va droit au fait."
+    "Pas de préambule du type « je consulte l'historique » : va droit au fait. "
+    "Interdit de pivoter vers CRM, prospection, contacts Gestion ou tickets Décisions "
+    "sauf si le dirigeant le demande explicitement dans ce message."
 )
 
 
@@ -1447,8 +1465,9 @@ def _cio_prompt_memory(
     exclude_job_id: str | None,
     chat_mode: bool,
     user_text: str = "",
+    agent_group_id: str | None = None,
 ) -> str:
-    """Mémoire injectée au CIO : complète en mission, ciblée en chat."""
+    """Mémoire injectée au CIO / lead : complète en mission, ciblée en chat."""
     try:
         from services.drive_workspace import build_drive_workspace_memory_prompt
 
@@ -1463,11 +1482,28 @@ def _cio_prompt_memory(
             chat_mem = build_targeted_memory_block(user_text)
         except Exception:
             chat_mem = ""
+        # Chat : mémoire d'équipe si scope=group, sinon ciblage classique.
+        gid = (agent_group_id or "").strip() or None
+        if gid:
+            try:
+                from services.agent_groups import format_group_memory_prompt, group_memory_scope
+
+                if group_memory_scope(gid) == "group":
+                    gblk = format_group_memory_prompt(gid, max_chars=2500)
+                    extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
+                    return CHAT_MODE_RESPONSE_RULES + (gblk or "") + extra
+                if group_memory_scope(gid) == "none":
+                    extra = (drive_blk or "") if group_sees_workspace_identity(gid) else ""
+                    return CHAT_MODE_RESPONSE_RULES + extra
+            except Exception:
+                pass
         return CHAT_MODE_RESPONSE_RULES + chat_mem + (drive_blk or "")
-    return (
-        _korymb_memory_prompt_for(agent_key, exclude_job_id=exclude_job_id)
-        + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
+    mem = _korymb_memory_prompt_for(
+        agent_key, exclude_job_id=exclude_job_id, agent_group_id=agent_group_id
     )
+    if not group_sees_workspace_identity(agent_group_id):
+        return mem
+    return mem + active_memory_prompt(agent_key, exclude_job_id=exclude_job_id, use_summary=True)
 
 
 def _cio_attempt_direct_answer(
@@ -1476,8 +1512,12 @@ def _cio_attempt_direct_answer(
     job_id: str | None,
     job_logs: list | None,
     chat_mode: bool,
+    agent_group_id: str | None = None,
+    orchestrator_key: str = "coordinateur",
+    allow_tools: bool = True,
 ) -> tuple[str | None, int, int]:
-    """Phase 0 : le CIO tente de répondre seul (mémoire + outils) avant plan JSON."""
+    """Phase 0 : le lead (CIO ou chef d'équipe) tente de répondre seul avant plan JSON."""
+    from services.agent_groups import chat_speaker_constraint, chat_speaker_persona
     from services.chat_intelligence import (
         build_chat_grounding_block,
         chat_brief_mandate,
@@ -1486,26 +1526,77 @@ def _cio_attempt_direct_answer(
         logs_satisfy_grounding,
     )
 
-    agent_cfg = agents_def()["coordinateur"]
+    orch_key = (orchestrator_key or "coordinateur").strip() or "coordinateur"
+    if orch_key not in agents_def():
+        orch_key = "coordinateur"
+    agent_cfg = agents_def()[orch_key]
+    label = str(agent_cfg.get("label") or orch_key)
     intent = classify_chat_intent(root_mission_label or mission_txt) if chat_mode else "chat"
     grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=intent) if chat_mode else ""
+    chat_ops = ""
+    if chat_mode:
+        from services.chat_intelligence import (
+            CHAT_LEAD_SHAPE,
+            is_product_snapshot,
+            user_forces_direct_answer,
+            user_wants_choice_questionnaire,
+        )
+        from services.agent_groups import group_memory_scope
+
+        label_txt = root_mission_label or mission_txt
+        if agent_group_id and group_memory_scope(agent_group_id) != "enterprise":
+            chat_ops += (
+                "\nTu es le lead d'une **équipe projet** (pas le CIO flotte entière). "
+                "Reste STRICTEMENT sur le mandat de cette équipe et la question posée. "
+                "Interdit de digresser vers CRM, prospection, enrichment contacts, "
+                "ou validation de fiches Décisions, sauf demande explicite.\n"
+            )
+        if user_forces_direct_answer(label_txt):
+            chat_ops += (
+                "\nLe dirigeant exige une conclusion opérationnelle **maintenant** "
+                "(pas de questionnaire, pas de « Questions pour la suite »).\n"
+            )
+        elif not user_wants_choice_questionnaire(label_txt):
+            chat_ops += (
+                "\nEn chat : réponds de façon utile et décisive. "
+                "Interdit de terminer par une grille de questions méta.\n"
+            )
+            if not is_product_snapshot(label_txt):
+                chat_ops += "Propose des priorités concrètes si le sujet est large.\n"
+        chat_ops += CHAT_LEAD_SHAPE
     system = (
-        agent_cfg["system"]
-        + FLEUR_CONTEXT
+        chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
+        + "\n\n"
+        + chat_speaker_persona(agent_cfg, orchestrator_key=orch_key, agent_group_id=agent_group_id)
+        + _identity_block(agent_group_id)
         + _cio_prompt_memory(
-            "coordinateur",
+            orch_key,
             exclude_job_id=job_id,
             chat_mode=chat_mode,
             user_text=root_mission_label or mission_txt,
+            agent_group_id=agent_group_id,
         )
         + "\n\nRègle : réponds DIRECTEMENT si ta mémoire et tes outils suffisent. "
-        "Tu es le CIO : ne mobilise un sous-agent que si son livrable est indispensable. "
-        "Par défaut, assume seul. Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
-        "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
-        "sans l'avoir produit via un outil (upload_google_drive / recherche web) dans ce tour."
-        + (chat_tool_mandate(intent) if chat_mode else "")
+        + chat_speaker_constraint(orchestrator_key=orch_key, agent_group_id=agent_group_id, label=label)
+        + (
+            " Aucun outil, aucune recherche, aucun envoi. Réponds seulement en texte. "
+            "N'annonce pas une exploration ni un travail en arrière-plan.\n"
+            if not allow_tools
+            else " Si tu dois déléguer, commence ta réponse par [[DELEGATE]] sur une ligne seule.\n"
+        )
+        + "Interdit : inventer des URLs (fichiers, Resalib, LinkedIn) ou prétendre qu'un tableau/fichier existe "
+        "sans l'avoir produit via un outil (upload vers l'espace Korymb / recherche web) dans ce tour. "
+        "Ne crée un fichier séparé que si le dirigeant l'a demandé."
+        + chat_ops
+        + (chat_tool_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
         + (chat_brief_mandate(intent, root_mission_label or mission_txt) if chat_mode else "")
     )
+    try:
+        from services.thinking_modes import inject_thinking_mode, thinking_mode_from_job
+
+        system = inject_thinking_mode(system, thinking_mode_from_job(job_id))
+    except Exception:
+        pass
     user_content = mission_txt
     if grounding:
         user_content = (
@@ -1513,16 +1604,36 @@ def _cio_attempt_direct_answer(
             "Réponds au dirigeant à partir de ces faits. N'invente pas un état contraire."
         )
     messages = [{"role": "user", "content": user_content}]
+    tool_tags = None if not allow_tools else list(agent_cfg.get("tools") or [])
+    if allow_tools and tool_tags:
+        try:
+            from services.chat_topic_guard import crm_tools_allowed_for_chat
+
+            if not crm_tools_allowed_for_chat(
+                user_text=root_mission_label or mission_txt,
+                agent_group_id=agent_group_id,
+            ):
+                tool_tags = [t for t in tool_tags if not str(t).startswith("gestion")]
+        except Exception:
+            pass
     reply, ti, to = llm_chat_maybe_tools(
         system,
         messages,
-        agent_cfg.get("tools"),
+        tool_tags,
         job_logs=job_logs,
         max_tokens=2048 if chat_mode else 3072,
         usage_job_id=job_id,
         usage_context="cio_direct_attempt",
     )
     text = (reply or "").strip()
+    if not allow_tools:
+        if not text or "[[DELEGATE]]" in text.upper():
+            return (
+                "Je peux répondre sans lancer d'action. Si vous voulez une recherche, un livrable ou un envoi, confirmez-le d'abord.",
+                ti,
+                to,
+            )
+        return text, ti, to
     if not text or text.upper().startswith("[[DELEGATE]]"):
         return None, ti, to
     if "[[DELEGATE]]" in text:
@@ -1542,6 +1653,153 @@ def _cio_attempt_direct_answer(
     return text, ti, to
 
 
+def answer_chat_turn_without_tools(
+    mission_txt: str,
+    root_mission_label: str,
+    job_logs: list | None,
+    *,
+    job_id: str | None = None,
+    orchestrator_key: str = "coordinateur",
+    agent_group_id: str | None = None,
+) -> tuple[str, int, int]:
+    """Réponse de chat sans outil ni délégation. Une action reste derrière une confirmation."""
+    text, ti, to = _cio_attempt_direct_answer(
+        mission_txt,
+        root_mission_label,
+        job_id,
+        job_logs,
+        True,
+        agent_group_id=agent_group_id,
+        orchestrator_key=orchestrator_key,
+        allow_tools=False,
+    )
+    cleaned = (text or "").strip()
+    if not cleaned:
+        cleaned = (
+            "Je n'ai pas assez pour trancher.\n\n"
+            "Prochain pas : précisez le destinataire, le document ou le résultat attendu.\n\n"
+            "Il manque ce contexte."
+        )
+    try:
+        from services.chat_topic_guard import guard_chat_reply
+
+        cleaned, drifted = guard_chat_reply(
+            cleaned,
+            user_text=root_mission_label or mission_txt,
+            agent_group_id=agent_group_id,
+        )
+        if drifted and job_logs is not None:
+            job_logs.append("[korymb] Gabarit interne retiré de la réponse chat.")
+    except Exception:
+        pass
+    return cleaned, ti, to
+
+
+def resume_orphan_hitl_execution(job_id: str) -> None:
+    """Relance la délégation après HITL si le thread d'attente n'est plus dans ce processus."""
+    jid = (job_id or "").strip()
+    if not jid:
+        return
+    row = db_get_job(jid)
+    if not row:
+        logger.warning("HITL resume: job %s introuvable", jid)
+        return
+    status = str(row.get("status") or "")
+    if status == "cancelled":
+        return
+    resolution = row.get("hitl_resolution") if isinstance(row.get("hitl_resolution"), dict) else {}
+    amended = resolution.get("amended_plan") if resolution.get("decision") == "amend" else None
+    plan = amended if isinstance(amended, dict) and amended else row.get("plan")
+    if not isinstance(plan, dict) or not plan:
+        logger.warning("HITL resume: plan absent pour %s", jid)
+        return
+    cfg = row.get("mission_config") if isinstance(row.get("mission_config"), dict) else {}
+    logs = list(row.get("logs") or [])
+    logs.append("[korymb] Reprise après validation du plan — exécution relancée.")
+    events = list(row.get("events") or [])
+    team = list(row.get("team_trace") or row.get("team") or [])
+    active_jobs[jid] = {
+        "status": "running",
+        "agent": str(row.get("agent") or "coordinateur"),
+        "mission": str(row.get("mission") or ""),
+        "result": row.get("result"),
+        "logs": logs,
+        "tokens_in": int(row.get("tokens_in") or 0),
+        "tokens_out": int(row.get("tokens_out") or 0),
+        "team": team,
+        "events": events,
+        "plan": plan,
+        "source": row.get("source"),
+        "mission_config": cfg,
+        "created_at": row.get("created_at"),
+    }
+    mission_plain = str(row.get("mission") or "")
+    try:
+        result, t_in, t_out = orchestrate_coordinateur_mission(
+            mission_plain,
+            mission_plain,
+            logs,
+            chat_mode=False,
+            job_id=jid,
+            cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
+            cio_plan_hitl_enabled=False,
+            allowed_agents=list(cfg.get("allowed_agents")) if cfg.get("allowed_agents") else None,
+            orchestrator_key=str(cfg.get("orchestrator_key") or row.get("agent") or "coordinateur"),
+            agent_group_id=(str(cfg.get("agent_group_id") or "").strip() or None),
+            approved_plan=plan,
+        )
+        final_status = "completed"
+        try:
+            from services.quality_gate import assess_and_record, notify_quality_alert, should_block_completion
+
+            verdict = assess_and_record(jid, result=str(result or ""), phase="completion")
+            if should_block_completion(jid, float(verdict.get("score") or 0)):
+                final_status = "quality_blocked"
+                notify_quality_alert(jid, float(verdict.get("score") or 0))
+        except Exception:
+            logger.exception("Quality gate failed on HITL resume %s", jid)
+        if jid in active_jobs:
+            active_jobs[jid].update({
+                "status": final_status,
+                "result": result,
+                "tokens_in": t_in,
+                "tokens_out": t_out,
+            })
+        logs.append(f"[korymb] Reprise terminée — {t_in}↑ {t_out}↓ tokens.")
+        snap = active_jobs.get(jid, {})
+        update_job(
+            jid,
+            final_status,
+            result,
+            logs,
+            t_in,
+            t_out,
+            team_trace=snap.get("team") or team,
+            plan=snap.get("plan") or plan,
+            events=snap.get("events") or events,
+            source=snap.get("source") or row.get("source"),
+            mission_config=cfg,
+        )
+    except KorymbJobCancelled:
+        logger.info("HITL resume %s annulé", jid)
+    except Exception as exc:
+        logger.exception("HITL resume failed for %s", jid)
+        logs.append(f"[korymb] Reprise impossible : {exc}")
+        update_job(
+            jid,
+            f"error: {exc}",
+            row.get("result") if isinstance(row.get("result"), str) else None,
+            logs,
+            int(row.get("tokens_in") or 0),
+            int(row.get("tokens_out") or 0),
+            team_trace=team,
+            plan=plan if isinstance(plan, dict) else {},
+            events=events,
+            source=row.get("source"),
+            mission_config=cfg,
+        )
+
+
 def orchestrate_coordinateur_mission(
     mission_txt: str,
     root_mission_label: str,
@@ -1550,22 +1808,54 @@ def orchestrate_coordinateur_mission(
     job_id: str | None = None,
     cio_questions_enabled: bool = True,
     cio_plan_hitl_enabled: bool = False,
+    allowed_agents: list[str] | tuple[str, ...] | None = None,
+    orchestrator_key: str = "coordinateur",
+    agent_group_id: str | None = None,
+    approved_plan: dict | None = None,
 ) -> tuple[str, int, int]:
     """
     Plan JSON → exécution par sous-agents → synthèse CIO.
     mission_txt : texte analysé par le CIO (peut inclure historique de chat).
     root_mission_label : rappel court pour les sous-agents (souvent la demande brute utilisateur).
     job_id : si fourni (mission /run), met à jour active_jobs[job_id]["team"] pour l'interface.
+    allowed_agents : si fourni, restreint la délégation à ces clés (groupe d'agents).
+    orchestrator_key : agent lead (coordinateur entreprise ou chef de groupe).
     """
-    agent_cfg = agents_def()["coordinateur"]
+    orch_key = (orchestrator_key or "coordinateur").strip() or "coordinateur"
+    if orch_key not in agents_def():
+        orch_key = "coordinateur"
+    agent_cfg = agents_def()[orch_key]
     memory_brain = _cio_prompt_memory(
-        "coordinateur",
+        orch_key if orch_key in ("coordinateur", "assistant") else "coordinateur",
         exclude_job_id=job_id,
         chat_mode=chat_mode,
         user_text=root_mission_label or mission_txt,
+        agent_group_id=agent_group_id,
     )
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + memory_brain
-    deleg = delegatable_subagent_keys_ordered()
+    group_ctx = ""
+    if agent_group_id:
+        try:
+            from services.agent_groups import get_group
+
+            g = get_group(agent_group_id)
+            if g:
+                group_ctx = (
+                    f"\n\n### Groupe d'agents actif : {g.get('label')} (`{g.get('id')}`)\n"
+                    f"Tu pilotes uniquement cette équipe. Membres déléguables : "
+                    f"{', '.join(g.get('member_keys') or []) or 'aucun'}.\n"
+                    f"Hors périmètre du groupe : ne mobilise pas la flotte Entreprise élargie.\n"
+                )
+        except Exception:
+            group_ctx = ""
+    system_prompt = agent_cfg["system"] + _identity_block(agent_group_id) + memory_brain + group_ctx
+    try:
+        from services.thinking_modes import inject_thinking_mode, thinking_mode_from_job
+
+        system_prompt = inject_thinking_mode(system_prompt, thinking_mode_from_job(job_id))
+    except Exception:
+        pass
+    allow_tuple = tuple(allowed_agents) if allowed_agents is not None else None
+    deleg = delegatable_subagent_keys_ordered(allowed_keys=allow_tuple)
     keys_csv = ", ".join(deleg) if deleg else "commercial, community_manager, developpeur, comptable"
     if len(deleg) >= 2:
         ex_a, ex_b = deleg[0], deleg[1]
@@ -1590,6 +1880,9 @@ def orchestrate_coordinateur_mission(
             "job_in_active_jobs": job_id in active_jobs if job_id else False,
             "chat_mode": chat_mode,
             "mission_preview": (root_mission_label or "")[:160],
+            "agent_group_id": agent_group_id or "",
+            "orchestrator_key": orch_key,
+            "deleg_count": len(deleg),
         },
     )
     # endregion
@@ -1603,7 +1896,7 @@ def orchestrate_coordinateur_mission(
 
     if job_id:
         team_rows.append({
-            "key": "coordinateur",
+            "key": orch_key,
             "label": agent_cfg["label"],
             "status": "running",
             "phase": "plan",
@@ -1613,15 +1906,25 @@ def orchestrate_coordinateur_mission(
         _emit_job_event(
             job_id,
             "orchestration_start",
-            "coordinateur",
-            {"chat_mode": chat_mode, "mission_preview": (root_mission_label or "")[:400]},
+            orch_key,
+            {
+                "chat_mode": chat_mode,
+                "mission_preview": (root_mission_label or "")[:400],
+                "agent_group_id": agent_group_id or "",
+            },
         )
 
     lazy_delegation = _behavior_bool("orchestration.strict_lazy_delegation", True)
 
     if lazy_delegation and not _mission_requires_delegation(mission_txt, root_mission_label):
         direct, ti0, to0 = _cio_attempt_direct_answer(
-            mission_txt, root_mission_label, job_id, job_logs, chat_mode,
+            mission_txt,
+            root_mission_label,
+            job_id,
+            job_logs,
+            chat_mode,
+            agent_group_id=agent_group_id,
+            orchestrator_key=orch_key,
         )
         t_in += ti0
         t_out += to0
@@ -1642,16 +1945,16 @@ def orchestrate_coordinateur_mission(
             )
             if job_id:
                 for row in team_rows:
-                    if row.get("key") == "coordinateur":
+                    if row.get("key") == orch_key:
                         row["status"] = "done"
                         row["phase"] = "synth"
-                        row["detail"] = "Réponse directe CIO"
+                        row["detail"] = "Réponse directe"
                         break
                 pub_team()
                 _emit_job_event(
                     job_id,
                     "synthesis_done",
-                    "coordinateur",
+                    orch_key,
                     {"mode": "direct", "chars": len(direct)},
                 )
             return direct, t_in, t_out
@@ -1661,8 +1964,10 @@ def orchestrate_coordinateur_mission(
         if cio_questions_enabled else ""
     )
     cq_rule = (
-        "- clarifying_questions : tableau de 1 à 3 questions courtes si la mission est ambigue sur des points clés "
-        "(budget, cible, priorité entre options). La mission s'exécute EN PARALLÈLE — ces questions ne bloquent rien. "
+        "- clarifying_questions : tableau de 1 à 3 questions si la mission est ambiguë sur des points clés "
+        "(budget, cible, priorité entre options). Chaque entrée = string OU "
+        '{ "prompt": "...", "selection": "multi"|"single", "options": ["A","B"] }. '
+        "La mission s'exécute EN PARALLÈLE — ces questions ne bloquent rien. "
         "Laisse vide [] si la mission est suffisamment claire.\n"
         if cio_questions_enabled else ""
     )
@@ -1686,18 +1991,23 @@ def orchestrate_coordinateur_mission(
             "Les rôles sans dépendance déclarée travaillent EN PARALLÈLE. "
             "Omets ce champ (ou {}) si toutes les sous-tâches sont indépendantes."
         )
-    log("[korymb] CIO — analyse de la mission...")
     _raise_if_job_cancelled(job_id)
-    plan_max_tokens = 1024 if chat_mode else 4096
-    plan_profile = "lite" if chat_mode else "standard"
-    plan_txt, ti, to = llm_turn(
-        system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
-        plan_user,
-        max_tokens=plan_max_tokens,
-        or_profile=plan_profile,
-        usage_job_id=job_id,
-        usage_context="cio_plan_json",
-    )
+    if isinstance(approved_plan, dict) and approved_plan:
+        plan_txt = json.dumps(approved_plan, ensure_ascii=False)
+        ti = to = 0
+        log("[korymb] Plan CIO déjà validé — reprise de l'exécution sans nouvelle analyse.")
+    else:
+        log("[korymb] CIO — analyse de la mission...")
+        plan_max_tokens = 1024 if chat_mode else 4096
+        plan_profile = "lite" if chat_mode else "standard"
+        plan_txt, ti, to = llm_turn(
+            system_prompt + "\n\nTu dois répondre UNIQUEMENT avec un JSON structuré.",
+            plan_user,
+            max_tokens=plan_max_tokens,
+            or_profile=plan_profile,
+            usage_job_id=job_id,
+            usage_context="cio_plan_json",
+        )
     t_in += ti
     t_out += to
     _sync_active_job_tokens(job_id, t_in, t_out)
@@ -1752,16 +2062,22 @@ def orchestrate_coordinateur_mission(
     # ── Questions du CIO pour le dirigeant (non-bloquant, si activé) ──────────
     raw_cq = plan.get("clarifying_questions")
     if cio_questions_enabled and isinstance(raw_cq, list) and raw_cq:
-        cq_valid = [str(q).strip() for q in raw_cq if str(q).strip()][:4]
-        if cq_valid:
-            log(f"[korymb] CIO : {len(cq_valid)} question(s) posée(s) au dirigeant (mission continue en parallèle).")
+        from services.choice_questionnaire import clarifying_payload_for_event, normalize_clarifying_questions
+
+        cq_items = normalize_clarifying_questions(raw_cq, limit=4)
+        if cq_items:
+            cq_payload = clarifying_payload_for_event(cq_items)
+            log(
+                f"[korymb] CIO : {len(cq_payload['questions'])} question(s) posée(s) au dirigeant "
+                "(mission continue en parallèle)."
+            )
             if job_id:
                 _emit_job_event(
                     job_id,
                     "cio_question",
                     "coordinateur",
                     {
-                        "questions": cq_valid,
+                        **cq_payload,
                         "mission_preview": (root_mission_label or mission_txt or "")[:200],
                         "answered": False,
                     },
@@ -1888,7 +2204,7 @@ def orchestrate_coordinateur_mission(
         )
         _persist_running_job_snapshot(job_id)
 
-        if cio_plan_hitl_enabled and not chat_mode:
+        if cio_plan_hitl_enabled and not chat_mode and not (isinstance(approved_plan, dict) and approved_plan):
             from services.orchestrator import prepare_hitl_gate
 
             preview = json.dumps(plan_public, ensure_ascii=False, indent=2)
@@ -1904,13 +2220,25 @@ def orchestrate_coordinateur_mission(
             if (prep.get("status") or "") != "awaiting_validation":
                 log("[korymb] HITL plan CIO : suspension impossible (état du job), poursuite sans attente.")
             else:
-                log("[korymb] Plan CIO — attente validation dirigeant (approuver, modifier ou rejeter).")
+                log("[korymb] Plan CIO enregistré — worker arrêté. Reprise au clic Valider.")
                 _emit_job_event(
                     job_id,
                     "cio_plan_hitl",
                     "coordinateur",
-                    {"status": "awaiting_validation", "kind": "cio_plan"},
+                    {"status": "awaiting_validation", "kind": "cio_plan", "parked": True},
                 )
+                plan_saved = {
+                    "agents": list(delegated),
+                    "synthese_attendue": str(plan.get("synthese_attendue") or "")[:4000],
+                    "sous_taches": {
+                        k: _tache_to_str(v).strip()
+                        for k, v in st.items()
+                        if k in agents_def() and k != "coordinateur" and _tache_to_str(v).strip()
+                    },
+                }
+                if job_id in active_jobs:
+                    active_jobs[job_id]["plan"] = plan_saved
+                    active_jobs[job_id]["status"] = "awaiting_validation"
                 try:
                     j = active_jobs.get(job_id) or {}
                     update_job(
@@ -1921,50 +2249,14 @@ def orchestrate_coordinateur_mission(
                         int(j.get("tokens_in", 0)),
                         int(j.get("tokens_out", 0)),
                         j.get("team") or [],
-                        plan_public,
+                        plan_saved,
                         j.get("events") or [],
                         source=j.get("source"),
                         mission_config=j.get("mission_config") if isinstance(j.get("mission_config"), dict) else None,
                     )
                 except Exception:
                     logger.exception("persist awaiting_validation snapshot")
-                outcome = _wait_for_cio_plan_hitl_resolution(job_id, job_logs)
-                dec = outcome.get("decision") if isinstance(outcome, dict) else "approve"
-                if dec == "amend":
-                    am = outcome.get("amended_plan")
-                    if isinstance(am, dict) and am:
-                        _apply_cio_plan_amendment(st, plan, am, log, job_id)
-                        delegated = [
-                            k
-                            for k in st
-                            if k in agents_def()
-                            and k != "coordinateur"
-                            and _tache_to_str(st.get(k)).strip()
-                        ]
-                        plan_public = {
-                            "agents": list(delegated),
-                            "synthese_attendue": str(plan.get("synthese_attendue") or "")[:800],
-                            "sous_taches": {
-                                k: (str(v)[:500] + ("…" if len(str(v)) > 500 else ""))
-                                for k, v in st.items()
-                                if k in agents_def() and k != "coordinateur"
-                            },
-                        }
-                        active_jobs[job_id]["plan"] = plan_public
-                        _emit_job_event(
-                            job_id,
-                            "plan_parsed",
-                            "coordinateur",
-                            {"plan": plan_public, "source": "cio_plan_hitl_amend"},
-                        )
-                else:
-                    _emit_job_event(
-                        job_id,
-                        "cio_plan_hitl_resolved",
-                        "coordinateur",
-                        {"decision": "approve"},
-                    )
-                _persist_running_job_snapshot(job_id)
+                raise HitlParked()
 
     if job_id and team_rows:
         team_rows[0]["status"] = "done"
@@ -2087,12 +2379,18 @@ def orchestrate_coordinateur_mission(
             )
         agent_sys = (
             agents_def()[agent_key]["system"]
-            + FLEUR_CONTEXT
+            + _identity_block(agent_group_id)
             + (
                 ""
                 if chat_mode
-                else _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
-                + operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+                else _korymb_memory_prompt_for(
+                    agent_key, exclude_job_id=job_id, agent_group_id=agent_group_id
+                )
+                + (
+                    operational_memory_digest_prompt(agent_key, exclude_job_id=job_id)
+                    if group_sees_workspace_identity(agent_group_id)
+                    else ""
+                )
             )
         )
 
@@ -2125,7 +2423,7 @@ def orchestrate_coordinateur_mission(
         sub_user = (
             "Le **CIO** (coordinateur) te transmet cette sous-mission dans le cadre du plan d’équipe. "
             "Réponds **en français** avec un texte que le CIO pourra intégrer tel quel dans sa synthèse au dirigeant. "
-            "Ton style : **comme en réunion avec le CIO** — naturel, direct, humain (tu peux tutoyer ou vouvoyer selon ce qui te semble cohérent avec le ton Élude In Art). "
+            "Ton style : **comme en réunion avec le CIO** — naturel, direct, humain (tu peux tutoyer ou vouvoyer selon ce qui te semble cohérent avec le ton du workspace). "
             "Commence par une courte phrase de prise en charge (ton rôle), puis livre le fond. "
             "Si tu utilises des outils, termine toujours par un paragraphe de synthèse : pas de réponse uniquement "
             "constituée d’appels d’outils ou de données brutes sans phrases d’analyse.\n"
@@ -2468,7 +2766,7 @@ def orchestrate_coordinateur_mission(
 
         chat_intent = classify_chat_intent(root_mission_label or mission_txt)
         chat_grounding = build_chat_grounding_block(root_mission_label or mission_txt, intent=chat_intent)
-        chat_tail += chat_tool_mandate(chat_intent) + chat_brief_mandate(
+        chat_tail += chat_tool_mandate(chat_intent, root_mission_label or mission_txt) + chat_brief_mandate(
             chat_intent, root_mission_label or mission_txt,
         )
     chat_solo_honesty = (
@@ -2480,9 +2778,8 @@ def orchestrate_coordinateur_mission(
     )
     relevance_mandate = (
         "\n\nAncrage obligatoire : commence par reformuler en une phrase la demande exacte du dirigeant, "
-        "puis réponds UNIQUEMENT à cette demande. Interdit de digresser vers d'autres sujets (tarot, "
-        "partenariats, roadmap…) s'ils n'ont pas été demandés. Si le contexte est insuffisant, dis-le "
-        "plutôt que d'inventer un livrable à côté de la plaque."
+        "puis réponds UNIQUEMENT à cette demande. Reste sur le sujet demandé. "
+        "Si le contexte est insuffisant, dis-le plutôt que d'inventer un livrable à côté."
     )
     contact_table_mandate = (
         _CONTACT_TABLE_MANDATE_SUFFIX
@@ -2517,7 +2814,9 @@ def orchestrate_coordinateur_mission(
         )
         result, ti3, to3 = llm_turn(
             system_prompt + chat_tail + relevance_mandate + synth_grounding,
-            synthese_user + contact_table_mandate,
+            synthese_user
+            + contact_table_mandate
+            + (("\n\n" + chat_grounding) if (chat_mode and chat_grounding) else ""),
             max_tokens=2048 if chat_mode else 4096,
             or_profile="standard",
             usage_job_id=job_id,
@@ -2639,6 +2938,12 @@ class MissionRunConfig(BaseModel):
     cio_questions_enabled: bool = True
     # Pause HITL après le plan CIO (validation / amendement dirigeant avant délégation)
     cio_plan_hitl_enabled: bool = True
+    # Groupe d'agents (filtre de délégation + lead)
+    agent_group_id: str | None = None
+    allowed_agents: list[str] | None = None
+    orchestrator_key: str | None = None
+    # Mode de pensée (scientifique / artiste / …) — injecté dans le prompt
+    thinking_mode: str = "auto"
 
 def _format_exc_for_user(exc: BaseException, *, max_len: int = 7200) -> str:
     msg = str(exc).strip() or type(exc).__name__
@@ -2670,8 +2975,10 @@ def _user_visible_chat_sync_failure_text(exc: BaseException) -> str:
 
 KORYMB_MAX_REFINEMENT_ROUNDS = 12
 
-def _planning_system(agent_key: str) -> str:
-    base = agents_def().get(agent_key, agents_def()["coordinateur"])["system"] + FLEUR_CONTEXT
+def _planning_system(agent_key: str, agent_group_id: str | None = None) -> str:
+    base = agents_def().get(agent_key, agents_def()["coordinateur"])["system"] + _identity_block(
+        agent_group_id
+    )
     if agent_key == "coordinateur":
         return base + MODE_CADRAGE_CIO
     return base + MODE_CADRAGE_AGENT + SUB_AGENT_COORDINATION_FR
@@ -2689,7 +2996,7 @@ def _session_messages_for_llm(messages: list[dict]) -> list[dict]:
 
 
 def _session_planning_llm_turn(session: dict) -> tuple[str, int, int]:
-    system = _planning_system(session["agent"])
+    system = _planning_system(session["agent"], session.get("agent_group_id"))
     msgs = _session_messages_for_llm(session["messages"])
     if not msgs:
         return "(Aucun message à traiter.)", 0, 0
@@ -2704,15 +3011,23 @@ def _session_planning_llm_turn(session: dict) -> tuple[str, int, int]:
 
 def _mission_config_from_payload(raw: MissionRunConfig | dict | None) -> dict:
     if raw is None:
-        return MissionRunConfig().model_dump()
-    if isinstance(raw, MissionRunConfig):
-        return raw.model_dump()
-    if isinstance(raw, dict):
+        cfg = MissionRunConfig().model_dump()
+    elif isinstance(raw, MissionRunConfig):
+        cfg = raw.model_dump()
+    elif isinstance(raw, dict):
         try:
-            return MissionRunConfig(**raw).model_dump()
+            cfg = MissionRunConfig(**raw).model_dump()
         except Exception:
-            return MissionRunConfig().model_dump()
-    return MissionRunConfig().model_dump()
+            cfg = MissionRunConfig().model_dump()
+    else:
+        cfg = MissionRunConfig().model_dump()
+    try:
+        from services.thinking_modes import normalize_thinking_mode
+
+        cfg["thinking_mode"] = normalize_thinking_mode(cfg.get("thinking_mode"))
+    except Exception:
+        cfg["thinking_mode"] = "auto"
+    return cfg
 
 def _cio_refinement_round_mission(
     job_id: str,
@@ -2728,7 +3043,7 @@ def _cio_refinement_round_mission(
     allers-retours CIO ↔ équipe au lieu d'une simple réécriture du texte final.
     """
     _raise_if_job_cancelled(job_id)
-    crit_sys = agents_def()["coordinateur"]["system"] + FLEUR_CONTEXT
+    crit_sys = agents_def()["coordinateur"]["system"] + _identity_block(_job_group_id(job_id))
     critique, ti1, to1 = llm_turn(
         crit_sys + "\n\nRéponds de façon compacte, sans formules de politesse.",
         f"Mission initiale (rappel) :\n{(mission_plain or '')[:3500]}\n\n"
@@ -2904,9 +3219,14 @@ def _schedule_mission_execution(
         mission_config=cfg,
         parent_job_id=parent_job_id,
     )
-    mem = _korymb_memory_prompt_for(agent_key, exclude_job_id=job_id)
+    gid = (cfg.get("agent_group_id") or None) if isinstance(cfg, dict) else None
+    mem = _korymb_memory_prompt_for(
+        agent_key,
+        exclude_job_id=job_id,
+        agent_group_id=gid,
+    )
     sub_coord = SUB_AGENT_COORDINATION_FR if agent_key != "coordinateur" else ""
-    system_prompt = agent_cfg["system"] + FLEUR_CONTEXT + mem + sub_coord
+    system_prompt = agent_cfg["system"] + _identity_block(gid) + mem + sub_coord
     context_str = f"\n\nContexte : {json.dumps(context, ensure_ascii=False)}" if context else ""
     mission_txt = f"{mission_plain}{context_str}"
 
@@ -2948,6 +3268,17 @@ def _schedule_mission_execution(
                 "mission_config": cfg,
             },
         )
+        try:
+            from services.mission_journal import note_mission
+
+            note_mission(
+                job_id,
+                kind="mission_start",
+                agent=agent_key,
+                excerpt=(mission_plain or "")[:240],
+            )
+        except Exception:
+            logger.exception("journal départ mission %s", job_id)
         t_in_total = t_out_total = 0
         result = ""
         graph_completed = False
@@ -2959,16 +3290,40 @@ def _schedule_mission_execution(
             engine_mode = get_orchestration_engine()
             if engine_mode in ("langgraph", "shadow"):
                 behavior_snap = snapshot_behavior_settings()
-                graph_out = run_mission_graph(
-                    job_id=job_id,
-                    agent_key=agent_key,
-                    mission_plain=mission_plain,
-                    context=context,
-                    source_tag=source_tag,
-                    mission_config=cfg,
-                    behavior_snapshot=behavior_snap,
-                )
-                if engine_mode == "langgraph" and graph_out is not None:
+                graph_out = None
+                try:
+                    graph_out = run_mission_graph(
+                        job_id=job_id,
+                        agent_key=agent_key,
+                        mission_plain=mission_plain,
+                        context=context,
+                        source_tag=source_tag,
+                        mission_config=cfg,
+                        behavior_snapshot=behavior_snap,
+                    )
+                except (HitlParked, KorymbJobCancelled):
+                    raise
+                except Exception as exc:
+                    logger.exception("Graphe en échec pour %s — repli sur l'ancien moteur", job_id)
+                    try:
+                        from services.mission_journal import note_mission
+
+                        note_mission(
+                            job_id,
+                            kind="repli",
+                            agent=agent_key,
+                            excerpt=str(exc)[:400],
+                        )
+                    except Exception:
+                        logger.exception("journal repli %s", job_id)
+                    graph_out = None
+                    engine_mode = "legacy"
+                else:
+                    from graph.runner import graph_is_waiting
+
+                    if graph_is_waiting(job_id):
+                        raise HitlParked()
+                if engine_mode == "langgraph" and isinstance(graph_out, dict):
                     result = str(graph_out.get("result") or "")
                     t_in_total = int(graph_out.get("tokens_in") or 0)
                     t_out_total = int(graph_out.get("tokens_out") or 0)
@@ -2997,11 +3352,18 @@ def _schedule_mission_execution(
                 if mission_mode == "triad":
                     from services.triad_orchestrator import orchestrate_triad
                     from services.knowledge import build_entity_context_block
+                    from services.workspace_brand import group_sees_workspace_identity
+
                     _emit_job_event(
                         job_id, "delegation", "architect",
                         {"label": "Architecte", "detail": "Analyse + planification (mode Triade)"},
                     )
-                    entity_ctx = build_entity_context_block(mission_plain)
+                    triad_gid = (cfg.get("agent_group_id") or "").strip() or None if isinstance(cfg, dict) else None
+                    entity_ctx = (
+                        build_entity_context_block(mission_plain)
+                        if group_sees_workspace_identity(triad_gid)
+                        else ""
+                    )
                     result, t_in_total, t_out_total = orchestrate_triad(
                         mission_txt,
                         mission_plain,
@@ -3009,15 +3371,38 @@ def _schedule_mission_execution(
                         job_id=job_id,
                         tool_tags=agent_cfg.get("tools") or None,
                         on_tool=lambda actor, name, meta: _emit_job_event(job_id, "tool_call", actor, meta),
-                        fleur_context=FLEUR_CONTEXT,
+                        fleur_context=_identity_block(triad_gid),
                         memory_context=entity_ctx,
                     )
                     _raise_if_job_cancelled(job_id)
-                elif agent_key == "coordinateur":
+                elif agent_key == "coordinateur" or bool(cfg.get("agent_group_id")):
+                    gid = (cfg.get("agent_group_id") or "").strip() or None
+                    allowed = cfg.get("allowed_agents")
+                    orch = (cfg.get("orchestrator_key") or agent_key or "coordinateur").strip()
+                    if gid and (not allowed or orch == "coordinateur"):
+                        try:
+                            from services.agent_groups import (
+                                group_allowed_delegate_keys,
+                                group_orchestrator_key,
+                            )
+
+                            if not allowed:
+                                allowed = list(group_allowed_delegate_keys(gid) or ())
+                            if not cfg.get("orchestrator_key"):
+                                orch = group_orchestrator_key(gid)
+                        except Exception:
+                            pass
                     result, t_in_total, t_out_total = orchestrate_coordinateur_mission(
-                        mission_txt, mission_plain, job_logs, chat_mode=False, job_id=job_id,
+                        mission_txt,
+                        mission_plain,
+                        job_logs,
+                        chat_mode=False,
+                        job_id=job_id,
                         cio_questions_enabled=bool(cfg.get("cio_questions_enabled", True)),
                         cio_plan_hitl_enabled=bool(cfg.get("cio_plan_hitl_enabled", True)),
+                        allowed_agents=list(allowed) if allowed is not None else None,
+                        orchestrator_key=orch,
+                        agent_group_id=gid,
                     )
                     _raise_if_job_cancelled(job_id)
                     if cfg.get("recursive_refinement_enabled"):
@@ -3105,10 +3490,22 @@ def _schedule_mission_execution(
                 mission_config=cfg,
             )
             try:
+                from services.mission_journal import note_mission, span_ids_for
+
+                note_mission(
+                    job_id,
+                    kind="mission_done",
+                    agent=agent_key,
+                    excerpt=(str(result or "")[:240]),
+                )
+                snap = active_jobs.get(job_id) if isinstance(active_jobs, dict) else None
+                session = str(snap.get("chat_session_id") or "").strip() if isinstance(snap, dict) else ""
                 append_recent_mission(
                     job_id,
                     mission_plain,
                     (result or "") if isinstance(result, str) else "",
+                    span_ids=span_ids_for(job_id),
+                    chat_session_id=session or None,
                 )
             except Exception:
                 logger.exception("append_recent_mission")
@@ -3132,6 +3529,20 @@ def _schedule_mission_execution(
                     active_jobs[job_id]["user_validated_at"] = uv
                     active_jobs[job_id]["mission_closed_by_user"] = True
             logger.info("Job [%s] OK — %d tokens.", job_id, t_in_total + t_out_total)
+
+        except HitlParked:
+            job_logs.append(
+                "[korymb] Mission en pause — le plan est en base. Le fil d'exécution est libéré.",
+            )
+            try:
+                from services.mission_journal import note_mission
+
+                note_mission(job_id, kind="hitl", agent=agent_key, excerpt="validation demandée")
+            except Exception:
+                logger.exception("journal pause %s", job_id)
+            if job_id in active_jobs:
+                active_jobs[job_id]["status"] = "awaiting_validation"
+            logger.info("Job [%s] en pause HITL (plan CIO).", job_id)
 
         except KorymbJobCancelled:
             job_logs.append("[korymb] Mission interrompue — arrêt demandé par l'utilisateur.")
@@ -3203,11 +3614,7 @@ def _schedule_mission_execution(
                     pass
 
     # Thread dédié : évite de saturer le pool Starlette utilisé par les routes API sync.
-    threading.Thread(
-        target=execute,
-        name=f"korymb-mission-{job_id[:24]}",
-        daemon=True,
-    ).start()
+    spawn_thread(execute, name=f"korymb-mission-{job_id[:24]}")
 
 def _mission_followup_context_from_parent(parent_job_id: str) -> str:
     """Texte injecté dans le tour CIO « chat » pour reprendre une mission déjà exécutée (validée ou non)."""

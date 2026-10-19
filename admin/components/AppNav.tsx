@@ -5,25 +5,56 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
-import { ADMIN_NAV_GROUPS, isAdminLinkActive } from "../lib/adminNav";
-import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
+import { ADMIN_NAV_GROUPS, ESSENTIAL_ADMIN_ENTRY, filterAdminNavGroups, isAdminLinkActive } from "../lib/adminNav";
+import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
 import {
   GESTION_HUB_HREF,
   GESTION_NAV_LINKS,
   GESTION_QUICK_ACTIONS,
+  filterGestionNavLinks,
   groupedGestionNavLinks,
+  gestionNavGroupCompactClass,
+  gestionNavGroupHeadingClass,
   isGestionLinkActive,
   isGestionPath,
 } from "../lib/gestionNav";
+import { useUiMode } from "../lib/uiMode";
+import { UX_COPY } from "../lib/uxCopy";
 
-type NavPrimaryItem = { href: string; label: string; priority?: boolean };
+type NavPrimaryItem = { href: string; label: string; priority?: boolean; tone?: "amber" | "sky"; hint?: string };
 
-const NAV_PRIMARY: NavPrimaryItem[] = [
-  { href: "/briefing", label: "Briefing", priority: true },
-  { href: DIRECTOR_QUEUE_HREF, label: DIRECTOR_QUEUE_LABEL, priority: true },
-  { href: "/missions", label: "Missions", priority: true },
-  { href: "/chat", label: "Chat" },
+const NAV_CHAT: NavPrimaryItem = {
+  href: "/chat",
+  label: UX_COPY.chat.label,
+  priority: true,
+  hint: UX_COPY.chat.hint,
+};
+
+const NAV_BEFORE_GESTION_FULL: NavPrimaryItem[] = [
+  NAV_CHAT,
+  { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
+  { href: "/carte", label: "Carte", priority: true, tone: "sky" },
 ];
+
+const NAV_BEFORE_GESTION_ESSENTIAL: NavPrimaryItem[] = [
+  NAV_CHAT,
+  { href: "/briefing", label: UX_COPY.briefing.label, priority: true, tone: "amber", hint: UX_COPY.briefing.hint },
+];
+
+const NAV_QUEUE: NavPrimaryItem = {
+  href: DIRECTOR_QUEUE_HREF,
+  label: DIRECTOR_QUEUE_LABEL,
+  priority: true,
+  tone: "amber",
+  hint: DIRECTOR_QUEUE_HINT,
+};
+
+const NAV_AFTER_GESTION_FULL: NavPrimaryItem[] = [
+  NAV_QUEUE,
+  { href: "/missions", label: UX_COPY.missions.label, priority: true, hint: UX_COPY.missions.hint },
+];
+
+const NAV_AFTER_GESTION_ESSENTIAL: NavPrimaryItem[] = [NAV_QUEUE];
 
 const NAV_MORE = [
   { href: "/dashboard", label: "Vue agents" },
@@ -47,8 +78,11 @@ function drawerLinkClass(active: boolean, priority?: boolean) {
   return priority && !active ? `${base} nav-drawer-link-priority` : base;
 }
 
-function desktopLinkClass(active: boolean, priority?: boolean) {
+function desktopLinkClass(active: boolean, priority?: boolean, tone: "amber" | "sky" | "violet" = "amber") {
   if (active) return "rounded-full bg-violet-700 px-3 py-2.5 text-sm font-bold text-white shadow-sm";
+  if (priority && tone === "sky") {
+    return "rounded-full border-2 border-sky-300 bg-sky-50 px-3 py-2.5 text-sm font-bold text-sky-950 hover:bg-sky-100";
+  }
   if (priority)
     return "rounded-full border-2 border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-bold text-amber-950 hover:bg-amber-100";
   return "rounded-full px-3 py-2.5 text-sm font-semibold text-slate-700 hover:bg-violet-50";
@@ -68,42 +102,50 @@ function RepriseNavBadge({ count }: { count: number }) {
   );
 }
 
-function adminHref(href: string) {
-  return href === "/administration" ? "/administration/dashboard" : href;
+function adminHref(href: string, platformOwner: boolean) {
+  if (href === "/administration") return platformOwner ? "/administration/dashboard" : ESSENTIAL_ADMIN_ENTRY;
+  return href;
 }
 
 export default function AppNav() {
   const pathname = usePathname() || "";
+  const { showAdvanced, isPlatformOwner, role } = useUiMode();
+  const essentialNav = !showAdvanced;
   const adminActive = pathname === "/administration" || pathname.startsWith("/administration/");
   const gestionActive = isGestionPath(pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [gestionOpen, setGestionOpen] = useState(false);
-  const [canAdmin, setCanAdmin] = useState(true);
+  const canAdmin = role === "admin";
   const moreRef = useRef<HTMLDivElement>(null);
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
   const repriseGapCount = reprise.data?.gaps?.length ?? 0;
 
+  const navBefore = essentialNav ? NAV_BEFORE_GESTION_ESSENTIAL : NAV_BEFORE_GESTION_FULL;
+  const navAfter = essentialNav ? NAV_AFTER_GESTION_ESSENTIAL : NAV_AFTER_GESTION_FULL;
+  const navPrimary = [...navBefore, ...navAfter];
+  const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, {
+    essential: essentialNav,
+    platformOwner: isPlatformOwner,
+  });
+  const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential: essentialNav });
+  const gestionGroups = groupedGestionNavLinks(essentialNav);
+  const gestionQuick = essentialNav
+    ? GESTION_QUICK_ACTIONS.filter((a) =>
+        ["new-contact", "new-event", "new-quote"].includes(a.id),
+      )
+    : GESTION_QUICK_ACTIONS;
+
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d?.user) {
-          setCanAdmin(true);
-          return;
-        }
-        setCanAdmin(d.role === "admin");
-      })
-      .catch(() => setCanAdmin(true));
-  }, []);
-
-  const navMore = NAV_MORE.filter(
-    (item) => canAdmin || (item.href !== "/administration" && item.href !== "/configuration"),
-  );
+  const navMore = NAV_MORE.filter((item) => {
+    if (!canAdmin && (item.href === "/administration" || item.href === "/configuration")) return false;
+    if (!isPlatformOwner && item.href === "/configuration") return false;
+    if (essentialNav && item.href === "/dashboard") return false;
+    return true;
+  });
   const moreActive = isMoreSectionActive(pathname, navMore);
 
   const closeMenu = useCallback(() => setMenuOpen(false), []);
@@ -164,7 +206,7 @@ export default function AppNav() {
 
   const gestionDropdown = (onNavigate: () => void, variant: "desktop" | "drawer") => (
     <>
-      {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
+      {gestionLinks.filter((item) => item.exact).map((item) => {
         const active = isGestionLinkActive(pathname, item);
         const cls =
           variant === "desktop"
@@ -186,12 +228,10 @@ export default function AppNav() {
           </Link>
         );
       })}
-      {groupedGestionNavLinks().map((group) => (
+      {gestionGroups.map((group) => (
         <div key={group.id} className={variant === "desktop" ? "mt-1 border-t border-emerald-50 pt-1" : "mt-2"}>
           <p
-            className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${
-              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
-            }`}
+            className={`px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}
           >
             {group.label}
           </p>
@@ -222,7 +262,7 @@ export default function AppNav() {
       {variant === "desktop" ? (
         <div className="mt-2 border-t border-slate-100 pt-2">
           <p className="px-3 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Actions</p>
-          {GESTION_QUICK_ACTIONS.map((action) => (
+          {gestionQuick.map((action) => (
             <Link
               key={action.id}
               href={action.href}
@@ -252,7 +292,7 @@ export default function AppNav() {
         return (
           <Link
             key={item.href}
-            href={adminHref(item.href)}
+            href={adminHref(item.href, isPlatformOwner)}
             onClick={() => {
               closeMenu();
               closeMore();
@@ -269,9 +309,22 @@ export default function AppNav() {
 
   const adminSubLinks = adminActive ? (
     <div className="mt-3 space-y-3 border-t-2 border-violet-100 pt-3" aria-label="Sous-menu administration">
-      {ADMIN_NAV_GROUPS.map((group) => (
-        <div key={group.id} className="space-y-1">
-          <p className="px-2 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">{group.label}</p>
+      {adminGroups.map((group) => (
+        <div
+          key={group.id}
+          className={
+            group.emphasis === "agents"
+              ? "space-y-1 rounded-xl border border-violet-200 bg-violet-50/60 p-2"
+              : "space-y-1"
+          }
+        >
+          <p
+            className={`px-2 text-[10px] font-extrabold uppercase tracking-wider ${
+              group.emphasis === "agents" ? "text-violet-800" : "text-slate-500"
+            }`}
+          >
+            {group.label}
+          </p>
           {group.links.map((item) => {
             const active = isAdminLinkActive(pathname, item.href);
             const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
@@ -289,12 +342,41 @@ export default function AppNav() {
           })}
         </div>
       ))}
+      {isPlatformOwner ? (
+        <>
+          <Link
+            href="/administration/portefeuille"
+            onClick={() => {
+              closeMenu();
+              closeMore();
+            }}
+            className={drawerLinkClass(isAdminLinkActive(pathname, "/administration/portefeuille"))}
+          >
+            Mes clients
+          </Link>
+          <Link
+            href="/administration/enveloppes"
+            onClick={() => {
+              closeMenu();
+              closeMore();
+            }}
+            className={drawerLinkClass(isAdminLinkActive(pathname, "/administration/enveloppes"))}
+          >
+            Enveloppes IA
+          </Link>
+        </>
+      ) : null}
+      {essentialNav ? (
+        <p className="px-2 pt-1 text-[11px] font-medium text-slate-500">
+          Mode Essentiel — le reste du cockpit est masqué.
+        </p>
+      ) : null}
     </div>
   ) : null;
 
   const navLinks = (
     <>
-      {NAV_PRIMARY.map((item) => {
+      {navPrimary.map((item) => {
         const active = isNavActive(pathname, item.href);
         return (
           <Link
@@ -302,6 +384,7 @@ export default function AppNav() {
             href={item.href}
             onClick={closeMenu}
             className={`${drawerLinkClass(active, item.priority)} inline-flex items-center`}
+            title={item.hint}
           >
             {item.label}
           </Link>
@@ -344,10 +427,15 @@ export default function AppNav() {
     <>
       <div className="hidden min-w-0 flex-1 flex-col items-end gap-2 xl:flex">
         <nav className="flex flex-wrap items-center justify-end gap-2">
-          {NAV_PRIMARY.slice(0, 1).map((item) => {
+          {navBefore.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
-              <Link key={item.href} href={item.href} className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
+                title={item.hint}
+              >
                 {item.label}
               </Link>
             );
@@ -376,10 +464,14 @@ export default function AppNav() {
             ) : null}
           </div>
 
-          {NAV_PRIMARY.slice(1).map((item) => {
+          {navAfter.map((item) => {
             const active = isNavActive(pathname, item.href);
             return (
-              <Link key={item.href} href={item.href} className={`${desktopLinkClass(active, item.priority)} inline-flex items-center`}>
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
+              >
                 {item.label}
               </Link>
             );
@@ -410,7 +502,7 @@ export default function AppNav() {
                   return (
                     <Link
                       key={item.href}
-                      href={adminHref(item.href)}
+                      href={adminHref(item.href, isPlatformOwner)}
                       role="menuitem"
                       onClick={closeMore}
                       className={`flex items-center rounded-xl px-3 py-2.5 text-sm font-semibold ${
@@ -433,7 +525,7 @@ export default function AppNav() {
             aria-label="Sous-menu gestion"
           >
             <span className="self-center pe-1 font-bold text-emerald-600">Gestion:</span>
-            {GESTION_NAV_LINKS.filter((item) => item.exact).map((item) => {
+            {gestionLinks.filter((item) => item.exact).map((item) => {
               const active = isGestionLinkActive(pathname, item);
               return (
                 <Link
@@ -448,9 +540,9 @@ export default function AppNav() {
                 </Link>
               );
             })}
-            {groupedGestionNavLinks().map((group) => (
+            {gestionGroups.map((group) => (
               <div key={group.id} className="flex flex-wrap items-center gap-1">
-                <span className={`font-bold ${group.id === "creation" ? "text-violet-500" : "text-emerald-500"}`}>
+                <span className={`font-bold ${gestionNavGroupCompactClass(group.id)}`}>
                   {group.label}:
                 </span>
                 {group.links.map((item) => {
@@ -465,32 +557,6 @@ export default function AppNav() {
                     >
                       <span aria-hidden>{item.icon}</span>
                       {item.label}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
-          </nav>
-        ) : null}
-
-        {adminActive ? (
-          <nav className="flex max-w-full flex-wrap justify-end gap-x-3 gap-y-1 border-t border-violet-100 pt-2 text-xs" aria-label="Sous-menu administration">
-            {ADMIN_NAV_GROUPS.map((group) => (
-              <div key={group.id} className="flex flex-wrap items-center gap-1">
-                <span className="font-bold text-slate-400">{group.label}:</span>
-                {group.links.map((item) => {
-                  const active = isAdminLinkActive(pathname, item.href);
-                  const showRepriseBadge = item.href === "/administration/reprise" && repriseGapCount > 0;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      className={`inline-flex items-center rounded-full px-2.5 py-1.5 font-bold ${
-                        active ? "bg-violet-100 text-violet-900 ring-1 ring-violet-200" : "text-slate-700 hover:bg-slate-100"
-                      }`}
-                    >
-                      {item.label}
-                      {showRepriseBadge ? <RepriseNavBadge count={repriseGapCount} /> : null}
                     </Link>
                   );
                 })}

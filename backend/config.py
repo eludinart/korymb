@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     jwt_expire_hours: int = 168
     bootstrap_admin_email: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_EMAIL")
     bootstrap_admin_password: str = Field(default="", validation_alias="KORYMB_BOOTSTRAP_ADMIN_PASSWORD")
-    bootstrap_admin_display_name: str = Field(default="Éric", validation_alias="KORYMB_BOOTSTRAP_ADMIN_DISPLAY_NAME")
+    bootstrap_admin_display_name: str = Field(default="Admin", validation_alias="KORYMB_BOOTSTRAP_ADMIN_DISPLAY_NAME")
     bootstrap_workspace_name: str = Field(
-        default="Korymb — Élude In Art",
+        default="Mon espace Korymb",
         validation_alias="KORYMB_BOOTSTRAP_WORKSPACE_NAME",
     )
 
@@ -95,6 +95,15 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_http_referer: str = ""
     openrouter_app_title: str = "Korymb"
+
+    # Mélange gratuit : auto dès qu'une clé Groq ou Gemini est présente.
+    llm_free_pool: str = "auto"
+    groq_api_key: str = ""
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.1-flash-lite"
+    # Dernier seau, seulement si la clé est posée. deepseek-flash est payant et peu cher.
+    deepseek_api_key: str = ""
+    llm_prefer_hop_id: str = ""
 
     # Estimation coût (USD / million de tokens) pour le widget /jobs ; à ajuster selon le modèle OpenRouter
     llm_price_input_per_million_usd: float = 3.0

@@ -554,7 +554,7 @@ def integrations_from_tools_probe(
         ok=fleur_ok if fleur_cfg else None,
         reachable=fleur_ok if fleur_cfg else None,
         probe_detail=fleur_detail or None,
-        note="Base Fleur (MySQL).",
+        note="Base produit externe (MySQL).",
     )
 
     for llm_id in ("llm_mistral", "llm_openrouter", "llm_anthropic"):

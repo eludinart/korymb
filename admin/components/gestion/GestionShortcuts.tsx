@@ -2,7 +2,12 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { groupedGestionNavLinks } from "../../lib/gestionNav";
+import {
+  groupedGestionNavLinks,
+  gestionNavGroupCardBorderClass,
+  gestionNavGroupHeadingClass,
+  gestionNavGroupTitleHoverClass,
+} from "../../lib/gestionNav";
 import { businessApi } from "../../lib/business";
 
 /** Raccourcis gestion pour le briefing — accès en 1 clic aux modules métier. */
@@ -17,16 +22,16 @@ export default function GestionShortcuts() {
 
   return (
     <section
-      className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/90 via-white to-white p-4 shadow-sm sm:p-5"
+      className="rounded-2xl border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/90 via-white to-white p-4 shadow-sm dark:border-emerald-700 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 sm:p-5"
       aria-labelledby="gestion-shortcuts-heading"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 id="gestion-shortcuts-heading" className="text-base font-bold text-emerald-950">
+          <h2 id="gestion-shortcuts-heading" className="text-base font-bold text-emerald-950 dark:text-emerald-100">
             Gestion entreprise
           </h2>
-          <p className="mt-0.5 text-sm text-emerald-900/80">
-            Contacts, studio, planning et devis — commercial et création au même endroit.
+          <p className="mt-0.5 text-sm text-emerald-800 dark:text-slate-300">
+            Contacts, studio, équipes projet, planning et devis — commercial et création au même endroit.
           </p>
         </div>
         <Link href="/gestion" className="btn-success text-xs sm:text-sm">
@@ -36,11 +41,7 @@ export default function GestionShortcuts() {
 
       {groupedGestionNavLinks().map((group) => (
         <div key={group.id} className="mt-4">
-          <p
-            className={`mb-2 text-[10px] font-extrabold uppercase tracking-wider ${
-              group.id === "creation" ? "text-violet-700" : "text-emerald-700"
-            }`}
-          >
+          <p className={`mb-2 text-[10px] font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}>
             {group.label}
           </p>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -61,26 +62,20 @@ export default function GestionShortcuts() {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`group flex min-h-[4.5rem] flex-col justify-between rounded-xl border bg-white/90 px-3 py-3 shadow-sm transition hover:shadow-md ${
-                    group.id === "creation"
-                      ? "border-violet-100 hover:border-violet-300"
-                      : "border-emerald-100 hover:border-emerald-300"
-                  }`}
+                  className={`group flex min-h-[4.5rem] flex-col justify-between rounded-xl border bg-white/90 px-3 py-3 shadow-sm transition hover:shadow-md dark:bg-slate-950/80 ${gestionNavGroupCardBorderClass(group.id)}`}
                 >
                   <span className="text-lg" aria-hidden>
                     {item.icon}
                   </span>
                   <div>
                     <p
-                      className={`text-sm font-bold text-slate-900 ${
-                        group.id === "creation" ? "group-hover:text-violet-900" : "group-hover:text-emerald-900"
-                      }`}
+                      className={`text-sm font-bold text-slate-900 dark:text-slate-50 ${gestionNavGroupTitleHoverClass(group.id)}`}
                     >
                       {item.label}
                     </p>
-                    <p className="text-[11px] leading-snug text-slate-500">{item.hint}</p>
+                    <p className="text-[11px] leading-snug text-slate-600 dark:text-slate-400">{item.hint}</p>
                     {statKey != null && overview.isSuccess ? (
-                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                      <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
                         {statKey}{" "}
                         {item.href.includes("planning")
                           ? "à venir"

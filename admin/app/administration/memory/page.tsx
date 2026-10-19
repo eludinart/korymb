@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import Link from "next/link";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { requestJson, agentHeaders } from "../../../lib/api";
 import { MEMORY_CONTEXT_KEYS, MEMORY_CONTEXT_TITLES, CIO_MEMORY_NOTE } from "../../../lib/agentMemory";
@@ -113,8 +114,16 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
   });
 
   const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const [search, setSearch] = useState("");
 
   const contexts = draft ?? memory.data?.contexts ?? {};
+  const q = search.trim().toLowerCase();
+  const visibleKeys = MEMORY_CONTEXT_KEYS.filter((key) => {
+    if (!q) return true;
+    const title = String(MEMORY_CONTEXT_TITLES[key] || key).toLowerCase();
+    const body = String(contexts[key] || "").toLowerCase();
+    return title.includes(q) || body.includes(q) || key.toLowerCase().includes(q);
+  });
 
   const saveMutation = useMutation({
     mutationFn: async (ctx: Record<string, string>) => {
@@ -231,9 +240,24 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
         <p className="mt-1 text-violet-800">{CIO_MEMORY_NOTE}</p>
       </div>
 
+      <label className="block">
+        <span className="sr-only">Rechercher dans la mémoire</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher dans vos volets (titre ou texte)…"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+        />
+      </label>
+
       {memory.isLoading && <p className="text-sm text-slate-400">Chargement…</p>}
 
-      {MEMORY_CONTEXT_KEYS.map((key) => (
+      {!memory.isLoading && q && visibleKeys.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun volet ne correspond à « {search.trim()} ».</p>
+      ) : null}
+
+      {visibleKeys.map((key) => (
         <div key={key}>
           <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
             <label className="block text-sm font-semibold text-slate-700">
@@ -272,7 +296,7 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
             className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 resize-y"
             placeholder={
               key === "global"
-                ? "Ex. Cette semaine : relance éditeurs tarot, bilan Q2, préparer posts Instagram…"
+                ? "Ex. Activité professionnelle ou associative. Publics : clients, adhérents, partenaires. Cette semaine : relances, bilan, message aux membres."
                 : `Contexte pour ${MEMORY_CONTEXT_TITLES[key]}…`
             }
           />
@@ -286,6 +310,7 @@ function EditTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; sho
 
 function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; showToast: (m: string, ok?: boolean) => void }) {
   const [loadedSnap, setLoadedSnap] = useState<MemorySnapshot | null>(null);
+  const [search, setSearch] = useState("");
 
   const history = useQuery({
     queryKey: ["memory-history"],
@@ -301,6 +326,13 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
       const { data } = await requestJson("/memory", { headers: agentHeaders() });
       return data as MemoryState;
     },
+  });
+
+  const q = search.trim().toLowerCase();
+  const filteredHistory = (history.data ?? []).filter((snap) => {
+    if (!q) return true;
+    const hay = `${snap.id} ${snap.comment || ""} ${snap.preview || ""}`.toLowerCase();
+    return hay.includes(q);
   });
 
   const loadSnapMutation = useMutation({
@@ -329,6 +361,16 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
 
   return (
     <div className="space-y-4">
+      <label className="block">
+        <span className="sr-only">Rechercher dans l&apos;historique</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Rechercher un snapshot (commentaire, aperçu)…"
+          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm placeholder:text-slate-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200"
+        />
+      </label>
       {history.isLoading && <p className="text-sm text-slate-400">Chargement…</p>}
       {history.isError && <p className="text-sm text-red-600">Erreur chargement historique.</p>}
 
@@ -374,9 +416,12 @@ function HistoryTab({ qc, showToast }: { qc: ReturnType<typeof useQueryClient>; 
       {history.isSuccess && history.data.length === 0 && (
         <p className="text-sm text-slate-400">Aucun snapshot encore. Modifiez et sauvegardez la mémoire pour créer le premier.</p>
       )}
+      {history.isSuccess && history.data.length > 0 && filteredHistory.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun snapshot ne correspond à « {search.trim()} ».</p>
+      ) : null}
 
       <ul className="space-y-2">
-        {(history.data ?? []).map((snap) => (
+        {filteredHistory.map((snap) => (
           <li
             key={snap.id}
             className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3"
@@ -633,13 +678,37 @@ export default function MemoryConsolePage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    void requestJson("/admin/notifications/mark-kinds-read", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ kinds: ["memory_applied"] }),
+    })
+      .then(() => {
+        if (!cancelled) void qc.invalidateQueries({ queryKey: ["director-notifications"] });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [qc]);
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Console Mémoire Entreprise</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Votre activité</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Éditez les contextes agents, consultez l&apos;historique avec diff, importez/exportez des snapshots,
-          et prévisualisez le prompt système complet avant une mission.
+          Quelques phrases sur ce que vous faites, pour qui, avec quels mots. L&apos;assistant s&apos;en sert pour
+          préparer le travail. Le parcours qui la constitue est{" "}
+          <Link href="/administration/contexte" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
+            la science de l&apos;entreprise
+          </Link>
+          . Le détail par rôle est plus bas. Les équipes se gèrent depuis{" "}
+          <Link href="/administration/equipes" className="font-semibold text-violet-700 underline-offset-2 hover:underline">
+            Équipes
+          </Link>
+          .
         </p>
       </div>
 

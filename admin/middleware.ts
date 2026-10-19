@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { KORYMB_TOKEN_COOKIE } from "./lib/authSession";
 
+/** `/api/korymb*` reste joignable sans cookie pour les chemins publics (vitrine).
+ *  Le proxy refuse ensuite toute route métier sans session — il n'attache pas le secret agent. */
 const PUBLIC_PREFIXES = [
   "/login",
   "/register",
@@ -16,8 +18,25 @@ const PUBLIC_PREFIXES = [
   "/p",
 ];
 
+/** Assets PWA / icônes : publics (sinon Chrome reçoit du HTML login → « Manifest syntax error »). */
+const PUBLIC_EXACT = new Set([
+  "/ouvrir",
+  "/manifest.json",
+  "/sw.js",
+  "/favicon.ico",
+  "/icon.svg",
+  "/apple-touch-icon.png",
+  "/icon-16.png",
+  "/icon-32.png",
+  "/icon-192.png",
+  "/icon-512.png",
+  "/icon-192-maskable.png",
+  "/icon-512-maskable.png",
+]);
+
 function isPublicRoute(pathname: string) {
   if (pathname === "/") return true;
+  if (PUBLIC_EXACT.has(pathname)) return true;
   return PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
@@ -32,6 +51,12 @@ export function middleware(request: NextRequest) {
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
+  /* Ancien start_url d'icône. Sans cookie, la page répond 200 (écran
+   * d'ouverture) au lieu d'une 307 qui fige le splash. L'ouverture actuelle
+   * est /ouvrir, puis la conversation. */
+  if (pathname === "/briefing") {
+    return NextResponse.next();
+  }
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim();
   if (!token) {
     const participant = participantLoginFromPath(pathname);
@@ -43,5 +68,7 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|manifest.json|sw.js|icon\\.svg|apple-touch-icon\\.png|icon-.*\\.png).*)",
+  ],
 };

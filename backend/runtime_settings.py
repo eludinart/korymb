@@ -37,6 +37,13 @@ _KEYS = frozenset({
     "llm_price_input_per_million_usd",
     "llm_price_output_per_million_usd",
     "llm_tiers_json",
+    "llm_free_pool",
+    "llm_free_pool_json",
+    "groq_api_key",
+    "gemini_api_key",
+    "gemini_model",
+    "deepseek_api_key",
+    "llm_prefer_hop_id",
     "token_alert_threshold",
     "daily_budget_usd",
 })
@@ -68,7 +75,7 @@ def _migrate_json_file_to_db(file_data: dict[str, Any]) -> None:
 
 
 def _read_disk_raw() -> dict[str, Any]:
-    """Surcharges persistées : base de données, avec repli fichier legacy."""
+    """Surcharges de cet espace. Le fichier d'install n'est repris que par l'espace legacy."""
     try:
         from database import load_llm_runtime_settings_raw
 
@@ -77,6 +84,14 @@ def _read_disk_raw() -> dict[str, Any]:
             return {k: v for k, v in db_data.items() if k in _KEYS}
     except Exception:
         pass
+
+    try:
+        from services.workspace_brand import is_legacy_elude_workspace
+
+        if not is_legacy_elude_workspace():
+            return {}
+    except Exception:
+        return {}
 
     file_data = _read_json_file_raw()
     if file_data:
@@ -141,6 +156,13 @@ def merge_with_env() -> dict[str, Any]:
         "llm_price_input_per_million_usd": settings.llm_price_input_per_million_usd,
         "llm_price_output_per_million_usd": settings.llm_price_output_per_million_usd,
         "llm_tiers_json": "",
+        "llm_free_pool": settings.llm_free_pool,
+        "llm_free_pool_json": "",
+        "groq_api_key": settings.groq_api_key,
+        "gemini_api_key": settings.gemini_api_key,
+        "gemini_model": settings.gemini_model,
+        "deepseek_api_key": settings.deepseek_api_key,
+        "llm_prefer_hop_id": settings.llm_prefer_hop_id,
         "token_alert_threshold": settings.token_alert_threshold,
         "daily_budget_usd": 0.0,
     }
@@ -156,7 +178,14 @@ def _merge_updates(current: dict[str, Any], updates: dict[str, Any]) -> dict[str
     for k, v in updates.items():
         if k not in _KEYS:
             continue
-        if k in ("anthropic_api_key", "openrouter_api_key", "mistral_api_key"):
+        if k in (
+            "anthropic_api_key",
+            "openrouter_api_key",
+            "mistral_api_key",
+            "groq_api_key",
+            "gemini_api_key",
+            "deepseek_api_key",
+        ):
             if isinstance(v, str) and v.strip():
                 current[k] = v.strip()
             continue
@@ -184,6 +213,48 @@ def _merge_updates(current: dict[str, Any], updates: dict[str, Any]) -> dict[str
                 current[k] = int(v)
             except (TypeError, ValueError):
                 continue
+            continue
+        if k == "llm_free_pool":
+            mode = str(v or "").strip().lower()
+            if mode in ("1", "true", "on", "yes"):
+                mode = "on"
+            elif mode in ("0", "false", "off", "no"):
+                mode = "off"
+            elif mode == "auto":
+                mode = "auto"
+            elif not mode:
+                continue
+            else:
+                raise ValueError("llm_free_pool doit être auto, on ou off")
+            current[k] = mode
+            continue
+        if k == "llm_free_pool_json":
+            raw = str(v).strip() if v is not None else ""
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"llm_free_pool_json invalide : {e}") from e
+                if not isinstance(parsed, list):
+                    raise ValueError("llm_free_pool_json doit être une liste")
+            current[k] = raw
+            continue
+        if k == "llm_prefer_hop_id":
+            hop_id = str(v or "").strip()[:64]
+            if not hop_id or hop_id == "auto":
+                current[k] = ""
+                continue
+            from llm_free_pool import configured_hops
+
+            known = {hop.id for hop in configured_hops(merge_with_env())}
+            if hop_id not in known:
+                raise ValueError("Ce modèle n'est pas dans le mélange actif")
+            current[k] = hop_id
+            continue
+        if k == "gemini_model":
+            model = str(v or "").strip()
+            if model:
+                current[k] = model[:200]
             continue
         if k == "llm_tiers_json":
             from llm_tiers import validate_llm_tiers_json
@@ -229,4 +300,10 @@ def to_public_dict(merged: dict[str, Any]) -> dict[str, Any]:
         out["tier_routing"] = tier_config_public(merged)
     except Exception:
         out["tier_routing"] = {}
+    try:
+        from llm_free_pool import free_pool_public
+
+        out["free_pool"] = free_pool_public(merged)
+    except Exception:
+        out["free_pool"] = {"mode": "auto", "active": False, "hops": []}
     return out

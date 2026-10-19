@@ -64,25 +64,30 @@ from routers.core_memory import router as core_memory_router
 from routers.core_config import router as core_config_router
 from routers.core_integrations import router as core_integrations_router
 from routers.core_agents import router as core_agents_router
+from routers.core_agent_groups import router as core_agent_groups_router
 from routers.core_health import router as core_health_router
 from routers.core_jobs import router as core_jobs_router
 from routers.core_missions import router as core_missions_router
 from routers.core_chat import router as core_chat_router
 from routers.core_templates import router as core_templates_router
 from routers.core_scheduler import router as core_scheduler_router
+from routers.core_classique import router as core_classique_router
 from routers.core_social import router as core_social_router
 from routers.core_orchestration_prompts import router as core_orchestration_prompts_router
 from routers.core_behavior_settings import router as core_behavior_settings_router
 from routers.core_config_suggestions import router as core_config_suggestions_router
 from routers.core_admin import router as core_admin_router
+from routers.core_apify import router as core_apify_router
 from routers.core_playbooks import router as core_playbooks_router
 from routers.core_deliverables import router as core_deliverables_router
 from routers.core_auth import router as core_auth_router
+from routers.core_platform import router as core_platform_router
 from routers.core_business import router as core_business_router
 from routers.core_actions import router as core_actions_router
 from routers.core_telegram import router as core_telegram_router
 from routers.core_storefront import router as core_storefront_router
 from routers.core_studio import router as core_studio_router
+from routers.core_context_guide import router as core_context_guide_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s — %(message)s")
 logger = logging.getLogger(__name__)
@@ -105,6 +110,19 @@ def _run_studio_stale_queue() -> None:
 # ── App FastAPI ────────────────────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Migrations optionnelles (sinon init_db + _ensure_* restent le filet).
+    if str(os.getenv("KORYMB_DB_MIGRATE") or "").strip().lower() == "alembic":
+        try:
+            from pathlib import Path
+            from alembic.config import Config
+            from alembic import command
+
+            ini = Path(__file__).resolve().parent / "alembic.ini"
+            cfg = Config(str(ini))
+            command.upgrade(cfg, "head")
+            logger.info("Alembic upgrade head OK")
+        except Exception:
+            logger.exception("Alembic migrate échec — poursuite avec init_db()")
     init_db()
     try:
         from routers.core_jobs import cleanup_orphan_active_jobs
@@ -132,6 +150,21 @@ async def lifespan(app: FastAPI):
             )
         except Exception:
             logger.exception("Rappel Studio (file de publication) non enregistré")
+        try:
+            from services.calendar_sync import interval_minutes, is_enabled, scheduled_sync
+
+            if is_enabled():
+                _scheduler.add_job(
+                    scheduled_sync,
+                    "interval",
+                    minutes=interval_minutes(),
+                    id="korymb-gcal-sync",
+                    replace_existing=True,
+                    max_instances=1,
+                    coalesce=True,
+                )
+        except Exception:
+            logger.exception("Synchro Google Agenda non enregistrée")
         _scheduler.start()
         logger.info("Scheduler autonome démarré")
     logger.info("Korymb backend démarré — build %s", BACKEND_VERSION)
@@ -148,13 +181,15 @@ app = FastAPI(title="Korymb — Moteur Agentique", version=BACKEND_VERSION, life
 def _cors_allow_origins() -> list[str]:
     if settings.env == "development":
         return ["*"]
-    base = [
+    extra = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
+    if extra:
+        return list(dict.fromkeys(extra))
+    # Fallback instance historique si KORYMB_CORS_ORIGINS non défini.
+    return [
         "https://korymb.eludein.art",
         "http://korymb.eludein.art",
         "https://api-korymb.eludein.art",
     ]
-    extra = [o.strip() for o in (settings.cors_origins or "").split(",") if o.strip()]
-    return list(dict.fromkeys(base + extra))
 
 
 app.add_middleware(
@@ -174,6 +209,7 @@ app.include_router(core_memory_router)
 app.include_router(core_config_router)
 app.include_router(core_integrations_router)
 app.include_router(core_agents_router)
+app.include_router(core_agent_groups_router)
 app.include_router(core_health_router)
 app.include_router(core_jobs_router)
 app.include_router(core_missions_router)
@@ -185,14 +221,18 @@ app.include_router(core_orchestration_prompts_router)
 app.include_router(core_behavior_settings_router)
 app.include_router(core_config_suggestions_router)
 app.include_router(core_admin_router)
+app.include_router(core_apify_router)
 app.include_router(core_playbooks_router)
 app.include_router(core_deliverables_router)
 app.include_router(core_auth_router)
+app.include_router(core_platform_router)
 app.include_router(core_business_router)
 app.include_router(core_actions_router)
 app.include_router(core_telegram_router)
 app.include_router(core_storefront_router)
 app.include_router(core_studio_router)
+app.include_router(core_context_guide_router)
+app.include_router(core_classique_router)
 
 
 @app.middleware("http")

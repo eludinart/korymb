@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { AuthMeResponse } from "../lib/authSession";
+import { queryClient } from "../lib/queryClient";
 
 export default function AuthBar() {
-  const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -47,11 +48,45 @@ export default function AuthBar() {
     };
   }, [menuOpen]);
 
+  /** Évite le clip à gauche (html/body overflow-x:hidden) sur mobile. */
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    const btn = buttonRef.current;
+    const panel = panelRef.current;
+    if (!btn || !panel) return;
+
+    const place = () => {
+      const r = btn.getBoundingClientRect();
+      const pad = 12;
+      const width = Math.min(256, window.innerWidth - pad * 2);
+      let left = r.right - width;
+      left = Math.max(pad, Math.min(left, window.innerWidth - width - pad));
+      const top = Math.min(r.bottom + 8, window.innerHeight - 8);
+      panel.style.position = "fixed";
+      panel.style.top = `${Math.max(pad, top)}px`;
+      panel.style.left = `${left}px`;
+      panel.style.width = `${width}px`;
+      panel.style.right = "auto";
+      panel.style.margin = "0";
+    };
+
+    place();
+    window.addEventListener("resize", place);
+    window.visualViewport?.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.visualViewport?.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [menuOpen]);
+
   async function logout() {
     setMenuOpen(false);
+    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
-    router.replace("/");
-    router.refresh();
+    queryClient.clear();
+    window.location.assign("/");
   }
 
   if (loading) {
@@ -64,7 +99,7 @@ export default function AuthBar() {
       <div className="flex shrink-0 items-center gap-2">
         {agentMode ? (
           <span
-            className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 sm:inline"
+            className="hidden rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300 sm:inline"
             title="Accès local via secret agent — connectez un compte pour le profil dirigeant"
           >
             Mode agent
@@ -72,7 +107,7 @@ export default function AuthBar() {
         ) : null}
         <Link
           href="/login"
-          className="touch-target inline-flex items-center justify-center rounded-xl px-3 text-sm font-bold text-violet-800 hover:bg-violet-50"
+          className="touch-target inline-flex items-center justify-center rounded-xl px-3 text-sm font-bold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
         >
           Connexion
         </Link>
@@ -81,43 +116,64 @@ export default function AuthBar() {
   }
 
   const wsName = me.workspace?.name || "Mon Korymb";
-  const roleLabel = me.role === "admin" ? "Admin" : "Utilisateur";
+  const visiting = Boolean(me.visiting_client_space);
+  const roleLabel = visiting ? "Profil Élude · visite" : me.role === "admin" ? "Admin" : "Utilisateur";
   const initial = (me.user.email || "U").slice(0, 1).toUpperCase();
 
   return (
     <div className="relative shrink-0" ref={menuRef}>
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
-        className="touch-target inline-flex max-w-[12rem] items-center gap-2 rounded-xl border-2 border-slate-200 bg-white px-2.5 text-sm font-extrabold text-violet-800 shadow-sm hover:bg-violet-50 sm:max-w-[16rem] sm:px-3"
+        className={`touch-target inline-flex max-w-[12rem] items-center gap-2 rounded-xl border-2 px-2.5 text-sm font-extrabold shadow-sm sm:max-w-[16rem] sm:px-3 ${
+          visiting
+            ? "border-amber-500 bg-amber-50 text-amber-950 hover:bg-amber-100 dark:border-amber-500 dark:bg-amber-950 dark:text-amber-50 dark:hover:bg-amber-900"
+            : "border-slate-200 bg-white text-violet-800 hover:bg-violet-50 dark:border-slate-600 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-slate-800"
+        }`}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
         aria-label="Compte"
       >
         <span className="hidden min-w-0 truncate text-[11px] font-bold uppercase tracking-wide sm:inline">
-          {wsName}
+          {visiting ? `Visite · ${wsName}` : wsName}
         </span>
-        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs">
+        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs dark:bg-violet-900 dark:text-violet-100">
           {initial}
         </span>
       </button>
 
       {menuOpen ? (
         <div
+          ref={panelRef}
           role="menu"
-          className="absolute right-0 z-50 mt-2 w-[min(100vw-1.5rem,16rem)] overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-xl"
+          className="z-[80] overflow-hidden rounded-2xl border-2 border-slate-200 bg-white shadow-xl dark:border-slate-600 dark:bg-slate-900"
         >
-          <div className="border-b border-slate-100 px-3 py-2.5">
-            <p className="truncate text-xs font-extrabold text-slate-950">{wsName}</p>
-            <p className="truncate text-[11px] text-slate-500">{me.user.email}</p>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">{roleLabel}</p>
+          <div className="border-b border-slate-100 px-3 py-2.5 dark:border-slate-700">
+            {visiting ? (
+              <p className="text-[10px] font-extrabold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+                Profil Élude · administrateur
+              </p>
+            ) : null}
+            <p className="truncate text-xs font-extrabold text-slate-950 dark:text-slate-50">
+              {visiting ? `Espace consulté : ${wsName}` : wsName}
+            </p>
+            <p className="truncate text-[11px] text-slate-600 dark:text-slate-300">{me.user.email}</p>
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+              {roleLabel}
+            </p>
+            {visiting ? (
+              <p className="mt-1 text-[11px] font-medium text-amber-900 dark:text-amber-100">
+                Ce compte n&apos;est pas celui du client. Ne remplacez pas ses informations par les vôtres.
+              </p>
+            ) : null}
           </div>
           <div className="p-1.5">
             <Link
               href="/profil"
               role="menuitem"
               onClick={() => setMenuOpen(false)}
-              className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-violet-50"
+              className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-violet-50 dark:text-slate-100 dark:hover:bg-violet-950"
             >
               Profil
             </Link>
@@ -126,7 +182,7 @@ export default function AuthBar() {
                 href={`/a/${encodeURIComponent(me.workspace.slug)}`}
                 role="menuitem"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-emerald-50"
+                className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-emerald-50 dark:text-slate-100 dark:hover:bg-emerald-950"
               >
                 Espace participant
               </Link>
@@ -136,7 +192,7 @@ export default function AuthBar() {
                 href="/espace"
                 role="menuitem"
                 onClick={() => setMenuOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-violet-50"
+                className="block rounded-xl px-3 py-2.5 text-sm font-bold text-slate-800 hover:bg-violet-50 dark:text-slate-100 dark:hover:bg-violet-950"
               >
                 Équipe
               </Link>
@@ -145,7 +201,7 @@ export default function AuthBar() {
               type="button"
               role="menuitem"
               onClick={() => void logout()}
-              className="block w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold text-red-700 hover:bg-red-50"
+              className="block w-full rounded-xl px-3 py-2.5 text-left text-sm font-bold text-red-700 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950"
             >
               Déconnexion
             </button>

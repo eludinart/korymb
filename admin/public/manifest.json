@@ -1,19 +1,39 @@
 {
+  "id": "/",
   "name": "Korymb — Cockpit dirigeant",
   "short_name": "Korymb",
   "description": "Briefing, inbox et missions IA pour dirigeants",
-  "start_url": "/briefing",
+  "start_url": "/ouvrir",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#6d28d9",
+  "background_color": "#5b21b6",
+  "theme_color": "#5b21b6",
   "lang": "fr",
-  "orientation": "portrait-primary",
+  "orientation": "any",
   "icons": [
     {
-      "src": "/globe.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192-maskable.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

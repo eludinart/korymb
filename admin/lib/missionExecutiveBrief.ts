@@ -1,5 +1,10 @@
 import { buildCioDisplayModel } from "./cioResultDisplay";
-import { extractCioStrategicQuestions, extractShortSummary, extractSynthese } from "./missionBilan";
+import {
+  extractBilan,
+  extractCioStrategicQuestions,
+  extractSynthese,
+  firstNLines,
+} from "./missionBilan";
 
 export type MissionExecutiveBriefModel = {
   missionName: string;
@@ -10,16 +15,36 @@ export type MissionExecutiveBriefModel = {
   alerts: string[];
 };
 
-const EXEC_SYNTHESIS_MAX = 2400;
+/** Assez long pour une liste (ex. 5 fiches concurrents), sans noyer le dirigeant. */
+const EXEC_SYNTHESIS_MAX = 12_000;
 
-/** Résumé court quand le livrable est long et non structuré (sous-agent sans enveloppe CIO). */
+/**
+ * Synthèse pour le bandeau dirigeant.
+ * Ne pas utiliser extractShortSummary (limité à 5 lignes) : ça coupe les listes numériques.
+ */
 function fallbackExecutiveSynthesis(raw: string): string {
-  const { text } = extractShortSummary(raw);
-  if (text.trim().length > 40) return text.trim();
+  const bilan = extractBilan(raw);
+  if (bilan && bilan.trim().length > 40) {
+    const t = bilan.trim();
+    return t.length > EXEC_SYNTHESIS_MAX ? `${t.slice(0, EXEC_SYNTHESIS_MAX - 1)}…` : t;
+  }
+
+  const synthese = extractSynthese(raw);
+  if (synthese && synthese.trim().length > 40) {
+    const t = synthese.trim();
+    return t.length > EXEC_SYNTHESIS_MAX ? `${t.slice(0, EXEC_SYNTHESIS_MAX - 1)}…` : t;
+  }
 
   const intro = raw.match(/^([\s\S]*?)(?=\n##\s|\n---\s*\n##|$)/)?.[1]?.trim();
   if (intro && intro.length > 40) {
     return intro.length > EXEC_SYNTHESIS_MAX ? `${intro.slice(0, EXEC_SYNTHESIS_MAX - 1)}…` : intro;
+  }
+
+  const generous = firstNLines(raw, 120).trim();
+  if (generous.length > 40) {
+    return generous.length > EXEC_SYNTHESIS_MAX
+      ? `${generous.slice(0, EXEC_SYNTHESIS_MAX - 1)}…`
+      : generous;
   }
   return "";
 }

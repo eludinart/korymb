@@ -68,7 +68,7 @@ def _render_pdf_bytes(heading: str, sub: str, content: str, *, unicode_ok: bool)
     pdf.set_y(-22)
     pdf.set_font(family, size=8)
     pdf.set_text_color(100, 116, 139)
-    footer = "Élude In Art — Fleur d'ÅmÔurs" if family == "Brand" else "Elude In Art — Fleur d'Amours"
+    footer = "Korymb"
     pdf.cell(usable, 8, footer, align="C")
     buf = io.BytesIO()
     pdf.output(buf)
@@ -102,7 +102,7 @@ def _plain_from_markdown(text: str) -> str:
 
 def run_create_branded_pdf(title: str, body: str, subtitle: str = "") -> str:
     """Génère un PDF UTF-8 brandé et l'enregistre comme ressource fichier."""
-    heading = (title or "").strip()[:180] or "Document Élude In Art"
+    heading = (title or "").strip()[:180] or "Document Korymb"
     sub = (subtitle or "").strip()[:240]
     content = _plain_from_markdown(body)
     if not content:

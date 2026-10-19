@@ -155,3 +155,56 @@ def test_user_can_change_password(client):
         json={"email": "mdp-change@example.com", "password": "nouveau123"},
     )
     assert login.status_code == 200, login.text
+
+
+def test_subscriber_cannot_open_workspace_or_list_team(client):
+    reg = client.post(
+        "/auth/register",
+        json={
+            "email": "ops-gate@example.com",
+            "password": "secretpass123",
+            "workspace_name": "Equipe Gate",
+        },
+    )
+    assert reg.status_code == 200, reg.text
+    admin_token = reg.json()["token"]
+    admin_auth = {"Authorization": f"Bearer {admin_token}"}
+    slug = reg.json()["workspace"]["slug"]
+    published = client.patch(
+        "/storefront/settings",
+        headers=admin_auth,
+        json={"public_enabled": True},
+    )
+    assert published.status_code == 200, published.text
+
+    team = client.get("/auth/members", headers=admin_auth)
+    assert team.status_code == 200, team.text
+    emails = {str(m.get("email") or "") for m in team.json().get("members") or []}
+    assert "ops-gate@example.com" in emails
+
+    sub = client.post(
+        "/auth/register-subscriber",
+        json={
+            "email": "part-gate@example.com",
+            "password": "secretpass123",
+            "workspace_slug": slug,
+        },
+    )
+    assert sub.status_code == 200, sub.text
+    sub_auth = {"Authorization": f"Bearer {sub.json()['token']}"}
+
+    created = client.post(
+        "/auth/workspaces",
+        headers=sub_auth,
+        json={"name": "Espace pirate"},
+    )
+    assert created.status_code == 403, created.text
+
+    listed = client.get("/auth/members", headers=sub_auth)
+    assert listed.status_code == 403, listed.text
+
+    me = client.get("/auth/me", headers=sub_auth)
+    assert me.status_code == 200, me.text
+    body = me.json()
+    assert body.get("role") == "subscriber"
+    assert body.get("members") == []

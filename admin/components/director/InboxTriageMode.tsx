@@ -12,14 +12,7 @@ type Props = {
 };
 
 function stableInboxKey(item: InboxActionItem, index: number): string {
-  return (
-    item.event_id ||
-    item.job_id ||
-    item.ticket_id ||
-    item.output_id ||
-    item.suggestion_id ||
-    inboxItemKey(item, index)
-  );
+  return inboxItemKey(item, index);
 }
 
 export default function InboxTriageMode({ items, onDismissed }: Props) {

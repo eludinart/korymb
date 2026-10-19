@@ -27,22 +27,82 @@ def resolve_hitl(
         amended_plan=amended_plan,
         feedback=feedback,
     )
-    if not result.get("success") or not langgraph_resume:
-        return _attach_cio_chain(result)
+    inline_waiter = False
     try:
-        from graph.engine import use_langgraph_execution
-        from graph.runner import resume_mission_graph
+        from services.hitl_wait import has_hitl_waiter
 
-        if use_langgraph_execution():
-            dec = decision or ("approve" if approved is not False else "reject")
-            payload = {"decision": dec, "amended_plan": amended_plan}
-            resume_mission_graph(job_id, payload)
+        inline_waiter = has_hitl_waiter(str(job_id))
+    except Exception:
+        logger.debug("HITL waiter probe failed for %s", job_id)
+    try:
+        from services.hitl_wait import notify_hitl_resolved
+
+        notify_hitl_resolved(job_id)
     except Exception as exc:
-        logger.warning("LangGraph resume after HITL failed for %s: %s", job_id, exc)
-    return _attach_cio_chain(result)
+        logger.debug("HITL wait notify skipped for %s: %s", job_id, exc)
+    if not result.get("success"):
+        return _attach_cio_chain(result, orphan_scheduled=False, inline_waiter=inline_waiter)
+    dec = str(result.get("decision") or decision or "").strip().lower()
+    orphan_scheduled = False
+    try:
+        from services.mission_journal import note_mission
+
+        note_mission(
+            str(result.get("job_id") or job_id),
+            kind="hitl",
+            agent="dirigeant",
+            excerpt=dec or ("approve" if approved is not False else "reject"),
+        )
+    except Exception:
+        logger.exception("journal validation %s", job_id)
+    if langgraph_resume:
+        try:
+            from graph.runner import resume_mission_graph
+
+            payload = {"decision": dec or ("approve" if approved is not False else "reject"), "amended_plan": amended_plan}
+            resumed = resume_mission_graph(str(result.get("job_id") or job_id), payload)
+            if resumed is not None:
+                inline_waiter = True
+                from services.mission_journal import note_mission
+
+                note_mission(
+                    str(result.get("job_id") or job_id),
+                    kind="reprise",
+                    agent="dirigeant",
+                    excerpt="reprise depuis le carnet",
+                )
+        except Exception as exc:
+            logger.warning("LangGraph resume after HITL failed for %s: %s", job_id, exc)
+    if result.get("success") and dec in ("approve", "amend") and not inline_waiter:
+        try:
+            from tenant_context import spawn_thread
+            from services.mission import resume_orphan_hitl_execution
+
+            resume_id = str(result.get("job_id") or job_id)
+            spawn_thread(
+                lambda rid=resume_id: resume_orphan_hitl_execution(rid),
+                name=f"hitl-resume-{resume_id[:8]}",
+            )
+            orphan_scheduled = True
+            from services.mission_journal import note_mission
+
+            note_mission(
+                resume_id,
+                kind="reprise",
+                agent="dirigeant",
+                excerpt="reprise depuis le plan enregistré",
+            )
+        except Exception:
+            logger.exception("HITL orphan resume schedule failed for %s", job_id)
+    return _attach_cio_chain(result, orphan_scheduled=orphan_scheduled, inline_waiter=inline_waiter)
 
 
-def _attach_cio_chain(result: dict[str, Any]) -> dict[str, Any]:
+def _attach_cio_chain(
+    result: dict[str, Any],
+    *,
+    orphan_scheduled: bool = False,
+    inline_waiter: bool = False,
+) -> dict[str, Any]:
     """Ajoute un récap chaîne pour l'inbox (valider + lancer)."""
     if not result.get("success"):
         return result
@@ -56,14 +116,16 @@ def _attach_cio_chain(result: dict[str, Any]) -> dict[str, Any]:
         return result
     if dec not in ("approve", "amend"):
         return result
-    steps = (
-        ["Plan CIO amendé et validé", "Mission relancée — délégation en cours"]
-        if dec == "amend"
-        else ["Plan CIO validé", "Mission relancée — les sous-agents démarrent"]
-    )
+    if orphan_scheduled:
+        follow = "Mission relancée — exécution reprise après validation"
+    elif inline_waiter:
+        follow = "Mission relancée — les sous-agents démarrent"
+    else:
+        follow = "Validation enregistrée — reprise non lancée"
+    lead = "Plan CIO amendé et validé" if dec == "amend" else "Plan CIO validé"
     result["chain"] = {
-        "launched": True,
-        "steps": steps,
+        "launched": bool(orphan_scheduled or inline_waiter),
+        "steps": [lead, follow],
         "new_status": result.get("new_status") or "running",
         "job_id": result.get("job_id"),
     }

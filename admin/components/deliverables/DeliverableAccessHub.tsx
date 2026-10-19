@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import {
   buildDeliverableAssets,
   deliverableChannelMeta,
+  isLocalFileChannel,
   openDeliverableAsset,
   scrollToDeliverableAnchor,
   type DeliverableAsset,
 } from "../../lib/deliverableAssets";
+import { loadResourcePreviewView, type ResourcePreviewView } from "../../lib/resourceFilePreview";
 import type { DriveArtifact } from "../../lib/types";
 import InAppDeliverableModal from "./InAppDeliverableModal";
 
@@ -23,20 +25,7 @@ type Props = {
   assets?: DeliverableAsset[];
 };
 
-function openInAppAsset(asset: DeliverableAsset, onModal: (title: string, body: string) => void) {
-  if (asset.channel !== "in_app" || !asset.markdownBody) {
-    openDeliverableAsset(asset);
-    return;
-  }
-  if (asset.anchorId && typeof document !== "undefined") {
-    const el = document.getElementById(asset.anchorId);
-    if (el) {
-      scrollToDeliverableAnchor(asset.anchorId);
-      return;
-    }
-  }
-  onModal(asset.title, asset.markdownBody);
-}
+type ViewerState = ResourcePreviewView;
 
 export default function DeliverableAccessHub({
   jobId,
@@ -47,7 +36,7 @@ export default function DeliverableAccessHub({
   className = "",
   assets: assetsProp,
 }: Props) {
-  const [viewer, setViewer] = useState<{ title: string; body: string } | null>(null);
+  const [viewer, setViewer] = useState<ViewerState | null>(null);
 
   const assets = useMemo(() => {
     const raw =
@@ -66,15 +55,58 @@ export default function DeliverableAccessHub({
     });
   }, [assetsProp, jobId, deliverablesMarkdown, driveArtifacts, result]);
 
+  const combinedMarkdown = `${deliverablesMarkdown || ""}\n${result || ""}`;
   const operational = assets.filter((a) => a.channel !== "linkedin" && a.channel !== "facebook" && a.channel !== "telegram");
-  if (!operational.length) return null;
+  if (!operational.length && !viewer) return null;
 
   const fileCount = operational.filter((a) => a.channel.startsWith("drive_") || a.channel.startsWith("local_")).length;
   const inAppCount = operational.filter((a) => a.channel === "in_app").length;
 
-  const handleOpen = (asset: DeliverableAsset) => {
-    openInAppAsset(asset, (title, body) => setViewer({ title, body }));
+  const openMarkdown = (title: string, body: string, notice?: string) => {
+    setViewer({ title, body, notice });
   };
+
+  const handleOpen = (asset: DeliverableAsset) => {
+    if (isLocalFileChannel(asset.channel)) {
+      void openLocalFile(asset);
+      return;
+    }
+    if (asset.channel === "in_app" && asset.markdownBody) {
+      if (!compact && asset.anchorId && typeof document !== "undefined" && document.getElementById(asset.anchorId)) {
+        scrollToDeliverableAnchor(asset.anchorId);
+        return;
+      }
+      openMarkdown(asset.title, asset.markdownBody);
+      return;
+    }
+    openDeliverableAsset(asset);
+  };
+
+  const openLocalFile = async (asset: DeliverableAsset) => {
+    setViewer({ title: asset.title, body: "", loading: true });
+    const view = await loadResourcePreviewView({
+      title: asset.title,
+      href: asset.href,
+      fallbackMarkdown: asset.markdownBody,
+      combinedMarkdown,
+    });
+    setViewer(view);
+  };
+
+  const modal = (
+    <InAppDeliverableModal
+      open={Boolean(viewer)}
+      title={viewer?.title || ""}
+      body={viewer?.body || ""}
+      notice={viewer?.notice}
+      loading={Boolean(viewer?.loading)}
+      downloadName={viewer?.downloadName}
+      downloadText={viewer?.downloadText}
+      onClose={() => setViewer(null)}
+    />
+  );
+
+  if (!operational.length) return modal;
 
   if (compact) {
     return (
@@ -99,12 +131,7 @@ export default function DeliverableAccessHub({
             );
           })}
         </div>
-        <InAppDeliverableModal
-          open={Boolean(viewer)}
-          title={viewer?.title || ""}
-          body={viewer?.body || ""}
-          onClose={() => setViewer(null)}
-        />
+        {modal}
       </>
     );
   }
@@ -112,17 +139,19 @@ export default function DeliverableAccessHub({
   return (
     <>
       <section
-        className={`rounded-2xl border-2 border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white shadow-sm ${className}`}
+        className={`rounded-2xl border-2 border-emerald-200/90 bg-gradient-to-b from-emerald-50/90 to-white shadow-sm dark:border-emerald-800 dark:from-slate-900 dark:to-slate-950 ${className}`}
         aria-label="Accès aux livrables"
       >
-        <header className="border-b border-emerald-100 px-4 py-3">
-          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900">Livrables — accès rapide</p>
-          <p className="mt-1 text-xs leading-relaxed text-emerald-900/75">
+        <header className="border-b border-emerald-100 px-4 py-3 dark:border-emerald-900">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
+            Livrables — accès rapide
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-emerald-800 dark:text-slate-300">
             {fileCount > 0
               ? `${fileCount} fichier${fileCount > 1 ? "s" : ""} dans votre espace`
               : "Aucun fichier enregistré pour l'instant"}
             {inAppCount > 0 ? ` · ${inAppCount} pièce${inAppCount > 1 ? "s" : ""} lisible${inAppCount > 1 ? "s" : ""} dans Korymb` : ""}
-            . Chaque proposition opérationnelle est accessible en un clic.
+            . Lecture dans Korymb.
           </p>
         </header>
         <ul className="grid gap-2 p-3 sm:grid-cols-2">
@@ -131,15 +160,15 @@ export default function DeliverableAccessHub({
             return (
               <li
                 key={asset.id}
-                className="flex min-w-0 flex-col justify-between gap-2 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm"
+                className="flex min-w-0 flex-col justify-between gap-2 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-950"
               >
                 <div className="min-w-0">
-                  <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600">
+                  <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                     {meta.label}
                   </span>
-                  <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-900">{asset.title}</p>
+                  <p className="mt-1.5 text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">{asset.title}</p>
                   {asset.agentKey ? (
-                    <p className="mt-0.5 text-[10px] font-medium text-slate-500">Agent : {asset.agentKey}</p>
+                    <p className="mt-0.5 text-[10px] font-medium text-slate-500 dark:text-slate-400">Agent : {asset.agentKey}</p>
                   ) : null}
                 </div>
                 <button
@@ -153,16 +182,11 @@ export default function DeliverableAccessHub({
             );
           })}
         </ul>
-        <p className="border-t border-emerald-100 px-4 py-2 text-[10px] text-slate-500">
+        <p className="border-t border-emerald-100 px-4 py-2 text-[10px] text-slate-500 dark:border-emerald-900 dark:text-slate-400">
           Publication LinkedIn, Facebook, Telegram et envoi email automatisé : prochaines étapes de la plateforme.
         </p>
       </section>
-      <InAppDeliverableModal
-        open={Boolean(viewer)}
-        title={viewer?.title || ""}
-        body={viewer?.body || ""}
-        onClose={() => setViewer(null)}
-      />
+      {modal}
     </>
   );
 }

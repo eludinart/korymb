@@ -14,6 +14,7 @@ import {
   type InboxHint,
   type MissionPrimaryAction,
 } from "../../lib/missionDailyUx";
+import { teamBadgeClass, teamIdentityLabel } from "../../lib/agentGroupUi";
 import type { Job } from "../../lib/types";
 
 type Props = {
@@ -22,10 +23,17 @@ type Props = {
   busy: boolean;
   deleteBusy?: boolean;
   actionBusy?: boolean;
+  /** Libellé équipe (ex. Entreprise, Édition). */
+  teamLabel?: string;
+  /** Identifiant du groupe — or pour le patron, ciel pour les équipes projet. */
+  teamGroupId?: string | null;
   onSelect: (jobId: string) => void;
+  onStart?: (jobId: string) => void;
   onFinish: (jobId: string, mission?: string | null) => void;
   onDelete: (jobId: string, mission?: string | null) => void;
   onApproveTicket?: (ticketId: string) => void;
+  /** Titre affiché à la place de la consigne (ex. tâche seule dans un groupe projet). */
+  titleOverride?: string;
 };
 
 function PrimaryButton({
@@ -33,6 +41,7 @@ function PrimaryButton({
   busy,
   disabled,
   onSelect,
+  onStart,
   onFinish,
   onApproveTicket,
   jobId,
@@ -42,6 +51,7 @@ function PrimaryButton({
   busy: boolean;
   disabled: boolean;
   onSelect: (id: string) => void;
+  onStart?: (id: string) => void;
   onFinish: (id: string, mission?: string | null) => void;
   onApproveTicket?: (ticketId: string) => void;
   jobId: string;
@@ -91,6 +101,23 @@ function PrimaryButton({
     );
   }
 
+  if (action.type === "start") {
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onStart) onStart(jobId);
+          else onSelect(jobId);
+        }}
+        className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-40 sm:w-auto"
+      >
+        {busy ? "Lancement…" : action.label}
+      </button>
+    );
+  }
+
   if (action.type === "finish") {
     return (
       <button
@@ -129,10 +156,14 @@ export default function MissionListCard({
   busy,
   deleteBusy = false,
   actionBusy = false,
+  teamLabel,
+  teamGroupId,
   onSelect,
+  onStart,
   onFinish,
   onDelete,
   onApproveTicket,
+  titleOverride,
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const origin = missionOrigin(j.source);
@@ -142,22 +173,25 @@ export default function MissionListCard({
     hasPendingQuestions: inboxItems.some((i) => i.kind === "cio_question"),
   });
   const action = resolveMissionPrimaryAction(j, inboxItems);
-  const title = missionCardTitle(j.mission, 88);
+  const title = missionCardTitle(titleOverride || j.mission, 88);
+  const fullTitle = missionCardTitle(j.mission, 240);
   const disabled = busy || deleteBusy || actionBusy;
   const ring =
     phase.id === "act"
       ? "border-emerald-400 ring-2 ring-emerald-200/80"
       : phase.id === "decide"
         ? "border-violet-400 ring-2 ring-violet-200/70"
-        : phase.id === "running"
-          ? "border-amber-300 ring-1 ring-amber-100"
-          : "border-slate-200";
+        : phase.id === "todo"
+          ? "border-violet-300 ring-1 ring-violet-100 dark:border-violet-600 dark:ring-violet-900"
+          : phase.id === "running"
+            ? "border-amber-300 ring-1 ring-amber-100 dark:border-amber-600 dark:ring-amber-900"
+            : "border-slate-200 dark:border-slate-700";
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`min-w-0 cursor-pointer rounded-2xl border bg-white p-3.5 shadow-sm transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 ${ring}`}
+      className={`min-w-0 cursor-pointer rounded-2xl border bg-white p-3.5 shadow-sm transition-shadow hover:border-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-violet-500 dark:bg-slate-900 dark:hover:border-slate-500 ${ring}`}
       onClick={() => onSelect(j.job_id)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -179,11 +213,18 @@ export default function MissionListCard({
             >
               {origin.label}
             </span>
+            {teamLabel ? (
+              <span
+                className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold ${teamBadgeClass(teamGroupId)}`}
+              >
+                {teamIdentityLabel(teamGroupId, teamLabel)}
+              </span>
+            ) : null}
           </div>
-          <p className="truncate text-sm font-semibold text-slate-900" title={title}>
+          <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-50" title={fullTitle}>
             {title}
           </p>
-          <p className="text-[11px] text-slate-500">
+          <p className="text-[11px] text-slate-500 dark:text-slate-400">
             {j.agent || "coordinateur"}
             {action.type === "approve_ticket" ? " · action prête" : null}
           </p>
@@ -195,6 +236,7 @@ export default function MissionListCard({
             busy={busy || actionBusy}
             disabled={disabled}
             onSelect={onSelect}
+            onStart={onStart}
             onFinish={onFinish}
             onApproveTicket={onApproveTicket}
             jobId={j.job_id}
@@ -206,7 +248,7 @@ export default function MissionListCard({
               aria-label="Plus d’actions"
               aria-expanded={menuOpen}
               disabled={disabled}
-              className="min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+              className="min-h-[40px] rounded-lg border border-slate-200 bg-white px-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen((v) => !v);
@@ -216,20 +258,20 @@ export default function MissionListCard({
             </button>
             {menuOpen ? (
               <div
-                className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                className="absolute right-0 z-20 mt-1 w-48 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-600 dark:bg-slate-900"
                 onClick={(e) => e.stopPropagation()}
               >
                 <Link
                   href={decisionsHrefForJob(j.job_id)}
-                  className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                   onClick={() => setMenuOpen(false)}
                 >
-                  Voir dans Décisions
+                  À valider
                 </Link>
                 {origin.id === "studio" ? (
                   <Link
                     href="/gestion/studio"
-                    className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                    className="block rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
                     onClick={() => setMenuOpen(false)}
                   >
                     Ouvrir le Studio

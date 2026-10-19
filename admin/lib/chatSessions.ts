@@ -1,8 +1,8 @@
 import type { ChatMsg } from "../components/chat/ChatShell";
+import { CHAT_PERSO_TITLE } from "./chatUseMode";
 import {
   deleteChatConversationOnServer,
   fetchChatConversationsFromServer,
-  importLocalConversationsToServer,
   persistChatConversationToServer,
 } from "./chatConversationsApi";
 
@@ -12,14 +12,36 @@ export type ChatConversation = {
   messages: ChatMsg[];
   updatedAt: number;
   linkedParentJobId?: string;
+  /** "assistant" | "coordinateur" | `group:${id}` — interlocuteur de cette conversation. */
+  interlocutor?: string;
   unread?: boolean;
   unreadPreview?: string;
+  /** Titre saisi à la main : les nouveaux messages ne le remplacent pas. */
+  titleCustom?: boolean;
+  /** Reste en tête de liste, avec le fil Perso. */
+  pinned?: boolean;
 };
+
+export function isPersoConversation(c: { id: string; title?: string }): boolean {
+  return c.id === "conv-perso" || c.id.startsWith("conv-perso-") || c.title === CHAT_PERSO_TITLE;
+}
 
 const INDEX_KEY = "korymb-chat-conversations-v1";
 const ACTIVE_KEY = "korymb-chat-active-conversation-v1";
-const LEGACY_MESSAGES_KEY = "korymb-chat-messages-v2";
-const LEGACY_SESSION_KEY = "korymb-chat-session-v2";
+
+let boundWorkspaceId = "";
+
+export function bindChatStorageWorkspace(workspaceId: string) {
+  boundWorkspaceId = (workspaceId || "").trim();
+}
+
+export function chatStorageKey(base: string) {
+  return boundWorkspaceId ? `${base}:${boundWorkspaceId}` : "";
+}
+
+function scopedKey(base: string) {
+  return chatStorageKey(base);
+}
 
 function now() {
   return Date.now();
@@ -28,36 +50,21 @@ function now() {
 export function conversationTitleFromMessages(messages: ChatMsg[]): string {
   const firstUser = messages.find((m) => m.role === "user");
   const raw = (firstUser?.content || "").trim().replace(/\s+/g, " ");
-  if (!raw) return "Nouvelle conversation";
-  return raw.length > 52 ? `${raw.slice(0, 51)}…` : raw;
+  if (raw) return raw.length > 52 ? `${raw.slice(0, 51)}…` : raw;
+  const fileName = firstUser?.attachments?.[0]?.filename || "";
+  if (fileName) return fileName.length > 52 ? `${fileName.slice(0, 51)}…` : fileName;
+  return "Nouvelle conversation";
 }
 
 export function loadConversations(): ChatConversation[] {
   if (typeof window === "undefined") return [];
+  const key = scopedKey(INDEX_KEY);
+  if (!key) return [];
   try {
-    const raw = localStorage.getItem(INDEX_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as ChatConversation[];
-      return Array.isArray(parsed) ? parsed.sort((a, b) => b.updatedAt - a.updatedAt) : [];
-    }
-    const legacy = localStorage.getItem(LEGACY_MESSAGES_KEY);
-    if (legacy) {
-      const messages = JSON.parse(legacy) as ChatMsg[];
-      if (Array.isArray(messages) && messages.length > 0) {
-        const id = localStorage.getItem(LEGACY_SESSION_KEY) || `conv-${now()}`;
-        const conv: ChatConversation = {
-          id,
-          title: conversationTitleFromMessages(messages),
-          messages,
-          updatedAt: now(),
-        };
-        saveConversations([conv]);
-        setActiveConversationId(id);
-        localStorage.removeItem(LEGACY_MESSAGES_KEY);
-        return [conv];
-      }
-    }
-    return [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatConversation[];
+    return Array.isArray(parsed) ? parsed.sort((a, b) => b.updatedAt - a.updatedAt) : [];
   } catch {
     return [];
   }
@@ -65,29 +72,87 @@ export function loadConversations(): ChatConversation[] {
 
 export function saveConversations(conversations: ChatConversation[]) {
   if (typeof window === "undefined") return;
+  const key = scopedKey(INDEX_KEY);
+  if (!key) return;
   const sorted = [...conversations].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
-  localStorage.setItem(INDEX_KEY, JSON.stringify(sorted));
+  localStorage.setItem(key, JSON.stringify(sorted));
 }
 
 export function getActiveConversationId(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem(ACTIVE_KEY);
+  const key = scopedKey(ACTIVE_KEY);
+  if (!key) return null;
+  return localStorage.getItem(key);
 }
 
 export function setActiveConversationId(id: string) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(ACTIVE_KEY, id);
+  const key = scopedKey(ACTIVE_KEY);
+  if (!key) return;
+  localStorage.setItem(key, id);
 }
 
-export function createConversation(opts?: { linkedParentJobId?: string }): ChatConversation {
-  const id = `conv-${crypto.randomUUID?.() ?? `${now()}-${Math.random().toString(36).slice(2, 9)}`}`;
+export function createConversation(opts?: {
+  linkedParentJobId?: string;
+  title?: string;
+  interlocutor?: string;
+  id?: string;
+}): ChatConversation {
+  const id =
+    opts?.id ||
+    `conv-${crypto.randomUUID?.() ?? `${now()}-${Math.random().toString(36).slice(2, 9)}`}`;
   return {
     id,
-    title: opts?.linkedParentJobId ? `Mission #${opts.linkedParentJobId}` : "Nouvelle conversation",
+    title: opts?.title
+      ? opts.title
+      : opts?.linkedParentJobId
+        ? `Mission #${opts.linkedParentJobId}`
+        : "Nouvelle conversation",
     messages: [],
     updatedAt: now(),
     linkedParentJobId: opts?.linkedParentJobId,
+    interlocutor: opts?.interlocutor,
   };
+}
+
+export function conversationHasContent(c: ChatConversation): boolean {
+  return (c.messages || []).some(
+    (m) => Boolean((m.content || "").trim()) || Boolean(m.attachments?.length),
+  );
+}
+
+/** Fil vide réutilisable au démarrage : pas de message, pas de mission, pas le fil Perso. */
+export function isBlankConversation(c: ChatConversation): boolean {
+  if (c.linkedParentJobId || c.titleCustom || c.pinned) return false;
+  if (isPersoConversation(c)) return false;
+  return !conversationHasContent(c);
+}
+
+/** Un fil sans échange n'apparaît pas : le bouton « Nouvelle conversation » suffit. */
+export function showConversationInList(c: ChatConversation): boolean {
+  if (c.linkedParentJobId || c.titleCustom || c.pinned) return true;
+  return conversationHasContent(c);
+}
+
+/** Fil « Perso » — conversation longue ancrée pour le mode quotidien. */
+export function ensurePersoConversation(persoTitle = "Perso"): ChatConversation {
+  const list = loadConversations();
+  const existing = list.find((c) => isPersoConversation(c) || c.title === persoTitle);
+  if (existing) {
+    if (existing.title !== persoTitle || existing.interlocutor !== "assistant") {
+      const patched = { ...existing, title: persoTitle, interlocutor: "assistant" as const };
+      upsertConversation(patched);
+      return patched;
+    }
+    return existing;
+  }
+  const conv = createConversation({
+    id: "conv-perso",
+    title: persoTitle,
+    interlocutor: "assistant",
+  });
+  upsertConversation(conv);
+  return conv;
 }
 
 export function upsertConversation(conversation: ChatConversation) {
@@ -98,25 +163,62 @@ export function upsertConversation(conversation: ChatConversation) {
   });
 }
 
-export function deleteConversation(id: string) {
+export function deleteConversation(id: string, opts?: { remote?: boolean }) {
   saveConversations(loadConversations().filter((c) => c.id !== id));
+  if (opts?.remote === false) return;
   void deleteChatConversationOnServer(id).catch(() => {});
 }
 
-/** Charge les conversations serveur ; migre le localStorage si le serveur est vide. */
+async function bindWorkspaceFromSession(): Promise<void> {
+  try {
+    const res = await fetch("/api/auth/me", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { workspace?: { id?: string } };
+    const id = String(data?.workspace?.id || "").trim();
+    if (id) bindChatStorageWorkspace(id);
+  } catch {
+    /* conserve le cache local si la session n'est pas lisible */
+  }
+}
+
+/** Le serveur remplace une conversation seulement s'il est au moins aussi récent. Le local absent du serveur est conservé. */
+export function mergeConversations(local: ChatConversation[], server: ChatConversation[]): ChatConversation[] {
+  if (!server.length) return local;
+  const localById = new Map(local.map((c) => [c.id, c]));
+  const serverIds = new Set<string>();
+  const merged: ChatConversation[] = [];
+  for (const row of server) {
+    serverIds.add(row.id);
+    const prev = localById.get(row.id);
+    if (prev && Number(prev.updatedAt || 0) > Number(row.updatedAt || 0)) {
+      merged.push(prev);
+      continue;
+    }
+    merged.push({
+      ...row,
+      interlocutor: row.interlocutor || prev?.interlocutor,
+      linkedParentJobId: row.linkedParentJobId || prev?.linkedParentJobId,
+      pinned: prev?.pinned,
+      titleCustom: prev?.titleCustom,
+      title: prev?.titleCustom && prev.title ? prev.title : row.title,
+    });
+  }
+  for (const conv of local) {
+    if (!serverIds.has(conv.id)) merged.push(conv);
+  }
+  merged.sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0));
+  return merged;
+}
+
+/** Charge les conversations de l'espace courant. Un serveur vide ne vide pas le fil local. */
 export async function hydrateConversationsFromServer(): Promise<ChatConversation[]> {
   try {
-    let server = await fetchChatConversationsFromServer();
+    await bindWorkspaceFromSession();
+    const server = await fetchChatConversationsFromServer();
     const local = loadConversations();
-    if (!server.length && local.length) {
-      await importLocalConversationsToServer(local);
-      server = await fetchChatConversationsFromServer();
-    }
-    if (server.length) {
-      saveConversations(server);
-      return server;
-    }
-    return local;
+    const merged = mergeConversations(local, server);
+    if (server.length) saveConversations(merged);
+    return merged;
   } catch {
     return loadConversations();
   }

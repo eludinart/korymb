@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 THREAD_STATUSES = frozenset({"open", "replied", "closed"})
 EMAIL_DIRECTIONS = frozenset({"outbound", "inbound"})
 
+
+def _workspace_brand_label() -> str:
+    from services.workspace_brand import workspace_sender_name
+
+    return workspace_sender_name("Korymb")
+
+
+def _mail_mid_domain() -> str:
+    from services.workspace_brand import mail_message_id_domain
+
+    return mail_message_id_domain()
+
+
 _GMAIL_SEND_RE = re.compile(
     r"id:\s*([^\s,)]+)(?:.*?thread:\s*([^\s,)]+))?",
     re.IGNORECASE | re.DOTALL,
@@ -620,7 +633,11 @@ def record_outbound_email(
         from_email="",
         to_email=to_email,
         message_id_header=message_id_header
-        or (f"<korymb-{secrets.token_hex(8)}@eludein.art>" if not gmail_message_id else ""),
+        or (
+            f"<korymb-{secrets.token_hex(8)}@{_mail_mid_domain()}>"
+            if not gmail_message_id
+            else ""
+        ),
         gmail_message_id=gmail_message_id,
         ticket_id=ticket_id,
         attachments=attachments if isinstance(attachments, list) else [],
@@ -804,18 +821,15 @@ def prepare_contact_email_ticket(
     name_clean = re.sub(r"^\s*\[TEST\]\s*", "", name, flags=re.IGNORECASE).strip() or name
     outreach = str(contact.get("outreach_suggestions") or "").strip()
     company = str(contact.get("company") or "").strip()
-    tags = contact.get("tags") if isinstance(contact.get("tags"), list) else []
-    tags_l = [str(t).strip().lower() for t in tags]
-    coach_like = any(
-        t in tags_l for t in ("coach", "thérapeute", "therapeute", "bien-être", "bien-etre")
-    )
+    brand = _workspace_brand_label()
     if (subject or "").strip():
         subj = subject.strip()
-    elif coach_like or company:
-        angle = company or name_clean or "votre pratique"
-        subj = f"Proposition Fleur d'ÅmÔurs — enrichir {angle}"[:160]
+    elif company:
+        subj = f"Échange — {company}"[:160]
+    elif name_clean:
+        subj = f"{brand} — échange avec {name_clean}"[:160]
     else:
-        subj = f"Élude In Art — échange avec {name_clean}"[:160]
+        subj = f"{brand} — échange"[:160]
     if (body or "").strip():
         mail_body = body.strip()
     elif outreach and not send_now:
@@ -829,7 +843,7 @@ def prepare_contact_email_ticket(
     else:
         mail_body = (
             f"Bonjour {name_clean},\n\n"
-            "Je me permets de vous écrire au sujet d'Élude In Art / Fleur d'ÅmÔurs.\n\n"
+            f"Je me permets de vous écrire au sujet de {brand}.\n\n"
             "Bien cordialement"
         )
     mail_body = clean_outgoing_body(mail_body) or mail_body
@@ -1183,8 +1197,9 @@ def _fallback_email_suggestions(
     inbound_l = inbound.lower()
     interested = any(w in inbound_l for w in ("oui", "ok", "oké", "intéresse", "interesse", "volontiers", "avec plaisir"))
     question = "?" in inbound
-    subj = _reply_subject(subject) if inbound else (subject or "Élude In Art — proposition de collaboration")
-    sign = "Bien à vous,\nÉric Ludinart\nÉlude In Art"
+    brand = _workspace_brand_label()
+    subj = _reply_subject(subject) if inbound else (subject or f"{brand} — proposition de collaboration")
+    sign = f"Bien à vous,\n{brand}"
     intent = (guidance or "").strip() or (seed_body or "").strip()[:800]
     if intent:
         a = (
@@ -1218,7 +1233,7 @@ def _fallback_email_suggestions(
         )
         b = (
             f"{hello}\n\nMerci. Pour avancer concrètement, je vous propose un échange de 20 minutes "
-            "sur votre pratique et ce qu'un module Fleur d'ÅmÔurs pourrait y ajouter — sans engagement.\n\n"
+            "sur votre pratique et ce qu'une de nos propositions pourrait y ajouter — sans engagement.\n\n"
             "Quel créneau vous irait en début de semaine ?\n\n"
             f"{sign}"
         )
@@ -1235,7 +1250,7 @@ def _fallback_email_suggestions(
             f"{sign}"
         )
         b = (
-            f"{hello}\n\nMerci. En deux mots : Fleur d'ÅmÔurs est un module à intégrer à votre accompagnement "
+            f"{hello}\n\nMerci. En deux mots : notre offre est un module à intégrer à votre accompagnement "
             "(pas un outil à plaquer). Je peux vous montrer un déroulé type et comment ça s'articule chez vous.\n\n"
             "Quel format vous convient le mieux ?\n\n"
             f"{sign}"
@@ -1380,7 +1395,11 @@ def suggest_email_replies(
             seed_subject or str((thread or {}).get("subject") or (inbound or {}).get("subject") or "")
         )
     else:
-        subject = seed_subject or str((thread or {}).get("subject") or "") or "Élude In Art — proposition de collaboration"
+        subject = (
+            seed_subject
+            or str((thread or {}).get("subject") or "")
+            or f"{_workspace_brand_label()} — proposition de collaboration"
+        )
     first = _contact_first_name(contact)
     fallback = _fallback_email_suggestions(
         first_name=first,
@@ -1427,14 +1446,14 @@ def suggest_email_replies(
             )
         raw, _tin, _tout = llm_chat(
             (
-                "Tu es l'assistant d'Éric Ludinart (Élude In Art / Fleur d'ÅmÔurs). "
+                f"Tu es l'assistant commercial de « {_workspace_brand_label()} ». "
                 "Tu rédiges des e-mails en français, tutoiement ou vouvoiement selon le mail reçu "
                 "(par défaut vouvoiement). Ton : humain, concret, sans langue de bois. "
                 "Pas de HTML. "
                 "Le champ body contient UNIQUEMENT le nouveau message : salutations, propos, signature. "
                 "INTERDIT d'y coller les mails précédents, les citations, « Le … a écrit : », "
                 "« On … wrote: », ou des lignes '>'. L'historique sert à comprendre, pas à être recopié. "
-                "8 à 14 lignes. Signature : Éric Ludinart / Élude In Art. "
+                f"8 à 14 lignes. Signature : {_workspace_brand_label()}. "
                 "Si des consignes dirigeant sont fournies, elles priment. "
                 "Réponds UNIQUEMENT en JSON : "
                 '{"suggestions":[{"label":"Chaleureux","angle":"…","subject":"…","body":"…"},'

@@ -49,3 +49,27 @@ def client(app, test_secret: str):
     from fastapi.testclient import TestClient
 
     return TestClient(app, headers={"X-Agent-Secret": test_secret})
+
+
+@pytest.fixture(autouse=True)
+def _reset_tenant_context():
+    """Chaque test part sur l'espace historique, comme l'ancien repli de ws_id().
+
+    Un test qui efface le contexte ne doit plus hériter silencieusement d'Élude :
+    ws_id() reste vide tant qu'un set_tenant_context n'a pas eu lieu.
+    """
+    from tenant_context import clear_tenant_context, set_tenant_context
+
+    clear_tenant_context()
+    set_tenant_context(workspace_id="ws-default-legacy")
+    yield
+    clear_tenant_context()
+
+
+@pytest.fixture(autouse=True)
+def _stub_chat_mirror_ack(monkeypatch):
+    """Évite les appels LLM réels pour l’accusé de réception (clé test invalide)."""
+    monkeypatch.setattr(
+        "routers.core_chat.generate_mirror_ack_result",
+        lambda *a, **k: ("Accusé de réception (test).", None),
+    )

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import contextvars
 from typing import Any, Callable
 
@@ -67,6 +68,7 @@ def _activate_tool_run_ctx(
     *,
     chat_mode: bool | None = None,
     force_write: bool = False,
+    user_corpus: str = "",
 ) -> contextvars.Token:
     job_id = ""
     if usage_job_id is not _UNSET and usage_job_id is not None:
@@ -78,7 +80,106 @@ def _activate_tool_run_ctx(
         "agent_key": agent_key,
         "chat_mode": "1" if inferred else "",
         "force_write": "1" if force_write else "",
+        "user_corpus": (user_corpus or "")[:12000],
+        "tool_evidence": "",
     })
+
+
+_CHAT_WRITE_FIELDS: dict[str, tuple[str, ...]] = {
+    "korymb_create_project": ("title", "description"),
+    "korymb_update_project": ("title", "new_title", "description"),
+    "korymb_save_mission_template": ("name", "description", "mission_text"),
+    "korymb_save_playbook": ("name", "description", "mission"),
+}
+
+
+def _user_corpus_from_messages(messages: list[dict] | None) -> str:
+    parts: list[str] = []
+    for item in messages or []:
+        if not isinstance(item, dict) or item.get("role") != "user":
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content.strip():
+            parts.append(content)
+    return "\n".join(parts)
+
+
+def _ground_chat_write(name: str, inp: dict[str, Any]) -> dict[str, Any]:
+    """Retire d'une écriture chat les noms, dates et coordonnées que le tour n'a pas établis."""
+    fields = _CHAT_WRITE_FIELDS.get(name)
+    ctx = _tool_run_ctx.get()
+    if not fields or not str(ctx.get("chat_mode") or ""):
+        return inp
+    from services.claim_guard import ground_stored_text
+
+    corpus = "\n".join(
+        part for part in (str(ctx.get("user_corpus") or ""), str(ctx.get("tool_evidence") or "")) if part.strip()
+    )
+    out = dict(inp)
+    stripped: list[str] = []
+
+    def apply(value: str) -> str:
+        cleaned, dropped = ground_stored_text(value, corpus)
+        stripped.extend(dropped)
+        return cleaned
+
+    for key in fields:
+        if isinstance(out.get(key), str):
+            original = str(out[key])
+            cleaned = apply(original)
+            if original.strip() and not cleaned.strip() and key in {"description", "new_title", "mission", "mission_text"}:
+                out.pop(key, None)
+            else:
+                out[key] = cleaned
+    for key in ("tasks", "add_tasks", "update_tasks", "rename_tasks"):
+        items = out.get(key)
+        if isinstance(items, str):
+            try:
+                items = json.loads(items)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(items, list):
+            continue
+        rewritten: list[Any] = []
+        for item in items:
+            if not isinstance(item, dict):
+                rewritten.append(item)
+                continue
+            row = dict(item)
+            for sub in ("title", "detail", "description", "new_title"):
+                if isinstance(row.get(sub), str):
+                    row[sub] = apply(str(row[sub]))
+            rewritten.append(row)
+        out[key] = rewritten
+    if stripped:
+        out["_grounding_stripped"] = stripped[:12]
+    return out
+
+
+def _annotate_grounding(raw: str, stripped: list[str]) -> str:
+    if not stripped:
+        return raw
+    note = (
+        "Précisions retirées avant écriture (absentes du message, ou citées seulement pour être supprimées) : "
+        + ", ".join(stripped[:8])
+    )
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return f"{raw}\n{note}"
+    if not isinstance(data, dict):
+        return f"{raw}\n{note}"
+    data["grounding_stripped"] = stripped[:8]
+    data["grounding_note"] = note
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _remember_tool_evidence(raw: str) -> None:
+    ctx = _tool_run_ctx.get()
+    if not str(ctx.get("chat_mode") or ""):
+        return
+    previous = str(ctx.get("tool_evidence") or "")
+    ctx["tool_evidence"] = (previous + "\n" + (raw or ""))[:12000]
 
 
 def _is_chat_write_gated() -> bool:
@@ -102,12 +203,11 @@ import httpx
 
 from llm_client import (
     _UNSET,
-    _normalize_chat_completions_url,
     format_llm_provider_http_error,
     llm_turn,
     log_llm_call_financial,
-    openrouter_post_with_retries,
 )
+from llm_free_pool import free_pool_active
 from llm_providers import chat_completions_settings, is_chat_completions_provider, normalize_llm_provider
 from llm_tiers import resolve_llm_tier
 from runtime_settings import merge_with_env
@@ -152,6 +252,11 @@ from tools.registry_extended import (
     EXTENDED_TAG_TO_TOOLS,
     EXTENDED_TOOL_SCHEMAS,
     dispatch_extended_tool,
+)
+from tools.workspace_setup import (
+    WORKSPACE_TAG_TO_TOOLS,
+    WORKSPACE_TOOL_SCHEMAS,
+    dispatch_workspace_tool,
 )
 from debug_ndjson import append_session_ndjson
 
@@ -211,10 +316,18 @@ _TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     # Outils augmentés KORYMB v3 (agentic OS)
     "knowledge": ("search_core_notes", "get_fleet_status", "korymb_overview", "propose_platform_change"),
     "validate": ("validate_syntax",),
+    "teams": (
+        "list_agent_groups",
+        "list_team_templates",
+        "propose_team_blueprint",
+        "propose_team_from_template",
+    ),
 }
 for _tag, _names in GESTION_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 for _tag, _names in EXTENDED_TAG_TO_TOOLS.items():
+    _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
+for _tag, _names in WORKSPACE_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
@@ -290,7 +403,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "post_instagram",
-        "description": "Publie un post sur le compte Instagram d'Élude In Art (réel si tokens Meta configurés).",
+        "description": "Publie un post sur le compte Instagram connecté (réel si tokens Meta configurés).",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -303,7 +416,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_instagram_media",
         "description": (
-            "Lit les derniers médias publiés sur le compte Instagram d'Élude In Art. "
+            "Lit les derniers médias publiés sur le compte Instagram connecté. "
             "Retourne caption, type, date, lien, URL image. "
             "Utilise pour : auditer la présence Instagram, éviter les doublons, analyser les contenus passés."
         ),
@@ -317,7 +430,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "post_facebook",
-        "description": "Publie un post sur la page Facebook d'Élude In Art (réel si tokens Meta configurés).",
+        "description": "Publie un post sur la page Facebook connectée (réel si tokens Meta configurés).",
         "input_schema": {
             "type": "object",
             "properties": {"message": {"type": "string", "description": "Texte du post"}},
@@ -327,7 +440,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "read_facebook_posts",
         "description": (
-            "Lit les derniers posts de la page Facebook d'Élude In Art. "
+            "Lit les derniers posts de la page Facebook connectée. "
             "Retourne texte, date, lien, image. "
             "Utilise pour : auditer la présence Facebook, analyser l'engagement, éviter les doublons."
         ),
@@ -343,7 +456,10 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
         "name": "upload_google_drive",
         "description": (
             "Enregistre un fichier dans l'espace Korymb du compte (CSV, markdown ou texte). "
-            "Ne va plus sur Google Drive. Pour un tableau de prospection : inclure TOUTES les lignes réelles "
+            "Ne va PAS sur Google Drive. À utiliser UNIQUEMENT si le dirigeant demande explicitement "
+            "un fichier séparé (CSV, export, document téléchargeable). Sinon, livre le contenu "
+            "dans la réponse avec #### LIVRABLE — … (lisible in-app). "
+            "Pour un tableau de prospection : inclure TOUTES les lignes réelles "
             "(web_search), jamais d'exemple Dupont/Martin."
         ),
         "input_schema": {
@@ -395,15 +511,74 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "get_fleet_status",
         "description": (
-            "Retourne les constantes d'actifs de l'Empire Élude In Art : "
-            "Sivana (écolieu, contraintes terrain), Ti Spoun (ancrage artisanal), "
-            "Éric (dirigeant), Fleur d'ÅmÔurs (tarot, business model). "
-            "Utilise en début de mission pour ancrer les propositions dans la réalité terrain."
+            "Retourne l'identité / les actifs du workspace courant "
+            "(mémoire, knowledge, pack legacy éventuel). "
+            "Utilise en début de mission pour ancrer les propositions dans la réalité du workspace."
         ),
         "input_schema": {
             "type": "object",
             "properties": {},
             "required": [],
+        },
+    },
+    {
+        "name": "list_agent_groups",
+        "description": (
+            "Liste les groupes d'agents actifs (Entreprise + équipes custom). "
+            "Utile avant de proposer une nouvelle équipe pour éviter les doublons."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "list_team_templates",
+        "description": "Liste les templates d'équipes prêts à l'emploi (édition, terrain, R&D…).",
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "propose_team_blueprint",
+        "description": (
+            "Propose une équipe d'agents adaptée à l'intention du dirigeant (dry-run). "
+            "Ne crée PAS encore le groupe : le dirigeant valide dans l'UI. "
+            "Fournis lead + 1..5 membres (clés snake_case), hors-périmètre, simulation courte, risques."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string", "description": "Nom du groupe / projet"},
+                "intent": {"type": "string", "description": "Intention du dirigeant"},
+                "lead_key": {"type": "string"},
+                "lead_label": {"type": "string"},
+                "lead_role": {"type": "string"},
+                "lead_system": {"type": "string"},
+                "members_json": {
+                    "type": "string",
+                    "description": (
+                        "JSON array d'objets {key,label,role,system,tools?} — max 5"
+                    ),
+                },
+                "out_of_scope_json": {
+                    "type": "string",
+                    "description": "JSON array de strings (hors périmètre)",
+                },
+                "simulation": {"type": "string"},
+                "risks_json": {"type": "string", "description": "JSON array de risques"},
+            },
+            "required": ["label", "intent", "lead_key", "lead_label", "members_json"],
+        },
+    },
+    {
+        "name": "propose_team_from_template",
+        "description": (
+            "Propose une équipe à partir d'un template (edition|terrain|rd_tech). "
+            "Dry-run uniquement — validation UI ensuite."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "template_key": {"type": "string", "description": "edition | terrain | rd_tech"},
+                "intent": {"type": "string", "description": "Brief du dirigeant (personnalisation)"},
+            },
+            "required": ["template_key"],
         },
     },
     {
@@ -446,8 +621,8 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_list_tables",
         "description": (
-            "Liste les tables disponibles dans la base MariaDB Fleur d'Amours et le nombre de lignes "
-            "pour chaque table. Utiliser en premier pour cartographier la DB."
+            "Liste les tables disponibles dans la base produit externe connectée (si configurée) "
+            "et le nombre de lignes pour chaque table. Utiliser en premier pour cartographier la DB."
         ),
         "input_schema": {
             "type": "object",
@@ -458,7 +633,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_describe_table",
         "description": (
-            "Décrit la structure d'une table MariaDB Fleur d'Amours (colonnes et types). "
+            "Décrit la structure d'une table de la base produit externe (colonnes et types). "
             "Utiliser avant d'écrire une requête SQL."
         ),
         "input_schema": {
@@ -472,7 +647,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_query",
         "description": (
-            "Exécute une requête SQL en lecture seule sur la base Fleur d'Amours. "
+            "Exécute une requête SQL en lecture seule sur la base produit externe. "
             "Requêtes autorisées: SELECT, SHOW, DESCRIBE."
         ),
         "input_schema": {
@@ -486,7 +661,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
     {
         "name": "db_analyze_users",
         "description": (
-            "Répond à une question métier sur les utilisateurs Fleur d'Amours en construisant la requête SQL adaptée "
+            "Répond à une question métier sur les données de la base produit externe en construisant la requête SQL adaptée "
             "(ex: total users, derniers inscrits, répartition des abonnements)."
         ),
         "input_schema": {
@@ -516,7 +691,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
         "name": "get_facebook_insights",
         "description": (
             "Métriques page Facebook : impressions, engagement, fans. "
-            "Utilise pour analyser la performance de la page Élude In Art."
+            "Utilise pour analyser la performance de la page Facebook connectée."
         ),
         "input_schema": {
             "type": "object",
@@ -638,13 +813,35 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
 
 _ALL_ANTHROPIC_TOOLS.extend(EXTENDED_TOOL_SCHEMAS)
 _ALL_ANTHROPIC_TOOLS.extend(BUSINESS_TOOL_SCHEMAS)
+_ALL_ANTHROPIC_TOOLS.extend(WORKSPACE_TOOL_SCHEMAS)
+
+
+_PRODUCT_DB_TOOLS = frozenset({
+    "db_list_tables",
+    "db_describe_table",
+    "db_query",
+    "db_analyze_users",
+})
+
+
+def _product_db_tools_allowed() -> bool:
+    """La base produit externe (instance Fleur) n'est visible que sur l'espace legacy."""
+    try:
+        from services.workspace_brand import is_legacy_elude_workspace
+
+        return is_legacy_elude_workspace()
+    except Exception:
+        return False
 
 
 def tool_names_for_tags(tags: list[str]) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
+    allow_product_db = _product_db_tools_allowed()
     for tag in tags:
         for name in _TAG_TO_TOOLS.get(tag, ()):
+            if name in _PRODUCT_DB_TOOLS and not allow_product_db:
+                continue
             if name not in seen:
                 seen.add(name)
                 out.append(name)
@@ -671,7 +868,7 @@ def _filter_openai_tools(allowed: set[str]) -> list[dict[str, Any]]:
     return out
 
 
-def _execute_tool(name: str, inp: Any) -> str:
+def _execute_tool(name: str, inp: Any, *, _from_journal: bool = False) -> str:
     _EXECUTE_GATED = frozenset({
         "send_email",
         "send_newsletter",
@@ -698,23 +895,35 @@ def _execute_tool(name: str, inp: Any) -> str:
             inp = json.loads(inp) if isinstance(inp, str) else {}
         except json.JSONDecodeError:
             inp = {}
-    if name in _QUEUE_TOOLS:
-        try:
-            from services.action_queue import enqueue_from_tool
+    if not _from_journal:
+        from services.mission_journal import run_tool_once
 
-            ctx = _tool_run_ctx.get()
-            return enqueue_from_tool(
-                tool_name=name,
-                inp=inp,
-                job_id=str(ctx.get("job_id") or ""),
-                agent_key=str(ctx.get("agent_key") or ""),
-            )
-        except Exception as exc:
-            logger.exception("enqueue action failed for %s", name)
+        ctx_job = str((_tool_run_ctx.get() or {}).get("job_id") or "")
+        inp = _ground_chat_write(name, inp)
+        stripped = list(inp.pop("_grounding_stripped", []) or [])
+        out = run_tool_once(ctx_job, name, inp, lambda: _execute_tool(name, inp, _from_journal=True))
+        _remember_tool_evidence(out)
+        return _annotate_grounding(out, stripped)
+    ctx = _tool_run_ctx.get()
+    try:
+        from services.tool_policy import apply_tool_policy
+
+        gated = apply_tool_policy(
+            name,
+            inp,
+            job_id=str(ctx.get("job_id") or ""),
+            agent_key=str(ctx.get("agent_key") or ""),
+        )
+    except Exception as exc:
+        logger.exception("tool policy failed for %s", name)
+        if name in _QUEUE_TOOLS or name in _EXECUTE_GATED:
             return (
-                f"[sandbox] Exécution bloquée pour `{name}` — file d'arbitrage indisponible ({exc}). "
+                f"[sandbox] Exécution bloquée pour `{name}` — règle d'outils indisponible ({exc}). "
                 "Aucun effet externe n'a été produit."
             )
+        gated = None
+    if gated is not None:
+        return gated
     if name in _EXECUTE_GATED:
         try:
             from database import get_behavior_setting
@@ -790,6 +999,97 @@ def _execute_tool(name: str, inp: Any) -> str:
             return json.dumps(result, ensure_ascii=False)
         if name == "get_fleet_status":
             return json.dumps(get_fleet_status(), ensure_ascii=False, indent=2)
+        if name == "list_agent_groups":
+            from services.agent_groups import list_groups
+
+            return json.dumps(
+                [
+                    {
+                        "id": g["id"],
+                        "label": g["label"],
+                        "status": g["status"],
+                        "lead": g.get("lead_agent_key"),
+                        "members": g.get("member_keys"),
+                        "is_system": g.get("is_system"),
+                    }
+                    for g in list_groups(include_archived=False)
+                ],
+                ensure_ascii=False,
+                indent=2,
+            )
+        if name == "list_team_templates":
+            from services.agent_groups import list_group_templates
+
+            return json.dumps(list_group_templates(), ensure_ascii=False, indent=2)
+        if name == "propose_team_from_template":
+            from services.agent_groups import propose_blueprint_from_template
+
+            bp = propose_blueprint_from_template(
+                str(inp.get("template_key") or ""),
+                intent=str(inp.get("intent") or ""),
+            )
+            return json.dumps(
+                {
+                    "ok": True,
+                    "blueprint_id": bp["id"],
+                    "title": bp["title"],
+                    "dry_run_summary": bp["dry_run_summary"],
+                    "status": bp["status"],
+                    "ui_hint": "Blueprint créé. Résume l'équipe. Le bouton « Créer l'équipe » s'affiche seul.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        if name == "propose_team_blueprint":
+            from services.agent_groups import create_blueprint_proposal
+
+            members_raw = inp.get("members_json") or "[]"
+            oos_raw = inp.get("out_of_scope_json") or "[]"
+            risks_raw = inp.get("risks_json") or "[]"
+            try:
+                members = json.loads(members_raw) if isinstance(members_raw, str) else members_raw
+            except json.JSONDecodeError:
+                members = []
+            try:
+                oos = json.loads(oos_raw) if isinstance(oos_raw, str) else oos_raw
+            except json.JSONDecodeError:
+                oos = []
+            try:
+                risks = json.loads(risks_raw) if isinstance(risks_raw, str) else risks_raw
+            except json.JSONDecodeError:
+                risks = []
+            if not isinstance(members, list):
+                members = []
+            payload = {
+                "label": str(inp.get("label") or "Équipe projet"),
+                "intent": str(inp.get("intent") or ""),
+                "lead": {
+                    "key": str(inp.get("lead_key") or "chef_projet"),
+                    "label": str(inp.get("lead_label") or "Chef de projet"),
+                    "role": str(inp.get("lead_role") or ""),
+                    "system": str(inp.get("lead_system") or ""),
+                    "tools": ["web", "drive", "knowledge", "studio"],
+                },
+                "members": members,
+                "out_of_scope": oos if isinstance(oos, list) else [],
+                "simulation": str(inp.get("simulation") or ""),
+                "risks": risks if isinstance(risks, list) else [],
+            }
+            ctx = _tool_run_ctx.get()
+            session = str(ctx.get("chat_session_id") or "") if isinstance(ctx, dict) else ""
+            bp = create_blueprint_proposal(payload, chat_session_id=session or None)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "blueprint_id": bp["id"],
+                    "title": bp["title"],
+                    "dry_run_summary": bp["dry_run_summary"],
+                    "status": bp["status"],
+                    "ui_hint": "Blueprint créé. Résume l'équipe. Le bouton « Créer l'équipe » s'affiche seul.",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         if name == "korymb_overview":
             from services.korymb_overview import build_korymb_overview
 
@@ -821,14 +1121,20 @@ def _execute_tool(name: str, inp: Any) -> str:
                 agent_key=str(ctx.get("agent_key") or ""),
             )
             return format_proposal_tool_result(sug, kind_label="Proposition plateforme")
-        if name == "db_list_tables":
-            return run_db_list_tables("")
-        if name == "db_describe_table":
-            return run_db_describe_table(str(inp.get("table_name", "")))
-        if name == "db_query":
-            return run_db_query(str(inp.get("sql", "")))
-        if name == "db_analyze_users":
-            return run_db_analyze_users(str(inp.get("question", "")))
+        if name in _PRODUCT_DB_TOOLS:
+            if not _product_db_tools_allowed():
+                return (
+                    "Base produit externe non connectée à cet espace. "
+                    "Utilise la mémoire, le CRM et les outils de cet espace."
+                )
+            if name == "db_list_tables":
+                return run_db_list_tables("")
+            if name == "db_describe_table":
+                return run_db_describe_table(str(inp.get("table_name", "")))
+            if name == "db_query":
+                return run_db_query(str(inp.get("sql", "")))
+            if name == "db_analyze_users":
+                return run_db_analyze_users(str(inp.get("question", "")))
         if name == "get_instagram_insights":
             return run_get_instagram_insights(
                 str(inp.get("period", "week") or "week"),
@@ -879,6 +1185,9 @@ def _execute_tool(name: str, inp: Any) -> str:
         ext = dispatch_extended_tool(name, inp)
         if ext is not None:
             return ext
+        ws = dispatch_workspace_tool(name, inp)
+        if ws is not None:
+            return ws
         if name.startswith("gestion_"):
             inp = _inject_tool_run_ctx(inp)
             from services.config_suggestions import CHAT_WRITE_TOOLS, enqueue_chat_write_proposal, format_proposal_tool_result
@@ -1038,6 +1347,9 @@ def llm_turn_with_tools(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
+    from llm_client import guard_llm_envelope
+
+    guard_llm_envelope()
     allowed = set(tool_names)
     extra = (
         "\n\nTu disposes d'outils puissants : recherche web multi-provider (Tavily/Brave/DuckDuckGo), "
@@ -1055,7 +1367,7 @@ def llm_turn_with_tools(
     prov = normalize_llm_provider(None, cfg)
     token = _activate_tool_run_ctx(usage_job_id, usage_context, tool_actor)
     try:
-        if is_chat_completions_provider(prov):
+        if free_pool_active(cfg) or is_chat_completions_provider(prov):
             return _openrouter_tool_loop(
                 system_use,
                 user_text,
@@ -1244,6 +1556,34 @@ def _anthropic_tool_loop(
     return last_text or "(Aucune réponse textuelle.)", t_in, t_out
 
 
+def _post_tool_round(
+    http: httpx.Client,
+    cfg: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    profile: str,
+    state: dict[str, Any],
+) -> httpx.Response:
+    from llm_client import post_chat_completions_request
+
+    response, meta = post_chat_completions_request(
+        http,
+        cfg,
+        body,
+        profile=profile,
+        prefer_hop_id=str(state.get("hop_id") or "") or None,
+    )
+    if meta.get("hop_id"):
+        state["hop_id"] = meta["hop_id"]
+    state["meta"] = meta
+    return response
+
+
+def _apply_round_meta(state: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    meta = state.get("meta")
+    return meta if isinstance(meta, dict) and meta.get("model") else fallback
+
+
 def _openrouter_tool_loop(
     system: str,
     user_text: str,
@@ -1258,14 +1598,13 @@ def _openrouter_tool_loop(
     usage_context: Any = _UNSET,
     temperature: float | None = None,
 ) -> tuple[str, int, int]:
-    cc = chat_completions_settings(cfg)
-    url = _normalize_chat_completions_url(cc["base_url"])
-    headers = {
-        "Authorization": f"Bearer {cc['api_key']}",
-        "Content-Type": "application/json",
-        **cc.get("extra_headers", {}),
-    }
-    provider_log = str(cc["provider"])
+    if free_pool_active(cfg):
+        model, tier_key, pin, pout = "free-pool", "heavy", 0.0, 0.0
+        provider_log = "free_pool"
+    else:
+        cc = chat_completions_settings(cfg)
+        provider_log = str(cc["provider"])
+        model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -1284,9 +1623,9 @@ def _openrouter_tool_loop(
         om.append({"role": "system", "content": system})
     om.append({"role": "user", "content": user_text})
 
-    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
+    round_state: dict[str, Any] = {}
 
     with httpx.Client(timeout=180.0) as http:
         for round_i in range(_MAX_TOOL_ROUNDS):
@@ -1299,7 +1638,16 @@ def _openrouter_tool_loop(
             }
             if temperature is not None:
                 body["temperature"] = float(temperature)
-            r = openrouter_post_with_retries(http, url, headers, body)
+            r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            meta = _apply_round_meta(
+                round_state,
+                {"provider": provider_log, "model": model, "tier": tier_key, "price_in": pin, "price_out": pout},
+            )
+            provider_log = str(meta["provider"])
+            model = str(meta["model"])
+            tier_key = str(meta["tier"])
+            pin = float(meta["price_in"])
+            pout = float(meta["price_out"])
             # Modèles gratuits / non-OpenAI (ex. Gemma sur OpenRouter) refusent souvent function calling → 400.
             if r.status_code in (400, 422) and otools and round_i == 0:
                 logger.warning(
@@ -1389,7 +1737,10 @@ def _openrouter_tool_loop(
                 "max_tokens": min(int(max_tokens), 2048),
             }
             try:
-                rf = openrouter_post_with_retries(http, url, headers, body_follow)
+                rf = _post_tool_round(http, cfg, body_follow, profile="heavy", state=round_state)
+                follow_meta = _apply_round_meta(round_state, {"provider": provider_log, "model": model})
+                provider_log = str(follow_meta.get("provider") or provider_log)
+                model = str(follow_meta.get("model") or model)
                 if rf.status_code < 400:
                     d2 = rf.json()
                     u2 = d2.get("usage") or {}
@@ -1431,8 +1782,11 @@ def llm_chat_maybe_tools(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    or_profile: str | None = None,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
     names = tool_names_for_tags(tool_tags or [])
+    profile = (or_profile or "").strip() or ("lite" if not names else "standard")
     if not names:
         from llm_client import llm_chat
 
@@ -1440,9 +1794,10 @@ def llm_chat_maybe_tools(
             system,
             messages,
             max_tokens=max_tokens,
-            or_profile="lite",
+            or_profile=profile,
             usage_job_id=usage_job_id,
             usage_context=usage_context,
+            request_timeout=request_timeout,
         )
     return llm_chat_with_tools(
         system,
@@ -1452,7 +1807,32 @@ def llm_chat_maybe_tools(
         max_tokens,
         usage_job_id=usage_job_id,
         usage_context=usage_context,
+        request_timeout=request_timeout,
     )
+
+
+def _workspace_write_confirmation(job_logs: list[str] | None) -> str:
+    """Phrase courte quand l'écriture projet a réussi et que le modèle ne rédige pas la suite."""
+    title = ""
+    kind = ""
+    for line in job_logs or []:
+        if "korymb_update_project" in line:
+            kind_here = "update"
+        elif "korymb_create_project" in line:
+            kind_here = "create"
+        else:
+            continue
+        if '"ok": true' not in line and '"ok":true' not in line.replace(" ", ""):
+            continue
+        kind = kind_here
+        match = re.search(r'"title"\s*:\s*"([^"\\]{1,160})"', line)
+        if match:
+            title = match.group(1)
+    if kind == "create":
+        return f"Le projet « {title} » est créé." if title else "Le projet est créé."
+    if kind == "update":
+        return f"C'est fait. Le projet « {title} » est à jour." if title else "C'est fait. Le projet est à jour."
+    return ""
 
 
 def llm_chat_with_tools(
@@ -1464,20 +1844,34 @@ def llm_chat_with_tools(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
+    from llm_client import guard_llm_envelope
+
+    guard_llm_envelope()
     allowed = set(tool_names)
     extra = (
         "\n\nOutils disponibles : recherche web multi-provider, lecture de page (Jina Reader), PDF, RSS, "
         "recherche LinkedIn, analyse d'images (describe_image), génération d'images, insights/planification réseaux, "
         "brouillon email, newsletter, traduction, création fichier Drive. "
-        "Utilise-les si la question exige des données à jour, des sources ou des visuels."
+        "Utilise-les si la question exige des données à jour, des sources ou des visuels. "
+        "Si `korymb_save_mission_template` ou `korymb_save_playbook` est disponible, "
+        "un modèle ou une consigne à garder s'enregistre avec cet outil dans ce tour. "
+        "Si `gestion_upsert_contact`, `gestion_create_quote` ou `gestion_schedule_event` est disponible, "
+        "appelle-le : en chat l'écriture devient une proposition à valider, pas un refus. "
+        "Interdit de dire qu'un outil de la liste est absent."
     )
     system_use = system + extra
     cfg = merge_with_env()
     prov = normalize_llm_provider(None, cfg)
-    token = _activate_tool_run_ctx(usage_job_id, usage_context, None)
+    token = _activate_tool_run_ctx(
+        usage_job_id,
+        usage_context,
+        None,
+        user_corpus=_user_corpus_from_messages(messages),
+    )
     try:
-        if is_chat_completions_provider(prov):
+        if free_pool_active(cfg) or is_chat_completions_provider(prov):
             return _openrouter_chat_tool_loop(
                 system_use,
                 messages,
@@ -1487,6 +1881,7 @@ def llm_chat_with_tools(
                 cfg,
                 usage_job_id=usage_job_id,
                 usage_context=usage_context,
+                request_timeout=request_timeout,
             )
         return _anthropic_chat_tool_loop(
             system_use,
@@ -1638,15 +2033,15 @@ def _openrouter_chat_tool_loop(
     *,
     usage_job_id: Any = _UNSET,
     usage_context: Any = _UNSET,
+    request_timeout: float | None = None,
 ) -> tuple[str, int, int]:
-    cc = chat_completions_settings(cfg)
-    url = _normalize_chat_completions_url(cc["base_url"])
-    headers = {
-        "Authorization": f"Bearer {cc['api_key']}",
-        "Content-Type": "application/json",
-        **cc.get("extra_headers", {}),
-    }
-    provider_log = str(cc["provider"])
+    if free_pool_active(cfg):
+        model, tier_key, pin, pout = "free-pool", "heavy", 0.0, 0.0
+        provider_log = "free_pool"
+    else:
+        cc = chat_completions_settings(cfg)
+        provider_log = str(cc["provider"])
+        model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
 
     otools = _filter_openai_tools(allowed)
     if not otools:
@@ -1664,12 +2059,16 @@ def _openrouter_chat_tool_loop(
         if isinstance(c, str):
             om.append({"role": m["role"], "content": c})
 
-    model, tier_key, pin, pout = resolve_llm_tier(cfg, "heavy")
     t_in = t_out = 0
     last_text = ""
+    round_state: dict[str, Any] = {}
+    round_timeout = 180.0 if request_timeout is None else max(8.0, float(request_timeout))
 
-    with httpx.Client(timeout=180.0) as http:
+    with httpx.Client(timeout=round_timeout) as http:
         for round_i in range(_MAX_TOOL_ROUNDS):
+            from state import raise_if_job_cancelled
+
+            raise_if_job_cancelled(None if usage_job_id is _UNSET else str(usage_job_id or ""))
             body = {
                 "model": model,
                 "messages": om,
@@ -1677,7 +2076,24 @@ def _openrouter_chat_tool_loop(
                 "tools": otools,
                 "tool_choice": "auto",
             }
-            r = openrouter_post_with_retries(http, url, headers, body)
+            try:
+                r = _post_tool_round(http, cfg, body, profile="heavy", state=round_state)
+            except (httpx.TimeoutException, httpx.TransportError):
+                written = _workspace_write_confirmation(job_logs)
+                if not written:
+                    raise
+                logger.warning("Chat outils : fournisseur trop lent — confirmation locale")
+                last_text = written
+                break
+            meta = _apply_round_meta(
+                round_state,
+                {"provider": provider_log, "model": model, "tier": tier_key, "price_in": pin, "price_out": pout},
+            )
+            provider_log = str(meta["provider"])
+            model = str(meta["model"])
+            tier_key = str(meta["tier"])
+            pin = float(meta["price_in"])
+            pout = float(meta["price_out"])
             if r.status_code in (400, 422) and otools and round_i == 0:
                 logger.warning(
                     "OpenRouter : chat+outils refusés (%s) pour %s — repli sans outils.",
@@ -1688,6 +2104,14 @@ def _openrouter_chat_tool_loop(
 
                 return llm_chat(system, messages, max_tokens=max_tokens, or_profile="standard")
             if r.status_code >= 400:
+                written = _workspace_write_confirmation(job_logs) if round_i else ""
+                if written:
+                    logger.warning(
+                        "Chat outils : HTTP %s après écriture — confirmation locale",
+                        r.status_code,
+                    )
+                    last_text = written
+                    break
                 logger.warning("OpenRouter chat+tools HTTP %s — %s", r.status_code, r.text[:600])
                 hint = format_llm_provider_http_error(r)
                 raise RuntimeError(
@@ -1734,6 +2158,8 @@ def _openrouter_chat_tool_loop(
                 om.append({"role": "tool", "tool_call_id": tid, "content": out})
 
         if not (last_text or "").strip():
+            last_text = _workspace_write_confirmation(job_logs)
+        if not (last_text or "").strip():
             om_follow = list(om)
             om_follow.append({
                 "role": "user",
@@ -1748,7 +2174,10 @@ def _openrouter_chat_tool_loop(
                 "max_tokens": min(int(max_tokens), 2048),
             }
             try:
-                rf = openrouter_post_with_retries(http, url, headers, body_follow)
+                rf = _post_tool_round(http, cfg, body_follow, profile="heavy", state=round_state)
+                follow_meta = _apply_round_meta(round_state, {"provider": provider_log, "model": model})
+                provider_log = str(follow_meta.get("provider") or provider_log)
+                model = str(follow_meta.get("model") or model)
                 if rf.status_code < 400:
                     d2 = rf.json()
                     u2 = d2.get("usage") or {}
