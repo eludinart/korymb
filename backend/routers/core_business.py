@@ -3,7 +3,7 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -59,6 +59,9 @@ from services.business_db import (
     rebalance_all_contacts_notes_outreach,
     rebalance_contact_notes_outreach,
     reject_enrichment_proposal,
+    ProjectMilestoneConflict,
+    ProjectMilestoneNotFound,
+    set_project_milestone_done,
     update_calendar_event,
     update_contact,
     update_external_invoice,
@@ -155,6 +158,11 @@ class ProjectUpdate(BaseModel):
     end_date: str | None = None
     milestones: list[dict] | None = None
     linked_job_ids: list[str] | None = None
+
+
+class MilestoneDoneBody(BaseModel):
+    done: bool = True
+    label: str = Field(default="", max_length=2000)
 
 
 class QuoteCreate(BaseModel):
@@ -962,6 +970,28 @@ async def business_update_project(project_id: str, body: ProjectUpdate):
     if not row:
         raise HTTPException(404, detail="Projet introuvable")
     return row
+
+
+@router.post(
+    "/business/projects/{project_id}/milestones/{index}/done",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_set_milestone_done(
+    project_id: str,
+    body: MilestoneDoneBody,
+    index: int = Path(..., ge=0),
+):
+    try:
+        return set_project_milestone_done(
+            project_id,
+            index,
+            done=body.done,
+            expected_label=body.label.strip() or None,
+        )
+    except ProjectMilestoneNotFound as exc:
+        raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc
+    except ProjectMilestoneConflict as exc:
+        raise HTTPException(409, detail=str(exc) or "Cette étape a changé. Rechargez Aujourd'hui.") from exc
 
 
 @router.delete("/business/projects/{project_id}", dependencies=[Depends(resolve_tenant)])

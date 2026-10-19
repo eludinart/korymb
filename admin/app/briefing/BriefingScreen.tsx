@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import BriefingBoard, { type OpsBoard } from "../../components/director/BriefingBoard";
+import BriefingBoard, { type OpsBoard, type ProjectMilestonesBlock } from "../../components/director/BriefingBoard";
 import { type CommercialMorningSnapshot } from "../../components/director/BriefingCommercialPanel";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
 import IntentionLaunch from "../../components/missions/IntentionLaunch";
@@ -80,6 +80,7 @@ function BriefingPageContent() {
         missions_todo?: Array<{ job_id: string; mission?: string }>;
         executive_summary?: string;
         board?: OpsBoard | null;
+        project_milestones?: ProjectMilestonesBlock | null;
         commercial?: CommercialMorningSnapshot | null;
         memory_digest?: { lines?: string[]; pending_count?: number; href?: string } | null;
         day_anticipation?: {
@@ -195,6 +196,7 @@ function BriefingPageContent() {
           userName={userName}
           summary={b.executive_summary}
           board={b.board}
+          milestones={b.project_milestones}
           decisions={b.decisions_today || []}
           running={b.missions_running || []}
           planned={b.missions_todo || []}

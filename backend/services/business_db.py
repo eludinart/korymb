@@ -2687,6 +2687,45 @@ def delete_project(project_id: str) -> bool:
         return bool(getattr(cur, "rowcount", 0))
 
 
+class ProjectMilestoneNotFound(Exception):
+    """Projet ou étape absent pour cet espace."""
+
+
+class ProjectMilestoneConflict(Exception):
+    """Le libellé ne correspond plus à l'étape affichée."""
+
+
+def set_project_milestone_done(
+    project_id: str,
+    index: int,
+    *,
+    done: bool,
+    expected_label: str | None = None,
+) -> dict:
+    """Coche ou décoche une étape sans réécrire les autres champs du projet."""
+    project = get_project(project_id)
+    if not project:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    raw = project.get("milestones") or []
+    if not isinstance(raw, list) or index < 0 or index >= len(raw) or not isinstance(raw[index], dict):
+        raise ProjectMilestoneNotFound("Étape introuvable")
+    current = str(raw[index].get("label") or "")
+    if expected_label is not None and current.strip() != expected_label.strip():
+        raise ProjectMilestoneConflict("Cette étape a changé. Rechargez Aujourd'hui.")
+    milestones: list[Any] = []
+    for i, item in enumerate(raw):
+        if i == index and isinstance(item, dict):
+            nxt = dict(item)
+            nxt["done"] = bool(done)
+            milestones.append(nxt)
+        else:
+            milestones.append(item)
+    updated = update_project(project_id, milestones=milestones)
+    if not updated:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    return updated
+
+
 # ── Quotes ────────────────────────────────────────────────────────────────────
 
 def create_quote(
