@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 type Accent = "violet" | "amber" | "emerald" | "sky" | "rose";
 
 const accentBar: Record<Accent, string> = {
-  violet: "from-violet-600 to-indigo-600",
+  violet: "from-cyan-400 via-violet-600 to-indigo-700",
   amber: "from-amber-500 to-orange-600",
   emerald: "from-emerald-600 to-teal-600",
   sky: "from-sky-600 to-blue-600",

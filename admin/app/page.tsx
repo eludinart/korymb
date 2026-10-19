@@ -19,12 +19,12 @@ export default function LandingPage() {
   return (
     <div className="mx-auto max-w-6xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
       <section className="mx-auto max-w-3xl text-center">
-        <p className="text-xs font-extrabold uppercase tracking-widest text-violet-700 dark:text-violet-300">
+        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-800 dark:text-cyan-200">
           Pour faire tourner votre activité
         </p>
-        <h1 className="mt-4 text-4xl font-extrabold tracking-tight text-slate-900 dark:text-slate-50 sm:text-5xl">
+        <h1 className="mt-5 text-4xl font-extrabold tracking-[-0.03em] text-slate-900 dark:text-slate-50 sm:text-5xl">
           Vous dites quoi faire.
-          <span className="mt-1 block text-violet-700 dark:text-violet-300">Korymb le prépare. Vous l’envoyez.</span>
+          <span className="hud-title-accent mt-2 block">Korymb le prépare. Vous l’envoyez.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-300">
           Relances, textes, rendez-vous, devis : vous le formulez comme à quelqu’un de confiance.
@@ -33,7 +33,7 @@ export default function LandingPage() {
         <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link
             href="/register"
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-violet-700 px-6 py-3 text-sm font-bold text-white hover:bg-violet-800 sm:w-auto"
+            className="hud-btn inline-flex min-h-11 w-full items-center justify-center rounded-2xl bg-violet-700 px-6 py-3 text-sm font-bold text-white hover:bg-violet-800 sm:w-auto"
           >
             Créer mon espace
           </Link>
@@ -48,7 +48,7 @@ export default function LandingPage() {
 
       <section className="mx-auto mt-14 max-w-xl">
         <p className="text-center text-sm font-bold text-slate-500 dark:text-slate-400">Voici à quoi ressemble une demande</p>
-        <div className="mt-4 space-y-3 rounded-3xl border border-violet-200 bg-white p-5 shadow-sm dark:border-violet-900 dark:bg-slate-900 sm:p-6">
+        <div className="hud-panel mt-4 space-y-3 rounded-3xl border border-cyan-200/80 bg-white/90 p-5 backdrop-blur-sm dark:border-cyan-900 dark:bg-slate-900/90 sm:p-6">
           <p className="ml-8 rounded-2xl rounded-br-md bg-violet-700 px-4 py-3 text-sm leading-relaxed text-white">
             Relance les personnes sans nouvelles, et propose jeudi à 14&nbsp;h.
           </p>
@@ -67,7 +67,7 @@ export default function LandingPage() {
           {USES.map((item) => (
             <article
               key={item.title}
-              className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm dark:border-slate-700 dark:bg-slate-900"
+              className="hud-panel rounded-3xl border border-slate-200 bg-white/90 p-6 text-left backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/90"
             >
               <h3 className="text-lg font-extrabold leading-snug text-slate-900 dark:text-slate-50">{item.title}</h3>
               <p className="mt-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">{item.desc}</p>
@@ -77,7 +77,7 @@ export default function LandingPage() {
       </section>
 
       <section className="mt-16 grid gap-4 sm:grid-cols-2">
-        <article className="rounded-3xl border-2 border-violet-200 bg-white p-6 text-left shadow-sm dark:border-violet-800 dark:bg-slate-900">
+        <article className="hud-panel rounded-3xl border border-violet-200 bg-white/90 p-6 text-left backdrop-blur-sm dark:border-violet-800 dark:bg-slate-900/90">
           <p className="text-xs font-extrabold uppercase tracking-widest text-violet-700 dark:text-violet-300">
             C’est mon activité
           </p>
@@ -89,7 +89,7 @@ export default function LandingPage() {
           <div className="mt-6 flex flex-col gap-2 sm:flex-row">
             <Link
               href="/register"
-              className="inline-flex min-h-11 items-center justify-center rounded-2xl bg-violet-700 px-5 py-3 text-sm font-bold text-white hover:bg-violet-800"
+              className="hud-btn inline-flex min-h-11 items-center justify-center rounded-2xl bg-violet-700 px-5 py-3 text-sm font-bold text-white hover:bg-violet-800"
             >
               Créer mon espace
             </Link>
@@ -101,7 +101,7 @@ export default function LandingPage() {
             </Link>
           </div>
         </article>
-        <article className="rounded-3xl border-2 border-emerald-200 bg-white p-6 text-left shadow-sm dark:border-emerald-900 dark:bg-slate-900">
+        <article className="hud-panel rounded-3xl border border-emerald-200 bg-white/90 p-6 text-left backdrop-blur-sm dark:border-emerald-900 dark:bg-slate-900/90">
           <p className="text-xs font-extrabold uppercase tracking-widest text-emerald-800 dark:text-emerald-300">
             On m’a envoyé une page
           </p>
