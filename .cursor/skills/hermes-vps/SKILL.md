@@ -27,6 +27,7 @@ Hermes **ne remplace pas** Cursor pour le développement applicatif. Cursor **ne
 | Scripts hôte | `/opt/data/scripts/` (`fleur-sql.sh`, `korymb-sql.sh`, `korymb-api.sh`, …) |
 | WebUI Hermes | https://hermeswebui.eludein.art |
 | API Korymb | https://api-korymb.eludein.art |
+| Site public WP | https://eludein.art (Hostinger hPanel, **pas** le VPS) — thème enfant `wordpress/themes/eludein-child` dans ce repo |
 
 Docs source (repo Korymb) : `docs/HERMES-INTELLIGENCE.md`, `HERMES-FLEUR-DATABASE.md`, `HERMES-KORYMB-DATABASE.md`, `KORYMB-DESCRIPTION-HERMES.md`.
 

@@ -19,7 +19,7 @@ Constitution : activer aussi `eludein-ops-rules`. Boucle Cursor×Hermes×Korymb 
 | **Hermes** | https://hermes.eludein.art · WebUI https://hermeswebui.eludein.art | Agent ops 24/7 | `/opt/data` |
 | **Cursor** | Desktop / Cloud Agents | Code, PR, refacto | Repos GitHub `eludinart/*` + banque skills (tronc) |
 | **OpenPlotter** | RPi5 LAN | Bateau Ti Spoun | Pas d'accès depuis VPS |
-| **Marque WP** | https://eludein.art | Contenu, boutique | Pas de SQL Hermes dédié |
+| **Marque WP** | https://eludein.art | Contenu, boutique WooCommerce | Pas de SQL Hermes dédié · Hostinger hPanel (**pas** le VPS) · thème enfant dans le repo `korymb` (`wordpress/themes/eludein-child`) |
 
 ## Repos code (pour orienter Éric / missions)
 

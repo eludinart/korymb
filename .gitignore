@@ -1,6 +1,9 @@
 # Ignore FTP config files containing credentials
 .ftpconfig
 .ftpconfig.*
+!.ftpconfig.example
+wordpress/.ftpconfig
+wordpress/dist/
 # Secrets. Les modèles *.example restent versionnés (.env.example, .env.production.example, backend/.env.example).
 .env
 .env.*

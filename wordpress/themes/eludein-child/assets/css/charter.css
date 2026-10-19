@@ -1,0 +1,280 @@
+/**
+ * Charte Élude In Art — typo, rythme, images.
+ * Référence visuelle : le dossier tarot. Ne pas appliquer aux tableaux WooCommerce.
+ */
+
+html {
+  font-size: 22px;
+}
+
+body.oceanwp-theme {
+  font-size: 22px;
+  line-height: 1.7;
+  background:
+    radial-gradient(ellipse 90% 42% at 50% -8%, rgba(201, 161, 74, 0.12), transparent 58%),
+    var(--eludein-cream, #f4efe6);
+  color: var(--eludein-ink, #1a1816);
+}
+
+body.oceanwp-theme .entry-content h1,
+body.oceanwp-theme .entry-content h2,
+body.oceanwp-theme .entry-content h3,
+body.oceanwp-theme .entry-content .kt-adv-heading,
+body.oceanwp-theme .entry-content .wp-block-kadence-advancedheading,
+body.oceanwp-theme .page-header-title {
+  font-family: var(--eludein-serif, Georgia, serif);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--eludein-forest-deep, #243028);
+}
+
+body.oceanwp-theme .entry-content h1 {
+  font-size: clamp(2.35rem, 4.2vw, 3.4rem);
+  line-height: 1.15;
+}
+
+body.oceanwp-theme .entry-content h2 {
+  font-size: clamp(2.15rem, 3.4vw, 2.85rem);
+  line-height: 1.2;
+}
+
+body.oceanwp-theme .entry-content h3 {
+  font-size: clamp(1.55rem, 2.3vw, 2rem);
+  line-height: 1.28;
+}
+
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content p,
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content li,
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content .wp-block-paragraph,
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content .wp-block-list,
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content .kt-adv-heading + p {
+  font-size: 1.32rem;
+  line-height: 1.75;
+  color: #2a2622;
+}
+
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content > p:first-of-type,
+body:not(.woocommerce-checkout):not(.woocommerce-cart) .entry-content .has-text-align-center.wp-block-paragraph:first-of-type {
+  font-size: 1.48rem;
+  line-height: 1.68;
+}
+
+.entry-content .has-small-font-size,
+.entry-content .has-regular-font-size,
+.entry-content .has-medium-font-size {
+  font-size: 1.32rem !important;
+}
+
+.page-header-title,
+body.oceanwp-theme .page-header-title {
+  font-size: clamp(2.15rem, 3.4vw, 2.85rem) !important;
+}
+
+/* Lecture : même mesure que le dossier tarot. */
+body.page:not(.home):not(.woocommerce-page) #content .entry,
+body.single-post #content .entry {
+  max-width: 1040px;
+}
+
+/* ——— Images de contenu ——— */
+.entry-content .wp-block-image,
+.entry-content figure.wp-block-image,
+.entry-content figure:not(.eludein-tarot-card) {
+  max-width: 100%;
+}
+
+.entry-content .wp-block-image:not(.is-resized) img,
+.entry-content figure.wp-block-image:not(.is-resized) img,
+.entry-content figure.aligncenter img,
+.entry-content figure.alignnone img,
+.entry-content .wp-block-media-text img {
+  float: none !important;
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+.entry-content .wp-block-image.is-resized img {
+  width: auto !important;
+  max-width: 100%;
+  height: auto !important;
+}
+
+.entry-content figcaption,
+.entry-content .wp-element-caption {
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.entry-content .wp-block-image.alignleft,
+.entry-content .wp-block-image.alignright,
+.entry-content figure.alignleft,
+.entry-content figure.alignright,
+.entry-content img.alignleft,
+.entry-content img.alignright {
+  float: none !important;
+  display: block;
+  margin: 0 auto 1.4rem !important;
+  max-width: min(28rem, 100%);
+}
+
+.entry-content .wp-block-image.alignleft img,
+.entry-content .wp-block-image.alignright img,
+.entry-content figure.alignleft img,
+.entry-content figure.alignright img,
+.entry-content img.alignleft,
+.entry-content img.alignright {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* Miniatures Gutenberg 150px : les agrandir dans leur cadre. */
+.entry-content img[width="150"],
+.entry-content img[width="100"],
+.entry-content img[sizes*="150px"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+  height: auto !important;
+}
+
+/* Galeries tableau hors WooCommerce (même logique que le dossier tarot). */
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img),
+body.single-post .entry-content .wp-block-table:has(img) {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: 1.2rem 1rem;
+  margin: 1.6rem 0 2.2rem;
+  padding: 1.15rem 1rem 1.25rem;
+  border: 1px solid rgba(201, 161, 74, 0.28);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(251, 247, 241, 0.65), rgba(244, 239, 230, 0.35));
+  overflow: visible;
+}
+
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img) table,
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img) tbody,
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img) tr,
+body.single-post .entry-content .wp-block-table:has(img) table,
+body.single-post .entry-content .wp-block-table:has(img) tbody,
+body.single-post .entry-content .wp-block-table:has(img) tr {
+  display: contents;
+}
+
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img) td,
+body.single-post .entry-content .wp-block-table:has(img) td {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0 !important;
+  background: none;
+}
+
+body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img) td img,
+body.single-post .entry-content .wp-block-table:has(img) td img {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+
+/* Ne jamais griller les tableaux commande / panier / compte. */
+body.woocommerce-page table,
+body.woocommerce-cart table,
+body.woocommerce-checkout table,
+body.woocommerce-account table,
+.woocommerce table.shop_table,
+.woocommerce-checkout-review-order-table {
+  display: table !important;
+}
+
+.woocommerce table.shop_table thead,
+.woocommerce-checkout-review-order-table thead {
+  display: table-header-group !important;
+}
+
+.woocommerce table.shop_table tbody,
+.woocommerce-checkout-review-order-table tbody {
+  display: table-row-group !important;
+}
+
+.woocommerce table.shop_table tfoot,
+.woocommerce-checkout-review-order-table tfoot {
+  display: table-footer-group !important;
+}
+
+.woocommerce table.shop_table tr,
+.woocommerce-checkout-review-order-table tr {
+  display: table-row !important;
+}
+
+.woocommerce table.shop_table td,
+.woocommerce table.shop_table th,
+.woocommerce-checkout-review-order-table td,
+.woocommerce-checkout-review-order-table th {
+  display: table-cell !important;
+}
+
+/* Logo, emoji, Fleur, avatars : ne pas étirer. */
+#site-logo img,
+.custom-logo,
+img.emoji,
+.wp-smiley,
+.avatar,
+#fleur-container img,
+#fleur-duo-container img,
+#result-fleur img,
+#result-fleur-duo img {
+  width: auto !important;
+  max-width: 100%;
+  min-width: 0 !important;
+  height: auto !important;
+  aspect-ratio: auto;
+}
+
+#site-logo img,
+.custom-logo {
+  max-height: 76px;
+}
+
+#result-fleur img,
+#result-fleur-duo img {
+  max-width: 340px !important;
+}
+
+/* Cartes boutique : crop 280px, pas le remplissage article. */
+.woocommerce ul.products li.product img,
+.woocommerce-page ul.products li.product img {
+  width: 100% !important;
+  height: 280px !important;
+  max-height: 280px !important;
+  object-fit: cover !important;
+  aspect-ratio: auto !important;
+  min-width: 0 !important;
+}
+
+.woocommerce-product-gallery img,
+.woocommerce div.product div.images img {
+  width: 100% !important;
+  height: auto !important;
+  min-width: 0 !important;
+  aspect-ratio: auto !important;
+  object-fit: contain;
+}
+
+@media (max-width: 800px) {
+  body.page:not(.woocommerce-page) .entry-content .wp-block-table:has(img),
+  body.single-post .entry-content .wp-block-table:has(img) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 0.75rem;
+    gap: 0.75rem;
+  }
+}

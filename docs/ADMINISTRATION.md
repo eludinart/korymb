@@ -25,6 +25,17 @@ Ce document centralise l'exploitation de **Korymb** (application) et **Hermes Ag
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Site WordPress public (hors VPS)
+
+| Paramètre | Valeur |
+|-----------|--------|
+| URL | https://eludein.art |
+| Hébergement | Hostinger hPanel + LiteSpeed (**pas** Coolify / VPS) |
+| Thème | OceanWP + child `eludein-child` (repo : `wordpress/themes/eludein-child/`) |
+| Vente | WooCommerce (`/boutique/`, `/panier/`, `/commander/`) |
+
+Le cœur WordPress et WooCommerce ne se versionnent pas ici. Workflow thème : [WORDPRESS-THEME.md](WORDPRESS-THEME.md).
+
 ## Accès SSH
 
 | Paramètre | Valeur |

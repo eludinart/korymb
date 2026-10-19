@@ -1,0 +1,15 @@
+---
+description: Garde-fous du thème WordPress public eludein.art (child OceanWP, pas le moteur ni WooCommerce).
+globs: wordpress/**,scripts/wp_theme_*.py,docs/WORDPRESS-THEME.md
+---
+
+# WordPress public site (eludein.art)
+
+- Work only in `wordpress/themes/eludein-child/`.
+- Never copy or edit `wp-admin`, `wp-includes`, `wp-config.php`, or WooCommerce plugin files.
+- Do not add `woocommerce/` PHP templates in the child theme unless explicitly requested: cart, checkout, and account must keep WooCommerce markup.
+- Visual changes go in `assets/css/`. Preserve Fleur `#fleur-container` / `#fleur-duo-container` rules in `legacy-custom.css`.
+- Graphic charter: `docs/CHARTE-GRAPHIQUE.md`. Keep the 22px type scale, cream/gold/forest palette, and image exclusions (logo, emoji, Fleur, Woo product cards at 280px). Never CSS-grid or `display:contents` on `.shop_table` / checkout tables.
+- Do not add a stub `index.php` in the child: OceanWP has no `category.php`/`archive.php`, so a silent child `index.php` blanks `/category/blog/` and other archives.
+- Deploy via `python scripts/wp_theme_pack.py` (WP Admin zip) or `python scripts/wp_theme_sync.py` (FTP child-theme folder only).
+- Site is Hostinger hPanel, not the Coolify VPS. Doc: `docs/WORDPRESS-THEME.md`.
