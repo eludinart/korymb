@@ -246,12 +246,31 @@ def list_entities() -> list[dict[str, Any]]:
     return [_hydrate_entity_row(dict(r)) for r in rows or []]
 
 
-def build_entity_context_block(mission_text: str = "") -> str:
+def build_entity_context_block(
+    mission_text: str = "",
+    *,
+    agent_group_id: str | None = None,
+) -> str:
     """Injecte un extrait d'entités pertinentes pour la mission."""
     try:
-        entities = search_entities(mission_text) if (mission_text or "").strip() else list_entities()[:8]
-        if not entities:
-            entities = list_entities()[:6]
+        uses_enterprise = True
+        try:
+            from services.agent_groups import group_uses_enterprise_science
+
+            uses_enterprise = bool(group_uses_enterprise_science(agent_group_id))
+        except Exception:
+            uses_enterprise = True
+        query = (mission_text or "").strip()
+        entities = search_entities(mission_text) if query else []
+        if not uses_enterprise:
+            # Équipe projet : uniquement les entités qui matchent la consigne, pas le graphe entier.
+            if not entities:
+                return ""
+        else:
+            if not query:
+                entities = list_entities()[:8]
+            if not entities:
+                entities = list_entities()[:6]
         if not entities:
             return ""
         lines = ["--- Connaissance métier (entités workspace) ---"]
