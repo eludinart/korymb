@@ -1155,6 +1155,34 @@ def get_contact(contact_id: str) -> dict | None:
     return _hydrate_contact(dict(row)) if row else None
 
 
+def get_contacts_by_ids(contact_ids: list[str]) -> dict[str, dict]:
+    """Charge les contacts de l'espace courant en une requête."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in contact_ids:
+        cid = str(raw or "").strip()
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        ids.append(cid)
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with get_conn() as conn:
+        _ensure_biz_contacts_columns(conn)
+        rows = conn.execute(
+            f"SELECT * FROM biz_contacts WHERE workspace_id=? AND id IN ({placeholders})",
+            (_ws(), *ids),
+        ).fetchall()
+    out: dict[str, dict] = {}
+    for row in rows:
+        contact = _hydrate_contact(dict(row))
+        cid = str(contact.get("id") or "").strip()
+        if cid:
+            out[cid] = contact
+    return out
+
+
 def list_contacts(*, status: str | None = None, contact_type: str | None = None, limit: int = 200) -> list[dict]:
     sql = "SELECT * FROM biz_contacts WHERE workspace_id=?"
     params: list[Any] = [_ws()]

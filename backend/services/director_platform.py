@@ -1110,21 +1110,99 @@ def _milestone_is_done(value: Any) -> bool:
     return bool(value)
 
 
-def build_project_milestones() -> dict[str, list[dict[str, Any]]]:
+_OWNER_GROUP_ID = "owner"
+_OWNER_LABEL_FALLBACK = "Moi"
+
+
+def _contact_display_name(contact: dict) -> str:
+    name = str(contact.get("name") or "").strip()
+    if name:
+        return name[:120]
+    company = str(contact.get("company") or "").strip()
+    if company:
+        return company[:120]
+    return "Contact"
+
+
+def _linked_mission_count(project: dict) -> int:
+    raw = project.get("linked_job_ids") or []
+    if not isinstance(raw, list):
+        return 0
+    seen: set[str] = set()
+    for item in raw:
+        job_id = str(item or "").strip()
+        if job_id:
+            seen.add(job_id)
+    return len(seen)
+
+
+def _latest_stamp(current: str, candidate: str) -> str:
+    if not candidate:
+        return current
+    if not current or candidate > current:
+        return candidate
+    return current
+
+
+def _workspace_owner_label() -> str:
+    """Nom du propriétaire de l'espace courant. « Moi » si le nom est inconnu."""
+    try:
+        from tenant_context import get_workspace_id
+        from workspace_db import get_user_by_id, get_workspace_by_id
+
+        wid = (get_workspace_id() or "").strip()
+        if not wid:
+            return _OWNER_LABEL_FALLBACK
+        workspace = get_workspace_by_id(wid) or {}
+        owner_id = str(workspace.get("owner_user_id") or "").strip()
+        if not owner_id:
+            return _OWNER_LABEL_FALLBACK
+        user = get_user_by_id(owner_id) or {}
+        name = str(user.get("display_name") or "").strip()
+        return name[:120] or _OWNER_LABEL_FALLBACK
+    except Exception:
+        return _OWNER_LABEL_FALLBACK
+
+
+def _empty_milestone_block() -> dict[str, Any]:
+    return {"open": [], "done": [], "groups": []}
+
+
+def build_project_milestones() -> dict[str, Any]:
     """Jalons des projets actifs, lus seuls. N'écrit ni inbox ni ticket d'action.
 
     ``open`` est trié par le préfixe P1 / P2 lorsqu'il est présent. ``done`` garde
-    l'ordre du projet. Un échec de lecture laisse les deux listes vides.
+    l'ordre de lecture. ``groups`` rassemble les jalons par contact (nom, sinon
+    société). Un projet sans contact rejoint le groupe du propriétaire de
+    l'espace. Les groupes avec un P1 ouvert passent devant, puis ceux qui ont
+    le plus d'ouverts, puis les plus récemment mis à jour. Un groupe entièrement
+    fait passe en dernier. Un échec de lecture laisse les listes vides.
     """
-    empty: dict[str, list[dict[str, Any]]] = {"open": [], "done": []}
+    empty = _empty_milestone_block()
     try:
-        from services.business_db import list_projects
+        from services.business_db import get_contacts_by_ids, list_projects
 
         projects = list_projects(status="active", limit=200)
     except Exception:
         return empty
+    if not isinstance(projects, list):
+        return empty
+
+    contact_ids = [
+        str(project.get("contact_id") or "").strip()
+        for project in projects
+        if isinstance(project, dict) and str(project.get("contact_id") or "").strip()
+    ]
+    try:
+        contacts = get_contacts_by_ids(contact_ids)
+    except Exception:
+        contacts = {}
+    owner_label = _workspace_owner_label()
+
     open_rows: list[tuple[int, int, dict[str, Any]]] = []
     done_rows: list[dict[str, Any]] = []
+    buckets: dict[str, dict[str, Any]] = {}
+    ranked: dict[str, list[tuple[int, int, dict[str, Any]]]] = {}
     sequence = 0
     for project in projects:
         if not isinstance(project, dict):
@@ -1135,6 +1213,23 @@ def build_project_milestones() -> dict[str, list[dict[str, Any]]]:
         project_id = str(project.get("id") or "").strip()
         project_title = str(project.get("title") or "").strip()
         href = f"/gestion/projets/{quote(project_id)}" if project_id else "/gestion/projets"
+        raw_contact_id = str(project.get("contact_id") or "").strip()
+        contact = contacts.get(raw_contact_id) if raw_contact_id else None
+        if contact and raw_contact_id:
+            group_id = f"contact:{raw_contact_id}"
+            group_kind = "contact"
+            group_label = _contact_display_name(contact)
+            group_href = f"/gestion/contacts/{quote(raw_contact_id)}"
+            group_contact_id: str | None = raw_contact_id
+        else:
+            group_id = _OWNER_GROUP_ID
+            group_kind = "owner"
+            group_label = owner_label
+            group_href = "/gestion/projets"
+            group_contact_id = None
+        linked_count = _linked_mission_count(project)
+        updated_at = str(project.get("updated_at") or "")
+        group: dict[str, Any] | None = None
         for index, item in enumerate(milestones):
             if not isinstance(item, dict):
                 continue
@@ -1155,15 +1250,75 @@ def build_project_milestones() -> dict[str, list[dict[str, Any]]]:
                 "status": status[:48],
                 "done": _milestone_is_done(item.get("done")),
                 "href": href,
+                "contact_id": raw_contact_id or None,
+                "contact_name": group_label,
+                "linked_mission_count": linked_count,
             }
+            if group is None:
+                group = buckets.get(group_id)
+                if group is None:
+                    group = {
+                        "id": group_id,
+                        "kind": group_kind,
+                        "label": group_label,
+                        "href": group_href,
+                        "contact_id": group_contact_id,
+                        "open_count": 0,
+                        "done_count": 0,
+                        "updated_at": "",
+                        "has_open_p1": False,
+                        "projects": [],
+                        "open": [],
+                        "done": [],
+                    }
+                    buckets[group_id] = group
+                    ranked[group_id] = []
+                group["projects"].append({
+                    "project_id": project_id,
+                    "project_title": project_title,
+                    "href": href,
+                    "contact_id": raw_contact_id or None,
+                    "linked_mission_count": linked_count,
+                    "updated_at": updated_at,
+                })
+                group["updated_at"] = _latest_stamp(str(group.get("updated_at") or ""), updated_at)
             if row["done"]:
                 done_rows.append(row)
+                group["done"].append(row)
                 continue
             sequence += 1
             rank = priority if isinstance(priority, int) else 10_000
             open_rows.append((rank, sequence, row))
+            ranked[group_id].append((rank, sequence, row))
+
+    groups: list[dict[str, Any]] = []
+    for group in buckets.values():
+        group_ranked = ranked.get(str(group["id"]), [])
+        group_ranked.sort(key=lambda item: (item[0], item[1]))
+        group["open"] = [row for _, _, row in group_ranked]
+        group["open_count"] = len(group["open"])
+        group["done_count"] = len(group["done"])
+        group["has_open_p1"] = any(row.get("priority") == 1 for row in group["open"])
+        projects = group["projects"]
+        projects.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        if group["kind"] == "owner":
+            if len(projects) == 1 and projects[0].get("href"):
+                group["href"] = str(projects[0]["href"])
+            else:
+                group["href"] = "/gestion/projets"
+        groups.append(group)
+    groups.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    groups.sort(key=lambda item: (
+        0 if item["open_count"] else 1,
+        0 if item["has_open_p1"] else 1,
+        -int(item["open_count"]),
+    ))
     open_rows.sort(key=lambda item: (item[0], item[1]))
-    return {"open": [row for _, _, row in open_rows], "done": done_rows}
+    return {
+        "open": [row for _, _, row in open_rows],
+        "done": done_rows,
+        "groups": groups,
+    }
 
 
 def _warn_row(*, id: str, title: str, where: str, href: str, severity: str) -> dict[str, str]:
