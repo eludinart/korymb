@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid as _uuid
 from datetime import datetime, timedelta
 from typing import Any
@@ -1075,6 +1076,96 @@ def _extra_board_row(item: dict) -> dict[str, str]:
     }
 
 
+_STEP_PRIORITY_RE = re.compile(
+    r"^\s*P(?P<priority>\d{1,2})\s*[·•.|:\-]\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_STEP_STATUS_RE = re.compile(
+    r"^(?P<status>[^—–]{1,48}?)\s*[—–]\s*(?P<title>.+)$",
+)
+
+
+def parse_project_step_label(label: str) -> dict[str, Any]:
+    """Lit un préfixe « P1 · À faire — … » sans exiger ce format."""
+    raw = (label or "").strip()
+    priority: int | None = None
+    status = ""
+    title = raw
+    match = _STEP_PRIORITY_RE.match(raw)
+    rest = raw
+    if match:
+        priority = int(match.group("priority"))
+        rest = match.group("rest").strip()
+        title = rest or raw
+    status_match = _STEP_STATUS_RE.match(rest) if match else None
+    if status_match:
+        status = status_match.group("status").strip()
+        title = status_match.group("title").strip() or rest or raw
+    return {"priority": priority, "status": status, "title": title or raw}
+
+
+def _milestone_is_done(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "oui", "done", "fait"}
+    return bool(value)
+
+
+def build_project_milestones() -> dict[str, list[dict[str, Any]]]:
+    """Jalons des projets actifs, lus seuls. N'écrit ni inbox ni ticket d'action.
+
+    ``open`` est trié par le préfixe P1 / P2 lorsqu'il est présent. ``done`` garde
+    l'ordre du projet. Un échec de lecture laisse les deux listes vides.
+    """
+    empty: dict[str, list[dict[str, Any]]] = {"open": [], "done": []}
+    try:
+        from services.business_db import list_projects
+
+        projects = list_projects(status="active", limit=200)
+    except Exception:
+        return empty
+    open_rows: list[tuple[int, int, dict[str, Any]]] = []
+    done_rows: list[dict[str, Any]] = []
+    sequence = 0
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        milestones = project.get("milestones") or []
+        if not isinstance(milestones, list):
+            continue
+        project_id = str(project.get("id") or "").strip()
+        project_title = str(project.get("title") or "").strip()
+        href = f"/gestion/projets/{quote(project_id)}" if project_id else "/gestion/projets"
+        for index, item in enumerate(milestones):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or "").strip()
+            if not label:
+                continue
+            parsed = parse_project_step_label(label)
+            priority = parsed.get("priority")
+            status = str(parsed.get("status") or "").strip()
+            title = str(parsed.get("title") or label).strip() or label
+            row = {
+                "project_id": project_id,
+                "project_title": project_title,
+                "index": index,
+                "label": label[:2000],
+                "title": title[:180],
+                "priority": priority if isinstance(priority, int) else None,
+                "status": status[:48],
+                "done": _milestone_is_done(item.get("done")),
+                "href": href,
+            }
+            if row["done"]:
+                done_rows.append(row)
+                continue
+            sequence += 1
+            rank = priority if isinstance(priority, int) else 10_000
+            open_rows.append((rank, sequence, row))
+    open_rows.sort(key=lambda item: (item[0], item[1]))
+    return {"open": [row for _, _, row in open_rows], "done": done_rows}
+
+
 def _warn_row(*, id: str, title: str, where: str, href: str, severity: str) -> dict[str, str]:
     return {
         "id": id,
@@ -1360,11 +1451,13 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         commercial=commercial,
         budget=budget_block,
     )
+    project_milestones = build_project_milestones()
 
     return {
         "period": period,
         "generated_at": datetime.utcnow().isoformat(),
         "board": board,
+        "project_milestones": project_milestones,
         "llm_envelope": llm_envelope,
         "executive_summary": executive_summary,
         "jarvis": jarvis,

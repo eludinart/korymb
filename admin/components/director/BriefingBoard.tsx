@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import InboxActionCard, { type InboxActionItem } from "./InboxActionCard";
 import { BTN_DELETE } from "../../lib/deleteMissionBundle";
+import { agentHeaders, requestJson } from "../../lib/api";
 import {
   buildClientOpsBoard,
   type BoardSignals,
@@ -31,10 +32,28 @@ type UnconsultedRow = {
 
 type DayEvent = { id?: string; title?: string; when_label?: string; href?: string };
 
+export type ProjectMilestone = {
+  project_id?: string;
+  project_title?: string;
+  index?: number;
+  label?: string;
+  title?: string;
+  priority?: number | null;
+  status?: string;
+  done?: boolean;
+  href?: string;
+};
+
+export type ProjectMilestonesBlock = {
+  open?: ProjectMilestone[];
+  done?: ProjectMilestone[];
+};
+
 type Props = {
   userName?: string;
   summary?: string;
   board?: OpsBoard | null;
+  milestones?: ProjectMilestonesBlock | null;
   decisions?: BoardSourceItem[];
   signals?: BoardSignals;
   running?: MissionRow[];
@@ -202,6 +221,148 @@ function ItemLink({ item, placeFirst = false }: { item: OpsBoardItem; placeFirst
   );
 }
 
+function milestoneMeta(item: ProjectMilestone): string {
+  const bits: string[] = [];
+  if (typeof item.priority === "number") bits.push(`P${item.priority}`);
+  if (item.status) bits.push(item.status);
+  if (item.project_title) bits.push(item.project_title);
+  return bits.join(" · ");
+}
+
+function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }) {
+  const qc = useQueryClient();
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const projectId = item.project_id || "";
+  const stepIndex = item.index;
+  const canCheck = !done && Boolean(projectId) && typeof stepIndex === "number";
+  const title = item.title || item.label || "Jalon";
+  const checked = Boolean(done || saved);
+
+  const toggle = useMutation({
+    mutationFn: async () => {
+      await requestJson(
+        `/business/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(String(stepIndex))}/done`,
+        {
+          method: "POST",
+          headers: agentHeaders(),
+          body: JSON.stringify({ done: true, label: item.label || "" }),
+        },
+      );
+    },
+    onSuccess: async () => {
+      setError("");
+      setSaved(true);
+      await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+      await qc.invalidateQueries({ queryKey: ["business-projects"] });
+      if (projectId) await qc.invalidateQueries({ queryKey: ["business-project", projectId] });
+    },
+    onError: (err: Error) => {
+      setSaved(false);
+      setError(err.message || "Impossible d'enregistrer ce jalon.");
+    },
+  });
+
+  return (
+    <div
+      className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 ${
+        checked
+          ? "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400"
+          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"
+      }`}
+    >
+      <input
+        type="checkbox"
+        className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
+        checked={checked}
+        disabled={!canCheck || toggle.isPending || checked}
+        aria-label={checked ? `« ${title} » est fait` : `Marquer « ${title} » comme fait`}
+        onChange={() => {
+          if (!canCheck || toggle.isPending || checked) return;
+          setError("");
+          toggle.mutate();
+        }}
+      />
+      <span className="min-w-0 flex-1">
+        <Link
+          href={item.href || "/gestion/projets"}
+          className={`block text-sm font-bold leading-snug hover:underline ${
+            checked ? "text-slate-500 line-through dark:text-slate-400" : "text-slate-900 dark:text-slate-50"
+          }`}
+        >
+          {title}
+        </Link>
+        {milestoneMeta(item) ? (
+          <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{milestoneMeta(item)}</span>
+        ) : null}
+        {toggle.isPending ? (
+          <span className="mt-1 block text-xs font-semibold text-violet-800 dark:text-violet-200">Enregistrement…</span>
+        ) : null}
+        {saved ? (
+          <span className="mt-1 block text-xs font-semibold text-emerald-800 dark:text-emerald-200">Fait.</span>
+        ) : null}
+        {error ? (
+          <span className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{error}</span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function MilestoneSection({ milestones }: { milestones: ProjectMilestonesBlock }) {
+  const open = milestones.open || [];
+  const done = milestones.done || [];
+  if (open.length === 0 && done.length === 0) return null;
+  return (
+    <section
+      id="board-milestones"
+      className="scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-4 lg:col-span-2 xl:col-span-12"
+    >
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">Jalons</h2>
+            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-extrabold tabular-nums text-violet-900 dark:bg-violet-900 dark:text-violet-100">
+              {open.length}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            Étapes des projets actifs, les ouvertes d&apos;abord, classées par priorité.
+          </p>
+        </div>
+        <Link href="/gestion/projets" className="text-xs font-bold text-violet-700 hover:underline dark:text-violet-300">
+          Projets
+        </Link>
+      </div>
+      {open.length === 0 ? (
+        <EmptyLine>Aucun jalon ouvert.</EmptyLine>
+      ) : (
+        <ul className="grid gap-2 lg:grid-cols-2">
+          {open.map((item) => (
+            <li key={`${item.project_id || "prj"}-${item.index ?? item.title}`}>
+              <MilestoneRow item={item} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {done.length > 0 ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+            {done.length === 1 ? "1 jalon fait" : `${done.length} jalons faits`}
+          </summary>
+          <ul className="mt-2 grid gap-2 lg:grid-cols-2">
+            {done.map((item) => (
+              <li key={`done-${item.project_id || "prj"}-${item.index ?? item.title}`}>
+                <MilestoneRow item={item} done />
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
 function EmptyLine({ children }: { children: string }) {
   return (
     <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
@@ -214,6 +375,7 @@ export default function BriefingBoard({
   userName,
   summary,
   board,
+  milestones,
   decisions,
   signals,
   running,
@@ -258,6 +420,8 @@ export default function BriefingBoard({
   const urgentCount = Number(counts.urgent ?? urgent.length);
   const todoCount = Number(counts.todo ?? todo.length);
   const proposalCount = Number(counts.proposals ?? proposals.length);
+  const openMilestones = milestones?.open || [];
+  const doneMilestones = milestones?.done || [];
   const warningCount = Number(counts.warnings ?? baseWarnings.length) + (warnings.length - baseWarnings.length);
   const runningRows = running || [];
   const plannedRows = planned || [];
@@ -311,6 +475,14 @@ export default function BriefingBoard({
                 {countBit(urgentCount, "1 urgent", "urgents")}
               </a>
             )}
+            {openMilestones.length > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                  {countBit(openMilestones.length, "1 jalon", "jalons")}
+                </a>
+              </>
+            ) : null}
             {todoCount > 0 ? (
               <>
                 <span className="text-slate-300"> · </span>
@@ -429,6 +601,10 @@ export default function BriefingBoard({
               </p>
             ) : null}
           </section>
+        ) : null}
+
+        {openMilestones.length > 0 || doneMilestones.length > 0 ? (
+          <MilestoneSection milestones={{ open: openMilestones, done: doneMilestones }} />
         ) : null}
 
         <Lane

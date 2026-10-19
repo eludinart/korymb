@@ -4,7 +4,7 @@
 > Mise à jour : après chaque chantier utile (commit + deploy + smoke).  
 > Sync mémoire DB : `.\scripts\sync-platform-state-memory.ps1`
 
-**Dernière MAJ :** 2026-10-16 · le chat crée un projet et des tâches « À faire » (Missions, Gestion, briefing)
+**Dernière MAJ :** 2026-10-19 · Aujourd'hui affiche les jalons des projets actifs
 
 ## Produit
 - QG IA multi-tenant : missions HITL, chat, inbox Décisions, Gestion, Administration.
@@ -21,6 +21,10 @@
 - **Pas** de section produit « Rapports ».
 - Instance (propriétaire) : **Mes clients** `/administration/portefeuille` (signaux, ouvrir, créer, renommer, pause, file À traiter, archiver puis supprimer) et Enveloppes IA.
 - Visite client : bandeau **Profil Élude** + **Revenir à mon espace**. Le moteur (santé, orchestration, budget, configuration LLM, fiches agents) n'apparaît que pour ce profil. Un admin client garde équipes, intégrations, page publique, activité et science de l'entreprise.
+
+## Aujourd'hui
+- Le briefing (`GET /admin/briefing`) ajoute `project_milestones` : jalons ouverts et faits des projets **actifs**. Les ouverts sont triés par le préfixe `P1 ·` / `P2 ·`.
+- La page montre une section **Jalons** (faits repliés). Cocher un jalon enregistre `done` sur le projet. Aucun ticket d'action, aucune écriture dans l'inbox. Brouillon, pause, terminé et annulé restent absents.
 
 ## Chat → projet
 - Depuis le chat, « crée le projet … » écrit un vrai dossier (`/gestion/projets`) et une carte « À faire » par tâche (Missions, kanban, carte, briefing).
