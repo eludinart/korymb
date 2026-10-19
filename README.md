@@ -4,6 +4,7 @@ This repository contains:
 
 - `admin/`: unified Next.js frontend (metier, chat, historique, configuration, administration).
 - `backend/`: FastAPI orchestration backend (LLM providers, jobs, tools, persistence).
+- `wordpress/`: child theme for the public site [eludein.art](https://eludein.art) (OceanWP visual layer only — WooCommerce stays on Hostinger).
 
 The goal of this setup is to keep development fast while reducing regressions through shared standards and automated checks.
 

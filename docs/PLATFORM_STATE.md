@@ -4,7 +4,7 @@
 > Mise à jour : après chaque chantier utile (commit + deploy + smoke).  
 > Sync mémoire DB : `.\scripts\sync-platform-state-memory.ps1`
 
-**Dernière MAJ :** 2026-10-19 · Aujourd'hui affiche les jalons des projets actifs
+**Dernière MAJ :** 2026-10-19 · Jalons d'Aujourd'hui regroupés par client
 
 ## Produit
 - QG IA multi-tenant : missions HITL, chat, inbox Décisions, Gestion, Administration.
@@ -23,8 +23,8 @@
 - Visite client : bandeau **Profil Élude** + **Revenir à mon espace**. Le moteur (santé, orchestration, budget, configuration LLM, fiches agents) n'apparaît que pour ce profil. Un admin client garde équipes, intégrations, page publique, activité et science de l'entreprise.
 
 ## Aujourd'hui
-- Le briefing (`GET /admin/briefing`) ajoute `project_milestones` : jalons ouverts et faits des projets **actifs**. Les ouverts sont triés par le préfixe `P1 ·` / `P2 ·`.
-- La page montre une section **Jalons** (faits repliés). Cocher un jalon enregistre `done` sur le projet. Aucun ticket d'action, aucune écriture dans l'inbox. Brouillon, pause, terminé et annulé restent absents.
+- Le briefing (`GET /admin/briefing`) expose `project_milestones` : listes `open` / `done`, et `groups` (un groupe par contact). Chaque jalon porte `contact_id`, le nom affiché du contact (`name`, sinon `company`) et `linked_mission_count`. Un projet sans contact rejoint le groupe du propriétaire de l'espace (son nom, sinon « Moi »). Les ouverts restent triés par le préfixe `P1 ·` / `P2 ·`. Les groupes avec un P1 ouvert passent devant, puis par nombre d'ouverts, puis par mise à jour. Un groupe entièrement fait passe en dernier.
+- La page montre une carte par client : lien vers la personne ou le projet, compteur « N ouverts · M faits », barre de progression. Au-delà de 5 ouverts, « Voir plus ». Les faits sont repliés dans la carte. « N missions liées » n'apparaît que si le projet en a. Cocher un jalon enregistre `done` sur le projet. Aucun ticket d'action, aucune écriture dans l'inbox. Brouillon, pause, terminé et annulé restent absents. « À avancer » ne bouge pas.
 
 ## Chat → projet
 - Depuis le chat, « crée le projet … » écrit un vrai dossier (`/gestion/projets`) et une carte « À faire » par tâche (Missions, kanban, carte, briefing).

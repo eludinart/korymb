@@ -12,6 +12,7 @@ Source de vérité infra. Activer avec `eludein-ops-rules`.
 
 | Service | URL | Conteneur / stack | Rôle |
 |---------|-----|-------------------|------|
+| **Site public WP** | https://eludein.art | Hostinger hPanel (OceanWP + WooCommerce) | Vitrine + boutique — **pas** sur le VPS |
 | **Korymb admin** | https://korymb.eludein.art | Coolify app Korymb | QG IA Éric |
 | **Korymb API** | https://api-korymb.eludein.art | même stack backend | FastAPI missions |
 | **Fleur app** | https://app-fleurdamours.eludein.art | Coolify app Fleur | Tarot utilisateurs |

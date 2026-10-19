@@ -42,11 +42,39 @@ export type ProjectMilestone = {
   status?: string;
   done?: boolean;
   href?: string;
+  contact_id?: string | null;
+  contact_name?: string;
+  linked_mission_count?: number;
+};
+
+export type MilestoneProjectRef = {
+  project_id?: string;
+  project_title?: string;
+  href?: string;
+  contact_id?: string | null;
+  linked_mission_count?: number;
+  updated_at?: string;
+};
+
+export type MilestoneGroup = {
+  id?: string;
+  kind?: string;
+  label?: string;
+  href?: string;
+  contact_id?: string | null;
+  open_count?: number;
+  done_count?: number;
+  updated_at?: string;
+  has_open_p1?: boolean;
+  projects?: MilestoneProjectRef[];
+  open?: ProjectMilestone[];
+  done?: ProjectMilestone[];
 };
 
 export type ProjectMilestonesBlock = {
   open?: ProjectMilestone[];
   done?: ProjectMilestone[];
+  groups?: MilestoneGroup[];
 };
 
 type Props = {
@@ -309,10 +337,165 @@ function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }
   );
 }
 
+const MILESTONE_PREVIEW = 5;
+
+function milestoneCountLabel(openCount: number, doneCount: number): string {
+  const open = openCount === 1 ? "1 ouvert" : `${openCount} ouverts`;
+  const done = doneCount === 1 ? "1 fait" : `${doneCount} faits`;
+  return `${open} · ${done}`;
+}
+
+function linkedMissionLabel(count: number): string {
+  return count === 1 ? "1 mission liée" : `${count} missions liées`;
+}
+
+function resolveMilestoneGroups(block: ProjectMilestonesBlock): MilestoneGroup[] {
+  const provided = Array.isArray(block.groups) ? block.groups : null;
+  if (provided && provided.length > 0) return provided;
+  const open = block.open || [];
+  const done = block.done || [];
+  if (open.length === 0 && done.length === 0) return [];
+  return [{
+    id: "flat",
+    kind: "owner",
+    label: "Projets",
+    href: "/gestion/projets",
+    open,
+    done,
+    projects: [],
+  }];
+}
+
+function MilestoneProgress({ doneCount, total }: { doneCount: number; total: number }) {
+  if (total <= 0) return null;
+  const width = Math.max(0, Math.min(100, Math.round((doneCount / total) * 100)));
+  return (
+    <div
+      className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+      role="progressbar"
+      aria-valuemin={0}
+      aria-valuemax={total}
+      aria-valuenow={doneCount}
+      aria-label={`${doneCount} faits sur ${total}`}
+    >
+      <div className="h-full rounded-full bg-violet-600 dark:bg-violet-400" style={{ width: `${width}%` }} />
+    </div>
+  );
+}
+
+function LinkedMissions({ group }: { group: MilestoneGroup }) {
+  const projects = group.projects || [];
+  const linked = projects.filter((project) => (project.linked_mission_count || 0) > 0);
+  if (linked.length === 0) return null;
+  const single = projects.length === 1;
+  return (
+    <ul className="mt-2 space-y-1">
+      {linked.map((project) => {
+        const count = project.linked_mission_count || 0;
+        const phrase = linkedMissionLabel(count);
+        const text = single ? phrase : `${project.project_title || "Projet"} · ${phrase}`;
+        const href = project.href || "";
+        const sameAsHeader = Boolean(single && href && href === (group.href || ""));
+        return (
+          <li key={project.project_id || text} className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+            {href && !sameAsHeader ? (
+              <Link href={href} className="hover:underline">{text}</Link>
+            ) : (
+              text
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function MilestoneGroupCard({ group }: { group: MilestoneGroup }) {
+  const open = group.open || [];
+  const done = group.done || [];
+  const openCount = open.length;
+  const doneCount = done.length;
+  const fullyDone = openCount === 0 && doneCount > 0;
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? open : open.slice(0, MILESTONE_PREVIEW);
+  const hidden = openCount - visible.length;
+  const label = group.label || "Projets";
+  const href = group.href || "";
+  const name = href ? (
+    <Link href={href} className="block min-w-0 truncate text-sm font-extrabold tracking-tight text-slate-950 hover:underline dark:text-slate-50">
+      {label}
+    </Link>
+  ) : (
+    <span className="min-w-0 truncate text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">{label}</span>
+  );
+
+  return (
+    <article
+      className={`flex min-w-0 flex-col rounded-xl border p-3 ${
+        fullyDone
+          ? "border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-950/40"
+          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        {name}
+        <span className="shrink-0 text-[11px] font-bold tabular-nums text-slate-500 dark:text-slate-400">
+          {milestoneCountLabel(openCount, doneCount)}
+        </span>
+      </div>
+      <MilestoneProgress doneCount={doneCount} total={openCount + doneCount} />
+      <LinkedMissions group={group} />
+      {openCount > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {visible.map((item) => (
+            <li key={`${item.project_id || "prj"}-${item.index ?? item.title}`}>
+              <MilestoneRow item={item} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {hidden > 0 ? (
+        <button
+          type="button"
+          className="mt-2 self-start text-xs font-bold text-violet-700 hover:underline dark:text-violet-300"
+          onClick={() => setShowAll(true)}
+        >
+          Voir plus
+        </button>
+      ) : null}
+      {showAll && openCount > MILESTONE_PREVIEW ? (
+        <button
+          type="button"
+          className="mt-2 self-start text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+          onClick={() => setShowAll(false)}
+        >
+          Réduire
+        </button>
+      ) : null}
+      {doneCount > 0 ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
+            {doneCount === 1 ? "1 jalon fait" : `${doneCount} jalons faits`}
+          </summary>
+          <ul className="mt-2 space-y-2">
+            {done.map((item) => (
+              <li key={`done-${item.project_id || "prj"}-${item.index ?? item.title}`}>
+                <MilestoneRow item={item} done />
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </article>
+  );
+}
+
 function MilestoneSection({ milestones }: { milestones: ProjectMilestonesBlock }) {
-  const open = milestones.open || [];
-  const done = milestones.done || [];
-  if (open.length === 0 && done.length === 0) return null;
+  const groups = resolveMilestoneGroups(milestones).filter(
+    (group) => (group.open || []).length + (group.done || []).length > 0,
+  );
+  if (groups.length === 0) return null;
+  const openTotal = (milestones.open || []).length || groups.reduce((sum, group) => sum + (group.open || []).length, 0);
   return (
     <section
       id="board-milestones"
@@ -323,42 +506,22 @@ function MilestoneSection({ milestones }: { milestones: ProjectMilestonesBlock }
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">Jalons</h2>
             <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-extrabold tabular-nums text-violet-900 dark:bg-violet-900 dark:text-violet-100">
-              {open.length}
+              {openTotal}
             </span>
           </div>
           <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Étapes des projets actifs, les ouvertes d&apos;abord, classées par priorité.
+            Par client. Les ouverts d&apos;abord, classés par priorité.
           </p>
         </div>
         <Link href="/gestion/projets" className="text-xs font-bold text-violet-700 hover:underline dark:text-violet-300">
           Projets
         </Link>
       </div>
-      {open.length === 0 ? (
-        <EmptyLine>Aucun jalon ouvert.</EmptyLine>
-      ) : (
-        <ul className="grid gap-2 lg:grid-cols-2">
-          {open.map((item) => (
-            <li key={`${item.project_id || "prj"}-${item.index ?? item.title}`}>
-              <MilestoneRow item={item} />
-            </li>
-          ))}
-        </ul>
-      )}
-      {done.length > 0 ? (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
-            {done.length === 1 ? "1 jalon fait" : `${done.length} jalons faits`}
-          </summary>
-          <ul className="mt-2 grid gap-2 lg:grid-cols-2">
-            {done.map((item) => (
-              <li key={`done-${item.project_id || "prj"}-${item.index ?? item.title}`}>
-                <MilestoneRow item={item} done />
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {groups.map((group, index) => (
+          <MilestoneGroupCard key={group.id || group.label || index} group={group} />
+        ))}
+      </div>
     </section>
   );
 }
@@ -422,6 +585,7 @@ export default function BriefingBoard({
   const proposalCount = Number(counts.proposals ?? proposals.length);
   const openMilestones = milestones?.open || [];
   const doneMilestones = milestones?.done || [];
+  const milestoneGroups = milestones?.groups || [];
   const warningCount = Number(counts.warnings ?? baseWarnings.length) + (warnings.length - baseWarnings.length);
   const runningRows = running || [];
   const plannedRows = planned || [];
@@ -603,8 +767,8 @@ export default function BriefingBoard({
           </section>
         ) : null}
 
-        {openMilestones.length > 0 || doneMilestones.length > 0 ? (
-          <MilestoneSection milestones={{ open: openMilestones, done: doneMilestones }} />
+        {openMilestones.length > 0 || doneMilestones.length > 0 || milestoneGroups.length > 0 ? (
+          <MilestoneSection milestones={milestones || { open: openMilestones, done: doneMilestones, groups: milestoneGroups }} />
         ) : null}
 
         <Lane

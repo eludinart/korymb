@@ -135,4 +135,219 @@ def test_build_project_milestones_returns_empty_lists_when_lookup_fails(monkeypa
         raise RuntimeError("db down")
 
     monkeypatch.setattr("services.business_db.list_projects", boom)
-    assert dp.build_project_milestones() == {"open": [], "done": []}
+    assert dp.build_project_milestones() == {"open": [], "done": [], "groups": []}
+
+
+def _use_workspace(display_name: str):
+    import secrets
+
+    from tenant_context import set_tenant_context
+    from workspace_db import create_user, create_workspace
+
+    user = create_user(
+        f"jalons-{secrets.token_hex(4)}@example.com",
+        "not-used",
+        display_name,
+    )
+    workspace = create_workspace(f"Jalons {display_name}", user["id"], starter_pack_id="blank")
+    set_tenant_context(workspace_id=workspace["id"])
+    return user, workspace
+
+
+def _stamp(project_id: str, stamp: str) -> None:
+    from database import get_conn
+
+    with get_conn() as conn:
+        conn.execute("UPDATE biz_projects SET updated_at=? WHERE id=?", (stamp, project_id))
+        conn.commit()
+
+
+def test_project_milestones_group_by_contact_order_and_owner(app, monkeypatch):
+    import services.business_db as bdb
+    from services.business_db import create_contact, create_project, delete_contact, delete_project
+    from services.director_platform import build_project_milestones
+
+    _use_workspace("Eric")
+    created_projects: list[str] = []
+    created_contacts: list[str] = []
+
+    def track_project(**kwargs):
+        project = create_project(**kwargs)
+        created_projects.append(project["id"])
+        return project
+
+    def track_contact(**kwargs):
+        contact = create_contact(**kwargs)
+        created_contacts.append(contact["id"])
+        return contact
+
+    lina = track_contact(name="Lina", company="Studio Lina", contact_type="client")
+    camille = track_contact(name="Camille", company="Atelier Camille", contact_type="client")
+    atelier = track_contact(name="", company="Atelier Nord", contact_type="client")
+    noa = track_contact(name="Noa", contact_type="client")
+    nora = track_contact(name="Nora", contact_type="client")
+
+    lina_project = track_project(
+        title="Site Lina",
+        contact_id=lina["id"],
+        status="active",
+        milestones=[
+            {"label": "P2 · À faire — Relire la maquette", "done": False},
+            {"label": "P1 · À faire — Appeler Lina", "done": False},
+        ],
+    )
+    owner_notes = track_project(
+        title="Notes perso",
+        status="active",
+        linked_job_ids=["job-perso"],
+        milestones=[
+            {"label": "Ranger le bureau", "done": False},
+            {"label": "Classer les scans", "done": False},
+        ],
+    )
+    owner_orphan = track_project(
+        title="Sans fiche",
+        contact_id="ctc-absent",
+        status="active",
+        milestones=[{"label": "Retrouver le contact", "done": False}],
+    )
+    atelier_project = track_project(
+        title="Devanture",
+        contact_id=atelier["id"],
+        status="active",
+        milestones=[
+            {"label": "P3 · À faire — Photo vitrine", "done": False},
+            {"label": "P3 · À faire — Enseigne", "done": False},
+        ],
+    )
+    noa_project = track_project(
+        title="Logo Noa",
+        contact_id=noa["id"],
+        status="active",
+        milestones=[
+            {"label": "P4 · À faire — Croquis", "done": False},
+            {"label": "P4 · À faire — Typo", "done": False},
+        ],
+    )
+    camille_project = track_project(
+        title="Devis Camille",
+        contact_id=camille["id"],
+        status="active",
+        linked_job_ids=["job-a", "job-a", " ", "job-b"],
+        milestones=[
+            {"label": "P2 · À faire — Envoyer le devis", "done": False},
+            {"label": "P1 · Fait — Brief reçu", "done": True},
+        ],
+    )
+    nora_project = track_project(
+        title="Archives Nora",
+        contact_id=nora["id"],
+        status="active",
+        milestones=[{"label": "P1 · Fait — Clôturer", "done": True}],
+    )
+    _stamp(lina_project["id"], "2026-10-03T00:00:00")
+    _stamp(owner_notes["id"], "2026-10-02T00:00:00")
+    _stamp(owner_orphan["id"], "2026-10-02T00:00:01")
+    _stamp(atelier_project["id"], "2026-10-05T00:00:00")
+    _stamp(noa_project["id"], "2026-10-04T00:00:00")
+    _stamp(camille_project["id"], "2026-10-01T00:00:00")
+    _stamp(nora_project["id"], "2026-10-19T00:00:00")
+
+    calls = {"contacts": 0}
+    real_batch = bdb.get_contacts_by_ids
+
+    def wrapped(ids):
+        calls["contacts"] += 1
+        return real_batch(ids)
+
+    monkeypatch.setattr(bdb, "get_contacts_by_ids", wrapped)
+
+    def reject_single(*_args, **_kwargs):
+        raise AssertionError("lecture contact une par une")
+
+    def reject_write(*_args, **_kwargs):
+        raise AssertionError("écriture pendant la lecture des jalons")
+
+    monkeypatch.setattr(bdb, "get_contact", reject_single)
+    monkeypatch.setattr(bdb, "update_project", reject_write)
+    try:
+        block = build_project_milestones()
+        assert calls["contacts"] == 1
+        labels = [group["label"] for group in block["groups"]]
+        assert labels == ["Lina", "Eric", "Atelier Nord", "Noa", "Camille", "Nora"]
+        by_label = {group["label"]: group for group in block["groups"]}
+
+        lina_group = by_label["Lina"]
+        assert lina_group["kind"] == "contact"
+        assert lina_group["contact_id"] == lina["id"]
+        assert lina_group["href"] == f"/gestion/contacts/{lina['id']}"
+        assert lina_group["has_open_p1"] is True
+        assert [row["title"] for row in lina_group["open"]] == ["Appeler Lina", "Relire la maquette"]
+        assert lina_group["open"][0]["contact_id"] == lina["id"]
+        assert lina_group["open"][0]["contact_name"] == "Lina"
+
+        owner = by_label["Eric"]
+        assert owner["id"] == "owner"
+        assert owner["kind"] == "owner"
+        assert owner["contact_id"] is None
+        assert owner["href"] == "/gestion/projets"
+        assert owner["open_count"] == 3
+        assert owner["has_open_p1"] is False
+        assert {item["project_id"] for item in owner["projects"]} == {owner_notes["id"], owner_orphan["id"]}
+        notes = next(item for item in owner["projects"] if item["project_id"] == owner_notes["id"])
+        assert notes["linked_mission_count"] == 1
+        assert notes["contact_id"] is None
+        orphan_row = next(row for row in owner["open"] if row["project_id"] == owner_orphan["id"])
+        assert orphan_row["contact_id"] == "ctc-absent"
+        assert orphan_row["contact_name"] == "Eric"
+
+        assert by_label["Atelier Nord"]["updated_at"] > by_label["Noa"]["updated_at"]
+        assert by_label["Atelier Nord"]["open_count"] == by_label["Noa"]["open_count"] == 2
+        assert by_label["Camille"]["has_open_p1"] is False
+        camille_ref = by_label["Camille"]["projects"][0]
+        assert camille_ref["linked_mission_count"] == 2
+        assert by_label["Camille"]["open"][0]["linked_mission_count"] == 2
+        assert by_label["Camille"]["done"][0]["title"] == "Brief reçu"
+        assert by_label["Nora"]["open_count"] == 0
+        assert by_label["Nora"]["has_open_p1"] is False
+        assert by_label["Nora"]["done"][0]["priority"] == 1
+
+        flat_lina = [row["title"] for row in block["open"] if row["project_id"] == lina_project["id"]]
+        assert flat_lina == ["Appeler Lina", "Relire la maquette"]
+    finally:
+        for project_id in created_projects:
+            delete_project(project_id)
+        for contact_id in created_contacts:
+            delete_contact(contact_id)
+
+
+def test_project_milestones_owner_fallback_is_moi(app):
+    from database import get_conn
+    from services.business_db import create_project, delete_project
+    from services.director_platform import build_project_milestones
+
+    user, workspace = _use_workspace("Temporaire")
+    project = create_project(
+        title="Sans client",
+        status="active",
+        milestones=[{"label": "P2 · À faire — Noter", "done": False}],
+    )
+    try:
+        with get_conn() as conn:
+            conn.execute("UPDATE korymb_users SET display_name=? WHERE id=?", ("", user["id"]))
+            conn.commit()
+        unnamed = build_project_milestones()
+        assert [group["label"] for group in unnamed["groups"]] == ["Moi"]
+        assert unnamed["groups"][0]["href"] == f"/gestion/projets/{project['id']}"
+
+        with get_conn() as conn:
+            conn.execute(
+                "UPDATE korymb_workspaces SET owner_user_id=NULL WHERE id=?",
+                (workspace["id"],),
+            )
+            conn.commit()
+        missing = build_project_milestones()
+        assert missing["groups"][0]["label"] == "Moi"
+        assert missing["groups"][0]["kind"] == "owner"
+    finally:
+        delete_project(project["id"])
