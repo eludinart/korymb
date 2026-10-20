@@ -171,6 +171,31 @@ export type BizWorkTask = {
   updated_at: string;
 };
 
+export function todayISO() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+export function dueDay(value: string | null | undefined) {
+  return (value || "").slice(0, 10);
+}
+
+export function dueLabel(value: string | null | undefined, today: string) {
+  const day = dueDay(value);
+  if (!day) return "Sans date";
+  if (day < today) return "En retard";
+  if (day === today) return "Aujourd'hui";
+  const [year, month, date] = day.split("-").map(Number);
+  if (!year || !month || !date) return day;
+  return new Date(year, month - 1, date).toLocaleDateString("fr-FR", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  });
+}
+
 export function formatTaskCreated(iso: string | null | undefined): string {
   if (!iso) return "";
   const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);

@@ -3,33 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { businessApi, formatTaskCreated, type BizWorkTask } from "../../lib/business";
+import { businessApi, dueDay, dueLabel, formatTaskCreated, todayISO, type BizWorkTask } from "../../lib/business";
 import TaskEditDialog from "./TaskEditDialog";
-
-function todayISO() {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
-function dueDay(value: string | null | undefined) {
-  return (value || "").slice(0, 10);
-}
-
-function dueLabel(value: string | null | undefined, today: string) {
-  const day = dueDay(value);
-  if (!day) return "Sans date";
-  if (day < today) return "En retard";
-  if (day === today) return "Aujourd'hui";
-  const [year, month, date] = day.split("-").map(Number);
-  if (!year || !month || !date) return day;
-  return new Date(year, month - 1, date).toLocaleDateString("fr-FR", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  });
-}
 
 function sortOpen(tasks: BizWorkTask[], today: string) {
   const rank = (task: BizWorkTask) => {
@@ -145,7 +120,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
         />
         <input
           type="date"
-          className="input-field sm:w-40"
+          className="input-field min-w-0 sm:w-40"
           value={due}
           onChange={(event) => setDue(event.target.value)}
           aria-label="Date d'exécution"
@@ -177,72 +152,76 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
             return (
               <li
                 key={task.id}
-                className={`flex flex-wrap items-start gap-2 py-2.5 ${task.urgent ? "rounded-lg bg-rose-50/80 px-2 dark:bg-rose-950/40" : ""}`}
+                className={`py-3 ${task.urgent ? "rounded-lg bg-rose-50/80 px-2 dark:bg-rose-950/40" : ""}`}
               >
-                <input
-                  type="checkbox"
-                  className="mt-1"
-                  checked={false}
-                  disabled={save.isPending}
-                  aria-label={`Marquer « ${task.title} » comme faite`}
-                  onChange={() => save.mutate({ id: task.id, patch: { status: "done" } })}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
-                    {task.priority ? <span className="mr-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">{task.priority}</span> : null}
-                    {task.title}
-                  </span>
-                  <span className="mt-0.5 block text-xs text-slate-500">
-                    {created ? `Créée le ${created}` : "Date de création inconnue"}
-                  </span>
-                  {task.notes ? (
-                    <span className="mt-1 block text-xs leading-snug text-slate-600 dark:text-slate-300">
-                      <span className="font-semibold">Commentaire · </span>
-                      {task.notes}
+                <div className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1 size-5 shrink-0"
+                    checked={false}
+                    disabled={save.isPending}
+                    aria-label={`Marquer « ${task.title} » comme faite`}
+                    onChange={() => save.mutate({ id: task.id, patch: { status: "done" } })}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words text-sm font-semibold leading-snug text-slate-900 dark:text-slate-50">
+                      {task.priority ? <span className="mr-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">{task.priority}</span> : null}
+                      {task.title}
                     </span>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  aria-pressed={Boolean(task.urgent)}
-                  aria-label={task.urgent ? `Retirer l'urgence de « ${task.title} »` : `Marquer « ${task.title} » comme urgent`}
-                  disabled={save.isPending}
-                  className={
-                    task.urgent
-                      ? "inline-flex items-center rounded-lg border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800 dark:border-rose-700 dark:bg-rose-900 dark:text-rose-100"
-                      : "inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-                  }
-                  onClick={() => save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
-                >
-                  Urgent
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                  disabled={save.isPending || remove.isPending}
-                  onClick={() => {
-                    setError("");
-                    setEditing(task);
-                  }}
-                >
-                  Modifier
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
-                  disabled={remove.isPending}
-                  onClick={() => {
-                    if (!window.confirm(`Supprimer « ${task.title} » ?\n\nLa tâche disparaît définitivement.`)) return;
-                    remove.mutate(task.id);
-                  }}
-                >
-                  {remove.isPending && remove.variables === task.id ? "Suppression…" : "Supprimer"}
-                </button>
-                <label className="flex items-center gap-2 text-xs font-semibold">
-                  <span className={tone}>{dueLabel(task.due_at, today)}</span>
+                    <span className="mt-0.5 block text-xs text-slate-500">
+                      {created ? `Créée le ${created}` : "Date de création inconnue"}
+                    </span>
+                    {task.notes ? (
+                      <span className="mt-1 block break-words text-xs leading-snug text-slate-600 dark:text-slate-300">
+                        <span className="font-semibold">Commentaire · </span>
+                        {task.notes}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2 pl-7">
+                  <button
+                    type="button"
+                    aria-pressed={Boolean(task.urgent)}
+                    aria-label={task.urgent ? `Retirer l'urgence de « ${task.title} »` : `Marquer « ${task.title} » comme urgent`}
+                    disabled={save.isPending}
+                    className={
+                      task.urgent
+                        ? "touch-target inline-flex items-center rounded-lg border border-rose-300 bg-rose-100 px-3 text-xs font-bold text-rose-800 dark:border-rose-700 dark:bg-rose-900 dark:text-rose-100"
+                        : "touch-target inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                    }
+                    onClick={() => save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
+                  >
+                    Urgent
+                  </button>
+                  <button
+                    type="button"
+                    className="touch-target inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    disabled={save.isPending || remove.isPending}
+                    onClick={() => {
+                      setError("");
+                      setEditing(task);
+                    }}
+                  >
+                    Modifier
+                  </button>
+                  <button
+                    type="button"
+                    className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                    disabled={remove.isPending}
+                    onClick={() => {
+                      if (!window.confirm(`Supprimer « ${task.title} » ?\n\nLa tâche disparaît définitivement.`)) return;
+                      remove.mutate(task.id);
+                    }}
+                  >
+                    {remove.isPending && remove.variables === task.id ? "Suppression…" : "Supprimer"}
+                  </button>
+                </div>
+                <label className="mt-2 flex w-full min-w-0 max-w-full flex-col gap-1 pl-7 sm:max-w-56">
+                  <span className={`text-xs font-semibold ${tone}`}>{dueLabel(task.due_at, today)}</span>
                   <input
                     type="date"
-                    className="input-field w-36 py-1 text-xs"
+                    className="input-field min-w-0 max-w-full"
                     value={day}
                     aria-label={`Date de « ${task.title} »`}
                     onChange={(event) => save.mutate({ id: task.id, patch: { due_at: event.target.value || null } })}
