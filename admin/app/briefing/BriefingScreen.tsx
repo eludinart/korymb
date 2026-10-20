@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
 import { useEffect, useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import BriefingBoard, { type OpsBoard, type ProjectMilestonesBlock } from "../../components/director/BriefingBoard";
+import ScenarioSimulator from "../../components/director/ScenarioSimulator";
 import { type CommercialMorningSnapshot } from "../../components/director/BriefingCommercialPanel";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
 import IntentionLaunch from "../../components/missions/IntentionLaunch";
@@ -21,10 +21,6 @@ import { QK } from "../../lib/queryClient";
 import { useUiMode } from "../../lib/uiMode";
 
 import type { Job } from "../../lib/types";
-
-const ScenarioSimulator = dynamic(() => import("../../components/director/ScenarioSimulator"), {
-  loading: () => <LoadingLine label="Ouverture des scénarios…" />,
-});
 
 function isMariaDbTunnelError(message: string) {
   return /mariadb_tunnel_required/i.test(message);
