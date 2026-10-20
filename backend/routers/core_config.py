@@ -59,6 +59,13 @@ def admin_put_llm_settings(body: AdminSettingsPut):
         merged = save_partial(data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        if type(e).__name__ in ("InterfaceError", "OperationalError"):
+            raise HTTPException(
+                status_code=503,
+                detail="Base MariaDB injoignable. Rien n'a été enregistré.",
+            ) from e
+        raise
     return to_public_dict(merged)
 
 

@@ -101,7 +101,7 @@ function CommandPaletteInner() {
       group: "Gestion entreprise",
     }));
     const gestionActions: Command[] = (essential
-      ? GESTION_QUICK_ACTIONS.filter((a) => ["new-contact", "new-event", "new-quote"].includes(a.id))
+      ? GESTION_QUICK_ACTIONS.filter((a) => ["new-contact", "new-event", "new-quote", "new-task"].includes(a.id))
       : GESTION_QUICK_ACTIONS
     ).map((action) => ({
       id: action.id,

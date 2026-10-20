@@ -1,8 +1,13 @@
 """Authentification utilisateurs — JWT, mots de passe, contexte tenant."""
 from __future__ import annotations
 
+import asyncio
+import copy
+import hashlib
 import logging
 import secrets
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -372,10 +377,60 @@ def _resolve_workspace_from_request(
     return _DEFAULT_WORKSPACE_ID, None, None
 
 
+# Une page dev lance plusieurs appels en même temps. Sans ce cache, chacun refait
+# les lectures MariaDB du tunnel (plusieurs secondes) et, si elles tournent sur la
+# boucle asyncio, elles s'exécutent l'une après l'autre.
+_AUTH_CACHE_TTL_S = 15.0
+_auth_cache_lock = threading.RLock()
+_tenant_cache: dict[str, tuple[float, tuple[str, str | None, Role | None]]] = {}
+_profile_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+def invalidate_auth_caches() -> None:
+    with _auth_cache_lock:
+        _tenant_cache.clear()
+        _profile_cache.clear()
+
+
+def _auth_cache_get(cache: dict[str, tuple[float, Any]], key: str) -> Any | None:
+    now = time.monotonic()
+    with _auth_cache_lock:
+        hit = cache.get(key)
+        if hit is None:
+            return None
+        stored, value = hit
+        if now - stored > _AUTH_CACHE_TTL_S:
+            cache.pop(key, None)
+            return None
+        return value
+
+
+def _auth_cache_put(cache: dict[str, tuple[float, Any]], key: str, value: Any) -> None:
+    with _auth_cache_lock:
+        if len(cache) > 64:
+            cache.clear()
+        cache[key] = (time.monotonic(), value)
+
+
 def verify_secret(key: str | None = Depends(api_key_header)) -> str:
     if key and key == settings.agent_api_secret:
         return key
     raise HTTPException(status_code=403, detail="Secret invalide.")
+
+
+def _resolve_tenant_cached(
+    request: Request,
+    token_payload: dict[str, Any],
+    cache_key: str,
+) -> tuple[str, str | None, Role | None]:
+    cached = _auth_cache_get(_tenant_cache, cache_key)
+    if cached is None:
+        with _auth_cache_lock:
+            cached = _auth_cache_get(_tenant_cache, cache_key)
+            if cached is None:
+                cached = _resolve_workspace_from_request(request, token_payload)
+                _auth_cache_put(_tenant_cache, cache_key, cached)
+    return cached
 
 
 async def resolve_tenant(
@@ -386,6 +441,11 @@ async def resolve_tenant(
     """
     Authentifie la requête via JWT utilisateur ou secret agent (legacy/tests).
     Pose le contexte tenant pour le reste de la requête.
+
+    Les lectures MariaDB partent dans un thread : sur la boucle, elles s'additionnaient
+    et l'affichage des pages attendait chaque appel. Le contexte tenant est reposé
+    ici, après le thread — un `def` synchrone le poserait dans un fil invisible
+    pour la suite de la requête.
     """
     token_payload: dict[str, Any] | None = None
     auth_header = request.headers.get("Authorization") or ""
@@ -397,13 +457,19 @@ async def resolve_tenant(
 
     if raw_token:
         token_payload = decode_access_token(raw_token)
+        header_ws = (request.headers.get("X-Workspace-Id") or "").strip()
+        cache_key = hashlib.sha256(raw_token.encode()).hexdigest() + "|" + header_ws
+        cached = _auth_cache_get(_tenant_cache, cache_key)
+        if cached is None:
+            cached = await asyncio.to_thread(_resolve_tenant_cached, request, token_payload, cache_key)
+        ws_id, user_id, role = cached
     elif secret and secret == settings.agent_api_secret:
         # Secret agent : X-Workspace-Id s'il pointe vers un espace existant ;
         # sinon défaut legacy (compat Hermes / scripts sans header).
         header_ws = (request.headers.get("X-Workspace-Id") or "").strip()
         ws_id = _DEFAULT_WORKSPACE_ID
         if header_ws:
-            if not get_workspace_by_id(header_ws):
+            if not await asyncio.to_thread(get_workspace_by_id, header_ws):
                 raise HTTPException(status_code=404, detail="Espace Korymb introuvable.")
             ws_id = header_ws
         clear_tenant_context()
@@ -412,7 +478,6 @@ async def resolve_tenant(
     else:
         raise HTTPException(status_code=401, detail="Authentification requise.")
 
-    ws_id, user_id, role = _resolve_workspace_from_request(request, token_payload)
     if role == "subscriber" and not subscriber_path_allowed(request.url.path):
         raise HTTPException(
             status_code=403,
@@ -427,7 +492,7 @@ async def resolve_tenant(
     }
 
 
-async def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
     if auth.get("mode") == "agent_secret":
         return auth
     if auth.get("role") != "admin":
@@ -435,7 +500,7 @@ async def require_admin(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[
     return auth
 
 
-async def require_platform_owner(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+def require_platform_owner(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
     """Propriétaire de l'instance — pas tout admin d'espace, pas le secret agent."""
     if auth.get("mode") != "user":
         raise HTTPException(status_code=403, detail="Réservé au propriétaire de l'instance.")
@@ -446,7 +511,7 @@ async def require_platform_owner(auth: dict[str, Any] = Depends(resolve_tenant))
     return auth
 
 
-async def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
+def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> dict[str, Any]:
     """Admin ou membre d'équipe. Le secret agent passe (scripts) ; le participant est refusé."""
     if auth.get("mode") == "agent_secret":
         return auth
@@ -459,6 +524,20 @@ async def require_operator(auth: dict[str, Any] = Depends(resolve_tenant)) -> di
 
 
 def get_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
+    cache_key = f"{user_id}:{workspace_id}"
+    cached = _auth_cache_get(_profile_cache, cache_key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+    with _auth_cache_lock:
+        cached = _auth_cache_get(_profile_cache, cache_key)
+        if cached is not None:
+            return copy.deepcopy(cached)
+        profile = _load_auth_profile(user_id, workspace_id)
+        _auth_cache_put(_profile_cache, cache_key, profile)
+        return copy.deepcopy(profile)
+
+
+def _load_auth_profile(user_id: str, workspace_id: str) -> dict[str, Any]:
     user = get_user_by_id(user_id)
     workspace = get_workspace_by_id(workspace_id)
     membership = get_membership(workspace_id, user_id)

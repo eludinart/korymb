@@ -2,6 +2,19 @@
 from __future__ import annotations
 
 
+def test_health_live_stays_on_the_event_loop(client):
+    import inspect
+
+    from routers.core_health import health_live
+
+    assert inspect.iscoroutinefunction(health_live)
+    r = client.get("/health/live")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok"
+    assert body["live"] is True
+
+
 def test_health_ok(client):
     r = client.get("/health")
     assert r.status_code == 200

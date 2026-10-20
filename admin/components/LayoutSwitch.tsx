@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { usePathname } from "next/navigation";
 import AppChrome from "./AppChrome";
 import PublicShell from "./PublicShell";
@@ -20,7 +21,9 @@ function isSubscriberRoute(pathname: string) {
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const shell = isPublicRoute(pathname) ? (
-    <PublicShell>{children}</PublicShell>
+    <Suspense fallback={<p className="px-4 py-16 text-center text-sm font-medium text-slate-500">Ouverture…</p>}>
+      <PublicShell>{children}</PublicShell>
+    </Suspense>
   ) : isSubscriberRoute(pathname) ? (
     <SubscriberShell>{children}</SubscriberShell>
   ) : (

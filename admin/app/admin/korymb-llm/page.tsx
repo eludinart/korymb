@@ -138,6 +138,24 @@ function ActiveProviderBadge({ provider, poolActive }: { provider: string; poolA
   );
 }
 
+function readApiError(payload: unknown, status: number): string {
+  if (typeof payload === "string" && payload.trim() && payload.trim() !== "{}") return payload.trim();
+  if (payload && typeof payload === "object") {
+    const row = payload as { detail?: unknown; error?: unknown };
+    if (typeof row.detail === "string" && row.detail.trim()) return row.detail.trim();
+    if (typeof row.error === "string" && row.error.trim()) return row.error.trim();
+    if (Array.isArray(row.detail)) {
+      const msgs = row.detail
+        .map((item) =>
+          item && typeof item === "object" && "msg" in item ? String((item as { msg?: unknown }).msg || "").trim() : "",
+        )
+        .filter(Boolean);
+      if (msgs.length) return msgs.join(" ");
+    }
+  }
+  return `Enregistrement refusé (HTTP ${status}). Le serveur n'a pas donné de raison.`;
+}
+
 function ConfigSkeleton() {
   return (
     <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Chargement de la configuration">
@@ -295,7 +313,7 @@ export default function KorymbLlmAdminPage() {
         body: JSON.stringify(body),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || JSON.stringify(j) || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(readApiError(j, r.status));
       setData(j);
       setOk(
         prov === "openrouter"
@@ -323,7 +341,7 @@ export default function KorymbLlmAdminPage() {
         body: JSON.stringify({ llm_tiers_json: "" }),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || JSON.stringify(j) || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(readApiError(j, r.status));
       setData(j);
       setTiersDraft("");
       setOk("Routage par paliers désactivé. Les appels utilisent uniquement le modèle défini en tête de page.");
@@ -392,7 +410,7 @@ export default function KorymbLlmAdminPage() {
         body: JSON.stringify(body),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.detail || JSON.stringify(j) || `HTTP ${r.status}`);
+      if (!r.ok) throw new Error(readApiError(j, r.status));
       setData(j);
       setOk("Configuration enregistrée. Les prochains appels utilisent ces paramètres.");
     } catch (errSubmit) {

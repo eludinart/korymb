@@ -15,7 +15,7 @@ export default function PwaLaunch({
   assumeLoggedOut?: boolean;
 }) {
   const [stuck, setStuck] = useState(false);
-  const loginHref = `/login?next=${encodeURIComponent(next)}`;
+  const homeHref = "/";
 
   useEffect(() => {
     let cancelled = false;
@@ -24,7 +24,7 @@ export default function PwaLaunch({
     }, 8000);
 
     if (assumeLoggedOut) {
-      window.location.replace(loginHref);
+      window.location.replace(homeHref);
       return () => {
         cancelled = true;
         window.clearTimeout(timer);
@@ -51,7 +51,7 @@ export default function PwaLaunch({
             return;
           }
         }
-        window.location.replace(loginHref);
+        window.location.replace(homeHref);
       } catch {
         if (!cancelled) setStuck(true);
       }
@@ -61,7 +61,7 @@ export default function PwaLaunch({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [assumeLoggedOut, loginHref, next]);
+  }, [assumeLoggedOut, homeHref, next]);
 
   return (
     <div className="mx-auto flex min-h-[70vh] max-w-md flex-col items-center justify-center gap-4 px-4 text-center">
@@ -69,8 +69,8 @@ export default function PwaLaunch({
       <p className="text-sm text-slate-600 dark:text-slate-300">
         {stuck ? "La connexion automatique n’a pas abouti." : "Chargement de votre espace…"}
       </p>
-      <a href={loginHref} className="rounded-xl bg-violet-700 px-4 py-3 text-sm font-bold text-white">
-        Aller à la connexion
+      <a href={homeHref} className="rounded-xl bg-violet-700 px-4 py-3 text-sm font-bold text-white">
+        Retour à l’accueil
       </a>
     </div>
   );

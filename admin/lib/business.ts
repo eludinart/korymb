@@ -157,6 +157,19 @@ export type BizProject = {
   updated_at: string;
 };
 
+export type BizWorkTask = {
+  id: string;
+  project_id: string | null;
+  title: string;
+  status: "open" | "done" | string;
+  due_at: string | null;
+  priority: string;
+  notes: string;
+  calendar_event_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type BizQuote = {
   id: string;
   contact_id: string | null;
@@ -751,6 +764,43 @@ export const businessApi = {
     });
     if (!res.ok) {
       throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer ce dossier.");
+    }
+    return data as { deleted?: boolean };
+  },
+  listTasks: async (status?: "open" | "done") => {
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    const { data } = await requestJson(`/business/tasks${query}`, {
+      headers: agentHeaders(),
+    });
+    return ((data as { tasks?: BizWorkTask[] })?.tasks || []) as BizWorkTask[];
+  },
+  createTask: async (body: { title: string; due_at?: string | null; project_id?: string | null; priority?: string; notes?: string }) => {
+    const { data } = await requestJson("/business/tasks", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify(body),
+    });
+    return data as BizWorkTask;
+  },
+  updateTask: async (
+    id: string,
+    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "notes">>,
+  ) => {
+    const { data } = await requestJson(`/business/tasks/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: agentHeaders(),
+      body: JSON.stringify(body),
+    });
+    return data as BizWorkTask;
+  },
+  deleteTask: async (id: string) => {
+    const { res, data } = await requestJson(`/business/tasks/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: agentHeaders(),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer cette tâche.");
     }
     return data as { deleted?: boolean };
   },

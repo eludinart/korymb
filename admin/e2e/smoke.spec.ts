@@ -12,16 +12,16 @@ test("page de connexion Korymb", async ({ page }) => {
   await expect(page.getByRole("button", { name: /^Se connecter$/i })).toBeVisible();
 });
 
-test("inbox sans session redirige vers login", async ({ page }) => {
+test("inbox sans session redirige vers la landing", async ({ page }) => {
   await page.goto("/inbox");
-  await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByRole("heading", { name: /^Connexion$/i })).toBeVisible();
+  await expect(page).toHaveURL(/\/\?next=/);
+  await expect(page.getByRole("heading", { name: /Vous dites quoi faire/i })).toBeVisible();
 });
 
-test("briefing sans session redirige vers login", async ({ page }) => {
+test("briefing sans session redirige vers la landing", async ({ page }) => {
   await page.goto("/briefing");
-  await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
-  await expect(page.getByRole("heading", { name: /^Connexion$/i })).toBeVisible();
+  await expect(page).toHaveURL(/\/\?next=/);
+  await expect(page.getByRole("heading", { name: /Vous dites quoi faire/i })).toBeVisible();
 });
 
 test("vitrine publique sans session", async ({ page }) => {

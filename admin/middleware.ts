@@ -51,18 +51,12 @@ export function middleware(request: NextRequest) {
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
-  /* Ancien start_url d'icône. Sans cookie, la page répond 200 (écran
-   * d'ouverture) au lieu d'une 307 qui fige le splash. L'ouverture actuelle
-   * est /ouvrir, puis la conversation. */
-  if (pathname === "/briefing") {
-    return NextResponse.next();
-  }
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim();
   if (!token) {
     const participant = participantLoginFromPath(pathname);
-    const login = new URL(participant || "/login", request.url);
-    login.searchParams.set("next", pathname);
-    return NextResponse.redirect(login);
+    const dest = new URL(participant || "/", request.url);
+    dest.searchParams.set("next", pathname);
+    return NextResponse.redirect(dest);
   }
   return NextResponse.next();
 }

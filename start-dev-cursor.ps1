@@ -125,7 +125,12 @@ function Test-BackendHealthReady {
 function Wait-BackendHealthReady {
   param([int] $MaxAttempts = 90, [int] $DelayMs = 500)
   for ($i = 0; $i -lt $MaxAttempts; $i++) {
-    if (Test-BackendHealthReady -TimeoutSec 3) { return $true }
+    if (Test-BackendHealthReady -TimeoutSec 8) { return $true }
+    if ($null -ne $backendProc -and $backendProc.HasExited) { return $false }
+    if (($i % 20) -eq 19) {
+      $elapsed = [int]((($i + 1) * $DelayMs) / 1000)
+      Write-Host "  backend encore en demarrage (${elapsed}s)..." -ForegroundColor DarkGray
+    }
     Start-Sleep -Milliseconds $DelayMs
   }
   return $false
@@ -175,6 +180,18 @@ function Restart-MariaDbTunnelJob {
 
 function Test-BackendLiveness {
   param([int] $TimeoutSec = 8)
+  # curl.exe coupe vraiment le socket au délai. Invoke-WebRequest (PowerShell 5.1)
+  # laisse parfois la connexion .NET occupée, et les sondes suivantes expirent en chaîne.
+  $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+  if ($null -ne $curl) {
+    try {
+      $code = & curl.exe -s -o NUL -w "%{http_code}" --connect-timeout $TimeoutSec --max-time $TimeoutSec $livenessUrl
+      return ("$code".Trim() -eq "200")
+    }
+    catch {
+      return $false
+    }
+  }
   try {
     $r = Invoke-WebRequest -Uri $livenessUrl -UseBasicParsing -TimeoutSec $TimeoutSec
     return ($r.StatusCode -eq 200)
@@ -344,11 +361,14 @@ function Restart-BackendDevProcess {
   Stop-BackendDevProcess
   Start-Sleep -Milliseconds 800
   Start-BackendDevProcess
-  $script:watchdogGraceUntil = [datetime]::UtcNow.AddSeconds($watchdogGraceSec)
-  if (-not (Wait-BackendHealthReady -MaxAttempts 100 -DelayMs 500)) {
+  # Même budget que le premier boot : un init_db encore en cours ne doit pas être tué à 50s.
+  # Le délai de grâce part une fois /health vert : un boot de ~50s ne doit pas le consommer.
+  $restartAttempts = if ($script:MariaDbTunnelEnabled) { 1200 } else { 100 }
+  if (-not (Wait-BackendHealthReady -MaxAttempts $restartAttempts -DelayMs 500)) {
     Write-Host "(watchdog) Backend toujours indisponible apres redemarrage." -ForegroundColor Red
     return $false
   }
+  $script:watchdogGraceUntil = [datetime]::UtcNow.AddSeconds([Math]::Max($watchdogGraceSec, ($restartAttempts * 0.5)))
   Write-Host "(watchdog) Backend de nouveau operationnel." -ForegroundColor Green
   return $true
 }
@@ -404,7 +424,9 @@ Start-BackendDevProcess
 
 if (-not $SkipVerify) {
   Write-Host "Attente backend /health (code_dir + version)..." -ForegroundColor Cyan
-  if (-not (Wait-BackendHealthReady -MaxAttempts 90 -DelayMs 500)) {
+  # Tunnel VPS lent : init_db enchaine beaucoup de requetes. 45s coupe un boot encore vivant.
+  $healthAttempts = if ($script:MariaDbTunnelEnabled) { 1200 } else { 90 }
+  if (-not (Wait-BackendHealthReady -MaxAttempts $healthAttempts -DelayMs 500)) {
     throw "Backend non pret sur /health apres attente. Voir .dev-logs/backend.log et .dev-logs/backend.err.log"
   }
 }

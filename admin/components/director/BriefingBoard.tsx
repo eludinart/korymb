@@ -18,6 +18,7 @@ import { filterSnoozedItems, snoozeInboxItem } from "../../lib/inboxSnooze";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
 import { useUiMode } from "../../lib/uiMode";
+import TodayTasks from "./TodayTasks";
 
 export type { BoardSignals, BoardSourceItem, OpsBoard, OpsBoardItem };
 
@@ -565,6 +566,7 @@ export default function BriefingBoard({
   const [repriseWarning, setRepriseWarning] = useState<OpsBoardItem | null>(null);
   const [snoozeTick, setSnoozeTick] = useState(0);
   const [hiddenLead, setHiddenLead] = useState("");
+  const [openTaskCount, setOpenTaskCount] = useState(0);
 
   const resolved = useMemo(() => {
     if (serverReady && board) return board;
@@ -663,6 +665,22 @@ export default function BriefingBoard({
                 </a>
               </>
             ) : null}
+            {(milestones?.open || []).length > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                  {countBit((milestones?.open || []).length, "1 jalon", "jalons")}
+                </a>
+              </>
+            ) : null}
+            {openTaskCount > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-tasks" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                  {countBit(openTaskCount, "1 tâche", "tâches")}
+                </a>
+              </>
+            ) : null}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -674,6 +692,8 @@ export default function BriefingBoard({
           </Link>
         </div>
       </header>
+
+      <TodayTasks onOpenCount={setOpenTaskCount} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-12 xl:items-start">
         {warningCount === 0 ? <div id="board-warnings" className="hidden" /> : null}

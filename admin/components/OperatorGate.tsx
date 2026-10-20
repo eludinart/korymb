@@ -4,26 +4,35 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { AuthMeResponse } from "../lib/authSession";
 
-/** Empêche un compte participant d'ouvrir le cockpit dirigeant. */
+/** Le cockpit n'existe qu'avec une session. Sinon, retour à la landing. */
 export default function OperatorGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [redirecting, setRedirecting] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const res = await fetch("/api/auth/me", { cache: "no-store" });
-        if (!res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          window.location.replace("/");
+          return;
+        }
         const me = (await res.json()) as AuthMeResponse;
         if (cancelled) return;
         if (me.role === "subscriber") {
           const slug = me.workspace?.slug || "espace";
-          setRedirecting(true);
           router.replace(`/a/${encodeURIComponent(slug)}`);
+          return;
         }
+        if (!me.user && me.mode !== "agent_secret") {
+          window.location.replace("/");
+          return;
+        }
+        setOpen(true);
       } catch {
-        /* session absente : le middleware gère le login */
+        if (!cancelled) window.location.replace("/");
       }
     })();
     return () => {
@@ -31,8 +40,8 @@ export default function OperatorGate({ children }: { children: React.ReactNode }
     };
   }, [router]);
 
-  if (redirecting) {
-    return <p className="p-8 text-center text-sm text-slate-600">Redirection vers votre espace participant…</p>;
+  if (!open) {
+    return <p className="p-8 text-center text-sm text-slate-600">Ouverture…</p>;
   }
   return <>{children}</>;
 }

@@ -36,6 +36,8 @@ from services.business_db import (
     create_quote,
     delete_calendar_event,
     delete_contact,
+    ProjectMilestoneConflict,
+    ProjectMilestoneNotFound,
     delete_project,
     delete_quote,
     exploration_result_summary,
@@ -80,6 +82,14 @@ from services.email_prospecting import (
     sync_gmail_replies_mailbox,
 )
 from services.tiime_client import is_tiime_automation_configured, request_tiime_invoice
+from services.work_tasks import (
+    TASK_STATUSES,
+    create_work_task,
+    delete_work_task,
+    get_work_task,
+    list_work_tasks,
+    update_work_task,
+)
 
 router = APIRouter(tags=["business"])
 
@@ -163,6 +173,23 @@ class ProjectUpdate(BaseModel):
 class MilestoneDoneBody(BaseModel):
     done: bool = True
     label: str = Field(default="", max_length=2000)
+
+
+class WorkTaskCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=800)
+    due_at: str | None = None
+    project_id: str | None = None
+    priority: str = ""
+    notes: str = ""
+
+
+class WorkTaskUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=800)
+    status: str | None = None
+    due_at: str | None = None
+    project_id: str | None = None
+    priority: str | None = None
+    notes: str | None = None
 
 
 class QuoteCreate(BaseModel):
@@ -998,6 +1025,53 @@ async def business_set_milestone_done(
 async def business_delete_project(project_id: str):
     if not delete_project(project_id):
         raise HTTPException(404, detail="Projet introuvable")
+    return {"deleted": True}
+
+
+def _task_or_422(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+
+# ── Tâches (hors projet possible) ────────────────────────────────────────────
+
+@router.get("/business/tasks", dependencies=[Depends(resolve_tenant)])
+async def business_list_tasks(
+    status: str | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    if status and status not in TASK_STATUSES:
+        raise HTTPException(422, detail=f"status invalide — {TASK_STATUSES}")
+    return {"tasks": list_work_tasks(status=status, limit=limit)}
+
+
+@router.post("/business/tasks", dependencies=[Depends(resolve_tenant)])
+async def business_create_task(body: WorkTaskCreate):
+    return _task_or_422(create_work_task, **body.model_dump())
+
+
+@router.get("/business/tasks/{task_id}", dependencies=[Depends(resolve_tenant)])
+async def business_get_task(task_id: str):
+    row = get_work_task(task_id)
+    if not row:
+        raise HTTPException(404, detail="Tâche introuvable")
+    return row
+
+
+@router.put("/business/tasks/{task_id}", dependencies=[Depends(resolve_tenant)])
+async def business_update_task(task_id: str, body: WorkTaskUpdate):
+    row = _task_or_422(update_work_task, task_id, **body.model_dump(exclude_unset=True))
+    if not row:
+        raise HTTPException(404, detail="Tâche introuvable")
+    return row
+
+
+@router.delete("/business/tasks/{task_id}", dependencies=[Depends(resolve_tenant)])
+async def business_delete_task(task_id: str):
+    if not delete_work_task(task_id):
+        raise HTTPException(404, detail="Tâche introuvable")
     return {"deleted": True}
 
 

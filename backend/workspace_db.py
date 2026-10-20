@@ -205,7 +205,15 @@ def set_workspace_ui_mode(workspace_id: str, ui_mode: str) -> dict[str, Any] | N
             (mode, wid),
         )
         conn.commit()
+    _forget_cached_auth()
     return get_workspace_by_id(wid)
+
+
+def _forget_cached_auth() -> None:
+    # Import local : workspace_auth importe déjà ce module au chargement.
+    from services.workspace_auth import invalidate_auth_caches
+
+    invalidate_auth_caches()
 
 
 def normalize_participant_status(raw: Any, *, role: str = "") -> str:
@@ -226,6 +234,8 @@ def participant_is_active(status: str | None, *, role: str = "") -> bool:
 
 
 def _ensure_membership_participant_columns(conn) -> None:
+    from database import raise_if_db_unavailable
+
     cols = _table_columns(conn, "korymb_memberships")
     alterations = {
         "status": "TEXT NOT NULL DEFAULT 'active'",
@@ -233,19 +243,24 @@ def _ensure_membership_participant_columns(conn) -> None:
         "invited_at": "TEXT",
         "validated_at": "TEXT",
     }
+    status_added = "status" not in cols
     for name, ddl in alterations.items():
         if name not in cols:
             try:
                 conn.execute(f"ALTER TABLE korymb_memberships ADD COLUMN {name} {ddl}")
-            except Exception:
-                pass
+            except Exception as exc:
+                raise_if_db_unavailable(exc)
+    # Backfill une seule fois, à la création de la colonne. Le relancer à chaque
+    # lecture prend un verrou d'écriture et empile les workers si une session idle le garde.
+    if not status_added:
+        return
     try:
         conn.execute(
             "UPDATE korymb_memberships SET status='active' "
             "WHERE role='subscriber' AND (status IS NULL OR status='')"
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        raise_if_db_unavailable(exc)
 
 
 def _seed_legacy_storefront(conn) -> None:
@@ -358,6 +373,7 @@ def _migrate_enterprise_memory_multitenant(conn) -> None:
 def ensure_workspace_columns(conn) -> None:
     """Ajoute workspace_id aux tables métier et backfill le workspace legacy."""
     text_col = "VARCHAR(191)" if _is_mariadb_conn(conn) else "TEXT"
+    added: list[str] = []
     for table in _WORKSPACE_TABLES_WITH_COLUMN:
         try:
             cols = _table_columns(conn, table)
@@ -367,6 +383,7 @@ def ensure_workspace_columns(conn) -> None:
             continue
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN workspace_id {text_col} NOT NULL DEFAULT '{_DEFAULT_WORKSPACE_ID}'")
+            added.append(table)
         except Exception:
             pass
 
@@ -376,6 +393,7 @@ def ensure_workspace_columns(conn) -> None:
             conn.execute(
                 f"ALTER TABLE enterprise_memory ADD COLUMN workspace_id {text_col} NOT NULL DEFAULT '{_DEFAULT_WORKSPACE_ID}'"
             )
+            added.append("enterprise_memory")
     except Exception:
         pass
 
@@ -384,7 +402,9 @@ def ensure_workspace_columns(conn) -> None:
     except Exception:
         pass
 
-    _backfill_workspace_ids(conn)
+    # Le UPDATE de rattrapage ne sert qu'à la migration qui vient d'ajouter la colonne.
+    # Le relancer sur chaque table à chaque boot coûte un aller-retour (et un scan) via le tunnel.
+    _backfill_workspace_ids(conn, only_tables=added)
     _ensure_default_workspace_row(conn)
 
 
@@ -401,8 +421,9 @@ def _ensure_default_workspace_row(conn) -> None:
         )
 
 
-def _backfill_workspace_ids(conn) -> None:
-    for table in _WORKSPACE_TABLES_WITH_COLUMN:
+def _backfill_workspace_ids(conn, only_tables: list[str] | None = None) -> None:
+    tables = _WORKSPACE_TABLES_WITH_COLUMN if only_tables is None else only_tables
+    for table in tables:
         try:
             cols = _table_columns(conn, table)
         except Exception:
@@ -708,6 +729,7 @@ def update_workspace_storefront(
             tuple(vals),
         )
         conn.commit()
+    _forget_cached_auth()
     return get_workspace_by_id(wid)
 
 
@@ -835,6 +857,7 @@ def add_member(
             (workspace_id, user["id"], role, now, st, code, invited_at, validated_at),
         )
         conn.commit()
+    _forget_cached_auth()
     return {
         "user_id": user["id"],
         "email": user["email"],
@@ -1057,6 +1080,7 @@ def set_subscriber_status(workspace_id: str, user_id: str, status: str) -> dict[
             (st, invite_code, validated_at, workspace_id, user_id),
         )
         conn.commit()
+    _forget_cached_auth()
     user = get_user_by_id(user_id) or {}
     row = get_membership(workspace_id, user_id) or {}
     return serialize_participant({**user, **row, "id": user_id}, include_invite_code=True)
@@ -1113,6 +1137,7 @@ _PURGE_WORKSPACE_TABLES: tuple[str, ...] = (
     "biz_event_audience_users",
     "biz_interactions",
     "biz_contact_enrichment_proposals",
+    "biz_work_tasks",
     "biz_calendar_events",
     "biz_external_invoices",
     "biz_quotes",
@@ -1159,6 +1184,7 @@ def update_workspace_name(workspace_id: str, name: str) -> dict[str, Any] | None
     with get_conn() as conn:
         conn.execute("UPDATE korymb_workspaces SET name = ? WHERE id = ?", (label, wid))
         conn.commit()
+    _forget_cached_auth()
     return get_workspace_by_id(wid)
 
 
@@ -1169,20 +1195,30 @@ def ensure_admin_membership(workspace_id: str, user_id: str) -> None:
     existing = get_membership(workspace_id, user_id)
     now = datetime.utcnow().isoformat()
     with get_conn() as conn:
+        owner_row = conn.execute(
+            "SELECT owner_user_id FROM korymb_workspaces WHERE id = ?",
+            (workspace_id,),
+        ).fetchone()
+        owner_id = str(dict(owner_row).get("owner_user_id") or "") if owner_row else ""
+        role = str((existing or {}).get("role") or "")
+        if existing and role == "admin" and owner_id == user_id:
+            return
         if existing:
-            conn.execute(
-                "UPDATE korymb_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
-                (workspace_id, user_id),
-            )
+            if role != "admin":
+                conn.execute(
+                    "UPDATE korymb_memberships SET role = 'admin' WHERE workspace_id = ? AND user_id = ?",
+                    (workspace_id, user_id),
+                )
         else:
             conn.execute(
                 "INSERT INTO korymb_memberships (workspace_id, user_id, role, created_at) VALUES (?, ?, 'admin', ?)",
                 (workspace_id, user_id, now),
             )
-        conn.execute(
-            "UPDATE korymb_workspaces SET owner_user_id = ? WHERE id = ?",
-            (user_id, workspace_id),
-        )
+        if owner_id != user_id:
+            conn.execute(
+                "UPDATE korymb_workspaces SET owner_user_id = ? WHERE id = ?",
+                (user_id, workspace_id),
+            )
         conn.commit()
 
 
@@ -1208,10 +1244,10 @@ def seed_bootstrap_admin() -> None:
 
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id FROM korymb_workspaces WHERE id = ?",
+            "SELECT name FROM korymb_workspaces WHERE id = ?",
             (_DEFAULT_WORKSPACE_ID,),
         ).fetchone()
-        if row:
+        if row and str(dict(row).get("name") or "") != ws_name:
             conn.execute(
                 "UPDATE korymb_workspaces SET name = ? WHERE id = ?",
                 (ws_name, _DEFAULT_WORKSPACE_ID),

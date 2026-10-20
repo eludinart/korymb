@@ -262,8 +262,13 @@ def _runtime_sync_snapshot() -> dict:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/health/live")
-def health_live():
-    """Liveness minimale pour watchdog dev — aucune I/O DB."""
+async def health_live():
+    """Liveness du process, sur la boucle asyncio.
+
+    Une fonction synchrone passerait par le pool de threads, le même que les
+    requêtes MariaDB. En dev le tunnel SSH sature ce pool : la sonde du
+    watchdog attend alors plus de 10 s et tue un processus qui répond encore.
+    """
     return JSONResponse(
         content={"status": "ok", "live": True, "version": BACKEND_VERSION},
         headers={"Cache-Control": "no-store, max-age=0", "X-Korymb-Version": BACKEND_VERSION},

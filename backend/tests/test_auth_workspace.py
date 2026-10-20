@@ -1,6 +1,10 @@
 """Auth multi-tenant : inscription, connexion, isolation workspace."""
 from __future__ import annotations
 
+import inspect
+
+import services.workspace_auth as auth
+
 
 def test_auth_register_login_and_me(client):
     reg = client.post(
@@ -208,3 +212,33 @@ def test_subscriber_cannot_open_workspace_or_list_team(client):
     body = me.json()
     assert body.get("role") == "subscriber"
     assert body.get("members") == []
+
+
+def test_auth_profile_cache_skips_repeat_lookups(monkeypatch):
+    assert inspect.iscoroutinefunction(auth.resolve_tenant)
+    auth.invalidate_auth_caches()
+    calls = {"user": 0}
+
+    def user(uid):
+        calls["user"] += 1
+        return {"id": uid, "email": "a@b.c", "name": "A"}
+
+    monkeypatch.setattr(auth, "get_user_by_id", user)
+    monkeypatch.setattr(
+        auth,
+        "get_workspace_by_id",
+        lambda wid: {"id": wid, "name": "W", "slug": "w", "public_enabled": 0},
+    )
+    monkeypatch.setattr(auth, "get_membership", lambda wid, uid: {"role": "admin", "status": "active"})
+    monkeypatch.setattr(auth, "list_user_workspaces", lambda uid: [])
+    monkeypatch.setattr(auth, "list_workspace_operators", lambda wid: [])
+    monkeypatch.setattr("services.llm_envelope.is_platform_owner", lambda uid: False)
+
+    first = auth.get_auth_profile("u1", "w1")
+    second = auth.get_auth_profile("u1", "w1")
+    assert first["user"]["name"] == "A"
+    assert second["workspace"]["name"] == "W"
+    assert calls["user"] == 1
+    second["user"]["name"] = "mutated"
+    third = auth.get_auth_profile("u1", "w1")
+    assert third["user"]["name"] == "A"

@@ -5,9 +5,9 @@ import BriefingScreen from "./BriefingScreen";
 
 export const dynamic = "force-dynamic";
 
-/** Sans cookie : 200 + écran d'ouverture. Une 307 vers /login bloque le splash sur téléphone. */
+/** Sans cookie : le middleware renvoie vers /. Secours si la page est rendue seule. */
 export default async function BriefingPage() {
   const token = (await cookies()).get(KORYMB_TOKEN_COOKIE)?.value?.trim();
-  if (!token) return <PwaLaunch assumeLoggedOut next="/briefing" />;
+  if (!token) return <PwaLaunch assumeLoggedOut />;
   return <BriefingScreen />;
 }

@@ -123,6 +123,7 @@ export const EVENT_TYPE_LABELS: Record<string, string> = {
   visio: "À distance",
   jalon: "Date cible — étape sans rendez-vous",
   ressource: "Contenu",
+  tache: "Tâche",
   autre: "Autre",
 };
 
@@ -144,7 +145,7 @@ export const EVENT_NATURE_HINT =
 export const EVENT_TYPE_HINT =
   "Pour un fichier à partager, choisissez « Contenu ». Une date cible est un rappel au calendrier, sans rendez-vous.";
 
-const PRESENCE_EVENT_TYPES = ["seance", "stage", "atelier", "visio", "autre"];
+const PRESENCE_EVENT_TYPES = ["seance", "stage", "atelier", "visio", "tache", "autre"];
 const MATIERE_EVENT_TYPES = ["ressource", "jalon", "autre"];
 
 export function eventTypeOptionsForNature(nature: string): string[] {

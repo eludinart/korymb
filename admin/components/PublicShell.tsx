@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { accountDisplayName, type AuthMeResponse } from "../lib/authSession";
@@ -12,6 +12,9 @@ import BrandCore from "./ui/aceternity/BrandCore";
 
 export default function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
+  const next = (useSearchParams().get("next") || "").trim();
+  const loginHref =
+    next.startsWith("/") && !next.startsWith("//") ? `/login?next=${encodeURIComponent(next)}` : "/login";
   const [me, setMe] = useState<AuthMeResponse | null>(null);
   const [homeSettled, setHomeSettled] = useState(pathname !== "/");
 
@@ -108,7 +111,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
               </>
             ) : (
               <>
-                <Link href="/login" className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-violet-50">
+                <Link href={loginHref} className="rounded-full px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-violet-50">
                   Connexion
                 </Link>
                 <Link href="/register" className="hud-btn rounded-full bg-violet-700 px-4 py-2 text-sm font-bold text-white hover:bg-violet-800">

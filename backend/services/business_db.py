@@ -21,7 +21,7 @@ CONTACT_STATUSES = ("active", "inactive", "archived", "disqualified")
 PROJECT_TYPES = ("seance", "stage", "module_pro", "accompagnement", "sivana", "autre")
 PROJECT_STATUSES = ("draft", "active", "on_hold", "completed", "cancelled")
 QUOTE_STATUSES = ("draft", "sent", "accepted", "refused", "expired")
-EVENT_TYPES = ("seance", "stage", "atelier", "visio", "jalon", "ressource", "autre")
+EVENT_TYPES = ("seance", "stage", "atelier", "visio", "jalon", "ressource", "tache", "autre")
 EVENT_STATUSES = ("planned", "confirmed", "done", "cancelled")
 EVENT_MODALITIES = ("", "presentiel", "visio", "async")
 EVENT_NATURES = ("presence", "matiere")
@@ -130,14 +130,19 @@ def _ensure_biz_calendar_event_columns(conn) -> None:
         "cover_file_id": "TEXT NOT NULL DEFAULT ''",
         "visibility": "TEXT NOT NULL DEFAULT 'internal'",
     }
+    added: list[str] = []
     for name, ddl in alterations.items():
         if name not in cols:
             conn.execute(f"ALTER TABLE biz_calendar_events ADD COLUMN {name} {ddl}")
+            added.append(name)
     # Cohérence : un créneau coché « publié » sans visibilité explicite est pour les inscrits.
-    conn.execute(
-        "UPDATE biz_calendar_events SET visibility='participants' "
-        "WHERE is_public=1 AND (visibility IS NULL OR visibility='' OR visibility='internal')"
-    )
+    # Le UPDATE ne sert qu'au moment où la colonne apparaît : le relancer à chaque boot
+    # traverse le tunnel même quand plus aucune ligne n'est à corriger.
+    if "visibility" in added or "is_public" in added:
+        conn.execute(
+            "UPDATE biz_calendar_events SET visibility='participants' "
+            "WHERE is_public=1 AND (visibility IS NULL OR visibility='' OR visibility='internal')"
+        )
 
 
 def _ensure_biz_event_audience_table(conn) -> None:
@@ -637,7 +642,13 @@ def init_business_tables() -> None:
             )
         """)
         _ensure_biz_email_messages_columns(conn)
+        from services.work_tasks import ensure_work_task_tables
+
+        ensure_work_task_tables(conn)
         conn.commit()
+    from services.work_tasks import import_eric_task_buckets
+
+    import_eric_task_buckets()
 
 
 def _parse_json_list(raw: Any) -> list:
@@ -3531,6 +3542,34 @@ def _day_bounds_utc(day: datetime | None = None) -> tuple[str, str]:
     return start.isoformat(), end.isoformat()
 
 
+def _follow_up_contacts(contact_ids: list[str]) -> dict[str, dict[str, Any]]:
+    clean = list(dict.fromkeys(cid for cid in contact_ids if cid))
+    if not clean:
+        return {}
+    marks = ",".join("?" for _ in clean)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, email, phone, website, linkedin_url, address, city, "
+            "postal_code, socials_json, outreach_suggestions "
+            f"FROM biz_contacts WHERE workspace_id=? AND id IN ({marks})",
+            (_ws(), *clean),
+        ).fetchall()
+    out: dict[str, dict[str, Any]] = {}
+    for raw in rows or []:
+        row = dict(raw)
+        socials: dict[str, Any] = {}
+        try:
+            parsed = json.loads(row.get("socials_json") or "{}")
+            if isinstance(parsed, dict):
+                socials = parsed
+        except (json.JSONDecodeError, TypeError):
+            socials = {}
+        row["socials"] = socials
+        row["reachability"] = contact_reachability(row)
+        out[str(row.get("id") or "")] = row
+    return out
+
+
 def list_due_crm_follow_ups(
     *,
     include_overdue: bool = True,
@@ -3547,23 +3586,36 @@ def list_due_crm_follow_ups(
         to_at = end_dt.isoformat()
     else:
         to_at = today_end
-    from_at = "1970-01-01T00:00:00" if include_overdue else today_start
-    rows = list_calendar_events(from_at=from_at, to_at=to_at, limit=max(limit * 3, 80))
+    # Le titre est filtré en SQL. L'ancienne lecture partait de 1970, prenait les
+    # créneaux les plus anciens (souvent hors relance) et ramenait leurs textes
+    # entiers à travers le tunnel : ~30 s pour zéro relance.
+    prefixes = ("relance%", "mesurer / republier%", "relayer l'article%", "relayer l’article%")
+    like_sql = " OR ".join("LOWER(title) LIKE ?" for _ in prefixes)
+    sql = (
+        "SELECT id, title, starts_at, status, contact_id, notes, created_at, updated_at "
+        "FROM biz_calendar_events WHERE workspace_id=? "
+        "AND status IN ('planned', 'confirmed') "
+        "AND starts_at <= ? "
+        f"AND ({like_sql}) "
+    )
+    params: list[Any] = [_ws(), to_at, *prefixes]
+    if not include_overdue:
+        sql += "AND starts_at >= ? "
+        params.append(today_start)
+    cap = max(1, min(int(limit), 80))
+    sql += "ORDER BY starts_at ASC LIMIT ?"
+    params.append(cap)
+    with get_conn() as conn:
+        raw_rows = conn.execute(sql, tuple(params)).fetchall()
+    rows = [dict(r) for r in raw_rows or []]
+    contact_ids = [str(ev.get("contact_id") or "").strip() for ev in rows]
+    contacts = _follow_up_contacts(contact_ids)
     out: list[dict] = []
     for ev in rows:
-        if str(ev.get("status") or "") not in ("planned", "confirmed"):
-            continue
-        if not is_crm_follow_up_title(str(ev.get("title") or "")):
-            continue
         starts = str(ev.get("starts_at") or "")
-        # days_ahead=0 → uniquement jusqu'à fin de journée (déjà borné par to_at)
-        if days_ahead == 0 and not include_overdue and starts < today_start:
-            continue
         item = dict(ev)
-        contact = None
         cid = str(ev.get("contact_id") or "").strip()
-        if cid:
-            contact = get_contact(cid)
+        contact = contacts.get(cid) if cid else None
         item["contact"] = (
             {
                 "id": contact.get("id"),

@@ -15,7 +15,19 @@ const USES = [
   },
 ] as const;
 
-export default function LandingPage() {
+function loginHref(next: string | undefined) {
+  const value = (next || "").trim();
+  if (!value.startsWith("/") || value.startsWith("//")) return "/login";
+  return `/login?next=${encodeURIComponent(value)}`;
+}
+
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  const { next } = await searchParams;
+  const connexion = loginHref(next);
   return (
     <div className="mx-auto max-w-6xl px-4 pb-20 pt-10 sm:px-6 sm:pt-16">
       <section className="mx-auto max-w-3xl text-center">
@@ -38,7 +50,7 @@ export default function LandingPage() {
             Créer mon espace
           </Link>
           <Link
-            href="/login"
+            href={connexion}
             className="inline-flex min-h-11 w-full items-center justify-center rounded-2xl border-2 border-violet-200 px-6 py-3 text-sm font-bold text-violet-900 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-100 dark:hover:bg-violet-950 sm:w-auto"
           >
             J’ai déjà un compte
@@ -94,7 +106,7 @@ export default function LandingPage() {
               Créer mon espace
             </Link>
             <Link
-              href="/login"
+              href={connexion}
               className="inline-flex min-h-11 items-center justify-center rounded-2xl border-2 border-violet-200 px-5 py-3 text-sm font-bold text-violet-900 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-100 dark:hover:bg-violet-950"
             >
               Connexion

@@ -17,5 +17,6 @@ Copies sans secrets des scripts VPS — source live : `/opt/data/scripts/` (wrap
 | `eludein-telegram-send.sh` | lit `TELEGRAM_*` depuis `.env` |
 | `eludein-concert-record.sh` | journal concert (append + option Korymb/Telegram) |
 | `host-eludein-concert-record.sh` | hôte → conteneur |
+| `fleur_daily_card.py` | conteneur — carte du jour du cron « Post quotidien Fleur d'Amôurs » |
 
 Les mots de passe / tokens restent dans `/opt/data/.env` sur le VPS — **jamais** dans git.

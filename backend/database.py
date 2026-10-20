@@ -5,6 +5,7 @@ Colonnes d'observabilité (plan CIO, flux d'événements) : extensibles vers
 pagination / table events séparée sans casser l'API si on garde events_json
 comme projection matérialisée.
 """
+import contextvars
 import copy
 import json
 import logging
@@ -119,11 +120,187 @@ def _maria_cfg() -> dict[str, Any]:
         "password": str(os.getenv("KORYMB_DB_PASSWORD") or os.getenv("FLEUR_DB_PASSWORD") or ""),
         "database": str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb"),
         "charset": "utf8mb4",
-        "connect_timeout": 3,
-        "read_timeout": 8,
-        "write_timeout": 8,
+        "connect_timeout": 10,
+        "read_timeout": 30,
+        "write_timeout": 30,
         "autocommit": False,
     }
+
+
+# Actif seulement pendant init_db() : un instantané information_schema évite
+# un SHOW COLUMNS / CREATE TABLE IF NOT EXISTS par table à travers le tunnel.
+_schema_columns: contextvars.ContextVar[dict[str, dict[str, dict[str, Any]]] | None] = contextvars.ContextVar(
+    "korymb_schema_columns",
+    default=None,
+)
+_schema_indexes: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+    "korymb_schema_indexes",
+    default=None,
+)
+# Une seule connexion pour tout init_db : chaque checkout paie un ROLLBACK à travers le tunnel.
+_pinned_conn: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "korymb_pinned_conn",
+    default=None,
+)
+_POOL_PING_FRESH_SEC = 5.0
+
+_CREATE_IF_NOT_EXISTS = re.compile(
+    r"^CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+`?([A-Za-z0-9_]+)`?",
+    re.IGNORECASE,
+)
+_SHOW_COLUMNS = re.compile(
+    r"^SHOW\s+COLUMNS\s+FROM\s+`?([A-Za-z0-9_]+)`?(?:\s+LIKE\s+'([^']*)')?\s*;?\s*$",
+    re.IGNORECASE,
+)
+_ALTER_TABLE = re.compile(
+    r"^ALTER\s+TABLE\s+`?([A-Za-z0-9_]+)`?",
+    re.IGNORECASE,
+)
+_CREATE_INDEX_IF_NOT_EXISTS = re.compile(
+    r"^CREATE\s+(?:UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+`?([A-Za-z0-9_]+)`?",
+    re.IGNORECASE,
+)
+
+
+class _SkippedDDL:
+    """CREATE TABLE IF NOT EXISTS déjà satisfait par l'instantané de schéma."""
+
+
+def _drop_snapshot_table(snapshot: dict[str, dict[str, dict[str, Any]]], name: str) -> None:
+    snapshot.pop(name, None)
+    for key in list(snapshot):
+        if key.lower() == name.lower():
+            snapshot.pop(key, None)
+
+
+def _snapshot_table(
+    snapshot: dict[str, dict[str, dict[str, Any]]],
+    name: str,
+) -> dict[str, dict[str, Any]] | None:
+    if name in snapshot:
+        return snapshot[name]
+    low = name.lower()
+    for key, cols in snapshot.items():
+        if key.lower() == low:
+            return cols
+    return None
+
+
+def _row_cell(item: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in item:
+            return item[name]
+    folded = {str(key).lower(): value for key, value in item.items()}
+    for name in names:
+        if name.lower() in folded:
+            return folded[name.lower()]
+    return None
+
+
+def load_mariadb_column_snapshot(conn) -> dict[str, dict[str, dict[str, Any]]]:
+    """Toutes les colonnes du schéma courant, en une requête."""
+    rows = conn.execute(
+        "SELECT TABLE_NAME AS table_name, COLUMN_NAME AS column_name, "
+        "COLUMN_TYPE AS column_type, COLUMN_DEFAULT AS column_default, "
+        "IS_NULLABLE AS is_nullable "
+        "FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()"
+    ).fetchall()
+    snap: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in rows or []:
+        item = dict(row)
+        table = str(_row_cell(item, "table_name") or "")
+        column = str(_row_cell(item, "column_name") or "")
+        if not table or not column:
+            continue
+        snap.setdefault(table, {})[column] = {
+            "type": str(_row_cell(item, "column_type") or ""),
+            "default": _row_cell(item, "column_default"),
+            "nullable": str(_row_cell(item, "is_nullable") or ""),
+        }
+    return snap
+
+
+def load_mariadb_index_names(conn) -> set[str]:
+    rows = conn.execute(
+        "SELECT INDEX_NAME AS index_name FROM information_schema.STATISTICS "
+        "WHERE TABLE_SCHEMA = DATABASE()"
+    ).fetchall()
+    names: set[str] = set()
+    for row in rows or []:
+        name = str(_row_cell(dict(row), "index_name") or "")
+        if name:
+            names.add(name.lower())
+    return names
+
+
+def _snapshot_column_type(table: str, column: str) -> str:
+    snap = _schema_columns.get()
+    if not snap:
+        return ""
+    cols = _snapshot_table(snap, table)
+    if not cols or column not in cols:
+        return ""
+    return str(cols[column].get("type") or "")
+
+
+def init_sql_shortcut(sql: str, snapshot: dict[str, dict[str, dict[str, Any]]] | None):
+    """Évite un aller-retour tunnel si l'instantané répond déjà.
+
+    None : exécuter le SQL. _SkippedDDL : DDL inutile. list : lignes SHOW COLUMNS.
+    """
+    if not snapshot:
+        return None
+    stripped = sql.strip()
+    created = _CREATE_IF_NOT_EXISTS.match(stripped)
+    if created and _snapshot_table(snapshot, created.group(1)) is not None:
+        return _SkippedDDL()
+    indexes = _schema_indexes.get()
+    if indexes:
+        indexed = _CREATE_INDEX_IF_NOT_EXISTS.match(stripped)
+        if indexed and indexed.group(1).lower() in indexes:
+            return _SkippedDDL()
+    shown = _SHOW_COLUMNS.match(stripped)
+    if not shown:
+        return None
+    cols = _snapshot_table(snapshot, shown.group(1))
+    if cols is None:
+        return None
+    like = shown.group(2)
+    if like is not None and "%" in like:
+        return None
+    out: list[dict[str, Any]] = []
+    for name, meta in cols.items():
+        if like is not None and like != name:
+            continue
+        nullable = str(meta.get("nullable") or "")
+        out.append(
+            {
+                "Field": name,
+                "Type": str(meta.get("type") or ""),
+                "Null": "YES" if nullable.upper() == "YES" else "NO",
+                "Key": "",
+                "Default": meta.get("default"),
+                "Extra": "",
+            }
+        )
+    return out
+
+
+def raise_if_db_unavailable(exc: BaseException) -> None:
+    """Relance si la socket MariaDB est morte.
+
+    Les migrations au boot avalent les erreurs de schéma (colonne déjà là).
+    Une coupure réseau avalée laisse la connexion fermée : la requête suivante
+    échoue alors avec InterfaceError (0, ''), sans lien avec le SQL affiché.
+    """
+    if pymysql is None:
+        return
+    if isinstance(exc, pymysql.err.InterfaceError):
+        raise exc
+    if isinstance(exc, pymysql.err.OperationalError):
+        code = exc.args[0] if exc.args else None
+        if code in (0, 2006, 2013):
+            raise exc
 
 
 def _qmark_to_percent(sql: str) -> str:
@@ -166,13 +343,42 @@ class _MariaCursorAdapter:
         return [self._row_to_adapter(r) for r in rows]
 
 
+class _StaticCursor:
+    """Résultat local (instantané de schéma), même forme que le curseur MariaDB."""
+
+    def __init__(self, rows: list[dict[str, Any]]):
+        self._rows = rows
+        self._i = 0
+        self.rowcount = 0
+        self.lastrowid = 0
+
+    def fetchone(self):
+        if self._i >= len(self._rows):
+            return None
+        row = self._rows[self._i]
+        self._i += 1
+        return _MariaRow(row, list(row.keys()))
+
+    def fetchall(self):
+        rest = self._rows[self._i :]
+        self._i = len(self._rows)
+        return [_MariaRow(row, list(row.keys())) for row in rest]
+
+
 class _MariaConnAdapter:
     def __init__(self, conn, *, pooled: bool = False, pool: "_MariaPool | None" = None):
         self._conn = conn
         self._pooled = pooled
         self._pool = pool
+        self._tx_open = False
 
     def execute(self, sql: str, params: tuple | list | None = None):
+        snap = _schema_columns.get()
+        shortcut = init_sql_shortcut(sql, snap)
+        if isinstance(shortcut, _SkippedDDL):
+            return _StaticCursor([])
+        if isinstance(shortcut, list):
+            return _StaticCursor(shortcut)
         sql_use = _qmark_to_percent(sql)
         # Compat SQLite -> MariaDB
         if "INSERT OR REPLACE INTO" in sql_use:
@@ -181,33 +387,56 @@ class _MariaConnAdapter:
             sql_use = sql_use.replace("INSERT OR IGNORE INTO", "INSERT IGNORE INTO")
         cur = self._conn.cursor(pymysql.cursors.DictCursor)
         cur.execute(sql_use, tuple(params or ()))
+        self._tx_open = True
+        if snap is not None:
+            altered = _ALTER_TABLE.match(sql.strip())
+            if altered:
+                _drop_snapshot_table(snap, altered.group(1))
         return _MariaCursorAdapter(cur)
 
     def commit(self) -> None:
+        if not self._tx_open:
+            return
         self._conn.commit()
+        self._tx_open = False
+
+    def _rollback_open_tx(self) -> bool:
+        """False si la socket est morte et la connexion a été retirée du pool."""
+        if not self._tx_open:
+            return True
+        try:
+            self._conn.rollback()
+            self._tx_open = False
+            return True
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            if self._pool is not None:
+                with self._pool._lock:
+                    self._pool._created = max(0, self._pool._created - 1)
+            return False
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        try:
+        pinned = _pinned_conn.get() is self
+        if exc is not None and not self._rollback_open_tx() and not pinned:
+            return False
+        if pinned:
+            # init_db réutilise la connexion : pas de ROLLBACK après un commit déjà fait.
             if exc is not None:
-                self._conn.rollback()
-        finally:
-            if self._pooled and self._pool is not None:
-                try:
-                    self._conn.rollback()
-                except Exception:
-                    try:
-                        self._conn.close()
-                    except Exception:
-                        pass
-                    with self._pool._lock:
-                        self._pool._created = max(0, self._pool._created - 1)
-                    return
-                self._pool.release(self._conn)
-            else:
-                self._conn.close()
+                self._rollback_open_tx()
+            return False
+        if self._pooled and self._pool is not None:
+            if not self._rollback_open_tx():
+                return False
+            self._pool.release(self._conn)
+        else:
+            self._conn.close()
+        return False
 
 
 class _MariaPool:
@@ -225,18 +454,61 @@ class _MariaPool:
     def _new_conn(self):
         return pymysql.connect(**_maria_cfg())
 
-    def acquire(self):
+    def _drop(self, conn) -> None:
         try:
-            return self._q.get_nowait()
+            conn.close()
         except Exception:
             pass
         with self._lock:
+            self._created = max(0, self._created - 1)
+
+    def _alive(self, conn):
+        """Une connexion du pool peut être morte après une coupure du tunnel. PyMySQL dit alors (0, '')."""
+        touched = float(getattr(conn, "_korymb_touched", 0) or 0)
+        if touched and (time.monotonic() - touched) < _POOL_PING_FRESH_SEC:
+            return conn
+        try:
+            conn.ping(reconnect=True)
+            conn._korymb_touched = time.monotonic()
+            return conn
+        except Exception:
+            self._drop(conn)
+            return None
+
+    def acquire(self):
+        try:
+            pooled = self._q.get_nowait()
+        except Exception:
+            pooled = None
+        if pooled is not None:
+            alive = self._alive(pooled)
+            if alive is not None:
+                return alive
+        with self._lock:
             if self._created < self._size:
                 self._created += 1
+                try:
+                    return self._new_conn()
+                except Exception:
+                    self._created = max(0, self._created - 1)
+                    raise
+        waited = self._q.get(timeout=8)
+        alive = self._alive(waited)
+        if alive is not None:
+            return alive
+        with self._lock:
+            self._created += 1
+            try:
                 return self._new_conn()
-        return self._q.get(timeout=8)
+            except Exception:
+                self._created = max(0, self._created - 1)
+                raise
 
     def release(self, conn) -> None:
+        try:
+            conn._korymb_touched = time.monotonic()
+        except Exception:
+            pass
         try:
             if not getattr(conn, "open", True):
                 with self._lock:
@@ -280,6 +552,9 @@ def probe_database_connection() -> dict[str, Any]:
 def get_conn():
     # MariaDB : pool réutilisable (KORYMB_DB_POOL_SIZE, défaut 8). SQLite : connexion locale.
     if _is_mariadb():
+        pinned = _pinned_conn.get()
+        if pinned is not None:
+            return pinned
         if not _PYMYSQL_OK:
             raise RuntimeError("KORYMB_DB_ENGINE=mariadb mais pymysql n'est pas installé.")
         pool = _get_maria_pool()
@@ -833,18 +1108,20 @@ def _ensure_memory_columns(conn) -> None:
     if not _is_mariadb():
         return
     # Les mémoires peuvent dépasser 64KB ; LONGTEXT évite les 500 lors des PUT /memory.
-    try:
-        conn.execute("ALTER TABLE enterprise_memory MODIFY COLUMN contexts_json LONGTEXT NOT NULL")
-    except Exception:
-        pass
-    try:
-        conn.execute("ALTER TABLE enterprise_memory MODIFY COLUMN recent_missions_json LONGTEXT NOT NULL")
-    except Exception:
-        pass
-    try:
-        conn.execute("ALTER TABLE memory_history MODIFY COLUMN contexts_json LONGTEXT NOT NULL")
-    except Exception:
-        pass
+    # Un MODIFY déjà à jour réécrit quand même la table : on ne l'envoie pas à chaque boot.
+    alters = (
+        ("enterprise_memory", "contexts_json", "ALTER TABLE enterprise_memory MODIFY COLUMN contexts_json LONGTEXT NOT NULL"),
+        ("enterprise_memory", "recent_missions_json", "ALTER TABLE enterprise_memory MODIFY COLUMN recent_missions_json LONGTEXT NOT NULL"),
+        ("memory_history", "contexts_json", "ALTER TABLE memory_history MODIFY COLUMN contexts_json LONGTEXT NOT NULL"),
+    )
+    for table, column, sql in alters:
+        col_type = _snapshot_column_type(table, column).lower()
+        if "longtext" in col_type or "mediumtext" in col_type:
+            continue
+        try:
+            conn.execute(sql)
+        except Exception as exc:
+            raise_if_db_unavailable(exc)
 
 
 def _hydrate_job_row(d: dict) -> dict:
@@ -947,6 +1224,36 @@ def _hydrate_job_row(d: dict) -> dict:
 
 
 def init_db():
+    started = time.perf_counter()
+    token = None
+    token_idx = None
+    try:
+        if not _is_mariadb():
+            _init_db_schema_and_seeds()
+            return
+        with get_conn() as conn:
+            pin = _pinned_conn.set(conn)
+            try:
+                try:
+                    snap = load_mariadb_column_snapshot(conn)
+                    token = _schema_columns.set(snap)
+                    token_idx = _schema_indexes.set(load_mariadb_index_names(conn))
+                    logger.info("Schéma MariaDB en cache : %s tables", len(snap))
+                except Exception:
+                    logger.exception("Instantané schéma ignoré — init_db sans cache")
+                _init_db_schema_and_seeds()
+            finally:
+                _pinned_conn.reset(pin)
+    finally:
+        if token is not None:
+            _schema_columns.reset(token)
+        if token_idx is not None:
+            _schema_indexes.reset(token_idx)
+        logger.info("init_db terminé en %.1fs", time.perf_counter() - started)
+
+
+def _init_db_schema_and_seeds() -> None:
+    phase = time.perf_counter()
     with get_conn() as conn:
         text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
         memory_pk = "BIGINT PRIMARY KEY AUTO_INCREMENT" if _is_mariadb() else "INTEGER PRIMARY KEY AUTOINCREMENT"
@@ -1038,6 +1345,7 @@ def init_db():
         ensure_workspace_columns(conn)
         _ensure_mission_events_table(conn)
         conn.commit()
+    logger.info("init_db schéma en %.1fs", time.perf_counter() - phase)
     from tenant_context import clear_tenant_context, get_workspace_id, set_tenant_context
     from workspace_db import _DEFAULT_WORKSPACE_ID
 
@@ -1049,6 +1357,7 @@ def init_db():
     finally:
         if boot_ws:
             clear_tenant_context()
+    logger.info("init_db graines comprises en %.1fs", time.perf_counter() - phase)
 
 
 def _init_db_seeds() -> None:
@@ -1303,8 +1612,23 @@ def seed_playbooks() -> None:
     defaults = list(generic)
     if is_legacy_elude_workspace():
         defaults = legacy_pack + defaults
+    existing_ids: set[str] | None = None
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id FROM playbooks WHERE workspace_id=?",
+                (_ws(),),
+            ).fetchall()
+        existing_ids = set()
+        for row in rows or []:
+            existing_ids.add(str(dict(row).get("id") or ""))
+    except Exception:
+        logger.exception("Lecture des playbooks au démarrage impossible")
     for pb in defaults:
-        if get_playbook(pb["id"]):
+        if existing_ids is not None:
+            if pb["id"] in existing_ids:
+                continue
+        elif get_playbook(pb["id"]):
             continue
         upsert_playbook(
             pb["id"],
@@ -1347,13 +1671,21 @@ def seed_orchestration_prompt_defaults() -> None:
     wid = _ws()
     keep_brand = is_legacy_elude_workspace(wid)
     with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT prompt_key, body FROM orchestration_prompts WHERE workspace_id = ?",
+            (wid,),
+        ).fetchall()
+        by_key: dict[str, str] = {}
+        for row in rows or []:
+            item = dict(row)
+            by_key[str(item.get("prompt_key") or "")] = str(item.get("body") or "")
         for key, body in DEFAULT_ORCHESTRATION_PROMPTS.items():
             stored = _scoped_prompt_key(key)
-            row = conn.execute(
-                "SELECT prompt_key, body FROM orchestration_prompts WHERE workspace_id = ? AND (prompt_key = ? OR prompt_key = ?)",
-                (wid, stored, key),
-            ).fetchone()
-            if not row:
+            if stored in by_key:
+                current_key, current_body = stored, by_key[stored]
+            elif key in by_key:
+                current_key, current_body = key, by_key[key]
+            else:
                 try:
                     conn.execute(
                         "INSERT INTO orchestration_prompts (prompt_key, body, updated_at, workspace_id) VALUES (?, ?, ?, ?)",
@@ -1365,13 +1697,11 @@ def seed_orchestration_prompt_defaults() -> None:
                 continue
             if keep_brand:
                 continue
-            current = dict(row)
-            current_body = str(current.get("body") or "")
             if not is_unmodified_branded_factory(key, current_body):
                 continue
             conn.execute(
                 "UPDATE orchestration_prompts SET body = ?, updated_at = ? WHERE prompt_key = ? AND workspace_id = ?",
-                (body, now, current.get("prompt_key"), wid),
+                (body, now, current_key, wid),
             )
         conn.commit()
 
@@ -1497,13 +1827,14 @@ def seed_behavior_defaults() -> None:
     now = datetime.utcnow().isoformat()
     wid = _ws()
     with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT setting_key FROM behavior_settings WHERE workspace_id = ?",
+            (wid,),
+        ).fetchall()
+        have = {str(dict(row).get("setting_key") or "") for row in rows or []}
         for key, meta in BEHAVIOR_DEFAULTS.items():
             stored = _scoped_behavior_key(key)
-            row = conn.execute(
-                "SELECT setting_key FROM behavior_settings WHERE setting_key = ? AND workspace_id = ?",
-                (stored, wid),
-            ).fetchone()
-            if row:
+            if stored in have or key in have:
                 continue
             payload = json.dumps(meta.get("value"), ensure_ascii=False)
             conn.execute(
@@ -2937,10 +3268,10 @@ def list_unconsulted_result_jobs(*, limit: int = 15) -> list[dict]:
             "AND ( "
             "  LOWER(TRIM(COALESCE(status, ''))) = 'completed' "
             "  OR LOWER(TRIM(COALESCE(status, ''))) = 'awaiting_validation' "
-            "  OR LOWER(TRIM(COALESCE(status, ''))) LIKE 'error%' "
+            "  OR LOWER(TRIM(COALESCE(status, ''))) LIKE ? "
             ") "
             "ORDER BY updated_at DESC LIMIT ?",
-            (_ws(), lim * 3),
+            (_ws(), "error%", lim * 3),
         ).fetchall()
     out: list[dict] = []
     for raw in rows or []:

@@ -93,6 +93,13 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
     group: "activite",
   },
   {
+    href: "/gestion/taches",
+    label: "Tâches",
+    hint: "À faire, avec ou sans projet",
+    icon: "✅",
+    group: "activite",
+  },
+  {
     href: "/gestion/planning",
     label: "Calendrier",
     hint: "Rendez-vous et contenus à partager",
@@ -113,6 +120,7 @@ export const GESTION_QUICK_ACTIONS: readonly GestionQuickAction[] = [
   { id: "new-resource", href: "/gestion/planning/nouveau?resource=1", label: "Ajouter un document", hint: "PDF, vidéo, podcast" },
   { id: "new-contact", href: "/gestion/contacts/nouveau", label: "Nouvelle personne", hint: "Ajouter quelqu'un" },
   { id: "new-event", href: "/gestion/planning/nouveau", label: "Planifier un rendez-vous", hint: "Ajouter au planning" },
+  { id: "new-task", href: "/briefing#board-tasks", label: "Ajouter une tâche", hint: "Visible dans Aujourd'hui" },
   { id: "new-quote", href: "/gestion/devis/nouveau", label: "Nouveau devis", hint: "Créer un devis" },
 ] as const;
 
@@ -131,6 +139,7 @@ export const ESSENTIAL_GESTION_HREFS = new Set([
   "/gestion/playbooks",
   "/gestion/contacts",
   "/gestion/courrier",
+  "/gestion/taches",
   "/gestion/planning",
   "/gestion/devis",
 ]);

@@ -2,6 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../lib/serverApiBase";
 
+/** Le backend peut répondre un corps vide ou non JSON. */
+async function jsonFromUpstream(response: Response): Promise<NextResponse> {
+  const raw = await response.text();
+  let data: unknown = {};
+  if (raw.trim()) {
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      data = { detail: raw.trim().slice(0, 400) };
+    }
+  }
+  if (!response.ok) {
+    const row = data && typeof data === "object" ? (data as { detail?: unknown; error?: unknown }) : {};
+    const detail = typeof row.detail === "string" ? row.detail.trim() : "";
+    const error = typeof row.error === "string" ? row.error.trim() : "";
+    if (!detail && !error) {
+      data = {
+        detail: `Le serveur a répondu HTTP ${response.status} sans explication.`,
+      };
+    }
+  }
+  return NextResponse.json(data, {
+    status: response.status,
+    headers: { "Cache-Control": "no-store, max-age=0" },
+  });
+}
+
 function sessionHeaders(request: NextRequest): Headers | NextResponse {
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   if (!token) {
@@ -29,11 +56,7 @@ export async function GET(request: NextRequest) {
   }
   try {
     const r = await fetch(`${base}/admin/settings`, { headers, cache: "no-store" });
-    const data = await r.json().catch(() => ({}));
-    return NextResponse.json(data, {
-      status: r.status,
-      headers: { "Cache-Control": "no-store, max-age=0" },
-    });
+    return jsonFromUpstream(r);
   } catch (err) {
     return NextResponse.json({ error: backendUnreachableMessage(base, err) }, { status: 503 });
   }
@@ -59,11 +82,7 @@ export async function PUT(request: NextRequest) {
       cache: "no-store",
       body: JSON.stringify(body),
     });
-    const data = await r.json().catch(() => ({}));
-    return NextResponse.json(data, {
-      status: r.status,
-      headers: { "Cache-Control": "no-store, max-age=0" },
-    });
+    return jsonFromUpstream(r);
   } catch (err) {
     return NextResponse.json({ error: backendUnreachableMessage(base, err) }, { status: 503 });
   }
