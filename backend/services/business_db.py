@@ -83,6 +83,10 @@ def _text_pk() -> str:
     return "VARCHAR(191)" if _is_mariadb() else "TEXT"
 
 
+_biz_contacts_ready = False
+_biz_email_messages_ready = False
+
+
 def _table_columns(conn, table: str) -> set[str]:
     if _is_mariadb():
         cur = conn.execute(f"SHOW COLUMNS FROM {table}")
@@ -92,6 +96,10 @@ def _table_columns(conn, table: str) -> set[str]:
 
 
 def _ensure_biz_contacts_columns(conn) -> None:
+    """Migration au boot. Les lectures ne rappellent pas SHOW COLUMNS."""
+    global _biz_contacts_ready
+    if _biz_contacts_ready:
+        return
     cols = _table_columns(conn, "biz_contacts")
     alterations = {
         "website": "TEXT NOT NULL DEFAULT ''",
@@ -106,14 +114,19 @@ def _ensure_biz_contacts_columns(conn) -> None:
     for name, ddl in alterations.items():
         if name not in cols:
             conn.execute(f"ALTER TABLE biz_contacts ADD COLUMN {name} {ddl}")
+    _biz_contacts_ready = True
 
 
 def _ensure_biz_email_messages_columns(conn) -> None:
+    global _biz_email_messages_ready
+    if _biz_email_messages_ready:
+        return
     cols = _table_columns(conn, "biz_email_messages")
     if cols and "attachments_json" not in cols:
         conn.execute(
             "ALTER TABLE biz_email_messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'"
         )
+    _biz_email_messages_ready = True
 
 
 def _ensure_biz_calendar_event_columns(conn) -> None:
@@ -469,7 +482,36 @@ def serialize_calendar_event(row: dict | None, *, audience_ids: list[str] | None
     return out
 
 
+def _ensure_business_hot_indexes(conn) -> None:
+    from database import ensure_index
+
+    if _is_mariadb():
+        ensure_index(
+            conn,
+            "idx_email_msg_ws_thread_created",
+            "biz_email_messages",
+            "workspace_id, thread_id, created_at(32)",
+        )
+        ensure_index(
+            conn,
+            "idx_cal_ws_starts",
+            "biz_calendar_events",
+            "workspace_id, starts_at(32)",
+        )
+        return
+    ensure_index(
+        conn,
+        "idx_email_msg_ws_thread_created",
+        "biz_email_messages",
+        "workspace_id, thread_id, created_at",
+    )
+    ensure_index(conn, "idx_cal_ws_starts", "biz_calendar_events", "workspace_id, starts_at")
+
+
 def init_business_tables() -> None:
+    global _biz_contacts_ready, _biz_email_messages_ready
+    _biz_contacts_ready = False
+    _biz_email_messages_ready = False
     pk = _text_pk()
     with get_conn() as conn:
         conn.execute(f"""
@@ -645,6 +687,7 @@ def init_business_tables() -> None:
         from services.work_tasks import ensure_work_task_tables
 
         ensure_work_task_tables(conn)
+        _ensure_business_hot_indexes(conn)
         conn.commit()
     from services.work_tasks import import_eric_task_buckets
 
@@ -1158,7 +1201,6 @@ def upsert_contact(
 
 def get_contact(contact_id: str) -> dict | None:
     with get_conn() as conn:
-        _ensure_biz_contacts_columns(conn)
         row = conn.execute(
             "SELECT * FROM biz_contacts WHERE id=? AND workspace_id=?",
             (contact_id, _ws()),
@@ -1180,7 +1222,6 @@ def get_contacts_by_ids(contact_ids: list[str]) -> dict[str, dict]:
         return {}
     placeholders = ",".join("?" * len(ids))
     with get_conn() as conn:
-        _ensure_biz_contacts_columns(conn)
         rows = conn.execute(
             f"SELECT * FROM biz_contacts WHERE workspace_id=? AND id IN ({placeholders})",
             (_ws(), *ids),
@@ -1206,9 +1247,31 @@ def list_contacts(*, status: str | None = None, contact_type: str | None = None,
     sql += " ORDER BY updated_at DESC LIMIT ?"
     params.append(max(1, min(limit, 500)))
     with get_conn() as conn:
-        _ensure_biz_contacts_columns(conn)
         rows = conn.execute(sql, tuple(params)).fetchall()
     return [_hydrate_contact(dict(r)) for r in rows]
+
+
+def list_contact_reachability_rows(*, status: str = "active", limit: int = 120) -> list[dict]:
+    """Champs de joignabilité seulement — pas les notes ni l'historique."""
+    cap = max(1, min(int(limit or 120), 500))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, name, email, phone, contact_type, website, linkedin_url, "
+            "address, city, postal_code, socials_json "
+            "FROM biz_contacts WHERE workspace_id=? AND status=? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (_ws(), status, cap),
+        ).fetchall()
+    out: list[dict] = []
+    for row in rows or []:
+        item = dict(row)
+        try:
+            socials = json.loads(item.pop("socials_json", None) or "{}")
+        except json.JSONDecodeError:
+            socials = {}
+        item["socials"] = socials if isinstance(socials, dict) else {}
+        out.append(item)
+    return out
 
 
 def update_contact(contact_id: str, **fields: Any) -> dict | None:
@@ -3766,7 +3829,7 @@ def get_commercial_morning_snapshot() -> dict[str, Any]:
     stale_quotes = stale_quotes[:8]
 
     weak_contacts: list[dict] = []
-    for c in list_contacts(status="active", limit=120):
+    for c in list_contact_reachability_rows(status="active", limit=120):
         reach = c.get("reachability") if isinstance(c.get("reachability"), dict) else contact_reachability(c)
         level = str((reach or {}).get("level") or "")
         if level not in ("partial", "unreachable"):

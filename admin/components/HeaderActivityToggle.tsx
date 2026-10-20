@@ -15,13 +15,8 @@ export default function HeaderActivityToggle({ open, onToggle }: Props) {
   const active = useQuery({
     queryKey: QK.jobsActive,
     queryFn: () => fetchActiveAgentJobs(requestJson, agentHeaders),
-    refetchInterval: (query) => {
-      const list = query.state.data?.jobs ?? [];
-      const hasRunning = list.some((j) => j.status === "running" || j.status === "pending");
-      const base = hasRunning ? 2_500 : 12_000;
-      return adaptivePollInterval(base, base * 2);
-    },
-    staleTime: 1_500,
+    refetchInterval: () => adaptivePollInterval(15_000, 45_000),
+    staleTime: 10_000,
   });
 
   const jobs = active.data?.jobs ?? [];

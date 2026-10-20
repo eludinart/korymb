@@ -7,6 +7,9 @@ import type { AuthMeResponse } from "./authSession";
 
 export type UiMode = "essential" | "advanced";
 
+/** Une seule entrée de cache pour /api/auth/me dans le cockpit. */
+export const AUTH_ME_QUERY_KEY = ["auth-me"] as const;
+
 export function normalizeUiMode(raw: string | null | undefined): UiMode {
   return raw === "essential" ? "essential" : "advanced";
 }
@@ -41,7 +44,7 @@ export function useUiMode(): {
   const [error, setError] = useState("");
 
   const me = useQuery({
-    queryKey: ["auth-me-ui-mode"],
+    queryKey: AUTH_ME_QUERY_KEY,
     queryFn: fetchAuthMe,
     staleTime: 60_000,
   });
@@ -75,9 +78,7 @@ export function useUiMode(): {
               : "Impossible d'enregistrer le mode d'interface.",
           );
         }
-        await qc.invalidateQueries({ queryKey: ["auth-me-ui-mode"] });
-        await qc.invalidateQueries({ queryKey: ["auth-me-briefing"] });
-        await qc.invalidateQueries({ queryKey: ["auth-me-palette"] });
+        await qc.invalidateQueries({ queryKey: AUTH_ME_QUERY_KEY });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur.");
         throw err;

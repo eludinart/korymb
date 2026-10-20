@@ -15,7 +15,6 @@ SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "me
 from database import (
     _user_validated_set,
     _ws,
-    get_hitl_gate,
     list_autonomous_outputs,
     list_director_notifications,
     list_jobs_summary,
@@ -231,7 +230,7 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         # Suites chat rattachées : HITL / questions CIO restent visibles, pas la clôture (le parent porte le rituel).
         skip_closure = _is_chat_followup(row)
         if st == "awaiting_validation":
-            gate = get_hitl_gate(jid) or {"gate": row.get("hitl_gate") or {}}
+            gate = {"gate": row.get("hitl_gate") or {}}
             hk = _hitl_kind_from_gate(gate)
             items.append(_enrich_inbox_item({
                 "kind": "hitl",
@@ -579,7 +578,7 @@ def _memory_highlights(limit: int = 3) -> list[dict]:
         return []
 
 
-def _day_anticipation(*, limit: int = 5) -> dict[str, Any]:
+def _day_anticipation(*, limit: int = 5, due_follow_ups: list[dict] | None = None) -> dict[str, Any]:
     """Prochaines échéances planning (48 h) — anticipation légère pour le briefing."""
     lines: list[str] = []
     events_out: list[dict[str, Any]] = []
@@ -639,7 +638,10 @@ def _day_anticipation(*, limit: int = 5) -> dict[str, Any]:
     try:
         from services.business_db import list_due_crm_follow_ups
 
-        due = list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=5)
+        if due_follow_ups is None:
+            due = list_due_crm_follow_ups(include_overdue=True, days_ahead=0, limit=5)
+        else:
+            due = list(due_follow_ups)[:5]
         overdue_n = sum(1 for e in due if e.get("overdue"))
         if overdue_n:
             lines.insert(0, f"{overdue_n} relance{'s' if overdue_n > 1 else ''} commerciale{'s' if overdue_n > 1 else ''} en retard.")
@@ -1455,6 +1457,19 @@ def _ritual_status(inbox_total: int, budget: dict, *, llm_ready: bool = True) ->
 
 
 def build_briefing(*, period: str = "today") -> dict[str, Any]:
+    from services.briefing_cache import load_briefing, store_briefing
+
+    period_key = (period or "today").strip() or "today"
+    cache_key = f"{_ws()}:{period_key}"
+    cached = load_briefing(cache_key)
+    if cached is not None:
+        return cached
+    body = _build_briefing_uncached(period=period_key)
+    store_briefing(cache_key, body)
+    return body
+
+
+def _build_briefing_uncached(*, period: str = "today") -> dict[str, Any]:
     jobs = list_jobs_summary(limit=100)
     inbox = build_enriched_inbox(limit=50, jobs=jobs)
     running = [j for j in jobs if str(j.get("status") or "") == "running" and str(j.get("source") or "") != "chat"]
@@ -1619,7 +1634,9 @@ def build_briefing(*, period: str = "today") -> dict[str, Any]:
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
         "memory_highlights": memory_highlights,
         "memory_digest": _memory_digest(pending_count=pending_memory, highlights=memory_highlights),
-        "day_anticipation": _day_anticipation(),
+        "day_anticipation": _day_anticipation(
+            due_follow_ups=list((commercial or {}).get("follow_ups_due_today") or []),
+        ),
         "thinking_modes": thinking_modes_list,
         "inbox_severity": severity_counts,
         "ritual_status": _ritual_status(

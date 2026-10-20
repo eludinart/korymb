@@ -351,7 +351,7 @@ export default function AgentWorkActivityBar({ panelMode = false }: { panelMode?
     refetchInterval: (query) => {
       const list = query.state.data?.jobs ?? [];
       const hasRunning = list.some((j) => j.status === "running" || j.status === "pending");
-      const base = hasRunning ? 2_500 : 12_000;
+      const base = hasRunning ? 2_500 : 15_000;
       return adaptivePollInterval(base, base * 2);
     },
     staleTime: 1_500,

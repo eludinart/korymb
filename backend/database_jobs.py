@@ -103,7 +103,6 @@ def get_hitl_gate(job_id: str) -> dict | None:
     import database as db
 
     with db.get_conn() as conn:
-        db._ensure_jobs_hitl_column(conn)
         row = conn.execute(
             "SELECT hitl_gate_json, hitl_resolved_at, hitl_comment, hitl_resolution_json FROM jobs "
             "WHERE id = ? AND workspace_id = ?",

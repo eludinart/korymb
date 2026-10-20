@@ -18,7 +18,7 @@ import {
 import { useUndoRibbon } from "../../lib/undoRibbon";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { QK } from "../../lib/queryClient";
-import { useUiMode } from "../../lib/uiMode";
+import { AUTH_ME_QUERY_KEY, fetchAuthMe, useUiMode } from "../../lib/uiMode";
 
 import type { Job } from "../../lib/types";
 
@@ -41,16 +41,9 @@ function BriefingPageContent() {
   }, []);
 
   const me = useQuery({
-    queryKey: ["auth-me-briefing"],
-    queryFn: async () => {
-      const r = await fetch("/api/auth/me", { cache: "no-store" });
-      if (!r.ok) return null;
-      return r.json() as Promise<{
-        user?: { name?: string; email?: string; display_name?: string };
-        workspace?: { ui_mode?: string };
-      }>;
-    },
-    staleTime: 300_000,
+    queryKey: AUTH_ME_QUERY_KEY,
+    queryFn: fetchAuthMe,
+    staleTime: 60_000,
   });
 
   const briefing = useQuery({
@@ -103,7 +96,7 @@ function BriefingPageContent() {
     | undefined;
   const jobRows = jobs.data || [];
   const userName =
-    me.data?.user?.display_name || me.data?.user?.name || me.data?.user?.email?.split("@")[0];
+    me.data?.user?.display_name || me.data?.user?.email?.split("@")[0];
 
   const deleteMission = (jobId: string, mission?: string) => {
     const label = (mission || jobId).trim() || jobId;

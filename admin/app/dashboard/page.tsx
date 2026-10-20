@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AgentDeleteDialog from "../../components/admin/AgentDeleteDialog";
 import FleetDeleteDialog from "../../components/admin/FleetDeleteDialog";
 import { formatHttpApiErrorPayload, agentHeaders, requestJson } from "../../lib/api";
-import type { AuthMeResponse } from "../../lib/authSession";
+import { AUTH_ME_QUERY_KEY, fetchAuthMe } from "../../lib/uiMode";
 import {
   BTN_DELETE,
   collectMissionDeleteJobIds,
@@ -396,12 +396,8 @@ export default function DashboardPage() {
     refetchInterval: () => visibleInterval(30000),
   });
   const me = useQuery({
-    queryKey: ["auth-me"],
-    queryFn: async () => {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
-      if (!res.ok) return null;
-      return (await res.json()) as AuthMeResponse;
-    },
+    queryKey: AUTH_ME_QUERY_KEY,
+    queryFn: fetchAuthMe,
     staleTime: 60_000,
   });
   const canAdmin = me.data?.role === "admin";

@@ -18,6 +18,7 @@ from services.business_db import (
     _new_id,
     _ws,
     get_contact,
+    get_contacts_by_ids,
     is_crm_follow_up_title,
     list_calendar_events,
     log_interaction,
@@ -230,18 +231,106 @@ def _preview_from_message(msg: dict | None) -> str:
     return text[:220]
 
 
+def _contact_card_from_row(contact_id: str, row: dict | None) -> dict:
+    if not row:
+        return {"id": contact_id, "name": "", "email": ""}
+    return {
+        "id": str(row.get("id") or contact_id),
+        "name": str(row.get("name") or ""),
+        "email": str(row.get("email") or ""),
+    }
+
+
 def _contact_card(contact_id: str | None) -> dict | None:
     cid = str(contact_id or "").strip()
     if not cid:
         return None
-    row = get_contact(cid)
-    if not row:
-        return {"id": cid, "name": "", "email": ""}
-    return {
-        "id": str(row.get("id") or cid),
-        "name": str(row.get("name") or ""),
-        "email": str(row.get("email") or ""),
-    }
+    return _contact_card_from_row(cid, get_contact(cid))
+
+
+def _thread_mail_facts(thread_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Dernier extrait + compteurs de tous les fils, en deux lectures."""
+    ids: list[str] = []
+    seen: set[str] = set()
+    for raw in thread_ids:
+        tid = str(raw or "").strip()
+        if not tid or tid in seen:
+            continue
+        seen.add(tid)
+        ids.append(tid)
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    ws = _ws()
+    facts: dict[str, dict[str, Any]] = {}
+    with get_conn() as conn:
+        counts = conn.execute(
+            "SELECT thread_id, COUNT(*) AS n, "
+            "SUM(CASE WHEN attachments_json IS NOT NULL "
+            "AND TRIM(attachments_json) NOT IN ('', '[]', 'null') THEN 1 ELSE 0 END) AS att "
+            f"FROM biz_email_messages WHERE workspace_id=? AND thread_id IN ({placeholders}) "
+            "GROUP BY thread_id",
+            (ws, *ids),
+        ).fetchall()
+        lasts = conn.execute(
+            "SELECT m.thread_id, m.direction, SUBSTR(COALESCE(m.body, ''), 1, 2000) AS body "
+            "FROM biz_email_messages m "
+            "INNER JOIN ("
+            "SELECT thread_id, MAX(created_at) AS max_created "
+            f"FROM biz_email_messages WHERE workspace_id=? AND thread_id IN ({placeholders}) "
+            "GROUP BY thread_id"
+            ") latest ON latest.thread_id = m.thread_id AND latest.max_created = m.created_at "
+            "WHERE m.workspace_id=?",
+            (ws, *ids, ws),
+        ).fetchall()
+    for row in counts or []:
+        item = dict(row)
+        tid = str(item.get("thread_id") or "")
+        if not tid:
+            continue
+        facts[tid] = {
+            "message_count": int(item.get("n") or 0),
+            "has_attachments": int(item.get("att") or 0) > 0,
+            "direction": "",
+            "body": "",
+        }
+    for row in lasts or []:
+        item = dict(row)
+        tid = str(item.get("thread_id") or "")
+        if not tid:
+            continue
+        slot = facts.setdefault(
+            tid,
+            {"message_count": 0, "has_attachments": False, "direction": "", "body": ""},
+        )
+        body = str(item.get("body") or "")
+        if not str(slot.get("body") or "") or len(body) >= len(str(slot.get("body") or "")):
+            slot["direction"] = str(item.get("direction") or "")
+            slot["body"] = body
+    return facts
+
+
+def _decorate_mailbox_threads(raw: list[dict]) -> list[dict]:
+    """Ajoute seau, aperçu et contact sans relire chaque fil."""
+    facts = _thread_mail_facts([str(thread.get("id") or "") for thread in raw])
+    contacts = get_contacts_by_ids([str(thread.get("contact_id") or "") for thread in raw])
+    items: list[dict] = []
+    for thread in raw:
+        tid = str(thread.get("id") or "")
+        fact = facts.get(tid) or {}
+        direction = str(fact.get("direction") or "")
+        body = str(fact.get("body") or "")
+        last = {"direction": direction, "body": body, "reply_text": body} if direction or body else None
+        item = dict(thread)
+        item["bucket"] = _mailbox_bucket(thread, [last] if last else [])
+        cid = str(thread.get("contact_id") or "").strip()
+        item["contact"] = _contact_card_from_row(cid, contacts.get(cid)) if cid else None
+        item["last_direction"] = direction
+        item["preview"] = _preview_from_message(last)
+        item["message_count"] = int(fact.get("message_count") or 0)
+        item["has_attachments"] = bool(fact.get("has_attachments"))
+        items.append(item)
+    return items
 
 
 def list_pending_email_drafts(*, limit: int = 40) -> list[dict]:
@@ -252,6 +341,7 @@ def list_pending_email_drafts(*, limit: int = 40) -> list[dict]:
         return []
     tickets = list_actions(status="pending", limit=max(1, min(200, int(limit or 40) * 3)))
     out: list[dict] = []
+    cap = max(1, min(80, int(limit or 40)))
     for ticket in tickets:
         if str(ticket.get("kind") or "") != "email":
             continue
@@ -265,13 +355,16 @@ def list_pending_email_drafts(*, limit: int = 40) -> list[dict]:
                 "subject": str(payload.get("subject") or ""),
                 "to": str(payload.get("to") or ""),
                 "contact_id": cid,
-                "contact": _contact_card(cid) if cid else None,
                 "created_at": ticket.get("created_at") or "",
                 "attachment_count": len(atts),
             }
         )
-        if len(out) >= max(1, min(80, int(limit or 40))):
+        if len(out) >= cap:
             break
+    contacts = get_contacts_by_ids([str(row.get("contact_id") or "") for row in out])
+    for row in out:
+        cid = str(row.get("contact_id") or "").strip()
+        row["contact"] = _contact_card_from_row(cid, contacts.get(cid)) if cid else None
     return out
 
 
@@ -297,23 +390,15 @@ def list_mailbox(*, bucket: str = "all", limit: int = 80) -> dict[str, Any]:
     if wanted not in {"all", "needs_reply", "awaiting", "closed"}:
         wanted = "all"
     raw = list_email_threads(limit=max(1, min(200, int(limit or 80))))
+    decorated = _decorate_mailbox_threads(raw)
     items: list[dict] = []
     counts = {"needs_reply": 0, "awaiting": 0, "closed": 0, "all": 0}
-    for thread in raw:
-        msgs = list_email_messages(str(thread.get("id") or ""), limit=100)
-        bkt = _mailbox_bucket(thread, msgs)
+    for item in decorated:
+        bkt = str(item.get("bucket") or "")
         counts["all"] += 1
         counts[bkt] = int(counts.get(bkt) or 0) + 1
         if wanted != "all" and bkt != wanted:
             continue
-        last = msgs[-1] if msgs else None
-        item = dict(thread)
-        item["bucket"] = bkt
-        item["contact"] = _contact_card(str(thread.get("contact_id") or "") or None)
-        item["last_direction"] = str((last or {}).get("direction") or "")
-        item["preview"] = _preview_from_message(last)
-        item["message_count"] = len(msgs)
-        item["has_attachments"] = any(bool(m.get("attachments")) for m in msgs)
         items.append(item)
     drafts = list_pending_email_drafts(limit=40)
     return {
@@ -942,39 +1027,43 @@ def prepare_contact_email_ticket(
 
 
 def email_prospecting_stats(*, limit_open: int = 8) -> dict[str, Any]:
-    """Stats pour briefing commercial."""
-    mailbox = list_mailbox(bucket="all", limit=80)
-    counts = mailbox.get("counts") or {}
-    open_threads = list_email_threads(status="open", limit=limit_open)
-    awaiting: list[dict] = []
-    for t in open_threads:
-        awaiting.append(
-            {
-                "id": t.get("id"),
-                "contact_id": t.get("contact_id"),
-                "subject": t.get("subject"),
-                "to_email": t.get("to_email"),
-                "last_message_at": t.get("last_message_at") or t.get("updated_at"),
-            }
-        )
-    needs = [t for t in (mailbox.get("threads") or []) if t.get("bucket") == "needs_reply"]
+    """Compteurs briefing. Ne charge pas les corps de la boîte (page Courrier)."""
+    decorated = _decorate_mailbox_threads(list_email_threads(limit=80))
+    counts = {"needs_reply": 0, "awaiting": 0, "closed": 0}
+    for thread in decorated:
+        bucket = str(thread.get("bucket") or "")
+        if bucket in counts:
+            counts[bucket] += 1
+    open_cap = max(1, min(40, int(limit_open or 8)))
+    open_threads = list_email_threads(status="open", limit=open_cap)
+    needs = [thread for thread in decorated if thread.get("bucket") == "needs_reply"][:8]
+    drafts = list_pending_email_drafts(limit=40)
     return {
-        "open_threads": awaiting,
+        "open_threads": [
+            {
+                "id": thread.get("id"),
+                "contact_id": thread.get("contact_id"),
+                "subject": thread.get("subject"),
+                "to_email": thread.get("to_email"),
+                "last_message_at": thread.get("last_message_at") or thread.get("updated_at"),
+            }
+            for thread in open_threads
+        ],
         "needs_reply": [
             {
-                "id": t.get("id"),
-                "contact_id": t.get("contact_id"),
-                "subject": t.get("subject"),
-                "to_email": t.get("to_email"),
-                "preview": t.get("preview"),
+                "id": thread.get("id"),
+                "contact_id": thread.get("contact_id"),
+                "subject": thread.get("subject"),
+                "to_email": thread.get("to_email"),
+                "preview": thread.get("preview"),
             }
-            for t in needs[:8]
+            for thread in needs
         ],
         "counts": {
             "email_threads_open": int(counts.get("awaiting") or len(open_threads)),
             "email_threads_needs_reply": int(counts.get("needs_reply") or 0),
             "email_threads_replied_recent": int(counts.get("needs_reply") or 0),
-            "email_drafts_pending": int(counts.get("drafts") or 0),
+            "email_drafts_pending": len(drafts),
         },
     }
 

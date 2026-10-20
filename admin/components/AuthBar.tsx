@@ -1,36 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { AuthMeResponse } from "../lib/authSession";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { queryClient } from "../lib/queryClient";
+import { AUTH_ME_QUERY_KEY, fetchAuthMe } from "../lib/uiMode";
 
 export default function AuthBar() {
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
-  const [me, setMe] = useState<AuthMeResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
-      if (res.ok) {
-        setMe((await res.json()) as AuthMeResponse);
-      } else {
-        setMe(null);
-      }
-    } catch {
-      setMe(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const meQuery = useQuery({
+    queryKey: AUTH_ME_QUERY_KEY,
+    queryFn: fetchAuthMe,
+    staleTime: 60_000,
+  });
+  const me = meQuery.data ?? null;
+  const loading = meQuery.isPending;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -83,7 +70,6 @@ export default function AuthBar() {
 
   async function logout() {
     setMenuOpen(false);
-    setMe(null);
     await fetch("/api/auth/logout", { method: "POST" });
     queryClient.clear();
     window.location.assign("/");

@@ -565,6 +565,32 @@ def get_conn():
     return conn
 
 
+def ensure_index(conn, name: str, table: str, columns_sql: str) -> None:
+    """Crée un index. Un index déjà là, ou un DDL refusé, ne bloque pas le boot."""
+    sql = f"CREATE INDEX IF NOT EXISTS {name} ON {table} ({columns_sql})"
+    try:
+        conn.execute(sql)
+    except Exception:
+        try:
+            conn.execute(f"CREATE INDEX {name} ON {table} ({columns_sql})")
+        except Exception:
+            pass
+
+
+def _ensure_job_hot_indexes(conn) -> None:
+    if _is_mariadb():
+        ensure_index(conn, "idx_jobs_ws_created", "jobs", "workspace_id, created_at(32)")
+        ensure_index(
+            conn,
+            "idx_jobs_ws_status_updated",
+            "jobs",
+            "workspace_id, status(32), updated_at(32)",
+        )
+        return
+    ensure_index(conn, "idx_jobs_ws_created", "jobs", "workspace_id, created_at")
+    ensure_index(conn, "idx_jobs_ws_status_updated", "jobs", "workspace_id, status, updated_at")
+
+
 def _ensure_mission_events_table(conn) -> None:
     """Table events requêteable (dual-write avec jobs.events_json)."""
     text_pk = "VARCHAR(191)" if _is_mariadb() else "TEXT"
@@ -647,8 +673,18 @@ def persist_job_events(job_id: str, events: list) -> None:
     append_mission_events_rows(jid, events)
 
 
+_jobs_columns_ready = False
+_jobs_hitl_ready = False
+
+
 def _ensure_jobs_columns(conn) -> None:
-    """Ajoute les colonnes manquantes si la DB a été créée avec une ancienne version."""
+    """Ajoute les colonnes manquantes si la DB a été créée avec une ancienne version.
+
+    Une fois le boot passé, les lectures ne refont plus SHOW COLUMNS.
+    """
+    global _jobs_columns_ready
+    if _jobs_columns_ready:
+        return
     if _is_mariadb():
         cur = conn.execute("SHOW COLUMNS FROM jobs")
         cols = {str(row["Field"]) for row in cur.fetchall()}
@@ -691,6 +727,7 @@ def _ensure_jobs_columns(conn) -> None:
         conn.execute("ALTER TABLE jobs ADD COLUMN checkpoint_thread_id TEXT NOT NULL DEFAULT ''")
     _ensure_jobs_hitl_column(conn)
     _ensure_jobs_longtext_columns(conn)
+    _jobs_columns_ready = True
 
 
 def _ensure_jobs_longtext_columns(conn) -> None:
@@ -1224,6 +1261,9 @@ def _hydrate_job_row(d: dict) -> dict:
 
 
 def init_db():
+    global _jobs_columns_ready, _jobs_hitl_ready
+    _jobs_columns_ready = False
+    _jobs_hitl_ready = False
     started = time.perf_counter()
     token = None
     token_idx = None
@@ -1344,6 +1384,7 @@ def _init_db_schema_and_seeds() -> None:
         ensure_saas_tables(conn)
         ensure_workspace_columns(conn)
         _ensure_mission_events_table(conn)
+        _ensure_job_hot_indexes(conn)
         conn.commit()
     logger.info("init_db schéma en %.1fs", time.perf_counter() - phase)
     from tenant_context import clear_tenant_context, get_workspace_id, set_tenant_context
@@ -2278,6 +2319,15 @@ def update_job_mission_text(job_id: str, mission: str) -> bool:
         return int(getattr(cur, "rowcount", 0) or 0) > 0
 
 
+def _bust_briefing_cache() -> None:
+    try:
+        from services.briefing_cache import invalidate_briefing_cache
+
+        invalidate_briefing_cache()
+    except Exception:
+        pass
+
+
 def save_job(
     job_id: str,
     agent: str,
@@ -2300,6 +2350,7 @@ def save_job(
             (job_id, agent, mission, source, cfg_json, parent, session_id, wid, now, now),
         )
         conn.commit()
+    _bust_briefing_cache()
 
 
 def update_job(
@@ -2360,6 +2411,7 @@ def update_job(
         conn.commit()
     if events is not None:
         append_mission_events_rows(job_id, events)
+    _bust_briefing_cache()
 
 
 def set_job_status_quick(job_id: str, status: str) -> None:
@@ -2371,6 +2423,7 @@ def set_job_status_quick(job_id: str, status: str) -> None:
             (str(status or "")[:32], now, job_id, _ws()),
         )
         conn.commit()
+    _bust_briefing_cache()
 
 
 def list_orphan_active_job_rows(limit: int = 40) -> list[dict]:
@@ -3248,6 +3301,7 @@ def job_mark_result_consulted(job_id: str) -> dict | None:
             (now, jid, _ws()),
         )
         conn.commit()
+    _bust_briefing_cache()
     return {"job_id": jid, "result_consulted_at": now, "already": False}
 
 
@@ -3258,7 +3312,6 @@ def list_unconsulted_result_jobs(*, limit: int = 15) -> list[dict]:
     """
     lim = max(1, min(int(limit or 15), 40))
     with get_conn() as conn:
-        _ensure_jobs_columns(conn)
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, parent_job_id, updated_at, created_at, "
             "result_surface, user_validated_at, result_consulted_at "
@@ -3345,6 +3398,9 @@ from database_jobs import (  # noqa: E402
 
 def _ensure_jobs_hitl_column(conn) -> None:
     """Ajoute les colonnes HITL si absentes (migration non-destructive)."""
+    global _jobs_hitl_ready
+    if _jobs_hitl_ready:
+        return
     if _is_mariadb():
         cur = conn.execute("SHOW COLUMNS FROM jobs")
         cols = {str(row["Field"]) for row in cur.fetchall()}
@@ -3360,6 +3416,7 @@ def _ensure_jobs_hitl_column(conn) -> None:
     if "hitl_resolution_json" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN hitl_resolution_json TEXT")
     conn.commit()
+    _jobs_hitl_ready = True
 
 
 def _ensure_mission_sessions_columns(conn) -> None:
@@ -5094,12 +5151,107 @@ def list_jobs_active_rows(limit: int = 24) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
-            "chat_session_id, team_trace, tokens_in, tokens_out, events_json "
+            "chat_session_id, team_trace, tokens_in, tokens_out "
             "FROM jobs WHERE workspace_id=? AND status IN ('running', 'pending', 'awaiting_validation', 'paused') "
             "ORDER BY updated_at DESC LIMIT ?",
             (_ws(), lim),
         ).fetchall()
     return [dict(row) for row in rows or []]
+
+
+def list_jobs_by_ids_light(job_ids: list[str]) -> list[dict]:
+    """Même projection que le bandeau, pour les jobs encore seulement en mémoire."""
+    ids = [str(jid or "").strip() for jid in job_ids if str(jid or "").strip()]
+    if not ids:
+        return []
+    placeholders = ",".join("?" * len(ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, agent, mission, status, source, created_at, updated_at, parent_job_id, "
+            "chat_session_id, team_trace, tokens_in, tokens_out "
+            f"FROM jobs WHERE workspace_id=? AND id IN ({placeholders})",
+            (_ws(), *ids),
+        ).fetchall()
+    return [dict(row) for row in rows or []]
+
+
+def list_recent_mission_events(job_ids: list[str], *, per_job: int = 12) -> dict[str, list[dict]]:
+    """Derniers événements par job, sans lire jobs.events_json."""
+    ids = []
+    seen: set[str] = set()
+    for raw in job_ids:
+        jid = str(raw or "").strip()
+        if not jid or jid in seen:
+            continue
+        seen.add(jid)
+        ids.append(jid)
+    if not ids:
+        return {}
+    cap = max(1, min(int(per_job or 12), 40))
+    placeholders = ",".join("?" * len(ids))
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(
+                "SELECT job_id, kind, agent, payload_json, created_at FROM ("
+                "SELECT job_id, kind, agent, payload_json, created_at, "
+                "ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY id DESC) AS rn "
+                "FROM mission_events WHERE workspace_id=? "
+                f"AND job_id IN ({placeholders})"
+                ") ranked WHERE rn <= ?",
+                (_ws(), *ids, cap),
+            ).fetchall()
+    except Exception:
+        return {}
+    grouped: dict[str, list[dict]] = {}
+    for row in rows or []:
+        item = dict(row)
+        jid = str(item.get("job_id") or "")
+        if not jid:
+            continue
+        try:
+            payload = json.loads(item.get("payload_json") or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        grouped.setdefault(jid, []).append({
+            "type": str(item.get("kind") or ""),
+            "agent": str(item.get("agent") or ""),
+            "ts": str(item.get("created_at") or ""),
+            "payload": payload,
+        })
+    for events in grouped.values():
+        events.sort(key=lambda ev: str(ev.get("ts") or ""))
+    return grouped
+
+
+def _events_json_for_cio_jobs(job_ids: list[str]) -> dict[str, str]:
+    """Charge events_json seulement pour les jobs qui ont une question CIO."""
+    ids = [str(jid or "").strip() for jid in job_ids if str(jid or "").strip()]
+    if not ids:
+        return {}
+    placeholders = ",".join("?" * len(ids))
+    with get_conn() as conn:
+        marked = conn.execute(
+            "SELECT DISTINCT job_id FROM mission_events "
+            f"WHERE workspace_id=? AND kind='cio_question' AND job_id IN ({placeholders})",
+            (_ws(), *ids),
+        ).fetchall()
+    cio_ids = [str(dict(row).get("job_id") or "") for row in marked or []]
+    cio_ids = [jid for jid in cio_ids if jid]
+    if not cio_ids:
+        return {}
+    placeholders = ",".join("?" * len(cio_ids))
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT id, events_json FROM jobs WHERE workspace_id=? AND id IN ({placeholders})",
+            (_ws(), *cio_ids),
+        ).fetchall()
+    out: dict[str, str] = {}
+    for row in rows or []:
+        item = dict(row)
+        out[str(item.get("id") or "")] = str(item.get("events_json") or "")
+    return out
 
 
 def list_jobs_cards_light(limit: int = 80) -> list[dict]:
@@ -5146,15 +5298,16 @@ def list_jobs_summary(limit: int = 80) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, tokens_in, tokens_out, "
-            "user_validated_at, parent_job_id, hitl_gate_json, events_json "
+            "user_validated_at, parent_job_id, hitl_gate_json "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
         ).fetchall()
+    parsed: list[dict] = [dict(row) for row in rows or []]
+    blobs = _events_json_for_cio_jobs([str(row.get("id") or "") for row in parsed])
     out: list[dict] = []
-    for row in rows or []:
-        d = dict(row)
-        raw_events = d.pop("events_json", None)
-        d["events"] = _cio_events_from_events_json(str(raw_events or "[]"))
+    for d in parsed:
+        raw_events = blobs.get(str(d.get("id") or ""))
+        d["events"] = _cio_events_from_events_json(raw_events) if raw_events else []
         try:
             gate = json.loads(d.pop("hitl_gate_json", None) or "{}")
         except json.JSONDecodeError:

@@ -449,6 +449,8 @@ def _active_job_payload(job_id: str, mem: dict | None, row: dict | None) -> dict
     src_row = row or {}
     status = str(src_mem.get("status") or src_row.get("status") or "")
     events = src_mem.get("events") if isinstance(src_mem.get("events"), list) else []
+    if not events and isinstance(src_row.get("recent_events"), list):
+        events = src_row.get("recent_events") or []
     if not events and src_row.get("events_json"):
         try:
             import json as _json
@@ -486,22 +488,45 @@ def _active_job_payload(job_id: str, mem: dict | None, row: dict | None) -> dict
 @router.get("/jobs/active", dependencies=[Depends(resolve_tenant)])
 def list_active_jobs_route():
     """Jobs en cours (mémoire vive + base) pour le bandeau d'activité global."""
-    from database import list_jobs_active_rows
+    from database import list_jobs_active_rows, list_jobs_by_ids_light, list_recent_mission_events
 
+    by_id = {str(row.get("id") or ""): row for row in list_jobs_active_rows(limit=24)}
+    by_id.pop("", None)
+    missing = [
+        str(jid)
+        for jid, mem in active_jobs.items()
+        if str(mem.get("status") or "") in _ACTIVE_JOB_STATUSES and str(jid) not in by_id
+    ]
+    for row in list_jobs_by_ids_light(missing):
+        by_id[str(row.get("id") or "")] = row
+
+    pending: list[tuple[str, dict | None, dict]] = []
+    need_events: list[str] = []
     seen: set[str] = set()
-    out: list[dict] = []
     for jid, mem in active_jobs.items():
         st = str(mem.get("status") or "")
         if st not in _ACTIVE_JOB_STATUSES:
             continue
-        out.append(_active_job_payload(str(jid), mem, db_get_job(str(jid))))
-        seen.add(str(jid))
-    for row in list_jobs_active_rows(limit=24):
+        key = str(jid)
+        mem_events = mem.get("events") if isinstance(mem.get("events"), list) else []
+        if not mem_events:
+            need_events.append(key)
+        pending.append((key, mem, dict(by_id.get(key) or {})))
+        seen.add(key)
+    for row in by_id.values():
         jid = str(row.get("id") or "")
         if not jid or jid in seen:
             continue
-        out.append(_active_job_payload(jid, active_jobs.get(jid), row))
+        need_events.append(jid)
+        pending.append((jid, active_jobs.get(jid), dict(row)))
         seen.add(jid)
+    recent = list_recent_mission_events(need_events) if need_events else {}
+    out: list[dict] = []
+    for jid, mem, row in pending:
+        mem_events = (mem or {}).get("events") if isinstance((mem or {}).get("events"), list) else []
+        if not mem_events:
+            row["recent_events"] = recent.get(jid, [])
+        out.append(_active_job_payload(jid, mem, row))
     out.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     _rank = {"running": 0, "paused": 1, "pending": 2, "awaiting_validation": 3}
     out.sort(key=lambda x: _rank.get(str(x.get("status") or ""), 9))
