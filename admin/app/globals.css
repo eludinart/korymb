@@ -12,6 +12,23 @@
   --accent-amber: #d97706;
   --accent-emerald: #059669;
   --accent-rose: #e11d48;
+  --primary: 263 70% 42%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --destructive: 0 72% 46%;
+  --destructive-foreground: 0 0% 100%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 40%;
+  --accent: 250 100% 97%;
+  --accent-foreground: 263 60% 30%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --border: 214 32% 86%;
+  --input: 214 32% 86%;
+  --ring: 263 70% 50%;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
@@ -36,6 +53,23 @@ html.dark {
   --accent-amber: #fbbf24;
   --accent-emerald: #34d399;
   --accent-rose: #fb7185;
+  --primary: 263 80% 76%;
+  --primary-foreground: 263 50% 12%;
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 96%;
+  --destructive: 0 72% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 75%;
+  --accent: 263 40% 18%;
+  --accent-foreground: 250 100% 96%;
+  --card: 222 47% 11%;
+  --card-foreground: 210 40% 96%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 96%;
+  --border: 217 19% 27%;
+  --input: 217 19% 27%;
+  --ring: 263 80% 76%;
   --theme-body-from: #070b14;
   --theme-body-mid: #0b1220;
   --theme-body-to: #111827;
@@ -704,7 +738,7 @@ html.dark .pull-refresh-cue {
 
   /* ── Buttons ── */
   .btn-primary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-violet-800 active:scale-[0.98] disabled:opacity-50;
+    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-700 px-4 py-2.5 text-sm font-bold text-white transition duration-150 hover:bg-violet-800 active:scale-[0.98] disabled:opacity-50;
     box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.35), 0 10px 24px rgba(109, 40, 217, 0.28);
   }
 
@@ -729,11 +763,11 @@ html.dark .pull-refresh-cue {
   }
 
   .btn-link-primary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition hover:bg-violet-200 dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-700 dark:hover:bg-violet-900;
+    @apply touch-target inline-flex items-center justify-center rounded-xl bg-violet-100 px-3 py-2 text-sm font-bold text-violet-900 ring-1 ring-violet-200 transition duration-150 hover:bg-violet-200 active:scale-[0.98] dark:bg-violet-950 dark:text-violet-100 dark:ring-violet-700 dark:hover:bg-violet-900;
   }
 
   .btn-link-secondary {
-    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition hover:bg-slate-50 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
+    @apply touch-target inline-flex items-center justify-center rounded-xl border-2 border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 transition duration-150 hover:bg-slate-50 active:scale-[0.98] dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800;
   }
 
   .input-field {
@@ -1256,11 +1290,45 @@ html.dark .hud-title-accent {
     animation: none;
   }
 
+  .btn-primary,
+  .btn-secondary,
+  .btn-success,
+  .btn-danger,
+  .btn-amber,
+  .btn-link-primary,
+  .btn-link-secondary,
+  .hud-btn {
+    transform: none;
+  }
+
   .section-card:hover,
   .stat-card:hover,
   .action-card:hover,
   .hud-panel:hover,
   .hud-btn:hover {
     transform: none;
+  }
+}
+
+@layer base {
+  :root {
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+  .dark {
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }

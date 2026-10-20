@@ -120,7 +120,11 @@ export default function MissionsHubToolbar({
           </button>
         ) : null}
       </div>
-      <button type="button" onClick={onToggleCreate} className="btn-primary w-full px-3 text-sm sm:w-auto">
+      <button
+        type="button"
+        onClick={onToggleCreate}
+        className={`${activeCount === 0 && !showCreate ? "btn-primary" : "btn-secondary"} w-full px-3 text-sm sm:w-auto`}
+      >
         {showCreate ? "Masquer" : "Nouvelle mission"}
       </button>
     </div>

@@ -245,7 +245,9 @@ function ItemLink({ item, placeFirst = false }: { item: OpsBoardItem; placeFirst
           </span>
         )}
       </span>
-      <span className="hidden shrink-0 pt-0.5 text-xs font-bold text-violet-700 sm:inline dark:text-violet-300">Ouvrir</span>
+      <span className="shrink-0 self-center rounded-lg bg-white px-2 py-1 text-xs font-bold text-violet-800 ring-1 ring-violet-200 transition active:scale-[0.98] dark:bg-slate-900 dark:text-violet-100 dark:ring-violet-700">
+        Ouvrir
+      </span>
     </Link>
   );
 }
@@ -529,7 +531,7 @@ function MilestoneSection({ milestones }: { milestones: ProjectMilestonesBlock }
 
 function EmptyLine({ children }: { children: string }) {
   return (
-    <p className="rounded-xl border border-dashed border-slate-200 px-3 py-3 text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">
+    <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-300">
       {children}
     </p>
   );
@@ -675,10 +677,25 @@ export default function BriefingBoard({
             ) : null}
           </p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <Link href="/missions?create=1" className="btn-link-primary">
-            Nouvelle intention
-          </Link>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          {urgentCount > 0 ? (
+            <a href="#board-urgent" className="btn-primary">
+              Traiter maintenant
+            </a>
+          ) : todoCount > 0 ? (
+            <a href="#board-todo" className="btn-primary">
+              Décider
+            </a>
+          ) : (
+            <Link href="/missions?create=1" className="btn-primary">
+              Nouvelle intention
+            </Link>
+          )}
+          {urgentCount > 0 || todoCount > 0 ? (
+            <Link href="/missions?create=1" className="btn-link-secondary">
+              Nouvelle intention
+            </Link>
+          ) : null}
           <Link href="/inbox" className="btn-link-secondary">
             Décisions{inboxTotal > 0 ? ` (${inboxTotal})` : ""}
           </Link>
@@ -728,8 +745,10 @@ export default function BriefingBoard({
           >
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-sm font-extrabold text-rose-950 dark:text-rose-100">Urgent</h2>
-                <p className="mt-0.5 text-xs text-rose-800/80 dark:text-rose-200/80">À traiter avant le reste.</p>
+                <h2 className="text-base font-extrabold text-rose-950 dark:text-rose-100">À faire maintenant</h2>
+                <p className="mt-0.5 text-xs text-rose-800/80 dark:text-rose-200/80">
+                  {urgentCount === 1 ? "Une chose avant le reste." : `${urgentCount} choses avant le reste.`}
+                </p>
               </div>
               <Link href="/inbox?severity=critical" className="text-xs font-bold text-rose-800 hover:underline dark:text-rose-200">
                 File des décisions

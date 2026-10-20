@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import ContactReachabilityBadge from "../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "../../../components/ui/empty";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../../components/ui/table";
 import { businessApi, type BizContact } from "../../../lib/business";
 import { CONTACT_PROFILE_DEFS, contactMatchesProfile, extraProfileTags } from "../../../lib/contactProfiles";
 import { getContactReachability } from "../../../lib/contactReachability";
@@ -193,75 +195,87 @@ export default function GestionContactsPage() {
           </AlertBox>
         ) : null}
         {!contacts.isLoading && (contacts.data || []).length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Personne pour l&apos;instant.{" "}
-            <Link href="/gestion/contacts/nouveau" className="font-medium text-emerald-800 underline">
-              Ajouter quelqu&apos;un
-            </Link>
-          </p>
+          <Empty className="border border-dashed border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900">
+            <EmptyHeader>
+              <EmptyTitle>Personne pour l&apos;instant</EmptyTitle>
+              <EmptyDescription>Ajoutez quelqu&apos;un pour le retrouver ici.</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Link href="/gestion/contacts/nouveau" className="btn-primary">
+                Ajouter quelqu&apos;un
+              </Link>
+            </EmptyContent>
+          </Empty>
         ) : null}
         {!contacts.isLoading && (contacts.data || []).length > 0 && filtered.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Personne pour ces filtres
-            {profileFilter !== "all" ? ` (« ${profileLabel(profileFilter)} »)` : ""}.
-          </p>
+          <Empty className="border border-dashed border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900">
+            <EmptyHeader>
+              <EmptyTitle>Personne pour ces filtres</EmptyTitle>
+              <EmptyDescription>
+                {profileFilter !== "all" ? `Classement « ${profileLabel(profileFilter)} ».` : "Élargissez un filtre pour revoir la liste."}
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : null}
-        <ul className="divide-y divide-slate-100">
+        {filtered.length > 0 ? (
+        <Table className="min-w-[40rem]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Personne</TableHead>
+              <TableHead>Relation</TableHead>
+              <TableHead>Joignabilité</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
           {filtered.map((c: BizContact) => {
             const expanded = expandedId === c.id;
             const tagLine = (c.tags || []).filter(Boolean).join(", ");
             const preview = notesPreview(c.notes);
             const flagged = isFlaggedTestContact(c);
             return (
-              <li
-                key={c.id}
-                className={
-                  flagged
-                    ? "rounded-xl border-2 border-amber-300 bg-amber-50/80 px-3 py-3 ring-1 ring-amber-200"
-                    : "py-3"
-                }
+              <Fragment key={c.id}>
+              <TableRow
+                className={flagged ? "bg-amber-50/80 dark:bg-amber-950/30" : undefined}
               >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {flagged ? (
-                        <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
-                          Test
-                        </span>
-                      ) : null}
-                      <p className="font-semibold text-slate-900">
-                        <Link href={`/gestion/contacts/${c.id}`} className="hover:text-emerald-900 hover:underline">
-                          {c.name}
-                        </Link>
-                      </p>
-                      <ContactReachabilityBadge contact={c} compact />
-                    </div>
-                    <p className="text-xs text-slate-500">
-                      {CONTACT_TYPE_LABELS[c.contact_type] || c.contact_type}
-                      {tagLine ? ` · ${tagLine}` : ""}
-                      {c.email ? ` · ${c.email}` : ""}
-                      {c.company ? ` · ${c.company}` : ""}
-                      {c.website ? ` · ${c.website}` : ""}
-                    </p>
-                    {preview ? <p className="mt-1 line-clamp-2 text-sm text-slate-600">{preview}</p> : null}
+                <TableCell className="align-top">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {flagged ? (
+                      <span className="rounded-md bg-amber-500 px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-white">
+                        Test
+                      </span>
+                    ) : null}
+                    <Link href={`/gestion/contacts/${c.id}`} className="font-extrabold text-slate-950 hover:text-emerald-900 hover:underline dark:text-slate-50">
+                      {c.name}
+                    </Link>
                   </div>
-                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-                    <Link
-                      href={`/gestion/contacts/${c.id}`}
-                      className="touch-target inline-flex items-center rounded-lg border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-900"
-                    >
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {c.email || c.company || c.website || "Sans coordonnée affichée"}
+                    {tagLine ? ` · ${tagLine}` : ""}
+                  </p>
+                  {preview ? <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{preview}</p> : null}
+                </TableCell>
+                <TableCell className="align-top text-slate-700 dark:text-slate-200">
+                  {CONTACT_TYPE_LABELS[c.contact_type] || c.contact_type}
+                </TableCell>
+                <TableCell className="align-top">
+                  <ContactReachabilityBadge contact={c} compact />
+                </TableCell>
+                <TableCell className="align-top text-right">
+                  <div className="flex flex-col items-end gap-1">
+                    <Link href={`/gestion/contacts/${c.id}`} className="btn-primary px-3 py-1.5 text-xs">
                       Ouvrir
                     </Link>
                     <button
                       type="button"
-                      className="touch-target inline-flex items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900"
+                      className="text-xs font-semibold text-slate-600 underline-offset-2 hover:underline dark:text-slate-300"
                       onClick={() => setExpandedId(expanded ? null : c.id)}
                     >
                       {expanded ? "Masquer" : "Interactions"}
                     </button>
                     <button
                       type="button"
-                      className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800 disabled:opacity-50"
+                      className="text-xs font-semibold text-red-800 underline-offset-2 hover:underline disabled:opacity-50 dark:text-red-300"
                       disabled={remove.isPending}
                       onClick={() => {
                         setPendingDelete((prev) => (prev.includes(c.id) ? prev : [...prev, c.id]));
@@ -280,12 +294,21 @@ export default function GestionContactsPage() {
                       Supprimer
                     </button>
                   </div>
-                </div>
-                {expanded ? <ContactInteractions contactId={c.id} /> : null}
-              </li>
+                </TableCell>
+              </TableRow>
+              {expanded ? (
+                <TableRow key={`${c.id}-notes`}>
+                  <TableCell colSpan={4} className="pb-3">
+                    <ContactInteractions contactId={c.id} />
+                  </TableCell>
+                </TableRow>
+              ) : null}
+              </Fragment>
             );
           })}
-        </ul>
+          </TableBody>
+        </Table>
+        ) : null}
       </SectionCard>
     </PageShell>
   );

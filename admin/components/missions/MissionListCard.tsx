@@ -69,7 +69,7 @@ function PrimaryButton({
           e.stopPropagation();
           onSelect(jobId);
         }}
-        className="min-h-[40px] w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
+        className="min-h-[40px] w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition duration-150 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 sm:w-auto"
       >
         Ouvrir
       </button>
@@ -81,7 +81,7 @@ function PrimaryButton({
       <Link
         href={action.href}
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex min-h-[40px] w-full items-center justify-center rounded-lg bg-violet-800 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-violet-900 sm:w-auto"
+        className="inline-flex min-h-[40px] w-full items-center justify-center rounded-lg bg-violet-800 px-3 py-2 text-center text-xs font-semibold text-white transition duration-150 hover:bg-violet-900 active:scale-[0.98] motion-reduce:active:scale-100 sm:w-auto"
       >
         {action.label}
       </Link>
@@ -97,7 +97,7 @@ function PrimaryButton({
           e.stopPropagation();
           onApproveTicket?.(action.ticketId);
         }}
-        className="min-h-[40px] w-full rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-800 disabled:opacity-40 sm:w-auto"
+        className="min-h-[40px] w-full rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white transition duration-150 hover:bg-emerald-800 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 sm:w-auto"
       >
         {busy ? "…" : action.label}
       </button>
@@ -114,7 +114,7 @@ function PrimaryButton({
           if (onStart) onStart(jobId);
           else onSelect(jobId);
         }}
-        className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-40 sm:w-auto"
+        className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white transition duration-150 hover:bg-violet-900 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 sm:w-auto"
       >
         {busy ? "Lancement…" : action.label}
       </button>
@@ -130,7 +130,7 @@ function PrimaryButton({
           e.stopPropagation();
           onFinish(jobId, mission);
         }}
-        className="min-h-[40px] w-full rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white disabled:opacity-40 sm:w-auto"
+        className="min-h-[40px] w-full rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white transition duration-150 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 sm:w-auto"
       >
         {busy ? "…" : action.label}
       </button>
@@ -145,7 +145,7 @@ function PrimaryButton({
         e.stopPropagation();
         onSelect(jobId);
       }}
-      className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white hover:bg-violet-900 disabled:opacity-40 sm:w-auto"
+      className="min-h-[40px] w-full rounded-lg bg-violet-800 px-3 py-2 text-xs font-semibold text-white transition duration-150 hover:bg-violet-900 active:scale-[0.98] disabled:opacity-40 motion-reduce:active:scale-100 sm:w-auto"
     >
       {action.label}
     </button>

@@ -52,7 +52,7 @@ import { cioAnswersAndResume, markMissionResultConsulted, resolveActionTicket } 
 import { inboxItemsForJob } from "../../lib/missionDailyUx";
 import { QK } from "../../lib/queryClient";
 import { deliverablesMarkdownFromBossContext } from "../../lib/missionDeliverablesMarkdown";
-import { PageHeader, PageShell } from "../../components/ui/PageChrome";
+import { LoadingLine, PageHeader, PageShell } from "../../components/ui/PageChrome";
 import { threadHasPendingCioTurn, canResumeMissionCio } from "../../lib/missionThreadPending";
 import { useJobDetail } from "../../lib/useJobDetail";
 import { useMissionActions } from "../../lib/useMissionActions";
@@ -814,7 +814,7 @@ function MissionsContent() {
                 onCancel={() => setShowCreatePanel(false)}
               />
             ) : null}
-            {jobs.isPending ? <p className="text-sm text-slate-500">Chargement…</p> : null}
+            {jobs.isPending ? <LoadingLine label="Lecture des missions…" /> : null}
             <MissionKanbanBoard
               jobs={sortedRows}
               onSelect={openMission}
@@ -870,7 +870,7 @@ function MissionsContent() {
             </button>
           </div>
         ) : null}
-        {jobs.isPending && !jobs.isError ? <p className="text-sm text-slate-500">Chargement des missions…</p> : null}
+        {jobs.isPending && !jobs.isError ? <LoadingLine label="Lecture des missions…" /> : null}
         {jobs.isError ? (
           <div className="space-y-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700">
             <p>
@@ -1214,7 +1214,7 @@ function MissionsContent() {
             ) : null}
             <section className="min-h-0 min-w-0 space-y-4">
           {detail.isLoading && !detail.data ? (
-            <p className="text-sm text-slate-400">Chargement du détail mission…</p>
+            <LoadingLine label="Lecture du détail…" />
           ) : detail.data ? (
             <div className="space-y-5">
               <MissionNextActionPanel
@@ -1594,7 +1594,7 @@ function MissionsContent() {
 
 export default function MissionsPage() {
   return (
-    <Suspense fallback={<div className="space-y-6 p-6 text-slate-500">Chargement missions…</div>}>
+    <Suspense fallback={<div className="p-6"><LoadingLine label="Ouverture des missions…" /></div>}>
       <MissionsContent />
     </Suspense>
   );

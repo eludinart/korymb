@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { businessApi, formatTaskCreated, type BizWorkTask } from "../../lib/business";
+import TaskEditDialog from "./TaskEditDialog";
 
 function todayISO() {
   const now = new Date();
@@ -53,6 +54,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState<BizWorkTask | null>(null);
 
   const tasks = useQuery({
     queryKey: ["work-tasks", "open"],
@@ -77,10 +79,22 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   });
 
   const save = useMutation({
-    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean } }) =>
-      businessApi.updateTask(body.id, body.patch),
+    mutationFn: (body: {
+      id: string;
+      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string };
+    }) => businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
+      refresh();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: string) => businessApi.deleteTask(id),
+    onSuccess: () => {
+      setError("");
+      setEditing(null);
       refresh();
     },
     onError: (err: Error) => setError(err.message),
@@ -180,8 +194,13 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                   </span>
                   <span className="mt-0.5 block text-xs text-slate-500">
                     {created ? `Créée le ${created}` : "Date de création inconnue"}
-                    {task.notes ? ` · ${task.notes}` : ""}
                   </span>
+                  {task.notes ? (
+                    <span className="mt-1 block text-xs leading-snug text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold">Commentaire · </span>
+                      {task.notes}
+                    </span>
+                  ) : null}
                 </span>
                 <button
                   type="button"
@@ -196,6 +215,28 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                   onClick={() => save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
                 >
                   Urgent
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                  disabled={save.isPending || remove.isPending}
+                  onClick={() => {
+                    setError("");
+                    setEditing(task);
+                  }}
+                >
+                  Modifier
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                  disabled={remove.isPending}
+                  onClick={() => {
+                    if (!window.confirm(`Supprimer « ${task.title} » ?\n\nLa tâche disparaît définitivement.`)) return;
+                    remove.mutate(task.id);
+                  }}
+                >
+                  {remove.isPending && remove.variables === task.id ? "Suppression…" : "Supprimer"}
                 </button>
                 <label className="flex items-center gap-2 text-xs font-semibold">
                   <span className={tone}>{dueLabel(task.due_at, today)}</span>
@@ -212,6 +253,19 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
           })}
         </ul>
       ) : null}
+      <TaskEditDialog
+        task={editing}
+        saving={save.isPending}
+        error={editing ? error : ""}
+        onClose={() => setEditing(null)}
+        onSave={(patch) => {
+          if (!editing) return;
+          save.mutate(
+            { id: editing.id, patch },
+            { onSuccess: () => setEditing(null) },
+          );
+        }}
+      />
     </section>
   );
 }

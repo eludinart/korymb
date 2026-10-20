@@ -41,7 +41,14 @@ export default function OperatorGate({ children }: { children: React.ReactNode }
   }, [router]);
 
   if (!open) {
-    return <p className="p-8 text-center text-sm text-slate-600">Ouverture…</p>;
+    return (
+      <div className="min-h-dvh" aria-busy="true" aria-live="polite">
+        <div className="border-b border-slate-200/80 bg-white/80 px-5 py-3 backdrop-blur-md dark:border-slate-800 dark:bg-slate-950/80">
+          <div className="h-6 w-28 animate-pulse rounded-md bg-slate-200 dark:bg-slate-800" />
+        </div>
+        <p className="px-5 py-8 text-sm font-semibold text-slate-700 dark:text-slate-200">Ouverture de la session…</p>
+      </div>
+    );
   }
   return <>{children}</>;
 }

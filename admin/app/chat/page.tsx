@@ -1383,7 +1383,7 @@ function ChatPageInner() {
   const interlocutorName = describeInterlocutor(interlocutor, groupsList as GroupOpt[]).title;
 
   return (
-    <div className="chat-hud-stage mx-auto flex h-full w-full max-w-6xl flex-col bg-white dark:bg-slate-950">
+    <div className="chat-hud-stage flex h-full w-full max-w-none flex-col bg-white dark:bg-slate-950">
       <div className="relative flex min-h-0 flex-1 overflow-hidden">
         <div className="hidden h-full min-h-0 shrink-0 lg:flex">
           <ChatSidebar

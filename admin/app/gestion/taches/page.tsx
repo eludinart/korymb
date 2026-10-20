@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
+import TaskEditDialog from "../../../components/director/TaskEditDialog";
 import { businessApi, formatTaskCreated, type BizWorkTask } from "../../../lib/business";
 
 function dueDay(value: string | null | undefined) {
@@ -14,6 +15,7 @@ export default function GestionTachesPage() {
   const qc = useQueryClient();
   const [showDone, setShowDone] = useState(false);
   const [error, setError] = useState("");
+  const [editing, setEditing] = useState<BizWorkTask | null>(null);
 
   const tasks = useQuery({
     queryKey: ["work-tasks", "all"],
@@ -27,8 +29,10 @@ export default function GestionTachesPage() {
   };
 
   const save = useMutation({
-    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean } }) =>
-      businessApi.updateTask(body.id, body.patch),
+    mutationFn: (body: {
+      id: string;
+      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string };
+    }) => businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
       refresh();
@@ -107,8 +111,13 @@ export default function GestionTachesPage() {
                 </p>
                 <p className="text-xs text-slate-500">
                   {created ? `Créée le ${created}` : "Date de création inconnue"}
-                  {task.notes ? ` · ${task.notes}` : ""}
                 </p>
+                {task.notes ? (
+                  <p className="mt-1 text-xs leading-snug text-slate-600">
+                    <span className="font-semibold">Commentaire · </span>
+                    {task.notes}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"
@@ -124,6 +133,17 @@ export default function GestionTachesPage() {
               >
                 Urgent
               </button>
+              <button
+                type="button"
+                className="touch-target inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700"
+                disabled={save.isPending || remove.isPending}
+                onClick={() => {
+                  setError("");
+                  setEditing(task);
+                }}
+              >
+                Modifier
+              </button>
               <input
                 type="date"
                 className="input-field w-40 text-sm"
@@ -135,15 +155,31 @@ export default function GestionTachesPage() {
                 type="button"
                 className="touch-target inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-800"
                 disabled={remove.isPending}
-                onClick={() => remove.mutate(task.id)}
+                onClick={() => {
+                  if (!window.confirm(`Supprimer « ${task.title} » ?\n\nLa tâche disparaît définitivement.`)) return;
+                  remove.mutate(task.id);
+                }}
               >
-                Retirer
+                {remove.isPending && remove.variables === task.id ? "Suppression…" : "Supprimer"}
               </button>
             </li>
             );
           })}
         </ul>
       </SectionCard>
+      <TaskEditDialog
+        task={editing}
+        saving={save.isPending}
+        error={editing ? error : ""}
+        onClose={() => setEditing(null)}
+        onSave={(patch) => {
+          if (!editing) return;
+          save.mutate(
+            { id: editing.id, patch },
+            { onSuccess: () => setEditing(null) },
+          );
+        }}
+      />
     </PageShell>
   );
 }

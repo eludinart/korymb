@@ -156,6 +156,27 @@ function Test-MariaDbTunnelListening {
   return ($null -ne $hit)
 }
 
+function Start-MariaDbTunnelProcess {
+  $logDir = Join-Path $rootDir ".dev-logs"
+  New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+  $script:MariaDbTunnelErrLog = Join-Path $logDir "mariadb-tunnel.err.log"
+  if (Test-Path -LiteralPath $script:MariaDbTunnelErrLog) {
+    Remove-Item -LiteralPath $script:MariaDbTunnelErrLog -Force -ErrorAction SilentlyContinue
+  }
+  $sshTarget = if ($env:KORYMB_VPS_SSH) { $env:KORYMB_VPS_SSH } else { "root@187.124.42.135" }
+  $bind = "127.0.0.1:$($script:MariaDbLocalPort):127.0.0.1:3306"
+  # Sans -f : le processus suivi est celui qui tient le forward. -f quitte tout de suite
+  # et un echec de bind (port encore pris) passait inaperçu.
+  return Start-Process -FilePath "ssh" -ArgumentList @(
+    "-N",
+    "-o", "ServerAliveInterval=30",
+    "-o", "ExitOnForwardFailure=yes",
+    "-o", "ConnectTimeout=15",
+    "-L", $bind,
+    $sshTarget
+  ) -WindowStyle Hidden -PassThru -RedirectStandardError $script:MariaDbTunnelErrLog
+}
+
 function Restart-MariaDbTunnelJob {
   Write-Host "(watchdog) Redemarrage tunnel MariaDB (remote 127.0.0.1:3306)..." -ForegroundColor Yellow
   Get-NetTCPConnection -LocalPort $script:MariaDbLocalPort -State Listen -ErrorAction SilentlyContinue |
@@ -165,17 +186,27 @@ function Restart-MariaDbTunnelJob {
       }
     }
   Stop-ExistingJobByName -Name $tunnelJobName
-  $sshTarget = if ($env:KORYMB_VPS_SSH) { $env:KORYMB_VPS_SSH } else { "root@187.124.42.135" }
-  $bind = "127.0.0.1:$($script:MariaDbLocalPort):127.0.0.1:3306"
-  Start-Process -FilePath "ssh" -ArgumentList @(
-    "-f", "-N",
-    "-o", "ServerAliveInterval=30",
-    "-o", "ExitOnForwardFailure=yes",
-    "-L", $bind,
-    $sshTarget
-  ) -WindowStyle Hidden | Out-Null
-  Start-Sleep -Seconds 3
-  return (Test-MariaDbTunnelListening -Port $script:MariaDbLocalPort)
+  Start-Sleep -Milliseconds 400
+  $ok = $false
+  for ($attempt = 1; $attempt -le 2 -and -not $ok; $attempt++) {
+    $proc = Start-MariaDbTunnelProcess
+    for ($i = 0; $i -lt 20; $i++) {
+      if (Test-MariaDbTunnelListening -Port $script:MariaDbLocalPort) {
+        $ok = $true
+        break
+      }
+      if ($null -ne $proc -and $proc.HasExited) { break }
+      Start-Sleep -Seconds 1
+    }
+    if (-not $ok -and $null -ne $proc -and -not $proc.HasExited) {
+      try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch { }
+    }
+  }
+  if (-not $ok) {
+    Write-Host "Tunnel MariaDB injoignable sur 127.0.0.1:$($script:MariaDbLocalPort)." -ForegroundColor Red
+    Write-Host "  Detail : .dev-logs/mariadb-tunnel.err.log" -ForegroundColor Red
+  }
+  return $ok
 }
 
 function Test-BackendLiveness {
@@ -407,7 +438,9 @@ if ($MariaDbTunnel) {
     throw "Script tunnel introuvable: $mariadbTunnelScript"
   }
   Write-Host "Demarrage tunnel MariaDB VPS (job interne)..." -ForegroundColor Cyan
-  $null = Restart-MariaDbTunnelJob
+  if (-not (Restart-MariaDbTunnelJob)) {
+    throw "Tunnel MariaDB ferme sur le port $($script:MariaDbLocalPort). Backend non lance."
+  }
 }
 elseif ($null -ne $script:MariaDbLocalPort) {
   if (-not (Test-MariaDbTunnelListening -Port $script:MariaDbLocalPort)) {
