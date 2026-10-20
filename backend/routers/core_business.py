@@ -180,6 +180,7 @@ class WorkTaskCreate(BaseModel):
     due_at: str | None = None
     project_id: str | None = None
     priority: str = ""
+    urgent: bool = False
     notes: str = ""
 
 
@@ -189,6 +190,7 @@ class WorkTaskUpdate(BaseModel):
     due_at: str | None = None
     project_id: str | None = None
     priority: str | None = None
+    urgent: bool | None = None
     notes: str | None = None
 
 

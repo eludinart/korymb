@@ -186,8 +186,21 @@ function BriefingPageContent() {
               <span className="font-mono">.\start-dev-cursor.ps1 -MariaDbTunnel</span>, puis rechargez.
             </>
           ) : (
-            <>Vérifiez que le backend tourne, puis réessayez.</>
+            <>
+              {briefing.error instanceof Error && briefing.error.message
+                ? briefing.error.message
+                : "Le tableau n'a pas pu être chargé."}{" "}
+              Le bandeau peut rester actif : seule cette lecture a échoué.
+            </>
           )}
+          <button
+            type="button"
+            className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60 dark:bg-slate-100 dark:text-slate-900"
+            disabled={briefing.isFetching}
+            onClick={() => void briefing.refetch()}
+          >
+            {briefing.isFetching ? "Lecture…" : "Réessayer"}
+          </button>
         </AlertBox>
       ) : null}
 

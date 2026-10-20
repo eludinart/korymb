@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { businessApi, type BizWorkTask } from "../../lib/business";
+import { businessApi, formatTaskCreated, type BizWorkTask } from "../../lib/business";
 
 function todayISO() {
   const now = new Date();
@@ -39,6 +39,8 @@ function sortOpen(tasks: BizWorkTask[], today: string) {
     return 3;
   };
   return [...tasks].sort((a, b) => {
+    const urgentGap = Number(Boolean(b.urgent)) - Number(Boolean(a.urgent));
+    if (urgentGap !== 0) return urgentGap;
     const gap = rank(a) - rank(b);
     if (gap !== 0) return gap;
     return dueDay(a.due_at).localeCompare(dueDay(b.due_at)) || a.title.localeCompare(b.title, "fr");
@@ -75,7 +77,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   });
 
   const save = useMutation({
-    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null } }) =>
+    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean } }) =>
       businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
@@ -150,6 +152,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
         <ul className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
           {open.map((task) => {
             const day = dueDay(task.due_at);
+            const created = formatTaskCreated(task.created_at);
             const tone = !day
               ? "text-slate-500"
               : day < today
@@ -158,7 +161,10 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                   ? "text-amber-800 dark:text-amber-200"
                   : "text-slate-600 dark:text-slate-300";
             return (
-              <li key={task.id} className="flex flex-wrap items-start gap-2 py-2.5">
+              <li
+                key={task.id}
+                className={`flex flex-wrap items-start gap-2 py-2.5 ${task.urgent ? "rounded-lg bg-rose-50/80 px-2 dark:bg-rose-950/40" : ""}`}
+              >
                 <input
                   type="checkbox"
                   className="mt-1"
@@ -172,8 +178,25 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                     {task.priority ? <span className="mr-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">{task.priority}</span> : null}
                     {task.title}
                   </span>
-                  {task.notes ? <span className="mt-0.5 block text-xs text-slate-500">{task.notes}</span> : null}
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {created ? `Créée le ${created}` : "Date de création inconnue"}
+                    {task.notes ? ` · ${task.notes}` : ""}
+                  </span>
                 </span>
+                <button
+                  type="button"
+                  aria-pressed={Boolean(task.urgent)}
+                  aria-label={task.urgent ? `Retirer l'urgence de « ${task.title} »` : `Marquer « ${task.title} » comme urgent`}
+                  disabled={save.isPending}
+                  className={
+                    task.urgent
+                      ? "inline-flex items-center rounded-lg border border-rose-300 bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800 dark:border-rose-700 dark:bg-rose-900 dark:text-rose-100"
+                      : "inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                  }
+                  onClick={() => save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
+                >
+                  Urgent
+                </button>
                 <label className="flex items-center gap-2 text-xs font-semibold">
                   <span className={tone}>{dueLabel(task.due_at, today)}</span>
                   <input

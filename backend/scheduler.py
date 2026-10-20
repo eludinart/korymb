@@ -145,8 +145,13 @@ async def _execute_mission_async(task: dict) -> None:
     return job_id
 
 
-async def run_task_by_id(task_id: str) -> None:
-    """Point d'entrée APScheduler : charge la tâche, vérifie le budget, exécute."""
+def execute_scheduled_task(task_id: str) -> None:
+    """Charge et exécute une tâche. Synchrone : à appeler hors de la boucle asyncio.
+
+    En dev, une requête MariaDB via le tunnel SSH dure souvent 15–25 s. Si elle
+    tourne sur la boucle, /health/live ne répond plus et le watchdog redémarre
+    le processus.
+    """
     from database import get_scheduled_task_any, update_scheduled_task
     from tenant_context import set_tenant_context
 
@@ -165,21 +170,23 @@ async def run_task_by_id(task_id: str) -> None:
 
         task_type = str(task.get("task_type") or "mission")
 
-        # Exécution awaited : les erreurs remontent ici (plus de fire-and-forget silencieux)
-        # et `last_run_at` n'est marqué qu'après un lancement réussi.
+        # last_run_at n'est marqué qu'après un lancement réussi.
         if task_type == "gmail_prospect_sync":
-            from services.email_prospecting import run_gmail_prospect_sync_task
-            await run_gmail_prospect_sync_task(task)
+            from services.email_prospecting import run_gmail_prospect_sync_blocking
+
+            run_gmail_prospect_sync_blocking(task)
         else:
             BudgetGuard.check(task)
             if task_type == "veille":
                 from services.veille import run_veille_task
-                await run_veille_task(task)
+
+                asyncio.run(run_veille_task(task))
             elif task_type == "mission_proposals":
                 from services.veille import run_mission_proposals_task
-                await run_mission_proposals_task(task)
+
+                asyncio.run(run_mission_proposals_task(task))
             else:
-                await _execute_mission_async(task)
+                asyncio.run(_execute_mission_async(task))
 
         update_scheduled_task(task_id, last_run_at=datetime.utcnow().isoformat())
 
@@ -187,6 +194,11 @@ async def run_task_by_id(task_id: str) -> None:
         logger.warning("Budget dépassé — tâche %s ignorée : %s", task_id, exc)
     except Exception as exc:
         logger.exception("Erreur inattendue lors de l'exécution de la tâche %s : %s", task_id, exc)
+
+
+async def run_task_by_id(task_id: str) -> None:
+    """Point d'entrée APScheduler. Le corps part dans un thread pour laisser /health/live répondre."""
+    await asyncio.to_thread(execute_scheduled_task, task_id)
 
 
 # ── Scheduler lifecycle ────────────────────────────────────────────────────────

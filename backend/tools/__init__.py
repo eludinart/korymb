@@ -40,7 +40,12 @@ except ImportError:
 from integration_settings import getenv
 
 # Variables lues à l'exécution via getenv() — surcharges admin > .env
-_GOOGLE_TOKEN_CACHE: dict[str, float | str] = {"access_token": "", "expires_at": 0.0}
+_GOOGLE_TOKEN_CACHE: dict[str, float | str] = {
+    "access_token": "",
+    "expires_at": 0.0,
+    "refresh_failed_until": 0.0,
+}
+_GOOGLE_REFRESH_BACKOFF_SEC = 15 * 60
 
 
 def _anthropic_key() -> str:
@@ -551,11 +556,26 @@ def run_send_email(to: str, subject: str, body: str, attachments: list | None = 
 #  GOOGLE DRIVE — upload avec refresh token OAuth
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _google_oauth_error_code(response: httpx.Response | None) -> str:
+    if response is None or not response.content:
+        return ""
+    try:
+        payload = response.json()
+    except Exception:
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("error") or "")[:80]
+
+
 def _refresh_google_access_token(force: bool = False) -> str:
     refresh, client_id, client_secret, token_endpoint = _google_oauth_bundle()
     if not (refresh and client_id and client_secret):
         return ""
     now = time.time()
+    failed_until = float(_GOOGLE_TOKEN_CACHE.get("refresh_failed_until") or 0.0)
+    if failed_until > now:
+        return ""
     cached = str(_GOOGLE_TOKEN_CACHE.get("access_token") or "")
     exp = float(_GOOGLE_TOKEN_CACHE.get("expires_at") or 0.0)
     if (not force) and cached and exp > now + 30:
@@ -579,9 +599,19 @@ def _refresh_google_access_token(force: bool = False) -> str:
         expires_in = int(data.get("expires_in") or 3600)
         _GOOGLE_TOKEN_CACHE["access_token"] = token
         _GOOGLE_TOKEN_CACHE["expires_at"] = now + max(60, expires_in - 30)
+        _GOOGLE_TOKEN_CACHE["refresh_failed_until"] = 0.0
         return token
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        code = _google_oauth_error_code(exc.response)
+        if status in (400, 401):
+            _GOOGLE_TOKEN_CACHE["access_token"] = ""
+            _GOOGLE_TOKEN_CACHE["expires_at"] = 0.0
+            _GOOGLE_TOKEN_CACHE["refresh_failed_until"] = now + _GOOGLE_REFRESH_BACKOFF_SEC
+        logger.warning("google_oauth_refresh_failed status=%s error=%s", status, code or "unknown")
+        return ""
     except Exception:
-        logger.exception("google_oauth_refresh_failed")
+        logger.warning("google_oauth_refresh_failed", exc_info=True)
         return ""
 
 

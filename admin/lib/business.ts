@@ -164,11 +164,20 @@ export type BizWorkTask = {
   status: "open" | "done" | string;
   due_at: string | null;
   priority: string;
+  urgent: boolean;
   notes: string;
   calendar_event_id: string;
   created_at: string;
   updated_at: string;
 };
+
+export function formatTaskCreated(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(iso);
+  const date = new Date(hasZone ? iso : `${iso.replace(" ", "T")}Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
 
 export type BizQuote = {
   id: string;
@@ -774,7 +783,7 @@ export const businessApi = {
     });
     return ((data as { tasks?: BizWorkTask[] })?.tasks || []) as BizWorkTask[];
   },
-  createTask: async (body: { title: string; due_at?: string | null; project_id?: string | null; priority?: string; notes?: string }) => {
+  createTask: async (body: { title: string; due_at?: string | null; project_id?: string | null; priority?: string; urgent?: boolean; notes?: string }) => {
     const { data } = await requestJson("/business/tasks", {
       method: "POST",
       headers: agentHeaders(),
@@ -784,7 +793,7 @@ export const businessApi = {
   },
   updateTask: async (
     id: string,
-    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "notes">>,
+    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "urgent" | "notes">>,
   ) => {
     const { data } = await requestJson(`/business/tasks/${encodeURIComponent(id)}`, {
       method: "PUT",

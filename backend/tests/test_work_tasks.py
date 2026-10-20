@@ -105,3 +105,30 @@ def test_task_api_calendar_follows_the_date(client):
 
     invalid = client.post("/business/tasks", json={"title": "Mauvaise date", "due_at": "22/10/2026"})
     assert invalid.status_code == 422
+
+
+def test_task_urgent_stays_first_and_keeps_created_at(client):
+    plain = client.post("/business/tasks", json={"title": "Tâche calme"})
+    assert plain.status_code == 200, plain.text
+    calm = plain.json()
+    assert calm["urgent"] is False
+    assert calm["created_at"]
+
+    flagged = client.put(f"/business/tasks/{calm['id']}", json={"urgent": True})
+    assert flagged.status_code == 200, flagged.text
+    assert flagged.json()["urgent"] is True
+    assert flagged.json()["created_at"] == calm["created_at"]
+
+    later = client.post("/business/tasks", json={"title": "Tâche plus récente"})
+    assert later.status_code == 200, later.text
+    listed = client.get("/business/tasks?status=open")
+    assert listed.status_code == 200
+    ours = [
+        row for row in listed.json()["tasks"]
+        if row["id"] in {calm["id"], later.json()["id"]}
+    ]
+    assert [row["id"] for row in ours] == [calm["id"], later.json()["id"]]
+
+    cleared = client.put(f"/business/tasks/{calm['id']}", json={"urgent": False})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["urgent"] is False

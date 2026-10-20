@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
-import { businessApi, type BizWorkTask } from "../../../lib/business";
+import { businessApi, formatTaskCreated, type BizWorkTask } from "../../../lib/business";
 
 function dueDay(value: string | null | undefined) {
   return (value || "").slice(0, 10);
@@ -27,7 +27,7 @@ export default function GestionTachesPage() {
   };
 
   const save = useMutation({
-    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null } }) =>
+    mutationFn: (body: { id: string; patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean } }) =>
       businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
@@ -82,8 +82,13 @@ export default function GestionTachesPage() {
           </p>
         ) : null}
         <ul className="divide-y divide-slate-100">
-          {rows.map((task) => (
-            <li key={task.id} className="flex flex-wrap items-start gap-2 py-3">
+          {rows.map((task) => {
+            const created = formatTaskCreated(task.created_at);
+            return (
+            <li
+              key={task.id}
+              className={`flex flex-wrap items-start gap-2 py-3 ${task.urgent ? "rounded-lg bg-rose-50 px-2" : ""}`}
+            >
               <input
                 type="checkbox"
                 className="mt-1"
@@ -100,8 +105,25 @@ export default function GestionTachesPage() {
                   {task.priority ? <span className="mr-1.5 text-xs font-bold text-violet-800">{task.priority}</span> : null}
                   {task.title}
                 </p>
-                {task.notes ? <p className="text-xs text-slate-500">{task.notes}</p> : null}
+                <p className="text-xs text-slate-500">
+                  {created ? `Créée le ${created}` : "Date de création inconnue"}
+                  {task.notes ? ` · ${task.notes}` : ""}
+                </p>
               </div>
+              <button
+                type="button"
+                aria-pressed={Boolean(task.urgent)}
+                aria-label={task.urgent ? `Retirer l'urgence de « ${task.title} »` : `Marquer « ${task.title} » comme urgent`}
+                disabled={save.isPending}
+                className={
+                  task.urgent
+                    ? "touch-target inline-flex items-center rounded-lg border border-rose-300 bg-rose-100 px-3 text-xs font-bold text-rose-800"
+                    : "touch-target inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600"
+                }
+                onClick={() => save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
+              >
+                Urgent
+              </button>
               <input
                 type="date"
                 className="input-field w-40 text-sm"
@@ -118,7 +140,8 @@ export default function GestionTachesPage() {
                 Retirer
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       </SectionCard>
     </PageShell>

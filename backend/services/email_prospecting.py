@@ -3,6 +3,7 @@ Prospection e-mail : fils CRM, envois HITL, sync réponses Gmail, annulation rel
 """
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -1125,28 +1126,27 @@ def sync_gmail_replies_mailbox(*, limit_per_contact: int = 10, max_contacts: int
     }
 
 
-async def run_gmail_prospect_sync_task(task: dict) -> None:
-    """Tâche planifiée : sync Gmail de tous les workspaces qui ont des fils CRM."""
-    import asyncio
-
+def _run_gmail_sync_for_workspace(wid: str) -> dict[str, Any]:
     from tenant_context import clear_tenant_context, set_tenant_context
 
+    set_tenant_context(workspace_id=wid)
+    try:
+        return sync_gmail_replies_mailbox()
+    finally:
+        clear_tenant_context()
+
+
+def run_gmail_prospect_sync_blocking(task: dict) -> None:
+    """Sync Gmail de tous les workspaces qui ont des fils CRM. Ne pas appeler sur la boucle asyncio."""
     task_id = str((task or {}).get("id") or "")
     ids = workspace_ids_with_email_threads()
     if not ids:
         logger.info("Gmail prospect sync (%s) : aucun fil CRM", task_id)
         return
 
-    def _run_one(wid: str) -> dict[str, Any]:
-        set_tenant_context(workspace_id=wid)
-        try:
-            return sync_gmail_replies_mailbox()
-        finally:
-            clear_tenant_context()
-
     for wid in ids:
         try:
-            result = await asyncio.to_thread(_run_one, wid)
+            result = _run_gmail_sync_for_workspace(wid)
             logger.info(
                 "Gmail prospect sync ws=%s imported=%s updated=%s",
                 wid,
@@ -1155,6 +1155,11 @@ async def run_gmail_prospect_sync_task(task: dict) -> None:
             )
         except Exception:
             logger.exception("Gmail prospect sync failed ws=%s task=%s", wid, task_id)
+
+
+async def run_gmail_prospect_sync_task(task: dict) -> None:
+    """Tâche planifiée : même travail que run_gmail_prospect_sync_blocking, hors boucle."""
+    await asyncio.to_thread(run_gmail_prospect_sync_blocking, task)
 
 
 def _contact_first_name(contact: dict) -> str:

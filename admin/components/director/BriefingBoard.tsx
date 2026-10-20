@@ -665,14 +665,6 @@ export default function BriefingBoard({
                 </a>
               </>
             ) : null}
-            {(milestones?.open || []).length > 0 ? (
-              <>
-                <span className="text-slate-300"> · </span>
-                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
-                  {countBit((milestones?.open || []).length, "1 jalon", "jalons")}
-                </a>
-              </>
-            ) : null}
             {openTaskCount > 0 ? (
               <>
                 <span className="text-slate-300"> · </span>

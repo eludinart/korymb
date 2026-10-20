@@ -43,6 +43,14 @@ def _pk() -> str:
     return "VARCHAR(191)" if _is_mariadb() else "TEXT"
 
 
+def _column_names(conn, table: str) -> set[str]:
+    if _is_mariadb():
+        cur = conn.execute(f"SHOW COLUMNS FROM {table}")
+        return {str(row["Field"]) for row in cur.fetchall()}
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return {str(row[1]) for row in cur.fetchall()}
+
+
 def ensure_work_task_tables(conn) -> None:
     pk = _pk()
     conn.execute(f"""
@@ -54,6 +62,7 @@ def ensure_work_task_tables(conn) -> None:
             status            TEXT NOT NULL DEFAULT 'open',
             due_at            TEXT,
             priority          TEXT NOT NULL DEFAULT '',
+            urgent            INTEGER NOT NULL DEFAULT 0,
             notes             TEXT NOT NULL DEFAULT '',
             calendar_event_id TEXT NOT NULL DEFAULT '',
             origin_key        TEXT NOT NULL DEFAULT '',
@@ -61,6 +70,8 @@ def ensure_work_task_tables(conn) -> None:
             updated_at        TEXT NOT NULL
         )
     """)
+    if "urgent" not in _column_names(conn, "biz_work_tasks"):
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0")
 
 
 def normalize_due(value: str | None) -> str | None:
@@ -92,13 +103,19 @@ def _slot(due: str) -> tuple[str, str]:
     return start, end
 
 
+def _public(row: dict) -> dict:
+    out = dict(row)
+    out["urgent"] = bool(int(out.get("urgent") or 0))
+    return out
+
+
 def _row(task_id: str) -> dict | None:
     with get_conn() as conn:
         row = conn.execute(
             "SELECT * FROM biz_work_tasks WHERE id=? AND workspace_id=?",
             (task_id, _ws()),
         ).fetchone()
-    return dict(row) if row else None
+    return _public(dict(row)) if row else None
 
 
 def get_work_task(task_id: str) -> dict | None:
@@ -113,6 +130,7 @@ def list_work_tasks(*, status: str | None = None, limit: int = 200) -> list[dict
         params.append(status)
     sql += (
         " ORDER BY CASE WHEN status='done' THEN 1 ELSE 0 END,"
+        " CASE WHEN urgent=1 THEN 0 ELSE 1 END,"
         " CASE WHEN due_at IS NULL OR due_at='' THEN 1 ELSE 0 END,"
         " due_at ASC, priority ASC, created_at ASC"
         " LIMIT ?"
@@ -120,7 +138,7 @@ def list_work_tasks(*, status: str | None = None, limit: int = 200) -> list[dict
     params.append(max(1, min(limit, 500)))
     with get_conn() as conn:
         rows = conn.execute(sql, tuple(params)).fetchall()
-    return [dict(r) for r in rows]
+    return [_public(dict(r)) for r in rows]
 
 
 def _find_origin(origin_key: str) -> dict | None:
@@ -223,6 +241,7 @@ def create_work_task(
     project_id: str | None = None,
     status: str = "open",
     priority: str = "",
+    urgent: bool = False,
     notes: str = "",
     origin_key: str = "",
 ) -> dict:
@@ -245,12 +264,12 @@ def create_work_task(
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO biz_work_tasks "
-            "(id, workspace_id, project_id, title, status, due_at, priority, notes, "
+            "(id, workspace_id, project_id, title, status, due_at, priority, urgent, notes, "
             "calendar_event_id, origin_key, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id, _ws(), pid, label[:800], status, due,
-                (priority or "").strip()[:8], (notes or "").strip()[:400],
+                (priority or "").strip()[:8], 1 if urgent else 0, (notes or "").strip()[:400],
                 "", (origin_key or "").strip()[:80], now, now,
             ),
         )
@@ -268,7 +287,7 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
     current = _row(task_id)
     if not current:
         return None
-    allowed = {"title", "status", "due_at", "project_id", "priority", "notes"}
+    allowed = {"title", "status", "due_at", "project_id", "priority", "urgent", "notes"}
     sets = ["updated_at=?"]
     vals: list[Any] = [_now()]
     for key, val in fields.items():
@@ -297,6 +316,9 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
         elif key == "priority":
             sets.append("priority=?")
             vals.append(str(val or "").strip()[:8])
+        elif key == "urgent":
+            sets.append("urgent=?")
+            vals.append(1 if bool(val) else 0)
         elif key == "notes":
             sets.append("notes=?")
             vals.append(str(val or "").strip()[:400])
