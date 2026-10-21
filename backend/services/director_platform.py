@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 # Réponses chat : déjà visibles dans /chat — pas d'archive cloche ni d'email/webhook.
 EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
-SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "memory_applied"})
+SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "memory_applied", "bug_report"})
 
 from database import (
     _user_validated_set,

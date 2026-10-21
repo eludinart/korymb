@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from database import _is_mariadb, get_conn
+from services.director_platform import emit_director_notification
 from workspace_db import ws_id
 
 logger = logging.getLogger("korymb.work_tasks")
@@ -66,12 +67,16 @@ def ensure_work_task_tables(conn) -> None:
             notes             TEXT NOT NULL DEFAULT '',
             calendar_event_id TEXT NOT NULL DEFAULT '',
             origin_key        TEXT NOT NULL DEFAULT '',
+            assignee          TEXT NOT NULL DEFAULT '',
             created_at        TEXT NOT NULL,
             updated_at        TEXT NOT NULL
         )
     """)
-    if "urgent" not in _column_names(conn, "biz_work_tasks"):
+    columns = _column_names(conn, "biz_work_tasks")
+    if "urgent" not in columns:
         conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0")
+    if "assignee" not in columns:
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''")
 
 
 def normalize_due(value: str | None) -> str | None:
@@ -103,9 +108,29 @@ def _slot(due: str) -> tuple[str, str]:
     return start, end
 
 
+def _assignee(value: str | None) -> str:
+    return str(value or "").strip()[:120]
+
+
+def _notify_assigned(row: dict, previous: str = "") -> None:
+    name = str(row.get("assignee") or "").strip()
+    if not name or name == previous.strip():
+        return
+    try:
+        emit_director_notification(
+            kind="task_assigned",
+            title=f"Tâche assignée à {name[:80]}",
+            body=str(row.get("title") or "")[:300],
+            action_url="/gestion/taches",
+        )
+    except Exception:
+        logger.warning("notification d'assignation non envoyée pour %s", row.get("id"), exc_info=True)
+
+
 def _public(row: dict) -> dict:
     out = dict(row)
     out["urgent"] = bool(int(out.get("urgent") or 0))
+    out["assignee"] = str(out.get("assignee") or "")
     return out
 
 
@@ -244,6 +269,7 @@ def create_work_task(
     urgent: bool = False,
     notes: str = "",
     origin_key: str = "",
+    assignee: str = "",
 ) -> dict:
     from services.business_db import get_project
 
@@ -265,12 +291,12 @@ def create_work_task(
         conn.execute(
             "INSERT INTO biz_work_tasks "
             "(id, workspace_id, project_id, title, status, due_at, priority, urgent, notes, "
-            "calendar_event_id, origin_key, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "calendar_event_id, origin_key, assignee, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id, _ws(), pid, label[:800], status, due,
                 (priority or "").strip()[:8], 1 if urgent else 0, (notes or "").strip()[:400],
-                "", (origin_key or "").strip()[:80], now, now,
+                "", (origin_key or "").strip()[:80], _assignee(assignee), now, now,
             ),
         )
         conn.commit()
@@ -278,7 +304,10 @@ def create_work_task(
     event_id = _sync_calendar(row or {})
     if event_id:
         _store_event_id(task_id, event_id)
-    return _row(task_id) or {}
+        row = _row(task_id)
+    if row:
+        _notify_assigned(row)
+    return row or {}
 
 
 def update_work_task(task_id: str, **fields: Any) -> dict | None:
@@ -287,7 +316,8 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
     current = _row(task_id)
     if not current:
         return None
-    allowed = {"title", "status", "due_at", "project_id", "priority", "urgent", "notes"}
+    assignee_before = str(current.get("assignee") or "")
+    allowed = {"title", "status", "due_at", "project_id", "priority", "urgent", "notes", "assignee"}
     sets = ["updated_at=?"]
     vals: list[Any] = [_now()]
     for key, val in fields.items():
@@ -322,6 +352,9 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
         elif key == "notes":
             sets.append("notes=?")
             vals.append(str(val or "").strip()[:400])
+        elif key == "assignee":
+            sets.append("assignee=?")
+            vals.append(_assignee(None if val is None else str(val)))
     if len(sets) > 1:
         vals.extend([task_id, _ws()])
         with get_conn() as conn:
@@ -337,6 +370,8 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
     if event_id != str(row.get("calendar_event_id") or ""):
         _store_event_id(task_id, event_id)
         row = _row(task_id)
+    if row and "assignee" in fields:
+        _notify_assigned(row, assignee_before)
     return row
 
 

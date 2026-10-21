@@ -28,6 +28,9 @@ const KIND_LABELS: Record<string, string> = {
   learning_suggestion: "Mémoire",
   memory_applied: "Mémoire",
   email_reply: "Courrier",
+  task_assigned: "Tâche",
+  event_updated: "Calendrier",
+  bug_report: "Aide",
   info: "Information",
   test: "Test",
 };
@@ -41,6 +44,9 @@ const KIND_STYLES: Record<string, string> = {
   learning_suggestion: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
   memory_applied: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
   email_reply: "bg-teal-100 text-teal-950 dark:bg-teal-900 dark:text-teal-100",
+  task_assigned: "bg-emerald-100 text-emerald-950 dark:bg-emerald-900 dark:text-emerald-100",
+  event_updated: "bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100",
+  bug_report: "bg-rose-100 text-rose-950 dark:bg-rose-900 dark:text-rose-100",
   info: "bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
 };
 
@@ -75,6 +81,9 @@ function primaryLabel(kind: string, href: string): string {
   if (k === "scheduler_output") return "Voir les approbations";
   if (k === "learning_suggestion" || k === "memory_applied") return "Voir la mémoire";
   if (k === "email_reply") return "Ouvrir le courrier";
+  if (k === "task_assigned") return "Ouvrir les tâches";
+  if (k === "event_updated") return "Ouvrir le calendrier";
+  if (k === "bug_report") return "Ouvrir l'aide";
   if (href.includes("/gestion/courrier")) return "Ouvrir le courrier";
   if (href.includes("/missions")) return "Ouvrir la mission";
   if (href.includes("/inbox")) return "Ouvrir Décisions";
@@ -110,6 +119,8 @@ const INTERRUPTIVE_NOTIFICATION_KINDS = new Set([
   "chat_error",
   "action_ticket",
   "config_suggestion",
+  "task_assigned",
+  "event_updated",
 ]);
 
 function normalizePathname(pathname: string): string {
@@ -134,6 +145,12 @@ export function notificationConsumedByPath(kind: string, pathname: string): bool
     return true;
   }
   if (k === "memory_applied" && path.startsWith("/administration/memory")) {
+    return true;
+  }
+  if (k === "task_assigned" && (path === "/gestion/taches" || path.startsWith("/gestion/taches/"))) {
+    return true;
+  }
+  if (k === "event_updated" && (path === "/gestion/planning" || path.startsWith("/gestion/planning/"))) {
     return true;
   }
   return false;

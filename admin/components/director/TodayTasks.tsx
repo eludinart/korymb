@@ -28,6 +28,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   const today = todayISO();
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
+  const [assignee, setAssignee] = useState("");
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<BizWorkTask | null>(null);
 
@@ -40,13 +41,19 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
     void qc.invalidateQueries({ queryKey: ["work-tasks"] });
     void qc.invalidateQueries({ queryKey: ["business-events"] });
     void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+    void qc.invalidateQueries({ queryKey: ["director-notifications"] });
   };
 
   const add = useMutation({
-    mutationFn: () => businessApi.createTask({ title: title.trim(), due_at: due || null }),
+    mutationFn: () => businessApi.createTask({
+      title: title.trim(),
+      due_at: due || null,
+      assignee: assignee.trim() || undefined,
+    }),
     onSuccess: () => {
       setTitle("");
       setDue("");
+      setAssignee("");
       setError("");
       refresh();
     },
@@ -56,7 +63,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   const save = useMutation({
     mutationFn: (body: {
       id: string;
-      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string };
+      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string; assignee?: string };
     }) => businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
@@ -125,6 +132,15 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
           onChange={(event) => setDue(event.target.value)}
           aria-label="Date d'exécution"
         />
+        <input
+          className="input-field min-w-0 sm:w-40"
+          value={assignee}
+          onChange={(event) => setAssignee(event.target.value)}
+          placeholder="Assigné à"
+          aria-label="Assigné à"
+          maxLength={120}
+          title="La personne qui doit faire cette tâche. La cloche le signale."
+        />
         <button type="submit" className="btn-primary" disabled={add.isPending}>
           {add.isPending ? "Ajout…" : "Ajouter"}
         </button>
@@ -170,6 +186,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                     </span>
                     <span className="mt-0.5 block text-xs text-slate-500">
                       {created ? `Créée le ${created}` : "Date de création inconnue"}
+                      {task.assignee ? ` · Assignée à ${task.assignee}` : ""}
                     </span>
                     {task.notes ? (
                       <span className="mt-1 block break-words text-xs leading-snug text-slate-600 dark:text-slate-300">

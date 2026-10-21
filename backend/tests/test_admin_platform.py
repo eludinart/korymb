@@ -496,6 +496,35 @@ def test_admin_notifications_crud(client):
     assert missing.status_code == 404
 
 
+def test_bug_report_lands_in_the_bell(client):
+    sent = client.post(
+        "/admin/support/bug",
+        json={
+            "what": "La liste des tâches reste vide",
+            "page": "/gestion/taches",
+            "message": "Chargement impossible",
+        },
+    )
+    assert sent.status_code == 200, sent.text
+    rows = client.get("/admin/notifications?unread_only=true")
+    assert rows.status_code == 200
+    match = next(item for item in rows.json()["items"] if item.get("kind") == "bug_report")
+    assert match["action_url"] == "/gestion/taches"
+    assert "Chargement impossible" in (match.get("body") or "")
+
+    external = client.post(
+        "/admin/support/bug",
+        json={"what": "Un lien externe ne doit pas partir", "page": "https://example.test/phish"},
+    )
+    assert external.status_code == 200, external.text
+    again = client.get("/admin/notifications?unread_only=true")
+    leaked = [
+        item for item in again.json()["items"]
+        if item.get("kind") == "bug_report" and "example.test" in str(item.get("action_url") or "")
+    ]
+    assert leaked == []
+
+
 def test_chat_result_notifications_are_ephemeral(monkeypatch):
     from services import director_platform as dp
 

@@ -118,6 +118,12 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
               <div className={isChat ? "hidden lg:block" : undefined}>
                 <AuthBar />
               </div>
+              <Link
+                href="/aide"
+                className="flex h-9 items-center rounded-full px-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+              >
+                Aide
+              </Link>
               <NotificationBell />
             </div>
             <div className={isChat ? "hidden lg:block" : undefined}>

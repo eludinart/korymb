@@ -1,5 +1,7 @@
 /** Libellés de coquille — routes inchangées, vocabulaire d'activité (pas un secteur). */
 
+import { GLOSSARY } from "./glossary";
+
 export const UX_COPY = {
   briefing: {
     label: "Aujourd'hui",
@@ -33,6 +35,6 @@ export const UX_COPY = {
   },
   playbooks: {
     label: "Modèles",
-    hint: "Demandes prêtes à lancer",
+    hint: GLOSSARY.modeles.plain,
   },
 } as const;

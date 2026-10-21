@@ -3,6 +3,8 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -81,6 +83,7 @@ from services.email_prospecting import (
     sync_gmail_replies_for_contact,
     sync_gmail_replies_mailbox,
 )
+from services.director_platform import emit_director_notification
 from services.tiime_client import is_tiime_automation_configured, request_tiime_invoice
 from services.work_tasks import (
     TASK_STATUSES,
@@ -90,6 +93,8 @@ from services.work_tasks import (
     list_work_tasks,
     update_work_task,
 )
+
+logger = logging.getLogger("korymb.business")
 
 router = APIRouter(tags=["business"])
 
@@ -182,6 +187,7 @@ class WorkTaskCreate(BaseModel):
     priority: str = ""
     urgent: bool = False
     notes: str = ""
+    assignee: str = ""
 
 
 class WorkTaskUpdate(BaseModel):
@@ -192,6 +198,7 @@ class WorkTaskUpdate(BaseModel):
     priority: str | None = None
     urgent: bool | None = None
     notes: str | None = None
+    assignee: str | None = None
 
 
 class QuoteCreate(BaseModel):
@@ -1223,6 +1230,30 @@ async def business_get_event(event_id: str):
     return row
 
 
+_EVENT_NOTICE_FIELDS = ("title", "starts_at", "ends_at", "location", "status", "notes", "modality")
+
+
+def _notice_event_change(before: dict, after: dict) -> None:
+    """Alerte la cloche quand un rendez-vous change. Les créneaux de tâche restent silencieux."""
+    if str(after.get("event_type") or before.get("event_type") or "") == "tache":
+        return
+    changed = any(
+        str(before.get(key) or "").strip() != str(after.get(key) or "").strip()
+        for key in _EVENT_NOTICE_FIELDS
+    )
+    if not changed:
+        return
+    try:
+        emit_director_notification(
+            kind="event_updated",
+            title="Rendez-vous modifié",
+            body=str(after.get("title") or "Rendez-vous")[:180],
+            action_url=f"/gestion/planning/{after.get('id') or ''}",
+        )
+    except Exception:
+        logger.warning("notification de rendez-vous non envoyée pour %s", after.get("id"), exc_info=True)
+
+
 @router.put("/business/events/{event_id}", dependencies=[Depends(resolve_tenant)])
 async def business_update_event(event_id: str, body: EventUpdate):
     if body.event_type and body.event_type not in EVENT_TYPES:
@@ -1244,9 +1275,12 @@ async def business_update_event(event_id: str, body: EventUpdate):
     ):
         raise HTTPException(422, detail="Choisissez au moins un participant pour un accès nominatif.")
         raise HTTPException(422, detail="Choisissez au moins une personne pour un accès nominatif.")
+    before = get_calendar_event(event_id)
     row = update_calendar_event(event_id, **body.model_dump(exclude_unset=True))
     if not row:
         raise HTTPException(404, detail="Événement introuvable")
+    if before:
+        _notice_event_change(before, row)
     return row
 
 

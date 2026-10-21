@@ -17,7 +17,7 @@ from database import (
     mark_director_notifications_read_kinds,
     delete_director_notification,
 )
-from services.director_platform import build_briefing, build_enriched_inbox
+from services.director_platform import build_briefing, build_enriched_inbox, emit_director_notification
 
 router = APIRouter(tags=["admin-platform"])
 
@@ -331,6 +331,39 @@ def admin_notification_delete(notif_id: str):
     if not delete_director_notification(notif_id):
         raise HTTPException(status_code=404, detail="Notification introuvable.")
     return {"deleted": notif_id}
+
+
+class BugReportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    what: str = Field(..., min_length=8, max_length=2000)
+    page: str = Field("", max_length=300)
+    message: str = Field("", max_length=2000)
+
+
+def _safe_app_path(raw: str) -> str:
+    page = str(raw or "").strip()[:300]
+    if not page.startswith("/") or page.startswith("//") or "\\" in page or ":" in page:
+        return ""
+    return page
+
+
+@router.post("/admin/support/bug", dependencies=[Depends(require_admin)])
+def admin_report_bug(body: BugReportBody):
+    """Range un signalement dans la cloche du cockpit."""
+    page = _safe_app_path(body.page)
+    lines = [body.what.strip()]
+    if page:
+        lines.append(f"Page : {page}")
+    detail = body.message.strip()
+    if detail:
+        lines.append(f"Message : {detail[:500]}")
+    emit_director_notification(
+        kind="bug_report",
+        title="Signalement",
+        body="\n".join(lines)[:2000],
+        action_url=page or "/aide",
+    )
+    return {"ok": True}
 
 
 @router.post("/admin/learning-suggestions/resolve-bulk", dependencies=[Depends(require_admin)])

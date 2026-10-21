@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import BriefingBoard, { type OpsBoard, type ProjectMilestonesBlock } from "../../components/director/BriefingBoard";
+import FirstVisitTour from "../../components/director/FirstVisitTour";
 import ScenarioSimulator from "../../components/director/ScenarioSimulator";
 import { type CommercialMorningSnapshot } from "../../components/director/BriefingCommercialPanel";
 import EnvelopeNotice, { type LlmEnvelope } from "../../components/director/EnvelopeNotice";
@@ -162,6 +163,7 @@ function BriefingPageContent() {
           ) : null}
         </div>
       ) : null}
+      <FirstVisitTour />
 
       {deleteError ? (
         <AlertBox tone="error" title="Suppression impossible">

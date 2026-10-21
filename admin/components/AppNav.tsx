@@ -215,7 +215,7 @@ export default function AppNav() {
               }`
             : `${drawerLinkClass(active)} flex items-center gap-2.5 !py-3`;
         return (
-          <Link key={item.href} href={item.href} onClick={onNavigate} className={cls}>
+          <Link key={item.href} href={item.href} onClick={onNavigate} title={item.hint} className={cls}>
             <span className="text-lg leading-none" aria-hidden>
               {item.icon}
             </span>
@@ -244,7 +244,7 @@ export default function AppNav() {
                   }`
                 : `${drawerLinkClass(active)} flex items-center gap-2.5 !py-3`;
             return (
-              <Link key={item.href} href={item.href} onClick={onNavigate} className={cls}>
+              <Link key={item.href} href={item.href} onClick={onNavigate} title={item.hint} className={cls}>
                 <span className="text-lg leading-none" aria-hidden>
                   {item.icon}
                 </span>

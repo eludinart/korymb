@@ -24,15 +24,17 @@ export default function TaskEditDialog({
   saving: boolean;
   error: string;
   onClose: () => void;
-  onSave: (patch: { title: string; notes: string }) => void;
+  onSave: (patch: { title: string; notes: string; assignee: string }) => void;
 }) {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
+  const [assignee, setAssignee] = useState("");
   const [localError, setLocalError] = useState("");
 
   useEffect(() => {
     setTitle(task?.title ?? "");
     setNotes(task?.notes ?? "");
+    setAssignee(task?.assignee ?? "");
     setLocalError("");
   }, [task]);
 
@@ -62,7 +64,7 @@ export default function TaskEditDialog({
               return;
             }
             setLocalError("");
-            onSave({ title: nextTitle, notes: notes.trim() });
+            onSave({ title: nextTitle, notes: notes.trim(), assignee: assignee.trim() });
           }}
         >
           <label className="grid gap-1 text-sm font-semibold">
@@ -74,6 +76,18 @@ export default function TaskEditDialog({
               maxLength={800}
               aria-label="Texte de la tâche"
               autoFocus
+            />
+          </label>
+          <label className="grid gap-1 text-sm font-semibold">
+            Assigné à
+            <input
+              className="input-field"
+              value={assignee}
+              onChange={(event) => setAssignee(event.target.value)}
+              maxLength={120}
+              placeholder="Prénom"
+              aria-label="Assigné à"
+              title="La personne qui doit faire cette tâche. La cloche le signale."
             />
           </label>
           <label className="grid gap-1 text-sm font-semibold">

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
+import { GLOSSARY } from "../../../../lib/glossary";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_TYPE_LABELS } from "../../_shared";
 
@@ -94,7 +95,10 @@ export default function GestionContactNouveauPage() {
             <span className="mt-0.5 block text-xs text-slate-500">Prospect, client, partenaire…</span>
           </label>
           <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Mots libres</span>
+            <span className="font-medium text-slate-700" title={GLOSSARY.motsLibres.plain}>
+              {GLOSSARY.motsLibres.term}
+            </span>
+            <span className="mt-0.5 block text-xs font-normal text-slate-500">{GLOSSARY.motsLibres.plain}</span>
             <input
               className="input-field mt-1 w-full"
               value={tagsInput}

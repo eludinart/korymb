@@ -1,6 +1,7 @@
 """Tâches hors projet, calendrier, conversion du bac « Tâches d'Eric »."""
 from __future__ import annotations
 
+from database import list_director_notifications
 from services.business_db import create_project, get_calendar_event, get_project
 from services.work_tasks import import_eric_task_buckets, list_work_tasks, parse_task_blob
 
@@ -132,3 +133,66 @@ def test_task_urgent_stays_first_and_keeps_created_at(client):
     cleared = client.put(f"/business/tasks/{calm['id']}", json={"urgent": False})
     assert cleared.status_code == 200, cleared.text
     assert cleared.json()["urgent"] is False
+
+
+def _notices(kind: str, needle: str) -> list[dict]:
+    return [
+        row for row in list_director_notifications(limit=50)
+        if row.get("kind") == kind and needle in f"{row.get('title') or ''} {row.get('body') or ''} {row.get('action_url') or ''}"
+    ]
+
+
+def test_assigning_a_task_notifies_once_per_person(client):
+    created = client.post("/business/tasks", json={"title": "Relancer le devis", "assignee": "Camille"})
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["assignee"] == "Camille"
+    assert len(_notices("task_assigned", "Relancer le devis")) == 1
+    assert _notices("task_assigned", "Relancer le devis")[0]["action_url"] == "/gestion/taches"
+
+    same = client.put(f"/business/tasks/{body['id']}", json={"assignee": "Camille"})
+    assert same.status_code == 200, same.text
+    assert len(_notices("task_assigned", "Relancer le devis")) == 1
+
+    moved = client.put(f"/business/tasks/{body['id']}", json={"assignee": "Noah"})
+    assert moved.status_code == 200, moved.text
+    assert moved.json()["assignee"] == "Noah"
+    assert len(_notices("task_assigned", "Relancer le devis")) == 2
+
+
+def test_event_update_notifies_and_task_slot_stays_quiet(client):
+    created = client.post(
+        "/business/events",
+        json={
+            "title": "Point Camille",
+            "starts_at": "2026-11-02T10:00:00",
+            "ends_at": "2026-11-02T11:00:00",
+            "event_type": "visio",
+        },
+    )
+    assert created.status_code == 200, created.text
+    event_id = created.json()["id"]
+    updated = client.put(f"/business/events/{event_id}", json={"title": "Point Camille — horaire"})
+    assert updated.status_code == 200, updated.text
+    notes = _notices("event_updated", event_id)
+    assert len(notes) == 1
+    assert notes[0]["action_url"] == f"/gestion/planning/{event_id}"
+
+    again = client.put(f"/business/events/{event_id}", json={"title": "Point Camille — horaire"})
+    assert again.status_code == 200, again.text
+    assert len(_notices("event_updated", event_id)) == 1
+
+    slot = client.post(
+        "/business/events",
+        json={
+            "title": "Créneau tâche",
+            "starts_at": "2026-11-03T09:00:00",
+            "ends_at": "2026-11-03T09:30:00",
+            "event_type": "tache",
+        },
+    )
+    assert slot.status_code == 200, slot.text
+    slot_id = slot.json()["id"]
+    renamed = client.put(f"/business/events/{slot_id}", json={"title": "Créneau tâche déplacé"})
+    assert renamed.status_code == 200, renamed.text
+    assert _notices("event_updated", slot_id) == []

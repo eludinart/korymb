@@ -362,7 +362,10 @@ export default function StudioPage() {
             ) : null}
           </SectionCard>
 
-          <SectionCard title="Valider et publier">
+          <SectionCard
+            title="Valider et publier"
+            description="Votre accord avant qu'un contenu parte. Rien n'est publié sans ce passage."
+          >
             <p className="text-sm text-slate-600">
               La mission produit les pièces. Ensuite : dans Korymb, un clic crée la ressource ; hors application, le
               même clic envoie le post si le connecteur (Instagram, Facebook, LinkedIn, YouTube, etc.) est branché.

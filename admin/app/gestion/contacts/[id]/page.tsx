@@ -10,6 +10,7 @@ import ContactOutreachSuggestionsField from "../../../../components/gestion/Cont
 import ContactProfileView from "../../../../components/gestion/ContactProfileView";
 import ContactReachabilityBadge from "../../../../components/gestion/ContactReachabilityBadge";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
+import { GLOSSARY } from "../../../../lib/glossary";
 import { useActionToast } from "../../../../lib/actionToast";
 import { businessApi } from "../../../../lib/business";
 import { CONTACT_STATUS_LABELS, CONTACT_TYPE_LABELS, formatDateTime, INTERACTION_TYPE_LABELS } from "../../_shared";
@@ -151,7 +152,6 @@ export default function GestionContactEditPage() {
         accent="emerald"
         badge="Personnes"
         title={contact.data.name}
-        place={{ href: "/gestion/contacts", label: "Personnes" }}
         description={`Créé le ${formatDateTime(contact.data.created_at)}`}
         actions={
           <div className="flex flex-wrap items-center gap-3">
@@ -283,7 +283,10 @@ export default function GestionContactEditPage() {
             <input className="input-field mt-1 w-full" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} />
           </label>
           <label className="block text-sm sm:col-span-2">
-            <span className="font-medium text-slate-700">Tags libres (séparés par des virgules)</span>
+            <span className="font-medium text-slate-700" title={GLOSSARY.motsLibres.plain}>
+              {GLOSSARY.motsLibres.term}
+            </span>
+            <span className="mt-0.5 block text-xs font-normal text-slate-500">{GLOSSARY.motsLibres.plain}</span>
             <input className="input-field mt-1 w-full" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="mots libres, séparés par des virgules" />
           </label>
           <label className="block text-sm sm:col-span-2">

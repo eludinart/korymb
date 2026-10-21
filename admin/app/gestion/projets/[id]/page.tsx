@@ -190,7 +190,6 @@ export default function GestionProjetEditPage() {
         accent="emerald"
         badge="Projets"
         title={project.data.title}
-        place={{ href: "/gestion/projets", label: "Projets" }}
         description="Fiche projet : dates, étapes, rendez-vous, contenus et devis rattachés."
         actions={
           <Link href="/gestion/projets" className="btn-link-secondary">

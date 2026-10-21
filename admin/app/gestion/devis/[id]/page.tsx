@@ -191,7 +191,6 @@ export default function GestionDevisEditPage() {
         accent="emerald"
         badge="Devis"
         title={`${quote.data.quote_number} — ${quote.data.title}`}
-        place={{ href: "/gestion/devis", label: "Devis" }}
         description={`Total actuel : ${formatEuroCents(quote.data.total_cents)}`}
         actions={
           <Link href="/gestion/devis" className="btn-link-secondary">

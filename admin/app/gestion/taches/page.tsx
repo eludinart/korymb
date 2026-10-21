@@ -22,12 +22,13 @@ export default function GestionTachesPage() {
     void qc.invalidateQueries({ queryKey: ["work-tasks"] });
     void qc.invalidateQueries({ queryKey: ["business-events"] });
     void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+    void qc.invalidateQueries({ queryKey: ["director-notifications"] });
   };
 
   const save = useMutation({
     mutationFn: (body: {
       id: string;
-      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string };
+      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string; assignee?: string };
     }) => businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
@@ -118,6 +119,7 @@ export default function GestionTachesPage() {
                   </p>
                   <p className="text-xs text-slate-500">
                     {created ? `Créée le ${created}` : "Date de création inconnue"}
+                    {task.assignee ? ` · Assignée à ${task.assignee}` : ""}
                   </p>
                   {task.notes ? (
                     <p className="mt-1 break-words text-xs leading-snug text-slate-600 dark:text-slate-300">

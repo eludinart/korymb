@@ -1,5 +1,7 @@
 /** Navigation Gestion entreprise — source unique (header, sidebar, Ctrl+K). */
 
+import { GLOSSARY } from "./glossary";
+
 export type GestionNavGroupId = "creation" | "equipes" | "activite";
 
 export type GestionNavLink = {
@@ -53,7 +55,7 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
   {
     href: "/gestion/playbooks",
     label: "Modèles",
-    hint: "Demandes prêtes à lancer",
+    hint: GLOSSARY.modeles.plain,
     icon: "📋",
     group: "creation",
   },

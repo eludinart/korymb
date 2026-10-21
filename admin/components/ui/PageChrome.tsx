@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import ErrorHelpLink from "../ErrorHelpLink";
 
 type Accent = "violet" | "amber" | "emerald" | "sky" | "rose";
 
@@ -153,7 +154,10 @@ export function AlertBox({
   return (
     <div className={`alert-box alert-box--${tone}`} role="alert">
       {title ? <p className="alert-title">{title}</p> : null}
-      <div className="alert-body">{children}</div>
+      <div className="alert-body">
+        {children}
+        {tone === "error" ? <ErrorHelpLink /> : null}
+      </div>
     </div>
   );
 }

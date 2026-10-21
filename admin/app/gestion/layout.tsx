@@ -10,6 +10,21 @@ import {
   isGestionLinkActive,
 } from "../../lib/gestionNav";
 
+function gestionCrumbs(pathname: string): { href: string; label: string }[] {
+  const trail = [{ href: "/gestion", label: "Gestion" }];
+  if (pathname === "/gestion") return trail;
+  const match = GESTION_NAV_LINKS.filter((link) => !link.exact)
+    .filter((link) => pathname === link.href || pathname.startsWith(`${link.href}/`))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  if (!match) return trail;
+  trail.push({ href: match.href, label: match.label });
+  if (pathname !== match.href) {
+    const rest = pathname.slice(match.href.length + 1);
+    trail.push({ href: pathname, label: rest === "nouveau" ? "Nouveau" : "Fiche" });
+  }
+  return trail;
+}
+
 function NavItem({
   item,
   pathname,
@@ -21,6 +36,7 @@ function NavItem({
   return (
     <Link
       href={item.href}
+      title={item.hint}
       className={`${active ? "gestion-nav-link gestion-nav-link-active" : "gestion-nav-link gestion-nav-link-idle"} flex shrink-0 items-center gap-2.5`}
     >
       <span className="text-base leading-none" aria-hidden>
@@ -90,7 +106,30 @@ export default function GestionLayout({ children }: { children: React.ReactNode 
           ))}
         </div>
       </aside>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1">
+        <nav aria-label="Fil d'Ariane" className="mb-3 text-sm font-semibold text-slate-500">
+          <ol className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            {gestionCrumbs(pathname).map((crumb, index, all) => {
+              const current = index === all.length - 1;
+              return (
+                <li key={`${crumb.href}-${crumb.label}`} className="flex items-center gap-1.5">
+                  {index > 0 ? <span aria-hidden className="text-slate-300">/</span> : null}
+                  {current ? (
+                    <span className="text-slate-800 dark:text-slate-100" aria-current="page">
+                      {crumb.label}
+                    </span>
+                  ) : (
+                    <Link href={crumb.href} className="text-violet-800 hover:underline dark:text-violet-200">
+                      {crumb.label}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
+        {children}
+      </div>
     </div>
   );
 }
