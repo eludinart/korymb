@@ -19,6 +19,8 @@ import { missionTitleLabel } from "../../lib/missionLabel";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
 import { useUiMode } from "../../lib/uiMode";
 import TodayTasks from "./TodayTasks";
+import ReplyComposer from "./ReplyComposer";
+import { businessApi, formatTaskCreated } from "../../lib/business";
 
 export type { BoardSignals, BoardSourceItem, OpsBoard, OpsBoardItem };
 
@@ -42,6 +44,9 @@ export type ProjectMilestone = {
   priority?: number | null;
   status?: string;
   done?: boolean;
+  reply?: string;
+  reply_at?: string;
+  chat_conversation_id?: string;
   href?: string;
   contact_id?: string | null;
   contact_name?: string;
@@ -264,6 +269,7 @@ function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }
   const qc = useQueryClient();
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
+  const [replyBusy, setReplyBusy] = useState(false);
   const projectId = item.project_id || "";
   const stepIndex = item.index;
   const canCheck = !done && Boolean(projectId) && typeof stepIndex === "number";
@@ -296,12 +302,13 @@ function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }
 
   return (
     <div
-      className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 ${
+      className={`rounded-xl border px-3 py-2.5 ${
         checked
           ? "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400"
           : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"
       }`}
     >
+      <div className="flex items-start gap-2.5">
       <input
         type="checkbox"
         className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
@@ -336,6 +343,47 @@ function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }
           <span className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{error}</span>
         ) : null}
       </span>
+      </div>
+      {!checked ? (
+        <ReplyComposer
+          indent={false}
+          kind="Jalon"
+          title={title}
+          notes={item.status || ""}
+          subject={item.contact_name || item.project_title || ""}
+          reply={item.reply || ""}
+          replyAt={item.reply_at || ""}
+          conversationId={item.chat_conversation_id || ""}
+          saving={replyBusy}
+          savedLabel={item.reply_at ? `Enregistrée le ${formatTaskCreated(item.reply_at) || "—"}` : ""}
+          onSave={async (next) => {
+            if (!projectId || typeof stepIndex !== "number") return;
+            setError("");
+            setReplyBusy(true);
+            try {
+              await businessApi.setMilestoneReply(projectId, stepIndex, { reply: next, label: item.label || "" });
+              await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+              await qc.invalidateQueries({ queryKey: ["business-projects"] });
+              await qc.invalidateQueries({ queryKey: ["business-project", projectId] });
+            } catch (err) {
+              setError(err instanceof Error ? err.message : "Impossible d'enregistrer la réponse.");
+            } finally {
+              setReplyBusy(false);
+            }
+          }}
+          onConversationId={async (id) => {
+            if (!projectId || typeof stepIndex !== "number") return;
+            await businessApi.setMilestoneReply(projectId, stepIndex, {
+              reply: item.reply || "",
+              label: item.label || "",
+              conversation_id: id,
+            });
+            await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+          }}
+        />
+      ) : item.reply ? (
+        <p className="mt-2 whitespace-pre-wrap text-xs text-slate-500">Réponse · {item.reply}</p>
+      ) : null}
     </div>
   );
 }

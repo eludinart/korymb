@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from auth import resolve_tenant, require_admin
 from config import settings
 from database import (
+    LONG_TEXT_CHARS,
     _norm_job_id,
     append_job_mission_thread,
     get_conn,
@@ -24,6 +25,7 @@ from database import (
     job_mark_result_consulted,
     delete_mission_session,
     merge_job_deliverables_ui,
+    save_cio_question_draft,
     update_job,
 )
 from runtime_settings import merge_with_env
@@ -148,6 +150,14 @@ class JobReviseBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     instruction: str = Field(min_length=4, max_length=4000)
     format_id: str = Field(default="", max_length=64)
+
+
+class CioQuestionDraftBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    question: str = Field(min_length=1, max_length=LONG_TEXT_CHARS)
+    answer: str | None = Field(default=None, max_length=4000)
+    conversation_id: str | None = Field(default=None, max_length=64)
 
 
 def delete_job_impl(job_id: str) -> dict:
@@ -912,6 +922,27 @@ def put_deliverables_ui(job_id: str, body: DeliverablesUiPut):
     if out is None:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
     return {"ok": True, "deliverables_ui": out.get("deliverables_ui") or {"agents": {}}}
+
+
+@router.put("/jobs/{job_id}/cio-question-drafts", dependencies=[Depends(resolve_tenant)])
+def cio_question_draft(job_id: str, body: CioQuestionDraftBody):
+    """Brouillon de réponse. Ne lance pas la mission et ne marque pas la question répondue."""
+    jid = _norm_job_id(job_id)
+    if not jid:
+        raise HTTPException(status_code=400, detail="job_id manquant.")
+    try:
+        saved = save_cio_question_draft(
+            jid,
+            body.question,
+            body.answer,
+            body.conversation_id if "conversation_id" in body.model_fields_set else None,
+            set_answer="answer" in body.model_fields_set,
+        )
+    except ValueError as exc:
+        detail = str(exc) or "Brouillon impossible."
+        status = 404 if "introuvable" in detail.lower() else 422
+        raise HTTPException(status_code=status, detail=detail) from exc
+    return {"ok": True, **saved}
 
 
 @router.post("/jobs/{job_id}/cio-answer", dependencies=[Depends(resolve_tenant)])

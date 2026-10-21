@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from auth import resolve_tenant
+from database import LONG_TEXT_CHARS
 from services.business_db import (
     CONTACT_STATUSES,
     CONTACT_TYPES,
@@ -66,6 +67,7 @@ from services.business_db import (
     ProjectMilestoneConflict,
     ProjectMilestoneNotFound,
     set_project_milestone_done,
+    set_project_milestone_reply,
     update_calendar_event,
     update_contact,
     update_external_invoice,
@@ -177,7 +179,13 @@ class ProjectUpdate(BaseModel):
 
 class MilestoneDoneBody(BaseModel):
     done: bool = True
-    label: str = Field(default="", max_length=2000)
+    label: str = Field(default="", max_length=LONG_TEXT_CHARS)
+
+
+class MilestoneReplyBody(BaseModel):
+    reply: str = Field(default="", max_length=4000)
+    label: str = Field(default="", max_length=LONG_TEXT_CHARS)
+    conversation_id: str | None = Field(default=None, max_length=64)
 
 
 class WorkTaskCreate(BaseModel):
@@ -186,7 +194,7 @@ class WorkTaskCreate(BaseModel):
     project_id: str | None = None
     priority: str = ""
     urgent: bool = False
-    notes: str = ""
+    notes: str = Field(default="", max_length=LONG_TEXT_CHARS)
     assignee: str = ""
 
 
@@ -197,8 +205,10 @@ class WorkTaskUpdate(BaseModel):
     project_id: str | None = None
     priority: str | None = None
     urgent: bool | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=LONG_TEXT_CHARS)
     assignee: str | None = None
+    reply: str | None = Field(default=None, max_length=4000)
+    chat_conversation_id: str | None = Field(default=None, max_length=64)
 
 
 class QuoteCreate(BaseModel):
@@ -1023,6 +1033,30 @@ async def business_set_milestone_done(
             index,
             done=body.done,
             expected_label=body.label.strip() or None,
+        )
+    except ProjectMilestoneNotFound as exc:
+        raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc
+    except ProjectMilestoneConflict as exc:
+        raise HTTPException(409, detail=str(exc) or "Cette étape a changé. Rechargez Aujourd'hui.") from exc
+
+
+@router.post(
+    "/business/projects/{project_id}/milestones/{index}/reply",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_set_milestone_reply(
+    project_id: str,
+    body: MilestoneReplyBody,
+    index: int = Path(..., ge=0),
+):
+    try:
+        return set_project_milestone_reply(
+            project_id,
+            index,
+            reply=body.reply,
+            expected_label=body.label.strip() or None,
+            conversation_id=body.conversation_id,
+            set_conversation="conversation_id" in body.model_fields_set,
         )
     except ProjectMilestoneNotFound as exc:
         raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc

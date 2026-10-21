@@ -370,6 +370,14 @@ def _maybe_seal(
     return reply2, surface2, payload
 
 
+def reply_context_block(reply_context: str | None) -> str:
+    """Préfixe modèle. Vide si absent. N'est pas un message du fil."""
+    text = (reply_context or "").strip()[:4000]
+    if not text:
+        return ""
+    return "Sujet de la réponse à préparer :\n" + text
+
+
 def run_assistant_turn(
     *,
     message: str,
@@ -382,6 +390,7 @@ def run_assistant_turn(
     job_id: str | None = None,
     job_logs: list[str] | None = None,
     request_timeout: float | None = None,
+    reply_context: str | None = None,
 ) -> dict[str, Any]:
     """Tour Assistant partagé (sync, stream final, ou job)."""
     mode = normalize_chat_use_mode(chat_use_mode)
@@ -411,6 +420,9 @@ def run_assistant_turn(
         tools_enabled=use_tools,
         history=history,
     )
+    context_block = reply_context_block(reply_context)
+    if context_block:
+        system_prompt = context_block + "\n\n" + system_prompt
     messages = messages_for_assistant(
         history, message, limit=history_limit_for_mode(mode)
     )
@@ -520,6 +532,7 @@ def run_assistant_chat_sync(
     chat_use_mode: Any = CHAT_USE_MODE_QUOTIDIEN,
     chat_session_id: str | None = None,
     use_tools: bool = False,
+    reply_context: str | None = None,
 ) -> dict[str, Any]:
     """Réponse synchrone complète (mode quotidien, tours courts)."""
     mode = normalize_chat_use_mode(chat_use_mode)
@@ -532,6 +545,7 @@ def run_assistant_chat_sync(
             use_tools=use_tools,
             or_profile="lite",
             max_tokens=2048 if mode == CHAT_USE_MODE_QUOTIDIEN else 3072,
+            reply_context=reply_context,
         )
         _add_daily_svc(turn["tokens_in"], turn["tokens_out"])
         session_id = (chat_session_id or "").strip()[:64]

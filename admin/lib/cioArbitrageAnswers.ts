@@ -50,6 +50,28 @@ export function collectCioArbitrageAnswers(
   return out;
 }
 
+export function collectCioQuestionDrafts(
+  events: Array<Record<string, unknown>> | undefined,
+): { drafts: Record<string, string>; conversationId: string } {
+  const drafts: Record<string, string> = {};
+  let conversationId = "";
+  for (const ev of events || []) {
+    if (ev.type !== "cio_question") continue;
+    const pl = eventPayload(ev);
+    const raw = pl.draft_answers;
+    if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+      for (const [question, answer] of Object.entries(raw as Record<string, unknown>)) {
+        const key = String(question).trim();
+        const value = String(answer ?? "").trim();
+        if (key && value) drafts[key] = value;
+      }
+    }
+    const stored = String(pl.reply_conversation_id || "").trim();
+    if (stored) conversationId = stored;
+  }
+  return { drafts, conversationId };
+}
+
 export function countPendingArbitrageQuestions(
   questions: string[],
   answers: Record<string, string>,

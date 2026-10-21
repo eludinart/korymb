@@ -13,7 +13,7 @@ import unicodedata
 from datetime import datetime, timedelta
 from typing import Any
 
-from database import _is_mariadb, get_conn
+from database import LONG_TEXT_CHARS, _is_mariadb, clip_long_text, get_conn
 from services.director_platform import emit_director_notification
 from workspace_db import ws_id
 
@@ -77,6 +77,12 @@ def ensure_work_task_tables(conn) -> None:
         conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0")
     if "assignee" not in columns:
         conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''")
+    if "reply" not in columns:
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN reply TEXT NOT NULL DEFAULT ''")
+    if "reply_at" not in columns:
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN reply_at TEXT NOT NULL DEFAULT ''")
+    if "chat_conversation_id" not in columns:
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN chat_conversation_id TEXT NOT NULL DEFAULT ''")
 
 
 def normalize_due(value: str | None) -> str | None:
@@ -295,7 +301,7 @@ def create_work_task(
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id, _ws(), pid, label[:800], status, due,
-                (priority or "").strip()[:8], 1 if urgent else 0, (notes or "").strip()[:400],
+                (priority or "").strip()[:8], 1 if urgent else 0, clip_long_text(notes),
                 "", (origin_key or "").strip()[:80], _assignee(assignee), now, now,
             ),
         )
@@ -317,7 +323,10 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
     if not current:
         return None
     assignee_before = str(current.get("assignee") or "")
-    allowed = {"title", "status", "due_at", "project_id", "priority", "urgent", "notes", "assignee"}
+    allowed = {
+        "title", "status", "due_at", "project_id", "priority", "urgent", "notes", "assignee",
+        "reply", "chat_conversation_id",
+    }
     sets = ["updated_at=?"]
     vals: list[Any] = [_now()]
     for key, val in fields.items():
@@ -351,10 +360,19 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
             vals.append(1 if bool(val) else 0)
         elif key == "notes":
             sets.append("notes=?")
-            vals.append(str(val or "").strip()[:400])
+            vals.append(clip_long_text(val))
         elif key == "assignee":
             sets.append("assignee=?")
             vals.append(_assignee(None if val is None else str(val)))
+        elif key == "reply":
+            text = str(val or "").strip()[:4000]
+            sets.append("reply=?")
+            vals.append(text)
+            sets.append("reply_at=?")
+            vals.append(_now() if text else "")
+        elif key == "chat_conversation_id":
+            sets.append("chat_conversation_id=?")
+            vals.append(str(val or "").strip()[:64])
     if len(sets) > 1:
         vals.extend([task_id, _ws()])
         with get_conn() as conn:
@@ -450,7 +468,7 @@ def parse_checkbox_line(line: str) -> dict | None:
         return None
     state_folded = _fold(state)
     done = match.group(1).lower() == "x" or state_folded.startswith("fait") or state_folded.startswith("livre")
-    return {"title": title[:800], "done": done, "priority": priority, "notes": state[:400]}
+    return {"title": title[:800], "done": done, "priority": priority, "notes": state[:LONG_TEXT_CHARS]}
 
 
 def parse_task_blob(text: str, *, year: int | None = None) -> list[dict]:

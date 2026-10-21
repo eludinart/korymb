@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
-import { businessApi, type BizContact, type BizEvent, type BizQuote } from "../../../../lib/business";
+import { businessApi, formatTaskCreated, type BizContact, type BizEvent, type BizQuote } from "../../../../lib/business";
+import ReplyComposer from "../../../../components/director/ReplyComposer";
 import { agentHeaders, requestJson } from "../../../../lib/api";
 import { missionTitleLabel } from "../../../../lib/missionLabel";
 import { QK } from "../../../../lib/queryClient";
@@ -25,7 +26,13 @@ import {
   type EventVisibility,
 } from "../../_shared";
 
-type Milestone = { label: string; done?: boolean };
+type Milestone = {
+  label: string;
+  done?: boolean;
+  reply?: string;
+  reply_at?: string;
+  chat_conversation_id?: string;
+};
 
 function visibilityLabel(ev: BizEvent): string {
   const vis = (ev.visibility || "") as EventVisibility;
@@ -106,7 +113,13 @@ export default function GestionProjetEditPage() {
     setStartDate(toDateInputValue(p.start_date));
     setEndDate(toDateInputValue(p.end_date));
     setDescription(p.description || "");
-    setMilestones((p.milestones || []).map((m) => ({ label: m.label || "", done: Boolean(m.done) })));
+    setMilestones((p.milestones || []).map((m) => ({
+      label: m.label || "",
+      done: Boolean(m.done),
+      reply: m.reply || "",
+      reply_at: m.reply_at || "",
+      chat_conversation_id: m.chat_conversation_id || "",
+    })));
     setHydrated(true);
   }, [project.data, hydrated]);
 
@@ -149,7 +162,13 @@ export default function GestionProjetEditPage() {
         start_date: startDate || null,
         end_date: endDate || null,
         description: description.trim(),
-        milestones: milestones.filter((m) => m.label.trim()).map((m) => ({ label: m.label.trim(), done: Boolean(m.done) })),
+        milestones: milestones.filter((m) => m.label.trim()).map((m) => ({
+          label: m.label.trim(),
+          done: Boolean(m.done),
+          reply: m.reply || "",
+          reply_at: m.reply_at || "",
+          chat_conversation_id: m.chat_conversation_id || "",
+        })),
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["business-projects"] });
@@ -268,7 +287,8 @@ export default function GestionProjetEditPage() {
             <p className="text-sm font-medium text-slate-700">Étapes du projet (pour vous)</p>
             {milestones.length === 0 ? <p className="text-xs text-slate-500">Aucune étape pour l’instant. Liste interne à cocher — ce n’est ni un rendez-vous, ni un document pour les inscrits.</p> : null}
             {milestones.map((m, idx) => (
-              <div key={idx} className="flex flex-wrap items-center gap-2">
+              <div key={`${idx}-${m.chat_conversation_id || ""}`} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="checkbox"
                   checked={Boolean(m.done)}
@@ -296,6 +316,47 @@ export default function GestionProjetEditPage() {
                 >
                   Retirer
                 </button>
+              </div>
+              {m.label.trim() ? (
+                <ReplyComposer
+                  indent={false}
+                  kind="Jalon"
+                  title={m.label}
+                  reply={m.reply || ""}
+                  replyAt={m.reply_at || ""}
+                  conversationId={m.chat_conversation_id || ""}
+                  saving={false}
+                  savedLabel={m.reply_at ? `Enregistrée le ${formatTaskCreated(m.reply_at) || "—"}` : ""}
+                  onSave={async (next) => {
+                    const updated = await businessApi.setMilestoneReply(id, idx, { reply: next, label: m.label });
+                    const saved = updated.milestones?.[idx];
+                    setMilestones((current) => current.map((step, stepIndex) => (
+                      stepIndex === idx
+                        ? {
+                          ...step,
+                          reply: saved?.reply || "",
+                          reply_at: saved?.reply_at || "",
+                          chat_conversation_id: saved?.chat_conversation_id || step.chat_conversation_id || "",
+                        }
+                        : step
+                    )));
+                    void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+                  }}
+                  onConversationId={async (conversation) => {
+                    const updated = await businessApi.setMilestoneReply(id, idx, {
+                      reply: m.reply || "",
+                      label: m.label,
+                      conversation_id: conversation,
+                    });
+                    const saved = updated.milestones?.[idx];
+                    setMilestones((current) => current.map((step, stepIndex) => (
+                      stepIndex === idx
+                        ? { ...step, chat_conversation_id: saved?.chat_conversation_id || conversation }
+                        : step
+                    )));
+                  }}
+                />
+              ) : null}
               </div>
             ))}
             <button

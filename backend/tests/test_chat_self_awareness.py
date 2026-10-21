@@ -184,6 +184,23 @@ def test_team_chat_keeps_raw_history_with_summary(monkeypatch):
     assert "Envoie-le" in text
 
 
+def test_reply_context_prefixes_mission_and_stays_out_of_history(monkeypatch):
+    import routers.core_chat as core_chat
+
+    monkeypatch.setattr(core_chat, "get_chat_session_summary", lambda sid: "")
+    text = core_chat._build_chat_mission_txt(
+        "Rédige la réponse",
+        [{"role": "user", "content": "On en discute"}],
+        "",
+        "sess-reply",
+        "Tâche\nÀ qui as-tu proposé la session ?",
+    )
+    assert text.startswith("Sujet de la réponse à préparer :\nTâche\nÀ qui as-tu proposé la session ?")
+    assert "On en discute" in text
+    bare = core_chat._build_chat_mission_txt("Rédige", [], "", "sess-reply")
+    assert "Sujet de la réponse à préparer" not in bare
+
+
 def test_classify_chat_intent():
     from services.chat_intelligence import (
         INTENT_CRM,

@@ -13,6 +13,7 @@ EPHEMERAL_NOTIFICATION_KINDS = frozenset({"chat_result"})
 SKIP_EXTERNAL_NOTIFICATION_KINDS = frozenset({"chat_result", "info", "test", "memory_applied", "bug_report"})
 
 from database import (
+    LONG_TEXT_CHARS,
     _user_validated_set,
     _ws,
     list_autonomous_outputs,
@@ -1246,11 +1247,14 @@ def build_project_milestones() -> dict[str, Any]:
                 "project_id": project_id,
                 "project_title": project_title,
                 "index": index,
-                "label": label[:2000],
+                "label": label[:LONG_TEXT_CHARS],
                 "title": title[:180],
                 "priority": priority if isinstance(priority, int) else None,
                 "status": status[:48],
                 "done": _milestone_is_done(item.get("done")),
+                "reply": str(item.get("reply") or "")[:4000],
+                "reply_at": str(item.get("reply_at") or ""),
+                "chat_conversation_id": str(item.get("chat_conversation_id") or "")[:64],
                 "href": href,
                 "contact_id": raw_contact_id or None,
                 "contact_name": group_label,

@@ -12,6 +12,12 @@ type Props = {
   savedAnswers?: Record<string, string>;
   busy?: boolean;
   onValidateAndLaunch: (answers: Array<{ question: string; answer: string }>) => Promise<void>;
+  enableDiscuss?: boolean;
+  onDiscuss?: (target: { field: "text" | "comment"; prompt: string; value: string }) => void;
+  seedText?: Record<string, string>;
+  seedComment?: string;
+  fill?: { token: number; field: "text" | "comment"; prompt: string; value: string } | null;
+  onDraftBlur?: (target: { field: "text" | "comment"; prompt: string; value: string }) => void;
 };
 
 /**
@@ -23,6 +29,12 @@ export default function CioArbitrageQuestionnaire({
   savedAnswers = {},
   busy = false,
   onValidateAndLaunch,
+  enableDiscuss = false,
+  onDiscuss,
+  seedText,
+  seedComment,
+  fill = null,
+  onDraftBlur,
 }: Props) {
   const payload = useMemo((): ChoiceQuestionnairePayload => {
     const qKeys = questions.map((q) => q.trim()).filter(Boolean);
@@ -80,6 +92,11 @@ export default function CioArbitrageQuestionnaire({
           questions: [],
         }}
         busy={busy}
+        enableDiscuss={enableDiscuss}
+        onDiscuss={onDiscuss}
+        seedComment={seedComment}
+        fill={fill}
+        onDraftBlur={onDraftBlur}
         onSubmit={async (answers) => {
           const comment = answers.comment.trim();
           if (!comment) return;
@@ -94,6 +111,12 @@ export default function CioArbitrageQuestionnaire({
       payload={payload}
       busy={busy}
       answeredSummary={answeredSummary}
+      enableDiscuss={enableDiscuss}
+      onDiscuss={onDiscuss}
+      seedText={seedText}
+      seedComment={seedComment}
+      fill={fill}
+      onDraftBlur={onDraftBlur}
       onSubmit={async (answers) => {
         const rows: Array<{ question: string; answer: string }> = answers.answers
           .map((a) => ({

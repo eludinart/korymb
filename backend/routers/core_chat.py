@@ -71,6 +71,7 @@ class ChatRequest(BaseModel):
     confirm_action: bool = False
     thinking_mode: str = "auto"
     chat_use_mode: str = "operationnel"
+    reply_context: str = Field(default="", max_length=4000)
 
 
 def _recent_hist_lines(hist_snap: list[dict]) -> list[str]:
@@ -91,8 +92,11 @@ def _build_chat_mission_txt(
     hist_snap: list[dict],
     linked_parent_id: str,
     session_id: str,
+    reply_context: str = "",
 ) -> str:
     """Résumé compressé s'il existe, plus les derniers tours bruts."""
+    from services.assistant_chat import reply_context_block
+
     session_summary = get_chat_session_summary(session_id) if session_id else ""
     hist_lines = _recent_hist_lines(hist_snap)
     parts: list[str] = []
@@ -110,6 +114,9 @@ def _build_chat_mission_txt(
     elif not session_summary:
         parts.append("Échanges récents :\n(début de conversation)")
     parts.append(f"Dernière demande à traiter maintenant :\n{msg_snap}")
+    block = reply_context_block(reply_context)
+    if block:
+        parts.insert(0, block)
     return "\n\n".join(parts)
 
 
@@ -140,7 +147,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
     from services.chat_intelligence import chat_message_needs_confirmation, irreversible_action_label
 
-    if chat_message_needs_confirmation(msg_raw) and not request.confirm_action:
+    if (
+        chat_message_needs_confirmation(msg_raw)
+        and not request.confirm_action
+        and not (request.reply_context or "").strip()
+    ):
         label = irreversible_action_label(msg_raw)
         return {
             "status": "needs_confirmation",
@@ -170,6 +181,16 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             att_block = build_attachment_mission_block(att_snap) if att_snap else ""
             turn = _user_turn_text(msg_raw, att_block)
             hist = list(request.history or [])
+            draft_context = (request.reply_context or "").strip()
+            if draft_context:
+                return run_assistant_chat_sync(
+                    message=turn,
+                    history=hist,
+                    chat_use_mode=use_mode,
+                    chat_session_id=request.chat_session_id,
+                    use_tools=False,
+                    reply_context=draft_context,
+                )
             # Quotidien : réponse sync (pas de job) sauf action, équipe ou pièce jointe.
             needs_tools = chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist)
             if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
@@ -302,6 +323,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                         hist_snap,
                         linked_parent_id,
                         session_id,
+                        request.reply_context,
                     )
                     if request.confirm_action or chat_message_needs_action(msg_snap):
                         text, ti, to = orchestrate_coordinateur_mission(

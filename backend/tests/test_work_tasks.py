@@ -68,6 +68,39 @@ def test_eric_project_becomes_loose_tasks_and_keeps_unparsed(client):
     assert len(still) == 3
 
 
+def test_varchar_note_columns_are_widened_to_text():
+    from database import column_type_is_bounded_varchar
+
+    assert column_type_is_bounded_varchar("varchar(400)")
+    assert column_type_is_bounded_varchar("VARCHAR(191)")
+    assert column_type_is_bounded_varchar("char(32)")
+    assert not column_type_is_bounded_varchar("text")
+    assert not column_type_is_bounded_varchar("mediumtext")
+    assert not column_type_is_bounded_varchar("longtext")
+
+
+def test_task_notes_keep_at_least_2500_characters(client):
+    notes = "détail " * 400
+    assert len(notes) >= 2500
+    notes = notes[:2500]
+    created = client.post("/business/tasks", json={"title": "Note longue", "notes": notes})
+    assert created.status_code == 200, created.text
+    assert created.json()["notes"] == notes
+
+    updated_notes = ("suite " * 500)[:2500]
+    updated = client.put(f"/business/tasks/{created.json()['id']}", json={"notes": updated_notes})
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["notes"] == updated_notes
+
+    listed = client.get("/business/tasks")
+    assert listed.status_code == 200
+    row = next(item for item in listed.json()["tasks"] if item["id"] == created.json()["id"])
+    assert row["notes"] == updated_notes
+
+    too_long = client.post("/business/tasks", json={"title": "Trop long", "notes": "x" * 2501})
+    assert too_long.status_code == 422
+
+
 def test_task_api_calendar_follows_the_date(client):
     created = client.post(
         "/business/tasks",
@@ -196,3 +229,36 @@ def test_event_update_notifies_and_task_slot_stays_quiet(client):
     renamed = client.put(f"/business/events/{slot_id}", json={"title": "Créneau tâche déplacé"})
     assert renamed.status_code == 200, renamed.text
     assert _notices("event_updated", slot_id) == []
+
+
+def test_task_reply_keeps_status_and_notes(client):
+    created = client.post(
+        "/business/tasks",
+        json={"title": "À qui as-tu proposé la session ?", "notes": "En attente réponse"},
+    )
+    assert created.status_code == 200, created.text
+    task_id = created.json()["id"]
+    assert created.json()["status"] == "open"
+    assert created.json()["notes"] == "En attente réponse"
+
+    saved = client.put(
+        f"/business/tasks/{task_id}",
+        json={"reply": "Je l'ai proposée à Camille mercredi.", "chat_conversation_id": "rcv-abc123"},
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["reply"] == "Je l'ai proposée à Camille mercredi."
+    assert body["reply_at"]
+    assert body["chat_conversation_id"] == "rcv-abc123"
+    assert body["status"] == "open"
+    assert body["notes"] == "En attente réponse"
+
+    cleared = client.put(f"/business/tasks/{task_id}", json={"reply": ""})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["reply"] == ""
+    assert cleared.json()["reply_at"] == ""
+    assert cleared.json()["status"] == "open"
+    assert cleared.json()["notes"] == "En attente réponse"
+
+    too_long = client.put(f"/business/tasks/{task_id}", json={"reply": "x" * 4001})
+    assert too_long.status_code == 422

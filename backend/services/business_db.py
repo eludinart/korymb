@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from database import get_conn, _is_mariadb
+from database import LONG_TEXT_CHARS, ensure_long_text_columns, get_conn, _is_mariadb
 from workspace_db import ws_id
 
 # ── Constantes métier ─────────────────────────────────────────────────────────
@@ -688,6 +688,7 @@ def init_business_tables() -> None:
 
         ensure_work_task_tables(conn)
         _ensure_business_hot_indexes(conn)
+        ensure_long_text_columns(conn)
         conn.commit()
     from services.work_tasks import import_eric_task_buckets
 
@@ -1105,7 +1106,7 @@ def get_contact_outreach_context(contact_id: str, *, limit_interactions: int = 1
 
     return {
         "contact_id": contact_id,
-        "notes": str(contact.get("notes") or "")[:2000],
+        "notes": str(contact.get("notes") or "")[:LONG_TEXT_CHARS],
         "outreach_suggestions": sug[:2500],
         "interactions": [
             {
@@ -2819,6 +2820,43 @@ def set_project_milestone_done(
         if i == index and isinstance(item, dict):
             nxt = dict(item)
             nxt["done"] = bool(done)
+            milestones.append(nxt)
+        else:
+            milestones.append(item)
+    updated = update_project(project_id, milestones=milestones)
+    if not updated:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    return updated
+
+
+def set_project_milestone_reply(
+    project_id: str,
+    index: int,
+    *,
+    reply: str,
+    expected_label: str | None = None,
+    conversation_id: str | None = None,
+    set_conversation: bool = False,
+) -> dict:
+    """Enregistre la réponse d'une étape sans changer done ni les autres étapes."""
+    project = get_project(project_id)
+    if not project:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    raw = project.get("milestones") or []
+    if not isinstance(raw, list) or index < 0 or index >= len(raw) or not isinstance(raw[index], dict):
+        raise ProjectMilestoneNotFound("Étape introuvable")
+    current = str(raw[index].get("label") or "")
+    if expected_label is not None and current.strip() != expected_label.strip():
+        raise ProjectMilestoneConflict("Cette étape a changé. Rechargez Aujourd'hui.")
+    text = str(reply or "").strip()[:4000]
+    milestones: list[Any] = []
+    for i, item in enumerate(raw):
+        if i == index and isinstance(item, dict):
+            nxt = dict(item)
+            nxt["reply"] = text
+            nxt["reply_at"] = _now() if text else ""
+            if set_conversation:
+                nxt["chat_conversation_id"] = str(conversation_id or "").strip()[:64]
             milestones.append(nxt)
         else:
             milestones.append(item)

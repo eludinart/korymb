@@ -33,6 +33,61 @@ DB_PATH = Path(__file__).parent / "data" / "korymb.db"
 MISSION_THREAD_CONTENT_MAX_CHARS = 250_000
 # Taille max sérialisée du fil (MariaDB LONGTEXT ; marge sous 16 Mo).
 MISSION_THREAD_JSON_MAX_BYTES = 14_000_000
+# Plancher des notes et descriptions saisies. MariaDB TEXT (~64 Ko) le couvre ;
+# un VARCHAR sur ces colonnes est élargi en TEXT au démarrage.
+LONG_TEXT_CHARS = 2500
+
+_LONG_TEXT_COLUMNS = (
+    ("biz_work_tasks", "notes"),
+    ("biz_contacts", "notes"),
+    ("biz_contacts", "outreach_suggestions"),
+    ("biz_projects", "description"),
+    ("biz_quotes", "notes"),
+    ("biz_calendar_events", "notes"),
+    ("biz_interactions", "details"),
+    ("agent_groups", "description"),
+    ("agent_group_memory", "notes"),
+    ("playbooks", "description"),
+    ("mission_templates", "description"),
+    ("scheduled_tasks", "description"),
+    ("reprise_checklist_actions", "note"),
+    ("action_tickets", "summary"),
+    ("action_tickets", "error"),
+    ("director_notifications", "body"),
+    ("memory_history", "comment"),
+)
+
+
+def column_type_is_bounded_varchar(col_type: str) -> bool:
+    kind = str(col_type or "").lower().split("(", 1)[0].strip()
+    return kind in {"varchar", "char"}
+
+
+def clip_long_text(value: object, *, limit: int = LONG_TEXT_CHARS) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def ensure_long_text_columns(conn) -> None:
+    """Passe en TEXT les notes et descriptions encore en VARCHAR (MariaDB)."""
+    if not _is_mariadb():
+        return
+    for table, column in _LONG_TEXT_COLUMNS:
+        if not re.fullmatch(r"[a-z_]+", table) or not re.fullmatch(r"[a-z_]+", column):
+            continue
+        try:
+            row = conn.execute(f"SHOW COLUMNS FROM {table} LIKE '{column}'").fetchone()
+            if not row:
+                continue
+            data = dict(row)
+            col_type = str(data.get("Type") or "")
+            if not column_type_is_bounded_varchar(col_type):
+                continue
+            nullable = str(data.get("Null") or "").upper() == "YES"
+            ddl = "TEXT NULL" if nullable else "TEXT NOT NULL DEFAULT ''"
+            conn.execute(f"ALTER TABLE {table} MODIFY COLUMN `{column}` {ddl}")
+            logger.info("Colonne %s.%s élargie (%s → TEXT)", table, column, col_type)
+        except Exception:
+            logger.warning("Élargissement %s.%s ignoré", table, column, exc_info=True)
 # Source de vérité config backend (.env + .env.local)
 load_backend_env()
 DB_ENGINE = str(os.getenv("KORYMB_DB_ENGINE", "sqlite")).strip().lower()
@@ -1385,6 +1440,7 @@ def _init_db_schema_and_seeds() -> None:
         ensure_workspace_columns(conn)
         _ensure_mission_events_table(conn)
         _ensure_job_hot_indexes(conn)
+        ensure_long_text_columns(conn)
         conn.commit()
     logger.info("init_db schéma en %.1fs", time.perf_counter() - phase)
     from tenant_context import clear_tenant_context, get_workspace_id, set_tenant_context
@@ -3854,7 +3910,7 @@ def upsert_agent_group(
                 sid,
                 (slug or gid)[:80],
                 (label or gid)[:160],
-                (description or "")[:2000],
+                (description or "")[:LONG_TEXT_CHARS],
                 (status or "active")[:32],
                 (lead_agent_key or "coordinateur")[:80],
                 json.dumps(list(member_keys or []), ensure_ascii=False),
@@ -4991,6 +5047,65 @@ def record_cio_arbitrage_answer(job_id: str, question: str, answer: str) -> dict
     return list_cio_arbitrage_answers(job_id)
 
 
+_CIO_FREE_CONSIGNE = "Consigne libre (hors propositions CIO)"
+
+
+def save_cio_question_draft(
+    job_id: str,
+    question: str,
+    answer: str | None = None,
+    conversation_id: str | None = None,
+    *,
+    set_answer: bool = True,
+) -> dict[str, Any]:
+    """Brouillon de réponse. N'écrit pas le fil de mission et ne marque pas answered."""
+    q = (question or "").strip()
+    if not q:
+        raise ValueError("Question manquante.")
+    row = get_job(job_id)
+    if not row:
+        raise ValueError("Mission introuvable.")
+    from observability import event_payload
+
+    events = list(row.get("events") or [])
+    target = -1
+    for index, ev in enumerate(events):
+        if not isinstance(ev, dict) or ev.get("type") != "cio_question":
+            continue
+        pl = event_payload(ev)
+        qs = [str(x).strip() for x in (pl.get("questions") or []) if str(x).strip()]
+        if q in qs or (q == _CIO_FREE_CONSIGNE and index >= target):
+            target = index
+            if q in qs:
+                break
+    if target < 0:
+        raise ValueError("Question introuvable.")
+    ev = events[target]
+    pl = dict(event_payload(ev))
+    drafts = dict(pl.get("draft_answers") or {})
+    if set_answer:
+        text = (answer or "").strip()[:4000]
+        if text:
+            drafts[q] = text
+        else:
+            drafts.pop(q, None)
+        pl["draft_answers"] = drafts
+    if conversation_id is not None:
+        pl["reply_conversation_id"] = str(conversation_id or "").strip()[:64]
+    stored = dict(ev)
+    if isinstance(stored.get("payload"), dict) or "payload" in stored:
+        stored["payload"] = pl
+    else:
+        stored["data"] = pl
+    events[target] = stored
+    persist_job_events(job_id, events)
+    return {
+        "draft_answers": drafts,
+        "reply_conversation_id": str(pl.get("reply_conversation_id") or ""),
+        "answered": bool(pl.get("answered")),
+    }
+
+
 def list_cio_arbitrage_answers(job_id: str) -> dict[str, str]:
     """Retourne les réponses dirigeant indexées par libellé de question."""
     row = get_job(job_id)
@@ -5885,13 +6000,13 @@ def upsert_playbook(
             conn.execute(
                 "UPDATE playbooks SET name=?, description=?, category=?, steps_json=?, template_id=?, updated_at=? "
                 "WHERE id=? AND workspace_id=?",
-                (name[:200], description[:2000], category[:32], steps_blob, template_id, now, playbook_id, wid),
+                (name[:200], description[:LONG_TEXT_CHARS], category[:32], steps_blob, template_id, now, playbook_id, wid),
             )
         else:
             conn.execute(
                 "INSERT INTO playbooks (id, name, description, category, steps_json, template_id, workspace_id, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (playbook_id, name[:200], description[:2000], category[:32], steps_blob, template_id, wid, now, now),
+                (playbook_id, name[:200], description[:LONG_TEXT_CHARS], category[:32], steps_blob, template_id, wid, now, now),
             )
         conn.commit()
     return get_playbook(playbook_id) or {"id": playbook_id}

@@ -9,7 +9,7 @@ import MissionHitlResolver from "../missions/MissionHitlResolver";
 import PlanDiffPanel from "../PlanDiffPanel";
 import { agentHeaders, requestJson } from "../../lib/api";
 import { useActionToast } from "../../lib/actionToast";
-import { collectCioArbitrageAnswers } from "../../lib/cioArbitrageAnswers";
+import { collectCioArbitrageAnswers, collectCioQuestionDrafts, CIO_FREE_CONSIGNE_QUESTION } from "../../lib/cioArbitrageAnswers";
 import type { QuestionSpecMap } from "../../lib/choiceQuestionnaire";
 import { specsFromQuestionItems } from "../../lib/choiceQuestionnaire";
 import {
@@ -28,6 +28,7 @@ import {
   useCompleteCrmFollowUp,
 } from "../../lib/missionActions";
 import InboxMetaStrip from "./InboxMetaStrip";
+import ReplyDrawer from "./ReplyDrawer";
 import { EmailAttachmentList } from "../gestion/EmailAttachments";
 
 export type InboxActionItem = {
@@ -140,6 +141,9 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   });
 
   const [cioResumeJobId, setCioResumeJobId] = useState<string | null>(null);
+  const [discuss, setDiscuss] = useState<{ field: "text" | "comment"; prompt: string; value: string } | null>(null);
+  const [fill, setFill] = useState<{ token: number; field: "text" | "comment"; prompt: string; value: string } | null>(null);
+  const [draftError, setDraftError] = useState("");
 
   const hitlResolve = useHitlResolve(jobId);
   const actionResolve = useActionResolve();
@@ -287,6 +291,39 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
     }
     return {};
   }, [item.kind, item.question_specs]);
+  const draftPack = useMemo(
+    () => collectCioQuestionDrafts((jobAnswersQuery.data?.events || []) as Array<Record<string, unknown>>),
+    [jobAnswersQuery.data?.events],
+  );
+  const seedText = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const question of cioQuestions) {
+      const committed = questionAnswers[question]?.trim();
+      const draft = draftPack.drafts[question]?.trim();
+      if (committed) out[question] = committed;
+      else if (draft) out[question] = draft;
+    }
+    return out;
+  }, [cioQuestions, questionAnswers, draftPack.drafts]);
+  const seedComment = (
+    questionAnswers[CIO_FREE_CONSIGNE_QUESTION] || draftPack.drafts[CIO_FREE_CONSIGNE_QUESTION] || ""
+  ).trim();
+  const saveCioDraft = async (question: string, answer?: string, conversationId?: string) => {
+    const body: { question: string; answer?: string; conversation_id?: string } = { question };
+    if (answer !== undefined) body.answer = answer;
+    if (conversationId !== undefined) body.conversation_id = conversationId;
+    const { res, data } = await requestJson(`/jobs/${encodeURIComponent(jobId)}/cio-question-drafts`, {
+      method: "PUT",
+      headers: agentHeaders(),
+      expectOk: false,
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const detail = (data as { detail?: unknown })?.detail;
+      throw new Error(typeof detail === "string" && detail ? detail : "Impossible d'enregistrer le brouillon.");
+    }
+    void jobAnswersQuery.refetch();
+  };
   const missionContext =
     item.mission ||
     (item.kind === "cio_question" &&
@@ -705,7 +742,43 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                 savedAnswers={questionAnswers}
                 busy={cioAnswerMut.isPending}
                 onValidateAndLaunch={onCioValidate}
+                enableDiscuss
+                seedText={seedText}
+                seedComment={seedComment}
+                fill={fill}
+                onDiscuss={(target) => {
+                  setDraftError("");
+                  setDiscuss(target);
+                }}
+                onDraftBlur={(target) => {
+                  const question = target.field === "comment" ? CIO_FREE_CONSIGNE_QUESTION : target.prompt;
+                  void saveCioDraft(question, target.value).catch((err: Error) => setDraftError(err.message));
+                }}
               />
+              {draftError ? <p className="text-sm text-red-700">{draftError}</p> : null}
+              {discuss ? (
+                <ReplyDrawer
+                  open
+                  target={{
+                    kind: "Question",
+                    title: discuss.prompt,
+                    subject: item.title || "",
+                    conversationId: draftPack.conversationId,
+                    draft: discuss.value,
+                  }}
+                  onClose={() => setDiscuss(null)}
+                  onUse={(text) => {
+                    const question = discuss.field === "comment" ? CIO_FREE_CONSIGNE_QUESTION : discuss.prompt;
+                    setFill({ token: Date.now(), field: discuss.field, prompt: discuss.prompt, value: text });
+                    setDiscuss((current) => (current ? { ...current, value: text } : current));
+                    void saveCioDraft(question, text).catch((err: Error) => setDraftError(err.message));
+                  }}
+                  onConversationId={async (id) => {
+                    const question = discuss.field === "comment" ? CIO_FREE_CONSIGNE_QUESTION : discuss.prompt;
+                    await saveCioDraft(question, undefined, id);
+                  }}
+                />
+              ) : null}
               {cioResumeJobId ? (
                 <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
                   <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-violet-500 align-middle" />

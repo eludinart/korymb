@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CHOICE_NONE_OPTION_ID,
   isNoneChoiceOption,
@@ -18,6 +18,12 @@ type Props = {
   /** Affiché après validation réussie (chat / sticky). */
   answeredSummary?: string | null;
   className?: string;
+  enableDiscuss?: boolean;
+  onDiscuss?: (target: { field: "text" | "comment"; prompt: string; value: string }) => void;
+  seedText?: Record<string, string>;
+  seedComment?: string;
+  fill?: { token: number; field: "text" | "comment"; prompt: string; value: string } | null;
+  onDraftBlur?: (target: { field: "text" | "comment"; prompt: string; value: string }) => void;
 };
 
 function optionChecked(
@@ -48,6 +54,12 @@ export default function ChoiceQuestionnaire({
   onSubmit,
   answeredSummary = null,
   className = "",
+  enableDiscuss = false,
+  onDiscuss,
+  seedText,
+  seedComment = "",
+  fill = null,
+  onDraftBlur,
 }: Props) {
   const [selected, setSelected] = useState<Record<string, string[]>>(() => {
     const init: Record<string, string[]> = {};
@@ -62,6 +74,37 @@ export default function ChoiceQuestionnaire({
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const [triedSubmit, setTriedSubmit] = useState(false);
+  const seeded = useRef(false);
+
+  useEffect(() => {
+    if (seeded.current) return;
+    const entries = Object.entries(seedText || {}).filter(([, value]) => value.trim());
+    if (entries.length === 0 && !seedComment.trim()) return;
+    seeded.current = true;
+    if (entries.length) {
+      setTextAnswers((prev) => {
+        const next = { ...prev };
+        for (const question of payload.questions) {
+          if (question.selection !== "text") continue;
+          const value = seedText?.[question.prompt];
+          if (value?.trim()) next[question.id] = value;
+        }
+        return next;
+      });
+    }
+    if (seedComment.trim()) setComment(seedComment);
+  }, [payload.questions, seedComment, seedText]);
+
+  useEffect(() => {
+    if (!fill) return;
+    if (fill.field === "comment") {
+      setComment(fill.value);
+      return;
+    }
+    const question = payload.questions.find((item) => item.selection === "text" && item.prompt === fill.prompt);
+    if (!question) return;
+    setTextAnswers((prev) => ({ ...prev, [question.id]: fill.value }));
+  }, [fill, payload.questions]);
 
   const locked = busy || disabled || Boolean(answeredSummary);
 
@@ -184,14 +227,27 @@ export default function ChoiceQuestionnaire({
               </legend>
 
               {q.selection === "text" ? (
+                <div className="mt-2">
                 <textarea
                   value={textAnswers[q.id] || ""}
                   onChange={(e) => setTextAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                  onBlur={() => onDraftBlur?.({ field: "text", prompt: q.prompt, value: textAnswers[q.id] || "" })}
                   disabled={locked}
                   rows={2}
                   placeholder="Votre réponse…"
-                  className="field-input mt-2 w-full resize-y text-sm"
+                  className="field-input w-full resize-y text-sm"
                 />
+                {enableDiscuss ? (
+                  <button
+                    type="button"
+                    className="mt-1 text-xs font-bold text-violet-800 hover:underline dark:text-violet-200"
+                    disabled={locked}
+                    onClick={() => onDiscuss?.({ field: "text", prompt: q.prompt, value: textAnswers[q.id] || "" })}
+                  >
+                    Discuter
+                  </button>
+                ) : null}
+                </div>
               ) : (
                 <ul className="mt-2 space-y-1.5">
                   {optionsFor(q).map((opt) => {
@@ -248,11 +304,22 @@ export default function ChoiceQuestionnaire({
           id={`qcm-comment-${payload.questions[0]?.id || "x"}`}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
+          onBlur={() => onDraftBlur?.({ field: "comment", prompt: payload.commentLabel || "Commentaire", value: comment })}
           disabled={locked}
           rows={2}
           placeholder="Précision, contrainte, nuance…"
           className="field-input w-full resize-y text-sm"
         />
+        {enableDiscuss && (payload.questions.length === 0 || payload.questions.some((item) => item.selection !== "text")) ? (
+          <button
+            type="button"
+            className="mt-1 text-xs font-bold text-violet-800 hover:underline dark:text-violet-200"
+            disabled={locked}
+            onClick={() => onDiscuss?.({ field: "comment", prompt: payload.commentLabel || "Commentaire", value: comment })}
+          >
+            Discuter
+          </button>
+        ) : null}
       </div>
 
       {!canSubmit && !locked && (triedSubmit || missingLabels.length > 0) ? (

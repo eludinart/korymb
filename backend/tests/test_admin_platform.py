@@ -647,6 +647,46 @@ def test_cio_answer_marks_answered(client):
     )
 
 
+def test_cio_draft_does_not_answer_the_mission(client):
+    save_job("ciodrf01", "coordinateur", "Test brouillon CIO", source="test")
+    update_job(
+        "ciodrf01",
+        "running",
+        None,
+        [],
+        0,
+        0,
+        events=[
+            {"type": "cio_question", "ts": "2026-01-01T00:00:00", "payload": {"questions": ["Q1?"], "answered": False}},
+        ],
+    )
+    saved = client.put(
+        "/jobs/ciodrf01/cio-question-drafts",
+        json={"question": "Q1?", "answer": "Brouillon", "conversation_id": "rcv-cio1"},
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["draft_answers"]["Q1?"] == "Brouillon"
+    assert saved.json()["reply_conversation_id"] == "rcv-cio1"
+    assert saved.json()["answered"] is False
+    row = get_job("ciodrf01")
+    events = row.get("events") or []
+    assert not any(ev.get("type") == "cio_arbitrage_answer" for ev in events)
+    question = next(ev for ev in events if ev.get("type") == "cio_question")
+    payload = question.get("payload") or question.get("data") or {}
+    assert payload.get("answered") is False
+    assert payload["draft_answers"]["Q1?"] == "Brouillon"
+
+    free = client.put(
+        "/jobs/ciodrf01/cio-question-drafts",
+        json={"question": "Consigne libre (hors propositions CIO)", "answer": "Précision"},
+    )
+    assert free.status_code == 200, free.text
+    assert free.json()["draft_answers"]["Consigne libre (hors propositions CIO)"] == "Précision"
+    assert free.json()["answered"] is False
+    again = get_job("ciodrf01")
+    assert not any(ev.get("type") == "cio_arbitrage_answer" for ev in (again.get("events") or []))
+
+
 def test_cio_answer_per_question(client):
     from database import get_job, list_cio_arbitrage_answers, save_job, update_job
 

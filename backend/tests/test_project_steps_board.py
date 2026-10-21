@@ -351,3 +351,65 @@ def test_project_milestones_owner_fallback_is_moi(app):
         assert missing["groups"][0]["kind"] == "owner"
     finally:
         delete_project(project["id"])
+
+
+def test_milestone_reply_keeps_done_and_survives_project_save(client):
+    from services.business_db import update_project
+
+    project = create_project(
+        title="Éclaircie",
+        status="active",
+        milestones=[{"label": "P2 · En attente réponse — Quelle date ?", "done": False}],
+    )
+    try:
+        saved = client.post(
+            f"/business/projects/{project['id']}/milestones/0/reply",
+            json={"reply": "Mercredi après-midi.", "label": "P2 · En attente réponse — Quelle date ?"},
+        )
+        assert saved.status_code == 200, saved.text
+        step = saved.json()["milestones"][0]
+        assert step["reply"] == "Mercredi après-midi."
+        assert step["reply_at"]
+        assert step["done"] is False
+
+        conflict = client.post(
+            f"/business/projects/{project['id']}/milestones/0/reply",
+            json={"reply": "Autre", "label": "un autre libellé"},
+        )
+        assert conflict.status_code == 409
+        assert get_project(project["id"])["milestones"][0]["reply"] == "Mercredi après-midi."
+
+        bound = client.post(
+            f"/business/projects/{project['id']}/milestones/0/reply",
+            json={
+                "reply": "Mercredi après-midi.",
+                "label": "P2 · En attente réponse — Quelle date ?",
+                "conversation_id": "rcv-jalon1",
+            },
+        )
+        assert bound.status_code == 200, bound.text
+        assert bound.json()["milestones"][0]["chat_conversation_id"] == "rcv-jalon1"
+
+        kept = update_project(
+            project["id"],
+            milestones=[{
+                "label": "P2 · En attente réponse — Quelle date ?",
+                "done": False,
+                "reply": "Mercredi après-midi.",
+                "reply_at": step["reply_at"],
+                "chat_conversation_id": "rcv-jalon1",
+            }],
+        )
+        assert kept["milestones"][0]["reply"] == "Mercredi après-midi."
+        assert kept["milestones"][0]["chat_conversation_id"] == "rcv-jalon1"
+        assert kept["milestones"][0]["done"] is False
+
+        block = client.get("/admin/briefing?period=today").json()["project_milestones"]
+        row = next(
+            item for item in block["open"]
+            if item.get("project_id") == project["id"]
+        )
+        assert row["reply"] == "Mercredi après-midi."
+        assert row["chat_conversation_id"] == "rcv-jalon1"
+    finally:
+        delete_project(project["id"])

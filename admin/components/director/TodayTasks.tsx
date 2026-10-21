@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { businessApi, dueDay, dueLabel, formatTaskCreated, todayISO, type BizWorkTask } from "../../lib/business";
 import TaskEditDialog from "./TaskEditDialog";
+import ReplyComposer from "./ReplyComposer";
 
 function sortOpen(tasks: BizWorkTask[], today: string) {
   const rank = (task: BizWorkTask) => {
@@ -63,7 +64,7 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
   const save = useMutation({
     mutationFn: (body: {
       id: string;
-      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string; assignee?: string };
+      patch: { status?: "open" | "done"; due_at?: string | null; urgent?: boolean; title?: string; notes?: string; assignee?: string; reply?: string; chat_conversation_id?: string };
     }) => businessApi.updateTask(body.id, body.patch),
     onSuccess: () => {
       setError("");
@@ -244,6 +245,21 @@ export default function TodayTasks({ onOpenCount }: { onOpenCount?: (count: numb
                     onChange={(event) => save.mutate({ id: task.id, patch: { due_at: event.target.value || null } })}
                   />
                 </label>
+                <ReplyComposer
+                  kind="Tâche"
+                  title={task.title}
+                  notes={task.notes || ""}
+                  reply={task.reply || ""}
+                  replyAt={task.reply_at || ""}
+                  conversationId={task.chat_conversation_id || ""}
+                  saving={save.isPending && save.variables?.id === task.id}
+                  savedLabel={task.reply_at ? `Enregistrée le ${formatTaskCreated(task.reply_at) || "—"}` : ""}
+                  onSave={(next) => save.mutate({ id: task.id, patch: { reply: next } })}
+                  onConversationId={async (id) => {
+                    await businessApi.updateTask(task.id, { chat_conversation_id: id });
+                    refresh();
+                  }}
+                />
               </li>
             );
           })}

@@ -151,7 +151,7 @@ export type BizProject = {
   location: string;
   start_date: string | null;
   end_date: string | null;
-  milestones: { label: string; done?: boolean }[];
+  milestones: { label: string; done?: boolean; reply?: string; reply_at?: string; chat_conversation_id?: string }[];
   linked_job_ids: string[];
   created_at: string;
   updated_at: string;
@@ -167,6 +167,9 @@ export type BizWorkTask = {
   urgent: boolean;
   notes: string;
   assignee: string;
+  reply?: string;
+  reply_at?: string;
+  chat_conversation_id?: string;
   calendar_event_id: string;
   created_at: string;
   updated_at: string;
@@ -819,7 +822,7 @@ export const businessApi = {
   },
   updateTask: async (
     id: string,
-    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "urgent" | "notes" | "assignee">>,
+    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "urgent" | "notes" | "assignee" | "reply" | "chat_conversation_id">>,
   ) => {
     const { data } = await requestJson(`/business/tasks/${encodeURIComponent(id)}`, {
       method: "PUT",
@@ -838,6 +841,21 @@ export const businessApi = {
       throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer cette tâche.");
     }
     return data as { deleted?: boolean };
+  },
+  setMilestoneReply: async (
+    projectId: string,
+    index: number,
+    body: { reply: string; label: string; conversation_id?: string },
+  ) => {
+    const { data } = await requestJson(
+      `/business/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(String(index))}/reply`,
+      {
+        method: "POST",
+        headers: agentHeaders(),
+        body: JSON.stringify(body),
+      },
+    );
+    return data as BizProject;
   },
   listQuotes: async () => {
     const { data } = await requestJson("/business/quotes", {
