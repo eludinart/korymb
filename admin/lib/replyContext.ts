@@ -1,6 +1,6 @@
 export const REPLY_MAX = 4000;
 
-export type ReplyKind = "Tâche" | "Jalon" | "Question";
+export type ReplyKind = "Tâche" | "Étape" | "Question";
 
 export function replyBlockStartsOpen(title: string, hint: string, reply: string): boolean {
   if (reply.trim()) return true;

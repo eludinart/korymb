@@ -1265,6 +1265,7 @@ def _hydrate_job_row(d: dict) -> dict:
         "orchestrator_key",
         "handoff_from_job_id",
         "project_id",
+        "task_id",
         "origin",
     ):
         if extra_key in mc and mc.get(extra_key) not in (None, "", []):
@@ -5397,11 +5398,11 @@ def list_jobs_cards_light(limit: int = 80) -> list[dict]:
         if not isinstance(mc, dict):
             mc = {}
         slim: dict = {}
-        for key in ("agent_group_id", "orchestrator_key", "handoff_from_job_id", "project_id", "origin"):
+        for key in ("agent_group_id", "orchestrator_key", "handoff_from_job_id", "project_id", "task_id", "origin"):
             val = str(mc.get(key) or "").strip()
             if not val:
                 continue
-            slim[key] = val[:64] if key in ("agent_group_id", "handoff_from_job_id", "project_id") else val
+            slim[key] = val[:64] if key in ("agent_group_id", "handoff_from_job_id", "project_id", "task_id") else val
         d["mission_config"] = slim
         out.append(d)
     return out

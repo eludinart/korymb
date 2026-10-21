@@ -6,6 +6,8 @@ import re
 import uuid
 from typing import Any, Callable
 
+from database import LONG_TEXT_CHARS
+
 _VAR_RE = re.compile(r"\{\{(\w+)\}\}")
 _PLAYBOOK_CATS = frozenset({"fleur", "sivana", "generic", "ops", "studio"})
 
@@ -287,7 +289,7 @@ def run_save_mission_template(inp: dict[str, Any]) -> str:
     row = upsert_mission_template(
         tid,
         name=name,
-        description=str(inp.get("description") or "").strip()[:1000],
+        description=str(inp.get("description") or "").strip()[:LONG_TEXT_CHARS],
         agent=agent,
         mission_text=mission,
         variables=_extract_variables(mission),
@@ -346,7 +348,7 @@ def run_save_playbook(inp: dict[str, Any]) -> str:
     row = upsert_playbook(
         pid,
         name=name,
-        description=str(inp.get("description") or "").strip()[:2000],
+        description=str(inp.get("description") or "").strip()[:LONG_TEXT_CHARS],
         category=cat,
         steps={"mission": mission, "agent": agent, "agents": [agent]},
     )
@@ -392,7 +394,7 @@ def _parse_tasks(raw: Any) -> list[dict[str, str]]:
         if key in seen:
             continue
         seen.add(key)
-        out.append({"title": title[:180], "detail": detail[:2000]})
+        out.append({"title": title[:180], "detail": detail[:LONG_TEXT_CHARS]})
         if len(out) >= 12:
             break
     return out
@@ -451,7 +453,7 @@ def run_create_project(inp: dict[str, Any]) -> str:
         project_type = "autre"
     tasks = _parse_tasks(inp.get("tasks"))
     if not tasks:
-        tasks = [{"title": title, "detail": description[:2000]}]
+        tasks = [{"title": title, "detail": description[:LONG_TEXT_CHARS]}]
 
     existing = _find_project_by_title(title)
     known = {
@@ -497,27 +499,14 @@ def run_create_project(inp: dict[str, Any]) -> str:
         linked = []
 
     pid = str(project.get("id") or "")
-    from database import insert_planned_job
-
-    made: list[dict[str, str]] = []
-    for task in fresh:
-        jid = uuid.uuid4().hex[:8]
-        mission = _planned_mission_text(
-            project_title=title,
-            task_title=task["title"],
-            detail=task["detail"],
-            description=description or str(project.get("description") or ""),
-        )
-        insert_planned_job(
-            jid,
-            "coordinateur",
-            mission,
-            source="project",
-            mission_config={"mode": "cio", "project_id": pid, "origin": "chat"},
-        )
-        milestones.append({"label": task["title"], "done": False, "job_id": jid})
-        linked.append(jid)
-        made.append({"job_id": jid, "title": task["title"], "href": f"/missions?job={jid}"})
+    made = _append_planned_tasks(
+        project_id=pid,
+        project_title=title,
+        description=description or str(project.get("description") or ""),
+        milestones=milestones,
+        linked=linked,
+        tasks=fresh,
+    )
 
     update_project(pid, milestones=milestones, linked_job_ids=linked, status="active")
     return _json(
@@ -531,10 +520,10 @@ def run_create_project(inp: dict[str, Any]) -> str:
             "missions_href": "/missions?view=kanban",
             "tasks": made,
             "message": (
-                "Projet créé. Les tâches sont dans Missions, colonne À faire. "
+                "Projet créé. Chaque tâche est dans le projet, avec une mission à lancer. "
                 "Elles ne démarrent pas toutes seules : le dirigeant clique Lancer."
                 if created
-                else "Tâches ajoutées au projet existant. Elles sont à faire, pas lancées."
+                else "Tâches ajoutées au projet. Chacune a une mission à lancer."
             ),
         }
     )
@@ -639,6 +628,22 @@ def _milestone_index(milestones: list[dict[str, Any]], title: str) -> int:
     return -1
 
 
+def _ensure_chat_task(project_id: str, title: str, detail: str) -> str:
+    """Crée ou retrouve la tâche du projet. Ne réécrit pas une tâche déjà là."""
+    import hashlib
+
+    from services.work_tasks import create_work_task
+
+    origin = "chat-" + hashlib.sha1(f"{project_id}|{_fold_title(title)}".encode()).hexdigest()[:20]
+    row = create_work_task(
+        title=title,
+        project_id=project_id,
+        notes=detail,
+        origin_key=origin,
+    )
+    return str(row.get("id") or "")
+
+
 def _append_planned_tasks(
     *,
     project_id: str,
@@ -653,6 +658,7 @@ def _append_planned_tasks(
     made: list[dict[str, str]] = []
     for task in tasks:
         jid = uuid.uuid4().hex[:8]
+        task_id = _ensure_chat_task(project_id, task["title"], task["detail"])
         insert_planned_job(
             jid,
             "coordinateur",
@@ -663,11 +669,26 @@ def _append_planned_tasks(
                 description=description,
             ),
             source="project",
-            mission_config={"mode": "cio", "project_id": project_id, "origin": "chat"},
+            mission_config={
+                "mode": "cio",
+                "project_id": project_id,
+                "task_id": task_id,
+                "origin": "chat",
+            },
         )
-        milestones.append({"label": task["title"], "done": False, "job_id": jid})
+        milestones.append({
+            "label": task["title"],
+            "done": False,
+            "job_id": jid,
+            "task_id": task_id,
+        })
         linked.append(jid)
-        made.append({"job_id": jid, "title": task["title"], "href": f"/missions?job={jid}"})
+        made.append({
+            "job_id": jid,
+            "task_id": task_id,
+            "title": task["title"],
+            "href": f"/missions?job={jid}",
+        })
     return made
 
 
@@ -681,6 +702,7 @@ def run_list_projects() -> str:
 def run_update_project(inp: dict[str, Any]) -> str:
     from database import delete_job_cascade, get_job, set_job_status_quick, update_job_mission_text
     from services.business_db import PROJECT_STATUSES, PROJECT_TYPES, get_project, update_project
+    from services.work_tasks import delete_work_task, update_work_task
 
     project, err = _resolve_project(inp)
     if err or not project:
@@ -760,6 +782,9 @@ def run_update_project(inp: dict[str, Any]) -> str:
             continue
         milestones[idx]["done"] = True
         jid = str(milestones[idx].get("job_id") or "")
+        task_id = str(milestones[idx].get("task_id") or "")
+        if task_id:
+            update_work_task(task_id, status="done")
         job = get_job(jid) if jid else None
         if job and str(job.get("status") or "") == "planned":
             set_job_status_quick(jid, "completed")
@@ -772,6 +797,9 @@ def run_update_project(inp: dict[str, Any]) -> str:
             continue
         milestones[idx]["done"] = False
         jid = str(milestones[idx].get("job_id") or "")
+        task_id = str(milestones[idx].get("task_id") or "")
+        if task_id:
+            update_work_task(task_id, status="open")
         job = get_job(jid) if jid else None
         if job and str(job.get("status") or "") == "completed" and str(job.get("source") or "") == "project":
             set_job_status_quick(jid, "planned")
@@ -794,6 +822,9 @@ def run_update_project(inp: dict[str, Any]) -> str:
             continue
         milestones[idx]["label"] = renamed
         jid = str(milestones[idx].get("job_id") or "")
+        task_id = str(milestones[idx].get("task_id") or "")
+        if task_id:
+            update_work_task(task_id, title=renamed)
         job = get_job(jid) if jid else None
         if job and str(job.get("status") or "") == "planned":
             mission = str(job.get("mission") or "")
@@ -828,6 +859,9 @@ def run_update_project(inp: dict[str, Any]) -> str:
             notes.append(f"introuvable : {old_name}")
             continue
         jid = str(milestones[idx].pop("job_id", "") or "")
+        task_id = str(milestones[idx].pop("task_id", "") or "")
+        if task_id:
+            delete_work_task(task_id)
         label = str(milestones[idx].get("label") or old_name)
         milestones.pop(idx)
         linked = [x for x in linked if x != jid]

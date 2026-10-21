@@ -104,6 +104,8 @@ def test_create_project_writes_tasks_and_reuses_title(client):
     assert job["status"] == "planned"
     assert job["source"] == "project"
     assert "Architecture" in str(job["mission"])
+    assert job["mission_config"]["project_id"] == created["id"]
+    assert job["mission_config"]["task_id"]
 
     again = json.loads(
         run_create_project(
@@ -120,6 +122,11 @@ def test_create_project_writes_tasks_and_reuses_title(client):
     refreshed = get_project(created["id"])
     assert refreshed is not None
     assert len(refreshed["milestones"]) == 4
+    from services.work_tasks import list_work_tasks
+
+    linked = [task for task in list_work_tasks() if task.get("project_id") == created["id"]]
+    assert {task["title"] for task in linked} == {"Architecture", "Stripe", "Tests", "CI/CD"}
+    assert sum(task["title"] == "Architecture" for task in linked) == 1
 
 
 def test_update_project_renames_completes_and_removes(client):

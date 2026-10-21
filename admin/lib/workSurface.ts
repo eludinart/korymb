@@ -20,7 +20,7 @@ export const WORK_SURFACES: WorkSurfaceOption[] = [
     id: "kanban",
     label: "Kanban",
     href: "/missions?view=kanban",
-    hint: "Travaux par colonne de statut",
+    hint: "Missions par colonne de statut",
   },
   {
     id: "map",

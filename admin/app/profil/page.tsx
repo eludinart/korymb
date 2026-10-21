@@ -193,7 +193,7 @@ export default function ProfilPage() {
           </div>
           <p className="mt-3 text-sm text-slate-600">
             {showAdvanced
-              ? "Avancé : travaux, carte et moteur, en plus du quotidien."
+              ? "Avancé : missions, carte et moteur, en plus du quotidien."
               : "Essentiel : ce qui a besoin de vous, sans le moteur."}
           </p>
           {uiModeError ? <p className="mt-2 text-sm text-red-700">{uiModeError}</p> : null}

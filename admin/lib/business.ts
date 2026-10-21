@@ -151,7 +151,14 @@ export type BizProject = {
   location: string;
   start_date: string | null;
   end_date: string | null;
-  milestones: { label: string; done?: boolean; reply?: string; reply_at?: string; chat_conversation_id?: string }[];
+  milestones: {
+    label: string;
+    done?: boolean;
+    notes?: string;
+    reply?: string;
+    reply_at?: string;
+    chat_conversation_id?: string;
+  }[];
   linked_job_ids: string[];
   created_at: string;
   updated_at: string;
@@ -849,6 +856,21 @@ export const businessApi = {
   ) => {
     const { data } = await requestJson(
       `/business/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(String(index))}/reply`,
+      {
+        method: "POST",
+        headers: agentHeaders(),
+        body: JSON.stringify(body),
+      },
+    );
+    return data as BizProject;
+  },
+  setMilestoneNotes: async (
+    projectId: string,
+    index: number,
+    body: { notes: string; label: string },
+  ) => {
+    const { data } = await requestJson(
+      `/business/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(String(index))}/notes`,
       {
         method: "POST",
         headers: agentHeaders(),

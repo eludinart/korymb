@@ -290,7 +290,7 @@ def create_work_task(
         raise ValueError("Projet introuvable.")
     existing = _find_origin(origin_key)
     if existing:
-        return existing
+        return _public(existing)
     task_id = _new_id()
     now = _now()
     with get_conn() as conn:

@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import type { BizWorkTask } from "@/lib/business";
 
-const NOTE_MAX = 400;
+const NOTE_MAX = 2500;
 
 export default function TaskEditDialog({
   task,
@@ -93,7 +93,7 @@ export default function TaskEditDialog({
           <label className="grid gap-1 text-sm font-semibold">
             Commentaire
             <textarea
-              className="input-field min-h-24 resize-y"
+              className="input-field min-h-40 resize-y"
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               maxLength={NOTE_MAX}

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi, formatTaskCreated, type BizContact, type BizEvent, type BizQuote } from "../../../../lib/business";
+import ProjectTasksPanel from "../../../../components/director/ProjectTasksPanel";
 import ReplyComposer from "../../../../components/director/ReplyComposer";
 import { agentHeaders, requestJson } from "../../../../lib/api";
 import { missionTitleLabel } from "../../../../lib/missionLabel";
@@ -26,9 +27,12 @@ import {
   type EventVisibility,
 } from "../../_shared";
 
+const NOTE_MAX = 2500;
+
 type Milestone = {
   label: string;
   done?: boolean;
+  notes?: string;
   reply?: string;
   reply_at?: string;
   chat_conversation_id?: string;
@@ -116,6 +120,7 @@ export default function GestionProjetEditPage() {
     setMilestones((p.milestones || []).map((m) => ({
       label: m.label || "",
       done: Boolean(m.done),
+      notes: m.notes || "",
       reply: m.reply || "",
       reply_at: m.reply_at || "",
       chat_conversation_id: m.chat_conversation_id || "",
@@ -165,6 +170,7 @@ export default function GestionProjetEditPage() {
         milestones: milestones.filter((m) => m.label.trim()).map((m) => ({
           label: m.label.trim(),
           done: Boolean(m.done),
+          notes: m.notes || "",
           reply: m.reply || "",
           reply_at: m.reply_at || "",
           chat_conversation_id: m.chat_conversation_id || "",
@@ -317,11 +323,46 @@ export default function GestionProjetEditPage() {
                   Retirer
                 </button>
               </div>
+              <label className="mt-2 block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                Commentaire
+                <textarea
+                  className="input-field mt-1 w-full text-sm"
+                  rows={2}
+                  maxLength={NOTE_MAX}
+                  value={m.notes || ""}
+                  placeholder="Notes, contexte, suivi…"
+                  aria-label={`Commentaire de l'étape ${idx + 1}`}
+                  onChange={(e) => {
+                    const next = [...milestones];
+                    next[idx] = { ...m, notes: e.target.value };
+                    setMilestones(next);
+                  }}
+                  onBlur={async () => {
+                    if (!m.label.trim()) return;
+                    try {
+                      const updated = await businessApi.setMilestoneNotes(id, idx, {
+                        notes: m.notes || "",
+                        label: m.label,
+                      });
+                      const saved = updated.milestones?.[idx];
+                      setMilestones((current) =>
+                        current.map((step, stepIndex) =>
+                          stepIndex === idx ? { ...step, notes: saved?.notes || "" } : step,
+                        ),
+                      );
+                      void qc.invalidateQueries({ queryKey: ["admin-briefing"] });
+                    } catch {
+                      /* l'enregistrement global du projet conserve aussi notes */
+                    }
+                  }}
+                />
+              </label>
               {m.label.trim() ? (
                 <ReplyComposer
                   indent={false}
-                  kind="Jalon"
+                  kind="Étape"
                   title={m.label}
+                  notes={m.notes || ""}
                   reply={m.reply || ""}
                   replyAt={m.reply_at || ""}
                   conversationId={m.chat_conversation_id || ""}
@@ -379,6 +420,8 @@ export default function GestionProjetEditPage() {
           </div>
         </form>
       </SectionCard>
+
+      <ProjectTasksPanel projectId={id} />
 
       <SectionCard
         title={`Missions liées (${linkedJobs.length})`}

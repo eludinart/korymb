@@ -21,7 +21,7 @@ Sur l’instance Élude, le workspace historique `ws-default-legacy` porte le pa
 | --- | --- |
 | **GitHub** | https://github.com/eludinart/korymb |
 | **Structure** | `admin/` Next.js · `backend/` FastAPI · `docs/` · `ops/` (skills Hermes) |
-| **Dev Windows** | `.\start-dev-cursor.ps1 -MariaDbTunnel` |
+| **Dev Windows** | `.\start-dev-cursor.ps1` (SQLite `backend/data/korymb.db`) |
 | **Ports locaux** | Frontend **3000** · Backend **8020** · tunnel MariaDB **3307** |
 | **Docs utiles** | `ARCHITECTURE.md`, `docs/DEMARRAGE.md`, `docs/KORYMB-DESCRIPTION-HERMES.md`, `docs/HERMES-*.md` |
 

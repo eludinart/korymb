@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import ReplyDrawer, { type ReplyDiscussTarget } from "./ReplyDrawer";
-import { REPLY_MAX, replyBlockStartsOpen, type ReplyKind } from "@/lib/replyContext";
+import { REPLY_MAX, type ReplyKind } from "@/lib/replyContext";
 
 export default function ReplyComposer({
   kind,
@@ -33,7 +33,7 @@ export default function ReplyComposer({
   savedLabel?: string;
   indent?: boolean;
 }) {
-  const [open, setOpen] = useState(() => replyBlockStartsOpen(title, notes, reply));
+  const [open, setOpen] = useState(false);
   const [text, setText] = useState(reply);
   const [discussing, setDiscussing] = useState(false);
   const [localError, setLocalError] = useState("");
@@ -41,10 +41,6 @@ export default function ReplyComposer({
   useEffect(() => {
     setText(reply);
   }, [reply]);
-
-  useEffect(() => {
-    if (replyBlockStartsOpen(title, notes, reply)) setOpen(true);
-  }, [title, notes, reply]);
 
   const shownError = localError || error;
   const dirty = text.trim() !== reply.trim();
@@ -62,7 +58,7 @@ export default function ReplyComposer({
     return (
       <div className={`mt-2 ${pad}`}>
         <button type="button" className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200" onClick={() => setOpen(true)}>
-          Répondre
+          {reply.trim() ? "Voir la réponse" : "Répondre"}
         </button>
       </div>
     );
@@ -113,6 +109,13 @@ export default function ReplyComposer({
           }}
         >
           Discuter
+        </button>
+        <button
+          type="button"
+          className="text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
+          onClick={() => setOpen(false)}
+        >
+          Réduire
         </button>
       </div>
       <ReplyDrawer

@@ -1,12 +1,12 @@
 # Démarrage de l'environnement de dev (Windows / Cursor)
 
-Guide pour lancer Korymb en local : backend FastAPI (port 8020) + frontend Next.js (port 3000) + tunnel SSH vers MariaDB sur le VPS (port local 3307).
+Guide pour lancer Korymb en local : backend FastAPI (port 8020) + frontend Next.js (port 3000), base SQLite dans `backend/data/korymb.db`. La prod Coolify reste sur MariaDB.
 
 ## TL;DR
 
 ```powershell
 # Depuis la racine du repo
-.\start-dev-cursor.ps1 -MariaDbTunnel
+.\start-dev-cursor.ps1
 ```
 
 Puis ouvrir :
@@ -37,21 +37,20 @@ Le secret agent reste dans le backend, pour Hermes et les scripts. Le navigateur
 | -------------- | ------------------------------------------------------------------------- |
 | `backend/.env` | `AGENT_API_SECRET` (Hermes et scripts ; pas exposé au navigateur)         |
 
-La base de données est configurée dans `backend/.env.local` (`KORYMB_DB_ENGINE=mariadb`, `KORYMB_DB_PORT=3307`). En mode MariaDB, le backend passe par un tunnel SSH vers le VPS — d'où l'option `-MariaDbTunnel` ci-dessous.
+La base de dev est SQLite, choisie dans `backend/.env.local` (`KORYMB_DB_ENGINE=sqlite`). Le fichier `backend/data/korymb.db` est ignoré par git. Pour le remplir avec un extrait de la prod : ouvrir `.\scripts\mariadb-vps-tunnel.ps1`, lancer `python backend/scripts/import_sqlite_dev_slice.py`, puis fermer le tunnel. `-MariaDbTunnel` ne sert que si `KORYMB_DB_ENGINE=mariadb`.
 
 ## Démarrage
 
 ```powershell
-.\start-dev-cursor.ps1 -MariaDbTunnel
+.\start-dev-cursor.ps1
 ```
 
 Le script fait tout dans le terminal courant, dans cet ordre :
 
 1. Libère les ports 8020 et 3000-3002 (tue les anciens processus).
-2. Ouvre le tunnel SSH MariaDB (`127.0.0.1:3307` → VPS `3306`).
-3. Démarre le backend via `backend/restart.ps1` (uvicorn, processus détaché) et attend que `/health` réponde avec le bon `code_dir` et la bonne version.
-4. Démarre le frontend Next.js (`next dev -p 3000`, processus détaché).
-5. Reste en avant-plan : il streame les logs backend et un **watchdog** vérifie `/health/live` toutes les 15 s. Après 4 échecs consécutifs, il redémarre automatiquement le backend (idem pour le frontend et le tunnel s'ils tombent).
+2. Démarre le backend via `backend/restart.ps1` (uvicorn, processus détaché) et attend que `/health` réponde avec le bon `code_dir` et la bonne version.
+3. Démarre le frontend Next.js (`next dev -p 3000`, processus détaché).
+4. Reste en avant-plan : il streame les logs backend et un **watchdog** vérifie `/health/live` toutes les 15 s. Après 4 échecs consécutifs, il redémarre automatiquement le backend (idem pour le frontend). Avec `-MariaDbTunnel`, le tunnel est surveillé de la même façon.
 
 Le démarrage complet prend environ 1 à 2 minutes (compilation Next incluse).
 
@@ -59,7 +58,7 @@ Le démarrage complet prend environ 1 à 2 minutes (compilation Next incluse).
 
 | Option           | Effet                                                                               |
 | ---------------- | ----------------------------------------------------------------------------------- |
-| `-MariaDbTunnel` | Ouvre le tunnel SSH MariaDB au démarrage. **Requis** si `KORYMB_DB_ENGINE=mariadb`. |
+| `-MariaDbTunnel` | Ouvre le tunnel SSH MariaDB au démarrage. Réservé au cas `KORYMB_DB_ENGINE=mariadb`. |
 | `-SkipVerify`    | Ne pas attendre `/health` avant de lancer le frontend (dépannage).                  |
 | `-Reload`        | Active `uvicorn --reload` (désactivé par défaut car instable sous Windows).         |
 
@@ -67,11 +66,11 @@ Le démarrage complet prend environ 1 à 2 minutes (compilation Next incluse).
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8020/health          # backend : version + code_dir
-Invoke-RestMethod http://127.0.0.1:8020/health/database # connexion MariaDB
+Invoke-RestMethod http://127.0.0.1:8020/health/database # connexion SQLite
 Invoke-WebRequest http://127.0.0.1:3000/ -UseBasicParsing # frontend : HTTP 200
 ```
 
-Attendu : `/health/database` retourne `"connected": true` avec `engine: mariadb`, `port: 3307`.
+Attendu : `/health/database` retourne `"connected": true` avec `engine: sqlite`.
 
 ## Arrêt
 
@@ -91,7 +90,8 @@ Les logs sont écrits dans `.dev-logs/` à la racine :
 Problèmes courants :
 
 - **« Backend non pret sur /health apres attente »** : regarder `.dev-logs/backend.err.log` — c'est presque toujours une erreur Python à l'import (traceback complet dedans). Le watchdog retente automatiquement ; un cache `__pycache__` périmé est purgé au redémarrage par `restart.ps1`.
-- **Briefing / missions / audit échouent avec MariaDB configurée** : le tunnel SSH est fermé. Relancer avec `-MariaDbTunnel`, ou vérifier `Get-NetTCPConnection -LocalPort 3307 -State Listen`.
+- **L'interface est vide** : l'extrait prod n'a pas été importé. Tunnel ponctuel, puis `python backend/scripts/import_sqlite_dev_slice.py`.
+- **Briefing / missions échouent avec MariaDB configurée** : le tunnel SSH est fermé. Relancer avec `-MariaDbTunnel`, ou vérifier `Get-NetTCPConnection -LocalPort 3307 -State Listen`.
 - **Port déjà occupé** : le script libère les ports lui-même au démarrage ; il suffit de le relancer.
 - **Next.js introuvable** : lancer `npm --prefix admin install`.
 

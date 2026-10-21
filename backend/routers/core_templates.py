@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from auth import resolve_tenant, require_admin
 from database import (
+    LONG_TEXT_CHARS,
     list_mission_templates,
     get_mission_template,
     upsert_mission_template,
@@ -49,7 +50,7 @@ class TemplateCreateBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str = Field(..., min_length=1, max_length=200)
-    description: str = Field("", max_length=1000)
+    description: str = Field("", max_length=LONG_TEXT_CHARS)
     agent: str = Field("coordinateur", max_length=100)
     mission_text: str = Field(..., min_length=1, max_length=20000)
     variables: list[str] = Field(default_factory=list)
@@ -60,7 +61,7 @@ class TemplateUpdateBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     name: str | None = Field(None, max_length=200)
-    description: str | None = Field(None, max_length=1000)
+    description: str | None = Field(None, max_length=LONG_TEXT_CHARS)
     agent: str | None = Field(None, max_length=100)
     mission_text: str | None = Field(None, max_length=20000)
     variables: list[str] | None = None

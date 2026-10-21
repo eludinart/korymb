@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import InboxActionCard, { type InboxActionItem } from "./InboxActionCard";
 import { BTN_DELETE } from "../../lib/deleteMissionBundle";
-import { agentHeaders, requestJson } from "../../lib/api";
 import {
   buildClientOpsBoard,
   type BoardSignals,
@@ -18,9 +17,9 @@ import { filterSnoozedItems, snoozeInboxItem } from "../../lib/inboxSnooze";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { useRepriseCoverage } from "../../lib/repriseCoverage";
 import { useUiMode } from "../../lib/uiMode";
+import ProjectToday from "./ProjectToday";
 import TodayTasks from "./TodayTasks";
-import ReplyComposer from "./ReplyComposer";
-import { businessApi, formatTaskCreated } from "../../lib/business";
+import { useTaskSort } from "./useTaskSort";
 
 export type { BoardSignals, BoardSourceItem, OpsBoard, OpsBoardItem };
 
@@ -44,6 +43,7 @@ export type ProjectMilestone = {
   priority?: number | null;
   status?: string;
   done?: boolean;
+  notes?: string;
   reply?: string;
   reply_at?: string;
   chat_conversation_id?: string;
@@ -51,6 +51,8 @@ export type ProjectMilestone = {
   contact_id?: string | null;
   contact_name?: string;
   linked_mission_count?: number;
+  job_id?: string;
+  task_id?: string;
 };
 
 export type MilestoneProjectRef = {
@@ -77,11 +79,86 @@ export type MilestoneGroup = {
   done?: ProjectMilestone[];
 };
 
+export type ProjectTodayCard = {
+  project_id?: string;
+  project_title?: string;
+  href?: string;
+  contact_id?: string | null;
+  contact_name?: string;
+  linked_mission_count?: number;
+  updated_at?: string;
+  open?: ProjectMilestone[];
+  done?: ProjectMilestone[];
+};
+
 export type ProjectMilestonesBlock = {
   open?: ProjectMilestone[];
   done?: ProjectMilestone[];
   groups?: MilestoneGroup[];
+  projects?: ProjectTodayCard[];
 };
+
+/** Préfère `projects` du serveur. Sinon reconstruit depuis groups / listes plates (backend pas encore redémarré). */
+export function resolveProjectCards(block: ProjectMilestonesBlock | null | undefined): ProjectTodayCard[] {
+  const provided = block?.projects;
+  if (Array.isArray(provided) && provided.length > 0) return provided;
+
+  const fromGroups = new Map<string, ProjectTodayCard>();
+  for (const group of block?.groups || []) {
+    for (const ref of group.projects || []) {
+      const id = String(ref.project_id || "").trim();
+      if (!id || fromGroups.has(id)) continue;
+      fromGroups.set(id, {
+        project_id: id,
+        project_title: ref.project_title,
+        href: ref.href,
+        contact_id: ref.contact_id,
+        contact_name: group.label,
+        linked_mission_count: ref.linked_mission_count,
+        updated_at: ref.updated_at || group.updated_at,
+        open: [],
+        done: [],
+      });
+    }
+  }
+
+  const ensure = (row: ProjectMilestone) => {
+    const id = String(row.project_id || "").trim();
+    if (!id) return null;
+    let card = fromGroups.get(id);
+    if (!card) {
+      card = {
+        project_id: id,
+        project_title: row.project_title,
+        href: row.href,
+        contact_id: row.contact_id,
+        contact_name: row.contact_name,
+        linked_mission_count: row.linked_mission_count,
+        updated_at: "",
+        open: [],
+        done: [],
+      };
+      fromGroups.set(id, card);
+    }
+    return card;
+  };
+
+  for (const row of block?.open || []) {
+    const card = ensure(row);
+    if (card) (card.open ||= []).push(row);
+  }
+  for (const row of block?.done || []) {
+    const card = ensure(row);
+    if (card) (card.done ||= []).push(row);
+  }
+
+  return [...fromGroups.values()].sort((a, b) => {
+    const aOpen = (a.open || []).length ? 0 : 1;
+    const bOpen = (b.open || []).length ? 0 : 1;
+    if (aOpen !== bOpen) return aOpen - bOpen;
+    return String(b.updated_at || "").localeCompare(String(a.updated_at || ""));
+  });
+}
 
 type Props = {
   userName?: string;
@@ -257,326 +334,6 @@ function ItemLink({ item, placeFirst = false }: { item: OpsBoardItem; placeFirst
   );
 }
 
-function milestoneMeta(item: ProjectMilestone): string {
-  const bits: string[] = [];
-  if (typeof item.priority === "number") bits.push(`P${item.priority}`);
-  if (item.status) bits.push(item.status);
-  if (item.project_title) bits.push(item.project_title);
-  return bits.join(" · ");
-}
-
-function MilestoneRow({ item, done }: { item: ProjectMilestone; done?: boolean }) {
-  const qc = useQueryClient();
-  const [error, setError] = useState("");
-  const [saved, setSaved] = useState(false);
-  const [replyBusy, setReplyBusy] = useState(false);
-  const projectId = item.project_id || "";
-  const stepIndex = item.index;
-  const canCheck = !done && Boolean(projectId) && typeof stepIndex === "number";
-  const title = item.title || item.label || "Jalon";
-  const checked = Boolean(done || saved);
-
-  const toggle = useMutation({
-    mutationFn: async () => {
-      await requestJson(
-        `/business/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(String(stepIndex))}/done`,
-        {
-          method: "POST",
-          headers: agentHeaders(),
-          body: JSON.stringify({ done: true, label: item.label || "" }),
-        },
-      );
-    },
-    onSuccess: async () => {
-      setError("");
-      setSaved(true);
-      await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
-      await qc.invalidateQueries({ queryKey: ["business-projects"] });
-      if (projectId) await qc.invalidateQueries({ queryKey: ["business-project", projectId] });
-    },
-    onError: (err: Error) => {
-      setSaved(false);
-      setError(err.message || "Impossible d'enregistrer ce jalon.");
-    },
-  });
-
-  return (
-    <div
-      className={`rounded-xl border px-3 py-2.5 ${
-        checked
-          ? "border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-400"
-          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"
-      }`}
-    >
-      <div className="flex items-start gap-2.5">
-      <input
-        type="checkbox"
-        className="mt-1 h-4 w-4 shrink-0 accent-violet-700"
-        checked={checked}
-        disabled={!canCheck || toggle.isPending || checked}
-        aria-label={checked ? `« ${title} » est fait` : `Marquer « ${title} » comme fait`}
-        onChange={() => {
-          if (!canCheck || toggle.isPending || checked) return;
-          setError("");
-          toggle.mutate();
-        }}
-      />
-      <span className="min-w-0 flex-1">
-        <Link
-          href={item.href || "/gestion/projets"}
-          className={`block text-sm font-bold leading-snug hover:underline ${
-            checked ? "text-slate-500 line-through dark:text-slate-400" : "text-slate-900 dark:text-slate-50"
-          }`}
-        >
-          {title}
-        </Link>
-        {milestoneMeta(item) ? (
-          <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{milestoneMeta(item)}</span>
-        ) : null}
-        {toggle.isPending ? (
-          <span className="mt-1 block text-xs font-semibold text-violet-800 dark:text-violet-200">Enregistrement…</span>
-        ) : null}
-        {saved ? (
-          <span className="mt-1 block text-xs font-semibold text-emerald-800 dark:text-emerald-200">Fait.</span>
-        ) : null}
-        {error ? (
-          <span className="mt-1 block text-xs font-semibold text-red-700 dark:text-red-300">{error}</span>
-        ) : null}
-      </span>
-      </div>
-      {!checked ? (
-        <ReplyComposer
-          indent={false}
-          kind="Jalon"
-          title={title}
-          notes={item.status || ""}
-          subject={item.contact_name || item.project_title || ""}
-          reply={item.reply || ""}
-          replyAt={item.reply_at || ""}
-          conversationId={item.chat_conversation_id || ""}
-          saving={replyBusy}
-          savedLabel={item.reply_at ? `Enregistrée le ${formatTaskCreated(item.reply_at) || "—"}` : ""}
-          onSave={async (next) => {
-            if (!projectId || typeof stepIndex !== "number") return;
-            setError("");
-            setReplyBusy(true);
-            try {
-              await businessApi.setMilestoneReply(projectId, stepIndex, { reply: next, label: item.label || "" });
-              await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
-              await qc.invalidateQueries({ queryKey: ["business-projects"] });
-              await qc.invalidateQueries({ queryKey: ["business-project", projectId] });
-            } catch (err) {
-              setError(err instanceof Error ? err.message : "Impossible d'enregistrer la réponse.");
-            } finally {
-              setReplyBusy(false);
-            }
-          }}
-          onConversationId={async (id) => {
-            if (!projectId || typeof stepIndex !== "number") return;
-            await businessApi.setMilestoneReply(projectId, stepIndex, {
-              reply: item.reply || "",
-              label: item.label || "",
-              conversation_id: id,
-            });
-            await qc.invalidateQueries({ queryKey: ["admin-briefing"] });
-          }}
-        />
-      ) : item.reply ? (
-        <p className="mt-2 whitespace-pre-wrap text-xs text-slate-500">Réponse · {item.reply}</p>
-      ) : null}
-    </div>
-  );
-}
-
-const MILESTONE_PREVIEW = 5;
-
-function milestoneCountLabel(openCount: number, doneCount: number): string {
-  const open = openCount === 1 ? "1 ouvert" : `${openCount} ouverts`;
-  const done = doneCount === 1 ? "1 fait" : `${doneCount} faits`;
-  return `${open} · ${done}`;
-}
-
-function linkedMissionLabel(count: number): string {
-  return count === 1 ? "1 mission liée" : `${count} missions liées`;
-}
-
-function resolveMilestoneGroups(block: ProjectMilestonesBlock): MilestoneGroup[] {
-  const provided = Array.isArray(block.groups) ? block.groups : null;
-  if (provided && provided.length > 0) return provided;
-  const open = block.open || [];
-  const done = block.done || [];
-  if (open.length === 0 && done.length === 0) return [];
-  return [{
-    id: "flat",
-    kind: "owner",
-    label: "Projets",
-    href: "/gestion/projets",
-    open,
-    done,
-    projects: [],
-  }];
-}
-
-function MilestoneProgress({ doneCount, total }: { doneCount: number; total: number }) {
-  if (total <= 0) return null;
-  const width = Math.max(0, Math.min(100, Math.round((doneCount / total) * 100)));
-  return (
-    <div
-      className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
-      role="progressbar"
-      aria-valuemin={0}
-      aria-valuemax={total}
-      aria-valuenow={doneCount}
-      aria-label={`${doneCount} faits sur ${total}`}
-    >
-      <div className="h-full rounded-full bg-violet-600 dark:bg-violet-400" style={{ width: `${width}%` }} />
-    </div>
-  );
-}
-
-function LinkedMissions({ group }: { group: MilestoneGroup }) {
-  const projects = group.projects || [];
-  const linked = projects.filter((project) => (project.linked_mission_count || 0) > 0);
-  if (linked.length === 0) return null;
-  const single = projects.length === 1;
-  return (
-    <ul className="mt-2 space-y-1">
-      {linked.map((project) => {
-        const count = project.linked_mission_count || 0;
-        const phrase = linkedMissionLabel(count);
-        const text = single ? phrase : `${project.project_title || "Projet"} · ${phrase}`;
-        const href = project.href || "";
-        const sameAsHeader = Boolean(single && href && href === (group.href || ""));
-        return (
-          <li key={project.project_id || text} className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-            {href && !sameAsHeader ? (
-              <Link href={href} className="hover:underline">{text}</Link>
-            ) : (
-              text
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-function MilestoneGroupCard({ group }: { group: MilestoneGroup }) {
-  const open = group.open || [];
-  const done = group.done || [];
-  const openCount = open.length;
-  const doneCount = done.length;
-  const fullyDone = openCount === 0 && doneCount > 0;
-  const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? open : open.slice(0, MILESTONE_PREVIEW);
-  const hidden = openCount - visible.length;
-  const label = group.label || "Projets";
-  const href = group.href || "";
-  const name = href ? (
-    <Link href={href} className="block min-w-0 truncate text-sm font-extrabold tracking-tight text-slate-950 hover:underline dark:text-slate-50">
-      {label}
-    </Link>
-  ) : (
-    <span className="min-w-0 truncate text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">{label}</span>
-  );
-
-  return (
-    <article
-      className={`flex min-w-0 flex-col rounded-xl border p-3 ${
-        fullyDone
-          ? "border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-950/40"
-          : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-950"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        {name}
-        <span className="shrink-0 text-[11px] font-bold tabular-nums text-slate-500 dark:text-slate-400">
-          {milestoneCountLabel(openCount, doneCount)}
-        </span>
-      </div>
-      <MilestoneProgress doneCount={doneCount} total={openCount + doneCount} />
-      <LinkedMissions group={group} />
-      {openCount > 0 ? (
-        <ul className="mt-3 space-y-2">
-          {visible.map((item) => (
-            <li key={`${item.project_id || "prj"}-${item.index ?? item.title}`}>
-              <MilestoneRow item={item} />
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {hidden > 0 ? (
-        <button
-          type="button"
-          className="mt-2 self-start text-xs font-bold text-violet-700 hover:underline dark:text-violet-300"
-          onClick={() => setShowAll(true)}
-        >
-          Voir plus
-        </button>
-      ) : null}
-      {showAll && openCount > MILESTONE_PREVIEW ? (
-        <button
-          type="button"
-          className="mt-2 self-start text-xs font-bold text-slate-500 hover:underline dark:text-slate-400"
-          onClick={() => setShowAll(false)}
-        >
-          Réduire
-        </button>
-      ) : null}
-      {doneCount > 0 ? (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200">
-            {doneCount === 1 ? "1 jalon fait" : `${doneCount} jalons faits`}
-          </summary>
-          <ul className="mt-2 space-y-2">
-            {done.map((item) => (
-              <li key={`done-${item.project_id || "prj"}-${item.index ?? item.title}`}>
-                <MilestoneRow item={item} done />
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-    </article>
-  );
-}
-
-function MilestoneSection({ milestones }: { milestones: ProjectMilestonesBlock }) {
-  const groups = resolveMilestoneGroups(milestones).filter(
-    (group) => (group.open || []).length + (group.done || []).length > 0,
-  );
-  if (groups.length === 0) return null;
-  const openTotal = (milestones.open || []).length || groups.reduce((sum, group) => sum + (group.open || []).length, 0);
-  return (
-    <section
-      id="board-milestones"
-      className="scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-4 lg:col-span-2 xl:col-span-12"
-    >
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">Jalons</h2>
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[11px] font-extrabold tabular-nums text-violet-900 dark:bg-violet-900 dark:text-violet-100">
-              {openTotal}
-            </span>
-          </div>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Par client. Les ouverts d&apos;abord, classés par priorité.
-          </p>
-        </div>
-        <Link href="/gestion/projets" className="text-xs font-bold text-violet-700 hover:underline dark:text-violet-300">
-          Projets
-        </Link>
-      </div>
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {groups.map((group, index) => (
-          <MilestoneGroupCard key={group.id || group.label || index} group={group} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function EmptyLine({ children }: { children: string }) {
   return (
     <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm font-medium text-slate-600 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-300">
@@ -617,6 +374,7 @@ export default function BriefingBoard({
   const [snoozeTick, setSnoozeTick] = useState(0);
   const [hiddenLead, setHiddenLead] = useState("");
   const [openTaskCount, setOpenTaskCount] = useState(0);
+  const taskSort = useTaskSort();
 
   const resolved = useMemo(() => {
     if (serverReady && board) return board;
@@ -636,8 +394,7 @@ export default function BriefingBoard({
   const todoCount = Number(counts.todo ?? todo.length);
   const proposalCount = Number(counts.proposals ?? proposals.length);
   const openMilestones = milestones?.open || [];
-  const doneMilestones = milestones?.done || [];
-  const milestoneGroups = milestones?.groups || [];
+  const projectCards = resolveProjectCards(milestones);
   const warningCount = Number(counts.warnings ?? baseWarnings.length) + (warnings.length - baseWarnings.length);
   const runningRows = running || [];
   const plannedRows = planned || [];
@@ -646,8 +403,10 @@ export default function BriefingBoard({
   const events = (dayEvents || []).filter((ev) => ev.title);
   const lines = (dayLines || []).filter((line) => line && !/rien d.urgent au planning/i.test(line));
   const greet = userName ? `Bonjour, ${userName}` : "Bonjour";
+  // snoozeTick force le recalcul : le filtre lit le localStorage, pas inbox.data.
   const liveInbox = useMemo(
     () => filterSnoozedItems(asInboxItems(inbox.data)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snoozeTick
     [inbox.data, snoozeTick],
   );
   const leadRow = urgent[0];
@@ -691,11 +450,19 @@ export default function BriefingBoard({
                 {countBit(urgentCount, "1 urgent", "urgents")}
               </a>
             )}
+            {projectCards.length > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                  {countBit(projectCards.length, "1 projet", "projets")}
+                </a>
+              </>
+            ) : null}
             {openMilestones.length > 0 ? (
               <>
                 <span className="text-slate-300"> · </span>
                 <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
-                  {countBit(openMilestones.length, "1 jalon", "jalons")}
+                  {countBit(openMilestones.length, "1 étape", "étapes")}
                 </a>
               </>
             ) : null}
@@ -750,7 +517,13 @@ export default function BriefingBoard({
         </div>
       </header>
 
-      <TodayTasks onOpenCount={setOpenTaskCount} />
+      <ProjectToday projects={projectCards} sort={taskSort.sort} onSort={taskSort.choose} />
+
+      <TodayTasks
+        onOpenCount={setOpenTaskCount}
+        sort={taskSort.sort}
+        activeProjectIds={new Set(projectCards.map((card) => card.project_id).filter((id): id is string => Boolean(id)))}
+      />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-12 xl:items-start">
         {warningCount === 0 ? <div id="board-warnings" className="hidden" /> : null}
@@ -844,10 +617,6 @@ export default function BriefingBoard({
               </p>
             ) : null}
           </section>
-        ) : null}
-
-        {openMilestones.length > 0 || doneMilestones.length > 0 || milestoneGroups.length > 0 ? (
-          <MilestoneSection milestones={milestones || { open: openMilestones, done: doneMilestones, groups: milestoneGroups }} />
         ) : null}
 
         <Lane

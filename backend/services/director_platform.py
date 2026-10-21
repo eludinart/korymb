@@ -1168,7 +1168,7 @@ def _workspace_owner_label() -> str:
 
 
 def _empty_milestone_block() -> dict[str, Any]:
-    return {"open": [], "done": [], "groups": []}
+    return {"open": [], "done": [], "groups": [], "projects": []}
 
 
 def build_project_milestones() -> dict[str, Any]:
@@ -1179,7 +1179,8 @@ def build_project_milestones() -> dict[str, Any]:
     société). Un projet sans contact rejoint le groupe du propriétaire de
     l'espace. Les groupes avec un P1 ouvert passent devant, puis ceux qui ont
     le plus d'ouverts, puis les plus récemment mis à jour. Un groupe entièrement
-    fait passe en dernier. Un échec de lecture laisse les listes vides.
+    fait passe en dernier. ``projects`` reprend chaque projet actif, y compris
+    ceux qui n'ont aucune étape. Un échec de lecture laisse les listes vides.
     """
     empty = _empty_milestone_block()
     try:
@@ -1204,6 +1205,7 @@ def build_project_milestones() -> dict[str, Any]:
 
     open_rows: list[tuple[int, int, dict[str, Any]]] = []
     done_rows: list[dict[str, Any]] = []
+    project_cards: list[dict[str, Any]] = []
     buckets: dict[str, dict[str, Any]] = {}
     ranked: dict[str, list[tuple[int, int, dict[str, Any]]]] = {}
     sequence = 0
@@ -1212,7 +1214,7 @@ def build_project_milestones() -> dict[str, Any]:
             continue
         milestones = project.get("milestones") or []
         if not isinstance(milestones, list):
-            continue
+            milestones = []
         project_id = str(project.get("id") or "").strip()
         project_title = str(project.get("title") or "").strip()
         href = f"/gestion/projets/{quote(project_id)}" if project_id else "/gestion/projets"
@@ -1232,6 +1234,8 @@ def build_project_milestones() -> dict[str, Any]:
             group_contact_id = None
         linked_count = _linked_mission_count(project)
         updated_at = str(project.get("updated_at") or "")
+        card_open: list[dict[str, Any]] = []
+        card_done: list[dict[str, Any]] = []
         group: dict[str, Any] | None = None
         for index, item in enumerate(milestones):
             if not isinstance(item, dict):
@@ -1252,6 +1256,7 @@ def build_project_milestones() -> dict[str, Any]:
                 "priority": priority if isinstance(priority, int) else None,
                 "status": status[:48],
                 "done": _milestone_is_done(item.get("done")),
+                "notes": str(item.get("notes") or "")[:LONG_TEXT_CHARS],
                 "reply": str(item.get("reply") or "")[:4000],
                 "reply_at": str(item.get("reply_at") or ""),
                 "chat_conversation_id": str(item.get("chat_conversation_id") or "")[:64],
@@ -1259,6 +1264,8 @@ def build_project_milestones() -> dict[str, Any]:
                 "contact_id": raw_contact_id or None,
                 "contact_name": group_label,
                 "linked_mission_count": linked_count,
+                "job_id": str(item.get("job_id") or "")[:64],
+                "task_id": str(item.get("task_id") or "")[:64],
             }
             if group is None:
                 group = buckets.get(group_id)
@@ -1291,11 +1298,28 @@ def build_project_milestones() -> dict[str, Any]:
             if row["done"]:
                 done_rows.append(row)
                 group["done"].append(row)
+                card_done.append(row)
                 continue
             sequence += 1
             rank = priority if isinstance(priority, int) else 10_000
             open_rows.append((rank, sequence, row))
             ranked[group_id].append((rank, sequence, row))
+            card_open.append(row)
+        card_open.sort(key=lambda step: (
+            step.get("priority") if isinstance(step.get("priority"), int) else 10_000,
+            int(step.get("index") or 0),
+        ))
+        project_cards.append({
+            "project_id": project_id,
+            "project_title": project_title,
+            "href": href,
+            "contact_id": raw_contact_id or None,
+            "contact_name": group_label,
+            "linked_mission_count": linked_count,
+            "updated_at": updated_at,
+            "open": card_open,
+            "done": card_done,
+        })
 
     groups: list[dict[str, Any]] = []
     for group in buckets.values():
@@ -1320,10 +1344,13 @@ def build_project_milestones() -> dict[str, Any]:
         -int(item["open_count"]),
     ))
     open_rows.sort(key=lambda item: (item[0], item[1]))
+    project_cards.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    project_cards.sort(key=lambda item: 0 if item.get("open") else 1)
     return {
         "open": [row for _, _, row in open_rows],
         "done": done_rows,
         "groups": groups,
+        "projects": project_cards,
     }
 
 

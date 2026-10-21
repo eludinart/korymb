@@ -12,7 +12,7 @@ import secrets
 from datetime import datetime
 from typing import Any
 
-from database import get_conn
+from database import LONG_TEXT_CHARS, get_conn
 from services.business_db import (
     _now,
     _new_id,
@@ -759,7 +759,7 @@ def cancel_pending_email_follow_ups(
         updated = update_calendar_event(
             str(ev["id"]),
             status="cancelled",
-            notes=(notes + note_extra)[:2000],
+            notes=(notes + note_extra)[:LONG_TEXT_CHARS],
         )
         if updated:
             cancelled.append(updated)

@@ -13,9 +13,9 @@ export const UX_COPY = {
     hint: "À relire avant envoi — pas les messages",
   },
   missions: {
-    label: "Travaux",
+    label: "Missions",
     subtitle: "En cours",
-    hint: "Travaux lancés",
+    hint: "Missions lancées",
   },
   chat: {
     label: "Conversation",

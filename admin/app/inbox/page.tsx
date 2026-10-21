@@ -102,7 +102,7 @@ function InboxPageContent() {
             <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Traiter</PageLink>
             <PageLink href="/briefing">Aujourd&apos;hui</PageLink>
             <PageLink href="/missions" variant="secondary">
-              Travaux
+              Missions
             </PageLink>
           </>
         }

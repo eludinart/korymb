@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import require_admin
+from database import LONG_TEXT_CHARS
 from services.action_queue import enqueue_action, get_action, list_actions, resolve_action
 
 router = APIRouter(tags=["actions"])
@@ -16,7 +17,7 @@ class ActionCreateBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: str = Field(..., min_length=2, max_length=64)
     title: str = Field(..., min_length=1, max_length=255)
-    summary: str = Field("", max_length=2000)
+    summary: str = Field("", max_length=LONG_TEXT_CHARS)
     payload: dict = Field(default_factory=dict)
     job_id: str | None = Field(None, max_length=64)
     source: str = Field("korymb", max_length=64)
@@ -27,7 +28,7 @@ class ActionResolveBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     decision: Literal["approve", "reject"]
     source: str = Field("inbox", max_length=32)
-    comment: str = Field("", max_length=2000)
+    comment: str = Field("", max_length=LONG_TEXT_CHARS)
 
 
 @router.post("/actions", dependencies=[Depends(require_admin)])

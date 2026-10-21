@@ -67,6 +67,7 @@ from services.business_db import (
     ProjectMilestoneConflict,
     ProjectMilestoneNotFound,
     set_project_milestone_done,
+    set_project_milestone_notes,
     set_project_milestone_reply,
     update_calendar_event,
     update_contact,
@@ -186,6 +187,11 @@ class MilestoneReplyBody(BaseModel):
     reply: str = Field(default="", max_length=4000)
     label: str = Field(default="", max_length=LONG_TEXT_CHARS)
     conversation_id: str | None = Field(default=None, max_length=64)
+
+
+class MilestoneNotesBody(BaseModel):
+    notes: str = Field(default="", max_length=LONG_TEXT_CHARS)
+    label: str = Field(default="", max_length=LONG_TEXT_CHARS)
 
 
 class WorkTaskCreate(BaseModel):
@@ -1057,6 +1063,28 @@ async def business_set_milestone_reply(
             expected_label=body.label.strip() or None,
             conversation_id=body.conversation_id,
             set_conversation="conversation_id" in body.model_fields_set,
+        )
+    except ProjectMilestoneNotFound as exc:
+        raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc
+    except ProjectMilestoneConflict as exc:
+        raise HTTPException(409, detail=str(exc) or "Cette étape a changé. Rechargez Aujourd'hui.") from exc
+
+
+@router.post(
+    "/business/projects/{project_id}/milestones/{index}/notes",
+    dependencies=[Depends(resolve_tenant)],
+)
+async def business_set_milestone_notes(
+    project_id: str,
+    body: MilestoneNotesBody,
+    index: int = Path(..., ge=0),
+):
+    try:
+        return set_project_milestone_notes(
+            project_id,
+            index,
+            notes=body.notes,
+            expected_label=body.label.strip() or None,
         )
     except ProjectMilestoneNotFound as exc:
         raise HTTPException(404, detail=str(exc) or "Étape introuvable") from exc

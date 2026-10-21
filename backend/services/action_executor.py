@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from database import LONG_TEXT_CHARS
+
 logger = logging.getLogger(__name__)
 
 # Relance CRM planifiée après un e-mail réellement envoyé (jours).
@@ -128,7 +130,7 @@ def _schedule_content_follow_up(
             ends_at=end.isoformat().replace("+00:00", "Z"),
             event_type="autre",
             status="planned",
-            notes=(notes or "")[:2000],
+            notes=(notes or "")[:LONG_TEXT_CHARS],
         )
         if not event:
             return None
@@ -286,7 +288,7 @@ def _schedule_email_follow_up(
             contact_id=str(contact.get("id")) if contact and contact.get("id") else None,
             event_type="autre",
             status="planned",
-            notes=notes[:2000],
+            notes=notes[:LONG_TEXT_CHARS],
         )
         if not event:
             return None

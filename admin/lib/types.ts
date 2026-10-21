@@ -41,6 +41,8 @@ export type MissionConfig = {
   handoff_from_job_id?: string | null;
   /** Dossier Gestion auquel la mission est rattachée. */
   project_id?: string | null;
+  /** Tâche à faire pour laquelle cette mission a été engagée. */
+  task_id?: string | null;
 };
 
 /** Dernier tour « Poursuivre avec le CIO » (job enfant source=chat) pour enrichir l’UI du parent */

@@ -7,7 +7,7 @@ import secrets
 from datetime import datetime
 from typing import Any
 
-from database import _is_mariadb, get_conn, _ws
+from database import LONG_TEXT_CHARS, _is_mariadb, ensure_long_text_columns, get_conn, _ws
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def init_action_tables() -> None:
                 created_at   TEXT NOT NULL
             )
         """)
+        ensure_long_text_columns(conn)
         conn.commit()
 
 
@@ -109,7 +110,7 @@ def enqueue_action(
                 wid,
                 kind_clean,
                 (title or "")[:255],
-                (summary or "")[:2000],
+                (summary or "")[:LONG_TEXT_CHARS],
                 json.dumps(body, ensure_ascii=False),
                 (preview_url or "")[:2000] or None,
                 (job_id or "").strip()[:64] or None,
@@ -393,7 +394,7 @@ def resolve_action(
             cur = conn.execute(
                 "UPDATE action_tickets SET status=?, error=?, updated_at=? "
                 "WHERE id=? AND workspace_id=? AND status=?",
-                ("rejected", (comment or "")[:2000], now, tid, wid, st),
+                ("rejected", (comment or "")[:LONG_TEXT_CHARS], now, tid, wid, st),
             )
             changed = int(getattr(cur, "rowcount", 0) or 0)
             if changed:

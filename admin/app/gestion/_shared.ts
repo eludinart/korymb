@@ -199,7 +199,7 @@ export const INTERACTION_TYPE_LABELS: Record<string, string> = {
   meeting: "Rendez-vous",
   note: "Note",
   quote: "Devis",
-  mission: "Travail",
+  mission: "Mission",
   other: "Autre",
 };
 

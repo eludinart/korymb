@@ -60,16 +60,18 @@ def test_jobs_cards_keep_project_id(client):
         "coordinateur",
         "Documentation — Pizza Lucio",
         source="project",
-        mission_config={"mode": "cio", "project_id": "prj-abc", "origin": "chat"},
+        mission_config={"mode": "cio", "project_id": "prj-abc", "task_id": "wtk-abc", "origin": "chat"},
     )
     cards = client.get("/jobs/cards?limit=40")
     assert cards.status_code == 200
     row = next(j for j in cards.json()["jobs"] if j["job_id"] == "prjcard1")
     assert row["mission_config"]["project_id"] == "prj-abc"
+    assert row["mission_config"]["task_id"] == "wtk-abc"
 
     detail = client.get("/jobs/prjcard1")
     assert detail.status_code == 200
     assert detail.json()["mission_config"]["project_id"] == "prj-abc"
+    assert detail.json()["mission_config"]["task_id"] == "wtk-abc"
 
 
 def test_get_jobs_list(client):

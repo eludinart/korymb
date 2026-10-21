@@ -135,7 +135,7 @@ def test_build_project_milestones_returns_empty_lists_when_lookup_fails(monkeypa
         raise RuntimeError("db down")
 
     monkeypatch.setattr("services.business_db.list_projects", boom)
-    assert dp.build_project_milestones() == {"open": [], "done": [], "groups": []}
+    assert dp.build_project_milestones() == {"open": [], "done": [], "groups": [], "projects": []}
 
 
 def _use_workspace(display_name: str):
@@ -353,6 +353,37 @@ def test_project_milestones_owner_fallback_is_moi(app):
         delete_project(project["id"])
 
 
+def test_active_project_without_steps_is_listed(app):
+    from services.business_db import create_project, delete_project
+    from services.director_platform import build_project_milestones
+
+    _use_workspace("Vide")
+    empty = create_project(title="Sans étape", status="active", milestones=[])
+    stepped = create_project(
+        title="Avec étape",
+        status="active",
+        milestones=[{"label": "P1 · À faire — Dire bonjour", "done": False, "job_id": "job-hi"}],
+    )
+    try:
+        block = build_project_milestones()
+        assert set(block) >= {"open", "done", "groups", "projects"}
+        blank = next(item for item in block["projects"] if item["project_id"] == empty["id"])
+        assert blank["project_title"] == "Sans étape"
+        assert blank["open"] == []
+        assert blank["done"] == []
+        assert all(
+            empty["id"] not in {ref.get("project_id") for ref in (group.get("projects") or [])}
+            for group in block["groups"]
+        )
+        filled = next(item for item in block["projects"] if item["project_id"] == stepped["id"])
+        assert filled["open"][0]["title"] == "Dire bonjour"
+        assert filled["open"][0]["job_id"] == "job-hi"
+        assert block["open"][0]["job_id"] == "job-hi"
+    finally:
+        delete_project(empty["id"])
+        delete_project(stepped["id"])
+
+
 def test_milestone_reply_keeps_done_and_survives_project_save(client):
     from services.business_db import update_project
 
@@ -411,5 +442,47 @@ def test_milestone_reply_keeps_done_and_survives_project_save(client):
         )
         assert row["reply"] == "Mercredi après-midi."
         assert row["chat_conversation_id"] == "rcv-jalon1"
+    finally:
+        delete_project(project["id"])
+
+
+def test_milestone_notes_keeps_reply_and_appears_in_briefing(client):
+    project = create_project(
+        title="Notes d'étape",
+        status="active",
+        milestones=[{
+            "label": "P1 · À faire — Vérifier le câblage",
+            "done": False,
+            "reply": "OK pour jeudi",
+            "reply_at": "2026-04-01T10:00:00Z",
+        }],
+    )
+    try:
+        saved = client.post(
+            f"/business/projects/{project['id']}/milestones/0/notes",
+            json={
+                "notes": "Besoin d'un multimètre + schéma OpenPlotter.",
+                "label": "P1 · À faire — Vérifier le câblage",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+        step = saved.json()["milestones"][0]
+        assert step["notes"] == "Besoin d'un multimètre + schéma OpenPlotter."
+        assert step["reply"] == "OK pour jeudi"
+        assert step["done"] is False
+
+        conflict = client.post(
+            f"/business/projects/{project['id']}/milestones/0/notes",
+            json={"notes": "Autre", "label": "libellé décalé"},
+        )
+        assert conflict.status_code == 409
+        assert get_project(project["id"])["milestones"][0]["notes"] == (
+            "Besoin d'un multimètre + schéma OpenPlotter."
+        )
+
+        block = client.get("/admin/briefing?period=today").json()["project_milestones"]
+        row = next(item for item in block["open"] if item.get("project_id") == project["id"])
+        assert row["notes"] == "Besoin d'un multimètre + schéma OpenPlotter."
+        assert row["reply"] == "OK pour jeudi"
     finally:
         delete_project(project["id"])

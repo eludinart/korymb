@@ -15,6 +15,7 @@ from typing import Any
 
 from database import (
     ALLOWED_AGENT_TOOL_TAGS,
+    LONG_TEXT_CHARS,
     delete_custom_agent,
     list_custom_agent_keys_raw,
     upsert_custom_agent,
@@ -653,7 +654,7 @@ def confirm_blueprint(blueprint_id: str) -> dict[str, Any]:
             gid,
             slug=slug,
             label=payload["label"],
-            description=(payload.get("intent") or "")[:500],
+            description=(payload.get("intent") or "")[:LONG_TEXT_CHARS],
             status="active",
             lead_agent_key=lead_key,
             member_keys=member_keys,

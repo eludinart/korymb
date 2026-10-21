@@ -157,8 +157,8 @@ function CommandPaletteInner() {
       ...(essential
         ? []
         : [
-            { id: "missions", label: "Travaux", href: "/missions", group: "Navigation" },
-            { id: "mission-new", label: "Nouveau travail", href: "/missions?create=1", group: "Actions IA" },
+            { id: "missions", label: "Missions", href: "/missions", group: "Navigation" },
+            { id: "mission-new", label: "Nouvelle mission", href: "/missions?create=1", group: "Actions IA" },
           ]),
       ...(essential
         ? []

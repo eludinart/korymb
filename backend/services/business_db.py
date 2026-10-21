@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Any
 
-from database import LONG_TEXT_CHARS, ensure_long_text_columns, get_conn, _is_mariadb
+from database import LONG_TEXT_CHARS, clip_long_text, ensure_long_text_columns, get_conn, _is_mariadb
 from workspace_db import ws_id
 
 # ── Constantes métier ─────────────────────────────────────────────────────────
@@ -2857,6 +2857,38 @@ def set_project_milestone_reply(
             nxt["reply_at"] = _now() if text else ""
             if set_conversation:
                 nxt["chat_conversation_id"] = str(conversation_id or "").strip()[:64]
+            milestones.append(nxt)
+        else:
+            milestones.append(item)
+    updated = update_project(project_id, milestones=milestones)
+    if not updated:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    return updated
+
+
+def set_project_milestone_notes(
+    project_id: str,
+    index: int,
+    *,
+    notes: str,
+    expected_label: str | None = None,
+) -> dict:
+    """Enregistre le commentaire d'une étape sans changer done, reply ni les autres étapes."""
+    project = get_project(project_id)
+    if not project:
+        raise ProjectMilestoneNotFound("Projet introuvable")
+    raw = project.get("milestones") or []
+    if not isinstance(raw, list) or index < 0 or index >= len(raw) or not isinstance(raw[index], dict):
+        raise ProjectMilestoneNotFound("Étape introuvable")
+    current = str(raw[index].get("label") or "")
+    if expected_label is not None and current.strip() != expected_label.strip():
+        raise ProjectMilestoneConflict("Cette étape a changé. Rechargez Aujourd'hui.")
+    text = clip_long_text(notes)
+    milestones: list[Any] = []
+    for i, item in enumerate(raw):
+        if i == index and isinstance(item, dict):
+            nxt = dict(item)
+            nxt["notes"] = text
             milestones.append(nxt)
         else:
             milestones.append(item)

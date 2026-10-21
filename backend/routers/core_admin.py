@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from auth import resolve_tenant, require_admin
 from database import (
     JOB_ID_MAX_LEN,
+    LONG_TEXT_CHARS,
     get_conn,
     dismiss_inbox_item,
     list_director_notifications,
@@ -335,9 +336,9 @@ def admin_notification_delete(notif_id: str):
 
 class BugReportBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    what: str = Field(..., min_length=8, max_length=2000)
+    what: str = Field(..., min_length=8, max_length=LONG_TEXT_CHARS)
     page: str = Field("", max_length=300)
-    message: str = Field("", max_length=2000)
+    message: str = Field("", max_length=LONG_TEXT_CHARS)
 
 
 def _safe_app_path(raw: str) -> str:
@@ -356,11 +357,11 @@ def admin_report_bug(body: BugReportBody):
         lines.append(f"Page : {page}")
     detail = body.message.strip()
     if detail:
-        lines.append(f"Message : {detail[:500]}")
+        lines.append(f"Message : {detail}")
     emit_director_notification(
         kind="bug_report",
         title="Signalement",
-        body="\n".join(lines)[:2000],
+        body="\n".join(lines)[:4000],
         action_url=page or "/aide",
     )
     return {"ok": True}

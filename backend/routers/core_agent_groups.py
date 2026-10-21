@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from auth import require_admin, resolve_tenant
+from database import LONG_TEXT_CHARS
 from services.agent_groups import (
     GroupInUseError,
     archive_group,
@@ -55,7 +56,7 @@ class GroupUpdateBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     label: str | None = Field(None, max_length=160)
-    description: str | None = Field(None, max_length=2000)
+    description: str | None = Field(None, max_length=LONG_TEXT_CHARS)
     lead_agent_key: str | None = Field(None, max_length=80)
     member_keys: list[str] | None = None
     status: str | None = Field(None, max_length=32)

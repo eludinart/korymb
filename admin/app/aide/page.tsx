@@ -79,7 +79,7 @@ function AideForm() {
               className="input-field mt-1 min-h-24 w-full"
               value={what}
               onChange={(event) => setWhat(event.target.value)}
-              maxLength={2000}
+              maxLength={2500}
               required
               placeholder="J'ouvrais les tâches, puis l'écran est resté vide."
             />
@@ -100,7 +100,7 @@ function AideForm() {
               className="input-field mt-1 min-h-20 w-full"
               value={message}
               onChange={(event) => setMessage(event.target.value)}
-              maxLength={2000}
+              maxLength={2500}
               placeholder="Chargement impossible."
             />
           </label>

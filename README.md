@@ -30,26 +30,28 @@ Then fill required secrets and keep them aligned:
 - `backend/.env` -> `AGENT_API_SECRET=...` (clients machine : Hermes, scripts — jamais dans le navigateur)
 - Le cockpit Next s'authentifie par cookie httpOnly (`korymb_token`) via les routes `/api/korymb*`
 
-#### Dev branché sur MariaDB du VPS
+#### Dev sur SQLite
 
-Le port 3306 n'est en général pas ouvert sur Internet. Utiliser un tunnel SSH :
+Le backend local utilise `backend/data/korymb.db`. La prod Coolify reste sur MariaDB.
 
 ```powershell
-# Terminal 1 — tunnel (laisser ouvert ; adapter KORYMB_VPS_SSH si besoin)
-$env:KORYMB_VPS_SSH = "root@187.124.42.135"
-.\scripts\mariadb-vps-tunnel.ps1
-
-# backend/.env : identifiants MariaDB (KORYMB_DB_USER, KORYMB_DB_PASSWORD, KORYMB_DB_NAME)
 copy backend\.env.local.example backend\.env.local
-# .env.local force KORYMB_DB_ENGINE=mariadb, host 127.0.0.1, port 3307
+# .env.local : KORYMB_DB_ENGINE=sqlite
 ```
 
-Vérifier dans l'UI (bandeau runtime) ou `GET http://127.0.0.1:8020/health/database` : `database.engine` = `mariadb`, `database.connected` = `true`.
+Pour remplir cette base avec un extrait récent de la prod (missions, contacts, devis, chat), ouvrir le tunnel le temps de la copie puis le refermer :
+
+```powershell
+.\scripts\mariadb-vps-tunnel.ps1
+python backend/scripts/import_sqlite_dev_slice.py
+```
+
+Vérifier `GET http://127.0.0.1:8020/health/database` : `database.engine` = `sqlite`, `database.connected` = `true`.
 
 ### 3) Run app
 
 ```powershell
-.\start-dev-cursor.ps1 -MariaDbTunnel
+.\start-dev-cursor.ps1
 ```
 
 Guide de démarrage détaillé (options, watchdog, logs, dépannage) : [docs/DEMARRAGE.md](docs/DEMARRAGE.md).

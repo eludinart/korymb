@@ -16,11 +16,11 @@ Ce document centralise l'exploitation de **Korymb** (application) et **Hermes Ag
 │  └──────────────┘  └──────────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
          ▲                                    ▲
-         │ tunnel SSH :3307 (dev)             │ https://hermes.eludein.art
+         │ SQLite locale (dev)                │ https://hermes.eludein.art
          │                                    │
 ┌────────┴────────────────────────────────────┴───────────────┐
 │  Poste dev Windows — repo korymb (Cursor)                   │
-│  .\start-dev-cursor.ps1 -MariaDbTunnel                      │
+│  .\start-dev-cursor.ps1                                     │
 │  admin :3000  ·  backend :8020                              │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -61,12 +61,12 @@ Depuis Cursor (terminal intégré) :
 | Frontend Next | http://127.0.0.1:3000 |
 | Backend FastAPI | http://127.0.0.1:8020 |
 | Health | http://127.0.0.1:8020/health |
-| Tunnel MariaDB | `127.0.0.1:3307` → VPS |
+| Tunnel MariaDB | Ponctuel, pour `import_sqlite_dev_slice.py` |
 
 Démarrage :
 
 ```powershell
-.\start-dev-cursor.ps1 -MariaDbTunnel
+.\start-dev-cursor.ps1
 ```
 
 Arrêt : `Ctrl+C` ou `.\stop-dev-cursor.ps1`.
@@ -319,7 +319,7 @@ Installation : `.\scripts\hermes-fleur-db-setup.ps1` — Doc : [HERMES-FLEUR-DAT
 | `scripts/hermes-korymb-db-setup.ps1` | Accès MariaDB lecture seule Hermes → Korymb |
 | `scripts/hermes-fleur-db-setup.ps1` | Accès MariaDB lecture seule Hermes → Fleur d'ÅmÔurs |
 | `scripts/mariadb-vps-tunnel.ps1` | Tunnel MariaDB pour dev Korymb |
-| `start-dev-cursor.ps1` | Lance Korymb en local (option `-MariaDbTunnel`) |
+| `start-dev-cursor.ps1` | Lance Korymb en local (SQLite ; `-MariaDbTunnel` si moteur mariadb) |
 | `stop-dev-cursor.ps1` | Arrête les processus dev |
 
 ---
