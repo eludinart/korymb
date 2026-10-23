@@ -5,11 +5,19 @@ import { useEffect, useId, useRef, useState } from "react";
 export default function TaskActionMenu({
   title,
   pending,
+  urgent = false,
+  important = false,
+  onUrgent,
+  onImportant,
   onEdit,
   onDelete,
 }: {
   title: string;
   pending: boolean;
+  urgent?: boolean;
+  important?: boolean;
+  onUrgent?: () => void;
+  onImportant?: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -43,7 +51,7 @@ export default function TaskActionMenu({
   return (
     <div
       ref={root}
-      className="relative shrink-0"
+      className="relative shrink-0 opacity-70 transition-opacity focus-within:opacity-100 hover:opacity-100 has-[[aria-expanded=true]]:opacity-100"
       onMouseEnter={() => {
         if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) setHover(true);
       }}
@@ -51,7 +59,13 @@ export default function TaskActionMenu({
     >
       <button
         type="button"
-        className="inline-flex size-11 items-center justify-center rounded-lg text-lg font-bold leading-none text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+        className={`inline-flex size-8 items-center justify-center rounded-md text-base font-bold leading-none hover:bg-slate-100 dark:hover:bg-slate-800 ${
+          urgent
+            ? "text-rose-700 dark:text-rose-300"
+            : important
+              ? "text-amber-800 dark:text-amber-200"
+              : "text-slate-500 dark:text-slate-400"
+        }`}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-controls={menuId}
@@ -64,12 +78,40 @@ export default function TaskActionMenu({
         <div
           id={menuId}
           role="menu"
-          className="absolute right-0 top-full z-30 w-44 rounded-xl border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          className="absolute right-0 top-full z-30 w-44 rounded-lg border border-slate-200 bg-white p-0.5 shadow-md dark:border-slate-700 dark:bg-slate-900"
         >
+          {onUrgent ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-9 w-full items-center rounded-md px-2.5 text-left text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+              disabled={pending}
+              onClick={() => {
+                close();
+                onUrgent();
+              }}
+            >
+              {urgent ? "Retirer l'urgence" : "Marquer urgent"}
+            </button>
+          ) : null}
+          {onImportant ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="flex min-h-9 w-full items-center rounded-md px-2.5 text-left text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+              disabled={pending}
+              onClick={() => {
+                close();
+                onImportant();
+              }}
+            >
+              {important ? "Retirer l'importance" : "Marquer important"}
+            </button>
+          ) : null}
           <button
             type="button"
             role="menuitem"
-            className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-semibold text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
+            className="flex min-h-9 w-full items-center rounded-md px-2.5 text-left text-xs font-semibold text-slate-800 hover:bg-slate-100 dark:text-slate-100 dark:hover:bg-slate-800"
             disabled={pending}
             onClick={() => {
               close();
@@ -81,7 +123,7 @@ export default function TaskActionMenu({
           <button
             type="button"
             role="menuitem"
-            className="flex min-h-11 w-full items-center rounded-lg px-3 text-left text-sm font-semibold text-red-800 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950"
+            className="flex min-h-9 w-full items-center rounded-md px-2.5 text-left text-xs font-semibold text-red-800 hover:bg-red-50 dark:text-red-200 dark:hover:bg-red-950"
             disabled={pending}
             onClick={() => {
               close();

@@ -1,6 +1,25 @@
 """Tests apprentissage auto, suppression mémoire et recommandations config."""
 from __future__ import annotations
 
+import os
+
+import pytest
+
+
+def test_memory_learning_uses_temp_sqlite_not_production():
+    """Garde-fou : ce module ne doit jamais viser MariaDB / une base prod."""
+    engine = (os.environ.get("KORYMB_DB_ENGINE") or "").strip().lower()
+    if engine and engine != "sqlite":
+        pytest.fail(
+            f"test_memory_learning refuse KORYMB_DB_ENGINE={engine!r} "
+            "(attendu sqlite temporaire via conftest)."
+        )
+    import database as db_mod
+
+    path = str(getattr(db_mod, "DB_PATH", "") or "")
+    if "mariadb" in path.lower() or path.endswith(".prod.db"):
+        pytest.fail(f"DB_PATH suspecte pour les tests mémoire : {path}")
+
 
 def test_summarize_uses_dedicated_timestamp_not_row_updated_at(monkeypatch):
     from services import memory as mem
@@ -19,7 +38,11 @@ def test_summarize_uses_dedicated_timestamp_not_row_updated_at(monkeypatch):
         }
 
     monkeypatch.setattr(mem, "get_enterprise_memory", lambda: {
-        "contexts": {"auto_summary": "ancien", "auto_summary_updated_at": "2020-01-01T00:00:00"},
+        "contexts": {
+            "auto_summary": "ancien",
+            "auto_summary_updated_at": "2020-01-01T00:00:00",
+            "global": "Entreprise Élude — contact@example.com",
+        },
         "recent_missions": [],
         "updated_at": "2026-07-04T12:00:00",
     })
@@ -32,13 +55,39 @@ def test_summarize_uses_dedicated_timestamp_not_row_updated_at(monkeypatch):
     monkeypatch.setattr(
         llm_client,
         "llm_turn",
-        lambda *a, **k: ("nouveau résumé", 1, 2),
+        lambda *a, **k: ("nouveau résumé contact@example.com", 1, 2),
     )
 
     out = mem.summarize_mission_history()
-    assert out == "nouveau résumé"
-    assert calls and calls[0]["auto_summary"] == "nouveau résumé"
+    assert "[email masqué]" in out
+    assert "contact@example.com" not in out
+    assert calls and "[email masqué]" in calls[0]["auto_summary"]
     assert "auto_summary_updated_at" in calls[0]
+
+
+def test_summarize_respects_frozen_and_disabled(monkeypatch):
+    from services import memory as mem
+
+    monkeypatch.setattr(mem, "list_jobs_prompt_digest", lambda limit=10: (_ for _ in ()).throw(AssertionError("no jobs")))
+    monkeypatch.setattr(
+        mem,
+        "get_enterprise_memory",
+        lambda: {
+            "contexts": {
+                "auto_summary_mode": "frozen",
+                "auto_summary_manual": "Texte saisi à la main",
+                "auto_summary": "cache",
+            }
+        },
+    )
+    assert mem.summarize_mission_history() == "Texte saisi à la main"
+
+    monkeypatch.setattr(
+        mem,
+        "get_enterprise_memory",
+        lambda: {"contexts": {"auto_summary_mode": "disabled", "auto_summary": "x"}},
+    )
+    assert mem.summarize_mission_history() == ""
 
 
 def test_memory_directive_remember_and_forget(monkeypatch):

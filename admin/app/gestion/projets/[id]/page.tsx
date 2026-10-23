@@ -6,8 +6,10 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../../components/ui/PageChrome";
 import { businessApi, formatTaskCreated, type BizContact, type BizEvent, type BizQuote } from "../../../../lib/business";
+import AgentMessageMarkdown from "../../../../components/AgentMessageMarkdown";
 import ProjectTasksPanel from "../../../../components/director/ProjectTasksPanel";
 import ReplyComposer from "../../../../components/director/ReplyComposer";
+import TaskNotes from "../../../../components/director/TaskNotes";
 import { agentHeaders, requestJson } from "../../../../lib/api";
 import { missionTitleLabel } from "../../../../lib/missionLabel";
 import { QK } from "../../../../lib/queryClient";
@@ -97,6 +99,11 @@ export default function GestionProjetEditPage() {
     enabled: Boolean(id),
   });
   const quotes = useQuery({ queryKey: ["business-quotes"], queryFn: () => businessApi.listQuotes() });
+  const scienceDocs = useQuery({
+    queryKey: ["knowledge-documents", "project", id],
+    queryFn: () => businessApi.listKnowledgeDocuments({ project_id: id }),
+    enabled: Boolean(id),
+  });
   const jobs = useQuery({
     queryKey: QK.jobsCards,
     queryFn: async () => {
@@ -215,7 +222,7 @@ export default function GestionProjetEditPage() {
         accent="emerald"
         badge="Projets"
         title={project.data.title}
-        description="Fiche projet : dates, étapes, rendez-vous, contenus et devis rattachés."
+        description="Où je vais (étapes + science) puis Travail (tâches). Les rendez-vous restent au calendrier."
         actions={
           <Link href="/gestion/projets" className="btn-link-secondary">
             ← Retour à la liste
@@ -288,9 +295,22 @@ export default function GestionProjetEditPage() {
           <label className="block text-sm sm:col-span-2">
             <span className="font-medium text-slate-700">Description</span>
             <textarea className="input-field mt-1 w-full" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+            {description.trim() ? (
+              <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/80 p-2 dark:border-slate-800 dark:bg-slate-950/40">
+                <TaskNotes source={description} label="Aperçu" />
+              </div>
+            ) : null}
           </label>
-          <div className="sm:col-span-2 space-y-2">
-            <p className="text-sm font-medium text-slate-700">Étapes du projet (pour vous)</p>
+          <div id="projet-direction" className="sm:col-span-2 scroll-mt-28 space-y-2 rounded-xl border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-800 dark:bg-sky-950/30">
+            <div>
+              <p className="text-sm font-extrabold text-slate-900 dark:text-slate-50" title="Méthode SMART — cible claire, mesurable, datée">
+                Où je vais — étapes
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500" title="Méthode SMART — cible claire, mesurable, datée">
+                Direction du projet (pas les tâches du quotidien).{" "}
+                <span className="font-semibold">En savoir plus</span> (SMART).
+              </p>
+            </div>
             {milestones.length === 0 ? <p className="text-xs text-slate-500">Aucune étape pour l’instant. Liste interne à cocher — ce n’est ni un rendez-vous, ni un document pour les inscrits.</p> : null}
             {milestones.map((m, idx) => (
               <div key={`${idx}-${m.chat_conversation_id || ""}`} className="rounded-xl border border-slate-200 p-2 dark:border-slate-700">
@@ -480,15 +500,58 @@ export default function GestionProjetEditPage() {
       </SectionCard>
 
       <SectionCard
-        title={`Documents & vidéos (${resources.length})`}
+        title={`Science & contexte (${(scienceDocs.data || []).length})`}
+        description="Nourrit « Où je vais » — pas le tri du jour."
+        action={
+          <Link href={`/gestion/science?nouveau=1&project=${encodeURIComponent(id)}`} className="btn-primary">
+            + Document science
+          </Link>
+        }
+      >
+        <p className="mb-3 text-sm text-slate-600 dark:text-slate-300">
+          Notes et stratégies de la Science de l&apos;entreprise rattachées à ce projet.
+        </p>
+        {scienceDocs.isLoading ? <LoadingLine /> : null}
+        {!scienceDocs.isLoading && (scienceDocs.data || []).length === 0 ? (
+          <p className="text-sm text-slate-500">Aucun document science pour ce projet.</p>
+        ) : null}
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {(scienceDocs.data || []).map((doc) => (
+            <li key={doc.id} className="flex flex-wrap items-start justify-between gap-2 py-3">
+              <div className="min-w-0">
+                <Link
+                  href={`/gestion/science/${doc.id}`}
+                  className="font-semibold text-slate-900 hover:text-violet-900 hover:underline dark:text-slate-50"
+                >
+                  {doc.title}
+                </Link>
+                {doc.summary ? (
+                  <div className="mt-1 max-h-12 overflow-hidden text-xs">
+                    <AgentMessageMarkdown source={doc.summary} className="text-xs" />
+                  </div>
+                ) : null}
+              </div>
+              <Link
+                href={`/gestion/science/${doc.id}`}
+                className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200"
+              >
+                Ouvrir
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </SectionCard>
+
+      <SectionCard
+        title={`Médias calendrier (${resources.length})`}
         action={
           <Link href={planningHref(true)} className="btn-primary">
-            + Ajouter un document
+            + Ajouter un média
           </Link>
         }
       >
         <p className="mb-3 text-sm text-slate-600">
-          Documents, vidéos et podcasts que les inscrits peuvent ouvrir (selon l’accès : interne, personnes, inscrits, public). Ce n’est pas un rendez-vous.
+          Documents, vidéos et podcasts du calendrier (accès interne / public). Distinct de la Science.
         </p>
         {!events.isLoading && resources.length === 0 ? (
           <p className="text-sm text-slate-500">Aucun document rattaché à ce projet pour l’instant.</p>

@@ -64,6 +64,7 @@ def ensure_work_task_tables(conn) -> None:
             due_at            TEXT,
             priority          TEXT NOT NULL DEFAULT '',
             urgent            INTEGER NOT NULL DEFAULT 0,
+            important         INTEGER NOT NULL DEFAULT 0,
             notes             TEXT NOT NULL DEFAULT '',
             calendar_event_id TEXT NOT NULL DEFAULT '',
             origin_key        TEXT NOT NULL DEFAULT '',
@@ -75,6 +76,8 @@ def ensure_work_task_tables(conn) -> None:
     columns = _column_names(conn, "biz_work_tasks")
     if "urgent" not in columns:
         conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0")
+    if "important" not in columns:
+        conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN important INTEGER NOT NULL DEFAULT 0")
     if "assignee" not in columns:
         conn.execute("ALTER TABLE biz_work_tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''")
     if "reply" not in columns:
@@ -102,6 +105,7 @@ def normalize_due(value: str | None) -> str | None:
 
 
 def _slot(due: str) -> tuple[str, str]:
+    """Date seule → créneau interne 09:00–09:30 (rappel auto, pas un time blocking volontaire)."""
     raw = due.strip()
     if len(raw) == 10:
         return f"{raw}T09:00:00", f"{raw}T09:30:00"
@@ -136,6 +140,7 @@ def _notify_assigned(row: dict, previous: str = "") -> None:
 def _public(row: dict) -> dict:
     out = dict(row)
     out["urgent"] = bool(int(out.get("urgent") or 0))
+    out["important"] = bool(int(out.get("important") or 0))
     out["assignee"] = str(out.get("assignee") or "")
     return out
 
@@ -153,15 +158,37 @@ def get_work_task(task_id: str) -> dict | None:
     return _row(task_id)
 
 
-def list_work_tasks(*, status: str | None = None, limit: int = 200) -> list[dict]:
+def list_work_tasks(
+    *,
+    status: str | None = None,
+    unassigned: bool = False,
+    triage: bool = False,
+    limit: int = 200,
+) -> list[dict]:
+    """Liste les tâches du workspace.
+
+    ``unassigned=True`` ne garde que les tâches sans projet (« Ce qui traîne »).
+    ``triage=True`` ne garde que les tâches clarifiées (« Quoi d’abord ») :
+    ouvertes avec un ``project_id``. Incompatible avec ``unassigned``.
+    """
+    if unassigned and triage:
+        raise ValueError("unassigned et triage sont incompatibles.")
     sql = "SELECT * FROM biz_work_tasks WHERE workspace_id=?"
     params: list[Any] = [_ws()]
     if status:
         sql += " AND status=?"
         params.append(status)
+    if unassigned:
+        sql += " AND (project_id IS NULL OR project_id='')"
+    if triage:
+        if not status:
+            sql += " AND status=?"
+            params.append("open")
+        sql += " AND project_id IS NOT NULL AND project_id!=''"
     sql += (
         " ORDER BY CASE WHEN status='done' THEN 1 ELSE 0 END,"
         " CASE WHEN urgent=1 THEN 0 ELSE 1 END,"
+        " CASE WHEN important=1 THEN 0 ELSE 1 END,"
         " CASE WHEN due_at IS NULL OR due_at='' THEN 1 ELSE 0 END,"
         " due_at ASC, priority ASC, created_at ASC"
         " LIMIT ?"
@@ -273,6 +300,7 @@ def create_work_task(
     status: str = "open",
     priority: str = "",
     urgent: bool = False,
+    important: bool = False,
     notes: str = "",
     origin_key: str = "",
     assignee: str = "",
@@ -296,12 +324,13 @@ def create_work_task(
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO biz_work_tasks "
-            "(id, workspace_id, project_id, title, status, due_at, priority, urgent, notes, "
+            "(id, workspace_id, project_id, title, status, due_at, priority, urgent, important, notes, "
             "calendar_event_id, origin_key, assignee, created_at, updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 task_id, _ws(), pid, label[:800], status, due,
-                (priority or "").strip()[:8], 1 if urgent else 0, clip_long_text(notes),
+                (priority or "").strip()[:8], 1 if urgent else 0, 1 if important else 0,
+                clip_long_text(notes),
                 "", (origin_key or "").strip()[:80], _assignee(assignee), now, now,
             ),
         )
@@ -324,8 +353,8 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
         return None
     assignee_before = str(current.get("assignee") or "")
     allowed = {
-        "title", "status", "due_at", "project_id", "priority", "urgent", "notes", "assignee",
-        "reply", "chat_conversation_id",
+        "title", "status", "due_at", "project_id", "priority", "urgent", "important", "notes",
+        "assignee", "reply", "chat_conversation_id",
     }
     sets = ["updated_at=?"]
     vals: list[Any] = [_now()]
@@ -357,6 +386,9 @@ def update_work_task(task_id: str, **fields: Any) -> dict | None:
             vals.append(str(val or "").strip()[:8])
         elif key == "urgent":
             sets.append("urgent=?")
+            vals.append(1 if bool(val) else 0)
+        elif key == "important":
+            sets.append("important=?")
             vals.append(1 if bool(val) else 0)
         elif key == "notes":
             sets.append("notes=?")

@@ -101,6 +101,92 @@ def test_task_notes_keep_at_least_2500_characters(client):
     assert too_long.status_code == 422
 
 
+def test_unassigned_filter_keeps_capture_tasks_only(client):
+    from services.business_db import create_project
+
+    project = create_project(title="Projet filtre capture", status="active")
+    orphan = client.post("/business/tasks", json={"title": "Note qui traîne"})
+    assert orphan.status_code == 200, orphan.text
+    attached = client.post(
+        "/business/tasks",
+        json={"title": "Travail projet", "project_id": project["id"]},
+    )
+    assert attached.status_code == 200, attached.text
+
+    listed = client.get("/business/tasks?status=open&unassigned=1")
+    assert listed.status_code == 200, listed.text
+    ids = {row["id"] for row in listed.json()["tasks"]}
+    assert orphan.json()["id"] in ids
+    assert attached.json()["id"] not in ids
+    assert all(not row.get("project_id") for row in listed.json()["tasks"])
+
+    all_open = client.get("/business/tasks?status=open")
+    assert all_open.status_code == 200
+    all_ids = {row["id"] for row in all_open.json()["tasks"]}
+    assert orphan.json()["id"] in all_ids
+    assert attached.json()["id"] in all_ids
+
+
+def test_triage_filter_keeps_clarified_tasks_only(client):
+    from services.business_db import create_project
+
+    project = create_project(title="Projet triage", status="active")
+    orphan = client.post("/business/tasks", json={"title": "Capture hors triage"})
+    assert orphan.status_code == 200, orphan.text
+    attached = client.post(
+        "/business/tasks",
+        json={"title": "Clarifiée pour triage", "project_id": project["id"]},
+    )
+    assert attached.status_code == 200, attached.text
+    finished = client.post(
+        "/business/tasks",
+        json={"title": "Faite avec projet", "project_id": project["id"]},
+    )
+    assert finished.status_code == 200, finished.text
+    closed = client.put(f"/business/tasks/{finished.json()['id']}", json={"status": "done"})
+    assert closed.status_code == 200, closed.text
+
+    triage = client.get("/business/tasks?triage=1")
+    assert triage.status_code == 200, triage.text
+    rows = triage.json()["tasks"]
+    ids = {row["id"] for row in rows}
+    assert attached.json()["id"] in ids
+    assert orphan.json()["id"] not in ids
+    assert finished.json()["id"] not in ids
+    assert all(row.get("project_id") for row in rows)
+    assert all(row.get("status") == "open" for row in rows)
+
+    conflict = client.get("/business/tasks?unassigned=1&triage=1")
+    assert conflict.status_code == 422
+
+
+def test_task_important_flag_roundtrip(client):
+    from services.business_db import create_project
+
+    project = create_project(title="Projet importance", status="active")
+    created = client.post(
+        "/business/tasks",
+        json={"title": "À classer", "project_id": project["id"], "important": True},
+    )
+    assert created.status_code == 200, created.text
+    body = created.json()
+    assert body["important"] is True
+    assert body["urgent"] is False
+
+    plain = client.post("/business/tasks", json={"title": "Sans importance"})
+    assert plain.status_code == 200, plain.text
+    assert plain.json()["important"] is False
+
+    cleared = client.put(f"/business/tasks/{body['id']}", json={"important": False})
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["important"] is False
+
+    flagged = client.put(f"/business/tasks/{body['id']}", json={"important": True, "urgent": True})
+    assert flagged.status_code == 200, flagged.text
+    assert flagged.json()["important"] is True
+    assert flagged.json()["urgent"] is True
+
+
 def test_task_api_calendar_follows_the_date(client):
     created = client.post(
         "/business/tasks",

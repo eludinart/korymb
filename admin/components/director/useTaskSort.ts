@@ -1,19 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { readTaskSort, writeTaskSort, type TaskSortId } from "../../lib/taskSort";
+import {
+  readTaskSortCriteria,
+  writeTaskSortCriteria,
+  type TaskSortId,
+} from "../../lib/taskSort";
 
 export function useTaskSort() {
-  const [sort, setSort] = useState<TaskSortId>("urgent-overdue");
+  const [criteria, setCriteria] = useState<TaskSortId[]>(["urgent-overdue"]);
 
   useEffect(() => {
-    setSort(readTaskSort());
+    setCriteria(readTaskSortCriteria());
   }, []);
 
   const choose = (id: TaskSortId) => {
-    setSort(id);
-    writeTaskSort(id);
+    const next = [id];
+    setCriteria(next);
+    writeTaskSortCriteria(next);
   };
 
-  return { sort, choose };
+  const setSortCriteria = (ids: TaskSortId[]) => {
+    const next = ids.length ? ids : (["urgent-overdue"] as TaskSortId[]);
+    setCriteria(next);
+    writeTaskSortCriteria(next);
+  };
+
+  return {
+    /** Premier critère — compat composants qui passent encore `sort` mono. */
+    sort: criteria[0] || "urgent-overdue",
+    criteria,
+    choose,
+    setSortCriteria,
+  };
 }

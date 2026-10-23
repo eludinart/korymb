@@ -53,7 +53,8 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { href: "/administration/orchestration", label: "Prompts d’orchestration", operatorOnly: true },
       { href: "/administration/comportements", label: "Comportements", operatorOnly: true },
       { href: "/administration/memory", label: "Votre activité" },
-      { href: "/administration/contexte", label: "Science de l'entreprise" },
+      { href: "/gestion/science", label: "Science de l'entreprise" },
+      { href: "/administration/contexte", label: "Questionnaire de contexte" },
     ],
   },
   {

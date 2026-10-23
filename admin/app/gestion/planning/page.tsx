@@ -45,7 +45,7 @@ export default function GestionPlanningPage() {
         accent="emerald"
         badge="Calendrier"
         title="Calendrier d’activité"
-        description="Rendez-vous et contenus à ouvrir, sur le même calendrier. Chaque entrée a un accès : interne, nommé, inscrits, ou public."
+        description="Quand je le fais : tâches et jalons vs séances CRM. Une date de tâche sans heure crée un créneau 09:00–09:30 automatique (rappel, pas un bloc volontaire)."
         actions={
           <Link href="/gestion/planning/nouveau" className="btn-primary">
             + Planifier
@@ -88,6 +88,11 @@ export default function GestionPlanningPage() {
                   {EVENT_NATURE_SHORT_LABELS[ev.nature === "matiere" ? "matiere" : "presence"]}
                   {" · "}
                   {EVENT_TYPE_LABELS[ev.event_type] || ev.event_type}
+                  {ev.event_type === "tache" || ev.event_type === "jalon"
+                    ? " · coaching"
+                    : ev.event_type === "seance" || ev.event_type === "stage" || ev.event_type === "atelier" || ev.event_type === "visio"
+                      ? " · séance / CRM"
+                      : ""}
                   {ev.modality && EVENT_MODALITY_LABELS[ev.modality] ? ` · ${EVENT_MODALITY_LABELS[ev.modality]}` : ""}
                   {ev.location ? ` · ${ev.location}` : ""}
                   {` · ${EVENT_VISIBILITY_LABELS[visibilityFromEvent(ev)]}`}

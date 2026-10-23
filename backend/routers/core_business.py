@@ -96,6 +96,15 @@ from services.work_tasks import (
     list_work_tasks,
     update_work_task,
 )
+from services.knowledge_documents import (
+    DOC_STATUSES,
+    archive_knowledge_document,
+    create_knowledge_document,
+    get_knowledge_document,
+    list_knowledge_documents,
+    migrate_calendar_document_events,
+    update_knowledge_document,
+)
 
 logger = logging.getLogger("korymb.business")
 
@@ -200,6 +209,7 @@ class WorkTaskCreate(BaseModel):
     project_id: str | None = None
     priority: str = ""
     urgent: bool = False
+    important: bool = False
     notes: str = Field(default="", max_length=LONG_TEXT_CHARS)
     assignee: str = ""
 
@@ -211,10 +221,34 @@ class WorkTaskUpdate(BaseModel):
     project_id: str | None = None
     priority: str | None = None
     urgent: bool | None = None
+    important: bool | None = None
     notes: str | None = Field(default=None, max_length=LONG_TEXT_CHARS)
     assignee: str | None = None
     reply: str | None = Field(default=None, max_length=4000)
     chat_conversation_id: str | None = Field(default=None, max_length=64)
+
+
+class KnowledgeDocumentCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=400)
+    summary: str = Field(default="", max_length=4000)
+    content_md: str = Field(default="", max_length=LONG_TEXT_CHARS)
+    resource_file_id: str = ""
+    project_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    category: str = Field(default="", max_length=120)
+    author: str = Field(default="", max_length=120)
+
+
+class KnowledgeDocumentUpdate(BaseModel):
+    title: str | None = Field(default=None, max_length=400)
+    summary: str | None = Field(default=None, max_length=4000)
+    content_md: str | None = Field(default=None, max_length=LONG_TEXT_CHARS)
+    resource_file_id: str | None = None
+    project_id: str | None = None
+    tags: list[str] | None = None
+    category: str | None = Field(default=None, max_length=120)
+    author: str | None = Field(default=None, max_length=120)
+    status: str | None = None
 
 
 class QuoteCreate(BaseModel):
@@ -1111,11 +1145,19 @@ def _task_or_422(fn, *args, **kwargs):
 @router.get("/business/tasks", dependencies=[Depends(resolve_tenant)])
 async def business_list_tasks(
     status: str | None = None,
+    unassigned: bool = Query(default=False),
+    triage: bool = Query(default=False),
     limit: int = Query(default=200, ge=1, le=500),
 ):
     if status and status not in TASK_STATUSES:
         raise HTTPException(422, detail=f"status invalide — {TASK_STATUSES}")
-    return {"tasks": list_work_tasks(status=status, limit=limit)}
+    if unassigned and triage:
+        raise HTTPException(422, detail="unassigned et triage sont incompatibles")
+    return {
+        "tasks": list_work_tasks(
+            status=status, unassigned=unassigned, triage=triage, limit=limit,
+        )
+    }
 
 
 @router.post("/business/tasks", dependencies=[Depends(resolve_tenant)])
@@ -1144,6 +1186,89 @@ async def business_delete_task(task_id: str):
     if not delete_work_task(task_id):
         raise HTTPException(404, detail="Tâche introuvable")
     return {"deleted": True}
+
+
+class ScheduleProposalAccept(BaseModel):
+    task_id: str = Field(..., min_length=1, max_length=64)
+    due_at: str = Field(..., min_length=8, max_length=32)
+
+
+@router.get("/business/schedule-proposals", dependencies=[Depends(resolve_tenant)])
+async def business_list_schedule_proposals(limit: int = Query(default=8, ge=1, le=20)):
+    """Propositions d'agenda (lecture seule) — aucune écriture calendrier."""
+    from services.schedule_proposals import list_schedule_proposals
+
+    return list_schedule_proposals(limit=limit)
+
+
+@router.post("/business/schedule-proposals/accept", dependencies=[Depends(resolve_tenant)])
+async def business_accept_schedule_proposal(body: ScheduleProposalAccept):
+    """Accepte une proposition : pose due_at (+ sync calendrier). Pas d'écriture silencieuse."""
+    from services.schedule_proposals import accept_schedule_proposal
+
+    try:
+        return accept_schedule_proposal(task_id=body.task_id, due_at=body.due_at)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+
+
+# ── Science de l'entreprise (documents) ───────────────────────────────────────
+
+@router.get("/business/knowledge-documents", dependencies=[Depends(resolve_tenant)])
+async def business_list_knowledge_documents(
+    project_id: str | None = None,
+    tag: str | None = None,
+    category: str | None = None,
+    q: str | None = None,
+    include_archived: bool = False,
+    limit: int = Query(default=200, ge=1, le=500),
+):
+    return {
+        "documents": list_knowledge_documents(
+            project_id=project_id,
+            tag=tag,
+            category=category,
+            q=q,
+            include_archived=include_archived,
+            limit=limit,
+        )
+    }
+
+
+@router.post("/business/knowledge-documents", dependencies=[Depends(resolve_tenant)])
+async def business_create_knowledge_document(body: KnowledgeDocumentCreate):
+    return _task_or_422(create_knowledge_document, **body.model_dump())
+
+
+@router.get("/business/knowledge-documents/{doc_id}", dependencies=[Depends(resolve_tenant)])
+async def business_get_knowledge_document(doc_id: str):
+    row = get_knowledge_document(doc_id)
+    if not row:
+        raise HTTPException(404, detail="Document introuvable")
+    return row
+
+
+@router.put("/business/knowledge-documents/{doc_id}", dependencies=[Depends(resolve_tenant)])
+async def business_update_knowledge_document(doc_id: str, body: KnowledgeDocumentUpdate):
+    if body.status and body.status not in DOC_STATUSES:
+        raise HTTPException(422, detail=f"status invalide — {DOC_STATUSES}")
+    row = _task_or_422(update_knowledge_document, doc_id, **body.model_dump(exclude_unset=True))
+    if not row:
+        raise HTTPException(404, detail="Document introuvable")
+    return row
+
+
+@router.post("/business/knowledge-documents/{doc_id}/archive", dependencies=[Depends(resolve_tenant)])
+async def business_archive_knowledge_document(doc_id: str):
+    row = _task_or_422(archive_knowledge_document, doc_id)
+    if not row:
+        raise HTTPException(404, detail="Document introuvable")
+    return row
+
+
+@router.post("/business/knowledge-documents/migrate-from-calendar", dependencies=[Depends(resolve_tenant)])
+async def business_migrate_knowledge_from_calendar(dry_run: bool = False):
+    return migrate_calendar_document_events(dry_run=dry_run)
 
 
 # ── Quotes ────────────────────────────────────────────────────────────────────

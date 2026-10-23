@@ -19,6 +19,8 @@ import { useRepriseCoverage } from "../../lib/repriseCoverage";
 import { useUiMode } from "../../lib/uiMode";
 import ProjectToday from "./ProjectToday";
 import TodayTasks from "./TodayTasks";
+import TriageTasks from "./TriageTasks";
+import WhenIDoIt from "./WhenIDoIt";
 import { useTaskSort } from "./useTaskSort";
 
 export type { BoardSignals, BoardSourceItem, OpsBoard, OpsBoardItem };
@@ -32,7 +34,28 @@ type UnconsultedRow = {
   result_surface?: string | null;
 };
 
-type DayEvent = { id?: string; title?: string; when_label?: string; href?: string };
+type DayEvent = {
+  id?: string;
+  title?: string;
+  when_label?: string;
+  href?: string;
+  kind?: string;
+  event_type?: string;
+  starts_at?: string;
+};
+
+export type ScheduleProposal = {
+  id?: string;
+  task_id?: string;
+  title?: string;
+  project_id?: string | null;
+  project_title?: string;
+  milestone_title?: string;
+  suggested_due_at?: string;
+  slot_label?: string;
+  reason?: string;
+  href?: string;
+};
 
 export type ProjectMilestone = {
   project_id?: string;
@@ -79,6 +102,12 @@ export type MilestoneGroup = {
   done?: ProjectMilestone[];
 };
 
+export type ProjectScienceDoc = {
+  id?: string;
+  title?: string;
+  href?: string;
+};
+
 export type ProjectTodayCard = {
   project_id?: string;
   project_title?: string;
@@ -89,6 +118,7 @@ export type ProjectTodayCard = {
   updated_at?: string;
   open?: ProjectMilestone[];
   done?: ProjectMilestone[];
+  science_docs?: ProjectScienceDoc[];
 };
 
 export type ProjectMilestonesBlock = {
@@ -173,6 +203,9 @@ type Props = {
   dayEvents?: DayEvent[];
   dayLines?: string[];
   dayHref?: string;
+  coachingEvents?: DayEvent[];
+  autoSlotNote?: string;
+  scheduleProposals?: ScheduleProposal[];
   inboxTotal?: number;
   memoryPending?: number;
   memoryHref?: string;
@@ -355,6 +388,9 @@ export default function BriefingBoard({
   dayEvents,
   dayLines,
   dayHref,
+  coachingEvents,
+  autoSlotNote,
+  scheduleProposals,
   inboxTotal = 0,
   memoryPending = 0,
   memoryHref,
@@ -374,6 +410,7 @@ export default function BriefingBoard({
   const [snoozeTick, setSnoozeTick] = useState(0);
   const [hiddenLead, setHiddenLead] = useState("");
   const [openTaskCount, setOpenTaskCount] = useState(0);
+  const [triageCount, setTriageCount] = useState(0);
   const taskSort = useTaskSort();
 
   const resolved = useMemo(() => {
@@ -453,15 +490,15 @@ export default function BriefingBoard({
             {projectCards.length > 0 ? (
               <>
                 <span className="text-slate-300"> · </span>
-                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
-                  {countBit(projectCards.length, "1 projet", "projets")}
+                <a href="#board-direction" className="text-sky-800 underline-offset-2 hover:underline dark:text-sky-200">
+                  {countBit(projectCards.length, "1 direction", "directions")}
                 </a>
               </>
             ) : null}
             {openMilestones.length > 0 ? (
               <>
                 <span className="text-slate-300"> · </span>
-                <a href="#board-milestones" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
+                <a href="#board-direction" className="text-sky-800 underline-offset-2 hover:underline dark:text-sky-200">
                   {countBit(openMilestones.length, "1 étape", "étapes")}
                 </a>
               </>
@@ -486,7 +523,15 @@ export default function BriefingBoard({
               <>
                 <span className="text-slate-300"> · </span>
                 <a href="#board-tasks" className="text-violet-800 underline-offset-2 hover:underline dark:text-violet-200">
-                  {countBit(openTaskCount, "1 tâche", "tâches")}
+                  {countBit(openTaskCount, "1 qui traîne", "qui traînent")}
+                </a>
+              </>
+            ) : null}
+            {triageCount > 0 ? (
+              <>
+                <span className="text-slate-300"> · </span>
+                <a href="#board-triage" className="text-amber-900 underline-offset-2 hover:underline dark:text-amber-200">
+                  {countBit(triageCount, "1 à prioriser", "à prioriser")}
                 </a>
               </>
             ) : null}
@@ -517,15 +562,33 @@ export default function BriefingBoard({
         </div>
       </header>
 
-      <ProjectToday projects={projectCards} sort={taskSort.sort} onSort={taskSort.choose} />
+      {/* Coaching : Où je vais → Ce qui traîne → Quoi d'abord → Quand je le fais ; Décisions à part */}
+      <ProjectToday projects={projectCards} />
 
       <TodayTasks
         onOpenCount={setOpenTaskCount}
         sort={taskSort.sort}
-        activeProjectIds={new Set(projectCards.map((card) => card.project_id).filter((id): id is string => Boolean(id)))}
+        criteria={taskSort.criteria}
+      />
+
+      <TriageTasks
+        onCount={setTriageCount}
+        sort={taskSort.sort}
+        criteria={taskSort.criteria}
+      />
+
+      <WhenIDoIt
+        coachingEvents={coachingEvents || []}
+        dayEvents={events}
+        autoSlotNote={autoSlotNote}
+        scheduleProposals={scheduleProposals || []}
+        dayHref={dayHref}
       />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-12 xl:items-start">
+        <p id="board-decisions" className="sr-only">
+          Décisions agents — validation HITL, distincte du coaching.
+        </p>
         {warningCount === 0 ? <div id="board-warnings" className="hidden" /> : null}
         {warningCount > 0 ? (
           <section
@@ -806,9 +869,9 @@ export default function BriefingBoard({
 
         <Lane
           id="board-soon"
-          title="Agenda 48 h"
-          hint="Planning des prochaines 48 h."
-          count={events.length || lines.length}
+          title="Autres rendez-vous 48 h"
+          hint="Séances et CRM — le coaching du jour est dans « Quand je le fais »."
+          count={events.filter((ev) => ev.kind !== "coaching").length || lines.length}
           accent="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
           bar="bg-slate-400"
           className="lg:col-span-2 xl:col-span-5"
@@ -821,8 +884,10 @@ export default function BriefingBoard({
             </Link>
           }
         >
-          {events.length === 0 && lines.length === 0 && memoryPending <= 0 ? (
-            <EmptyLine>Rien à l&apos;agenda sur les 48 prochaines heures.</EmptyLine>
+          {(() => {
+            const otherEvents = events.filter((ev) => ev.kind !== "coaching");
+            return otherEvents.length === 0 && lines.length === 0 && memoryPending <= 0 ? (
+            <EmptyLine>Rien d&apos;autre au planning sur les 48 prochaines heures.</EmptyLine>
           ) : (
             <ul className="space-y-2">
               {memoryPending > 0 && !proposals.some((item) => item.kind === "learning_suggestion") ? (
@@ -843,7 +908,7 @@ export default function BriefingBoard({
                   </Link>
                 </li>
               ) : null}
-              {events.map((ev, index) => (
+              {otherEvents.map((ev, index) => (
                 <li key={ev.id || `${ev.title}-${index}`}>
                   <Link
                     href={ev.href || dayHref || "/gestion/planning"}
@@ -854,12 +919,17 @@ export default function BriefingBoard({
                       {ev.when_label ? (
                         <span className="mt-0.5 block text-xs text-slate-500">{ev.when_label}</span>
                       ) : null}
+                      {ev.kind === "session" || ev.event_type === "seance" ? (
+                        <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                          Séance / CRM
+                        </span>
+                      ) : null}
                     </span>
                     <Where>Planning</Where>
                   </Link>
                 </li>
               ))}
-              {events.length === 0
+              {otherEvents.length === 0
                 ? lines.slice(0, 4).map((line, index) => (
                     <li key={`${index}-${line.slice(0, 24)}`} className="text-sm text-slate-700 dark:text-slate-200">
                       {line}
@@ -867,7 +937,8 @@ export default function BriefingBoard({
                   ))
                 : null}
             </ul>
-          )}
+          );
+          })()}
         </Lane>
       </div>
     </div>

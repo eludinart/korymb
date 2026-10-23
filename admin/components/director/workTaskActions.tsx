@@ -9,6 +9,7 @@ export type TaskPatch = {
   status?: "open" | "done";
   due_at?: string | null;
   urgent?: boolean;
+  important?: boolean;
   title?: string;
   notes?: string;
   assignee?: string;

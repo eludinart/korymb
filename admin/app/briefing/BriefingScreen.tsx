@@ -79,8 +79,42 @@ function BriefingPageContent() {
         memory_digest?: { lines?: string[]; pending_count?: number; href?: string } | null;
         day_anticipation?: {
           lines?: string[];
-          events?: Array<{ id?: string; title?: string; when_label?: string; href?: string }>;
+          events?: Array<{
+            id?: string;
+            title?: string;
+            when_label?: string;
+            href?: string;
+            kind?: string;
+            event_type?: string;
+            starts_at?: string;
+          }>;
+          coaching_events?: Array<{
+            id?: string;
+            title?: string;
+            when_label?: string;
+            href?: string;
+            kind?: string;
+            event_type?: string;
+            starts_at?: string;
+          }>;
           href?: string;
+          auto_slot_note?: string;
+        } | null;
+        schedule_proposals?: {
+          proposals?: Array<{
+            id?: string;
+            task_id?: string;
+            title?: string;
+            project_id?: string | null;
+            project_title?: string;
+            milestone_title?: string;
+            suggested_due_at?: string;
+            slot_label?: string;
+            reason?: string;
+            href?: string;
+          }>;
+          count?: number;
+          auto_slot_note?: string;
         } | null;
         inbox_severity?: { critical?: number; high?: number; medium?: number; low?: number } | null;
         llm_envelope?: LlmEnvelope | null;
@@ -214,6 +248,9 @@ function BriefingPageContent() {
           dayEvents={b.day_anticipation?.events || []}
           dayLines={b.day_anticipation?.lines || []}
           dayHref={b.day_anticipation?.href}
+          coachingEvents={b.day_anticipation?.coaching_events || []}
+          autoSlotNote={b.schedule_proposals?.auto_slot_note || b.day_anticipation?.auto_slot_note}
+          scheduleProposals={b.schedule_proposals?.proposals || []}
           signals={{
             recentErrors: b.recent_errors || [],
             followUpsOverdue: Number(b.commercial?.counts?.follow_ups_overdue || 0),

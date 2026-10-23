@@ -18,6 +18,16 @@ logger = logging.getLogger(__name__)
 
 # TTL du résumé automatique dans enterprise_memory["contexts"]["auto_summary"]
 _SUMMARY_TTL_HOURS = 6
+_SUMMARY_MODES = frozenset({"auto", "frozen", "disabled"})
+
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_PHONE_RE = re.compile(
+    r"(?:\+33|0033|0)\s*[1-9](?:[\s.-]*\d{2}){4}|\+\d{1,3}[\s.-]?(?:\d[\s.-]?){6,14}\d"
+)
+_OBSOLETE_TERMS = (
+    "travaux",  # vocabulaire périmé UI → missions
+    "Corimbe",  # ancien nom
+)
 
 
 @dataclass
@@ -99,42 +109,75 @@ def _summary_is_stale(updated_at: str | None) -> bool:
     return datetime.utcnow() - ts > timedelta(hours=_SUMMARY_TTL_HOURS)
 
 
+def _summary_mode(contexts: dict[str, Any]) -> str:
+    mode = str(contexts.get("auto_summary_mode") or "auto").strip().lower()
+    return mode if mode in _SUMMARY_MODES else "auto"
+
+
+def scrub_summary_pii(text: str) -> str:
+    """Retire emails, téléphones et quelques termes périmés du résumé."""
+    out = _EMAIL_RE.sub("[email masqué]", str(text or ""))
+    out = _PHONE_RE.sub("[tél. masqué]", out)
+    for term in _OBSOLETE_TERMS:
+        out = re.sub(re.escape(term), "", out, flags=re.IGNORECASE)
+    return re.sub(r"[ \t]{2,}", " ", out).strip()
+
+
 def summarize_mission_history(job_limit: int = 10) -> str:
     """
     Compresse l'historique des missions en un résumé compact (Loi de Simplification).
-    Stocké dans enterprise_memory["contexts"]["auto_summary"] avec TTL de 6h.
-    Retourne le résumé (depuis le cache si récent, régénéré sinon).
+    Modes (contexts.auto_summary_mode) :
+      - auto : régénère si TTL expiré
+      - frozen : conserve auto_summary_manual ou le cache, sans LLM
+      - disabled : retourne ""
     """
     mem = get_enterprise_memory()
     contexts = mem.get("contexts") or {}
-    cached_summary = contexts.get("auto_summary", "")
+    if not isinstance(contexts, dict):
+        contexts = {}
+    mode = _summary_mode(contexts)
+    manual = str(contexts.get("auto_summary_manual") or "").strip()
+    cached_summary = str(contexts.get("auto_summary") or "")
     summary_updated_at = contexts.get("auto_summary_updated_at", "")
 
+    if mode == "disabled":
+        return ""
+    if mode == "frozen":
+        frozen = scrub_summary_pii(manual or cached_summary)
+        return frozen
+
     if cached_summary and not _summary_is_stale(summary_updated_at):
-        return cached_summary
+        return scrub_summary_pii(cached_summary)
 
     jobs = list_jobs_prompt_digest(limit=job_limit)
     if not jobs:
-        return ""
+        return scrub_summary_pii(cached_summary)
 
-    # Construction du corpus brut
+    global_ctx = str(contexts.get("global") or "").strip()[:2500]
     lines: list[str] = []
     for j in jobs:
-        preview = (j.get("result") or "")[:600]
+        preview = scrub_summary_pii((j.get("result") or "")[:600])
+        mission = scrub_summary_pii(str(j.get("mission") or "")[:160])
         lines.append(
-            f"[{j.get('id')}] {j.get('agent')} — {j.get('mission', '')[:160]}\n"
+            f"[{j.get('id')}] {j.get('agent')} — {mission}\n"
             f"  → {preview}"
         )
     corpus = "\n\n".join(lines)
 
     system = (
         "Tu es l'assistant de synthèse mémorielle de KORYMB. "
-        "Extrait la 'substantifique moelle' de cet historique de missions : "
-        "identifie les décisions clés, les patterns récurrents, les risques actifs, "
-        "les livrables validés et les points de tension à surveiller. "
+        "Appuie-toi sur le contexte global de l'entreprise fourni. "
+        "Extrait la substantifique moelle de l'historique de missions : "
+        "décisions clés, patterns, risques, livrables, tensions. "
+        "N'inclus jamais de noms propres de personnes, d'emails ni de téléphones. "
+        "Évite le vocabulaire périmé (ex. « travaux » pour les missions). "
         "Sois dense, précis, opérationnel. Maximum 600 mots en français."
     )
-    prompt = f"Historique des {len(jobs)} dernières missions KORYMB :\n\n{corpus}"
+    prompt_parts = []
+    if global_ctx:
+        prompt_parts.append(f"Contexte global entreprise :\n{scrub_summary_pii(global_ctx)}")
+    prompt_parts.append(f"Historique des {len(jobs)} dernières missions :\n\n{corpus}")
+    prompt = "\n\n".join(prompt_parts)
 
     try:
         from config import TEMP_SYST
@@ -147,14 +190,13 @@ def summarize_mission_history(job_limit: int = 10) -> str:
             usage_context="memory:summarize_mission_history",
             temperature=TEMP_SYST,
         )
-        summary_text = summary_text.strip()
+        summary_text = scrub_summary_pii(summary_text.strip())
     except Exception:
         logger.exception("summarize_mission_history: LLM call failed, using raw digest")
-        summary_text = "\n".join(
-            f"- {j.get('agent')}: {j.get('mission', '')[:100]}" for j in jobs
+        summary_text = scrub_summary_pii(
+            "\n".join(f"- {j.get('agent')}: {j.get('mission', '')[:100]}" for j in jobs)
         )
 
-    # Persister avec horodatage dédié (indépendant de updated_at / recent_missions).
     try:
         merge_enterprise_contexts(
             {
@@ -175,6 +217,9 @@ def maybe_refresh_mission_summary() -> None:
         contexts = mem.get("contexts") or {}
         if not isinstance(contexts, dict):
             contexts = {}
+        mode = _summary_mode(contexts)
+        if mode in {"frozen", "disabled"}:
+            return
         cached = contexts.get("auto_summary", "")
         summary_at = contexts.get("auto_summary_updated_at", "")
         if isinstance(cached, str) and cached.strip() and not _summary_is_stale(summary_at):
@@ -194,7 +239,6 @@ def maybe_refresh_mission_summary() -> None:
             pass
     except Exception:
         logger.exception("maybe_refresh_mission_summary")
-
 
 # ── Snapshot & prompt ─────────────────────────────────────────────────────────
 

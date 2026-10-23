@@ -13,6 +13,8 @@ _SYSTEM_MEMORY_KEYS = frozenset(
     {
         "auto_summary",
         "auto_summary_updated_at",
+        "auto_summary_mode",
+        "auto_summary_manual",
         "drive_workspace",
         "enterprise_facts",
         "memory_compacted_at",

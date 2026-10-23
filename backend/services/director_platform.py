@@ -579,10 +579,33 @@ def _memory_highlights(limit: int = 3) -> list[dict]:
         return []
 
 
+# Types agenda utiles pour le coaching (« Quand je le fais ») ; séances CRM à part.
+_COACHING_EVENT_TYPES = frozenset({"tache", "jalon"})
+_SESSION_EVENT_TYPES = frozenset({"seance", "stage", "atelier", "visio"})
+
+
+def _event_coaching_kind(row: dict[str, Any]) -> str:
+    """``coaching`` | ``session`` | ``other`` — filtre léger sans refonte du calendrier."""
+    et = str(row.get("event_type") or "").strip().lower()
+    if et in _COACHING_EVENT_TYPES:
+        return "coaching"
+    if et in _SESSION_EVENT_TYPES:
+        return "session"
+    try:
+        from services.business_db import is_crm_follow_up_title
+
+        if is_crm_follow_up_title(str(row.get("title") or "")):
+            return "session"
+    except Exception:
+        pass
+    return "other"
+
+
 def _day_anticipation(*, limit: int = 5, due_follow_ups: list[dict] | None = None) -> dict[str, Any]:
     """Prochaines échéances planning (48 h) — anticipation légère pour le briefing."""
     lines: list[str] = []
     events_out: list[dict[str, Any]] = []
+    coaching_events: list[dict[str, Any]] = []
     try:
         from services.business_db import list_calendar_events
 
@@ -617,25 +640,31 @@ def _day_anticipation(*, limit: int = 5, due_follow_ups: list[dict] | None = Non
             else:
                 when = f"{day_part} {hhmm}".strip()
             loc = str(row.get("location") or "").strip()
+            kind = _event_coaching_kind(row)
             line = f"{when} — {title}" + (f" ({loc})" if loc else "")
-            lines.append(line)
-            events_out.append({
+            item = {
                 "id": row.get("id"),
                 "title": title,
                 "starts_at": starts,
                 "when_label": when,
+                "event_type": str(row.get("event_type") or ""),
+                "kind": kind,
                 "href": f"/gestion/planning/{row.get('id')}" if row.get("id") else "/gestion/planning",
-            })
-            if len(lines) >= limit:
-                break
+            }
+            if kind == "coaching" and len(coaching_events) < limit:
+                coaching_events.append(item)
+            if len(events_out) < limit:
+                lines.append(line)
+                events_out.append(item)
     except Exception:
         lines = []
         events_out = []
+        coaching_events = []
 
     if not lines:
         lines = ["Rien d’urgent au planning sur les prochaines 48 h."]
 
-    # Relances CRM dues → une ligne d'anticipation métier
+    # Relances CRM dues → une ligne d'anticipation métier (hors bloc coaching)
     try:
         from services.business_db import list_due_crm_follow_ups
 
@@ -655,7 +684,12 @@ def _day_anticipation(*, limit: int = 5, due_follow_ups: list[dict] | None = Non
     return {
         "lines": lines[:3],
         "events": events_out[:limit],
+        "coaching_events": coaching_events[:limit],
         "href": "/gestion/planning",
+        "auto_slot_note": (
+            "Une date sans heure crée un créneau interne 09:00–09:30 — "
+            "rappel automatique, pas encore un bloc volontaire."
+        ),
     }
 
 
@@ -1319,7 +1353,28 @@ def build_project_milestones() -> dict[str, Any]:
             "updated_at": updated_at,
             "open": card_open,
             "done": card_done,
+            "science_docs": [],
         })
+
+    try:
+        from services.knowledge_documents import list_knowledge_documents
+
+        for card in project_cards:
+            pid = str(card.get("project_id") or "").strip()
+            if not pid:
+                continue
+            docs = list_knowledge_documents(project_id=pid, limit=5)
+            card["science_docs"] = [
+                {
+                    "id": str(doc.get("id") or ""),
+                    "title": str(doc.get("title") or "Document")[:120],
+                    "href": f"/gestion/science/{quote(str(doc.get('id') or ''))}",
+                }
+                for doc in docs
+                if isinstance(doc, dict) and doc.get("id")
+            ][:3]
+    except Exception:
+        pass
 
     groups: list[dict[str, Any]] = []
     for group in buckets.values():
@@ -1653,6 +1708,16 @@ def _build_briefing_uncached(*, period: str = "today") -> dict[str, Any]:
         budget=budget_block,
     )
     project_milestones = build_project_milestones()
+    day_anticipation = _day_anticipation(
+        due_follow_ups=list((commercial or {}).get("follow_ups_due_today") or []),
+    )
+    schedule_proposals: dict[str, Any] = {"proposals": [], "count": 0, "auto_slot_note": ""}
+    try:
+        from services.schedule_proposals import list_schedule_proposals
+
+        schedule_proposals = list_schedule_proposals(limit=6)
+    except Exception:
+        pass
 
     return {
         "period": period,
@@ -1665,9 +1730,8 @@ def _build_briefing_uncached(*, period: str = "today") -> dict[str, Any]:
         "top_priorities": _build_top_priorities(inbox["items"], extra=extra_priorities),
         "memory_highlights": memory_highlights,
         "memory_digest": _memory_digest(pending_count=pending_memory, highlights=memory_highlights),
-        "day_anticipation": _day_anticipation(
-            due_follow_ups=list((commercial or {}).get("follow_ups_due_today") or []),
-        ),
+        "day_anticipation": day_anticipation,
+        "schedule_proposals": schedule_proposals,
         "thinking_modes": thinking_modes_list,
         "inbox_severity": severity_counts,
         "ritual_status": _ritual_status(

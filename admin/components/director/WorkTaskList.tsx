@@ -10,6 +10,8 @@ import TaskActionMenu from "./TaskActionMenu";
 import TaskNotes from "./TaskNotes";
 import type { WorkTaskActions } from "./workTaskActions";
 
+export type { TaskSortId };
+
 export type TaskMissionRef = {
   job_id: string;
   title: string;
@@ -27,29 +29,58 @@ export function missionStatusLabel(status?: string): string {
 export function TaskSortSelect({
   value,
   onChange,
+  criteria,
+  onCriteriaChange,
 }: {
-  value: TaskSortId;
-  onChange: (id: TaskSortId) => void;
+  /** @deprecated Prefer criteria — kept when a single primary sort is enough. */
+  value?: TaskSortId;
+  onChange?: (id: TaskSortId) => void;
+  criteria?: TaskSortId[];
+  onCriteriaChange?: (ids: TaskSortId[]) => void;
 }) {
+  const selected = criteria?.length ? criteria : value ? [value] : ["urgent-overdue"];
+  const toggle = (id: TaskSortId) => {
+    const next = selected.includes(id)
+      ? selected.filter((item) => item !== id)
+      : [...selected, id];
+    const normalized = next.length ? next : (["urgent-overdue"] as TaskSortId[]);
+    if (onCriteriaChange) onCriteriaChange(normalized);
+    else if (onChange) onChange(normalized[0]);
+  };
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold text-slate-600 dark:text-slate-300">
-      Trier
-      <select
-        className="input-field py-1 text-xs"
-        value={value}
-        aria-label="Trier les tâches"
-        onChange={(event) => {
-          const next = TASK_SORTS.find((item) => item.id === event.target.value);
-          if (next) onChange(next.id);
-        }}
+    <details className="relative text-xs font-semibold text-slate-600 dark:text-slate-300">
+      <summary className="cursor-pointer list-none rounded-md border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900">
+        Trier
+        <span className="ml-1 font-normal text-slate-500">
+          ({selected.length === 1
+            ? TASK_SORTS.find((item) => item.id === selected[0])?.label || "1"
+            : `${selected.length} critères`})
+        </span>
+      </summary>
+      <div
+        className="absolute right-0 z-20 mt-1 max-h-64 w-56 overflow-auto rounded-lg border border-slate-200 bg-white p-2 shadow-md dark:border-slate-700 dark:bg-slate-900"
+        role="group"
+        aria-label="Critères de tri des tâches"
       >
-        {TASK_SORTS.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.label}
-          </option>
-        ))}
-      </select>
-    </label>
+        {TASK_SORTS.map((item) => {
+          const checked = selected.includes(item.id);
+          return (
+            <label
+              key={item.id}
+              className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+            >
+              <input
+                type="checkbox"
+                className="size-3.5"
+                checked={checked}
+                onChange={() => toggle(item.id)}
+              />
+              {item.label}
+            </label>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -162,7 +193,15 @@ function TaskRow({
   const hasExtras = Boolean(task.notes?.trim() || missions.length || task.reply?.trim());
 
   return (
-    <li className={`py-2.5 ${task.urgent ? "rounded-lg bg-rose-50/80 px-2 dark:bg-rose-950/40" : ""}`}>
+    <li
+      className={`py-2.5 ${
+        task.urgent
+          ? "rounded-lg bg-rose-50/80 px-2 dark:bg-rose-950/40"
+          : task.important
+            ? "rounded-lg bg-amber-50/80 px-2 dark:bg-amber-950/30"
+            : ""
+      }`}
+    >
       <div className="flex items-start gap-2">
         <input
           type="checkbox"
@@ -203,9 +242,9 @@ function TaskRow({
             {missions.length > 0 ? ` · ${missions.length === 1 ? "1 mission" : `${missions.length} missions`}` : ""}
           </p>
           {!details && task.notes?.trim() ? (
-            <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600 dark:text-slate-300">
-              {task.notes.trim()}
-            </p>
+            <div className="mt-1 max-h-12 overflow-hidden text-xs [&_.prose]:text-xs">
+              <TaskNotes source={task.notes} />
+            </div>
           ) : null}
           <button
             type="button"
@@ -216,28 +255,24 @@ function TaskRow({
             {details ? "Réduire" : hasExtras ? "Voir le détail" : "Date, réponse & commentaire"}
           </button>
         </div>
-        <div className="flex shrink-0 items-start gap-0.5">
-          <button
-            type="button"
-            aria-pressed={Boolean(task.urgent)}
-            aria-label={
-              task.urgent
-                ? `Retirer l'urgence de « ${task.title} »`
-                : `Marquer « ${task.title} » comme urgente`
-            }
-            disabled={actions.save.isPending}
-            className={
-              task.urgent
-                ? "inline-flex min-h-11 items-center rounded-lg border border-rose-300 bg-rose-100 px-2.5 text-xs font-extrabold text-rose-900 dark:border-rose-700 dark:bg-rose-900 dark:text-rose-50"
-                : "inline-flex min-h-11 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-700 dark:hover:bg-rose-950 dark:hover:text-rose-100"
-            }
-            onClick={() => actions.save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
-          >
-            Urgent
-          </button>
+        <div className="flex shrink-0 items-start gap-1">
+          {task.urgent ? (
+            <span className="mt-1 text-[10px] font-extrabold uppercase tracking-wide text-rose-700 dark:text-rose-300" title="Urgente">
+              Urgent
+            </span>
+          ) : null}
+          {task.important ? (
+            <span className="mt-1 text-[10px] font-extrabold uppercase tracking-wide text-amber-800 dark:text-amber-200" title="Importante">
+              Important
+            </span>
+          ) : null}
           <TaskActionMenu
             title={task.title}
             pending={Boolean(busy || removing || actions.save.isPending)}
+            urgent={Boolean(task.urgent)}
+            important={Boolean(task.important)}
+            onUrgent={() => actions.save.mutate({ id: task.id, patch: { urgent: !task.urgent } })}
+            onImportant={() => actions.save.mutate({ id: task.id, patch: { important: !task.important } })}
             onEdit={() => {
               actions.setError("");
               actions.setEditing(task);
@@ -250,7 +285,7 @@ function TaskRow({
         </div>
       </div>
       {details ? (
-        <div className="mt-2 grid gap-1 pl-7">
+        <div className="mt-2 grid gap-1.5 pl-7">
           {task.notes ? <TaskNotes source={task.notes} label="Commentaire" /> : null}
           <TaskMissions missions={missions} />
           <DueDateControl

@@ -15,7 +15,7 @@ import { useWorkTaskActions, WorkTaskEditor } from "./workTaskActions";
 
 export default function ProjectTasksPanel({ projectId }: { projectId: string }) {
   const today = todayISO();
-  const { sort, choose } = useTaskSort();
+  const { sort, choose, criteria, setSortCriteria } = useTaskSort();
   const actions = useWorkTaskActions();
   const tasks = useQuery({
     queryKey: ["work-tasks", "all"],
@@ -34,15 +34,16 @@ export default function ProjectTasksPanel({ projectId }: { projectId: string }) 
     () => (tasks.data || []).filter((task: BizWorkTask) => task.project_id === projectId),
     [tasks.data, projectId],
   );
-  const open = sortTasks(mine.filter((task) => task.status !== "done"), sort, today);
-  const done = sortTasks(mine.filter((task) => task.status === "done"), sort, today);
+  const open = sortTasks(mine.filter((task) => task.status !== "done"), criteria, today);
+  const done = sortTasks(mine.filter((task) => task.status === "done"), criteria, today);
   const capped = (tasks.data || []).length >= 200;
 
   return (
+    <div id="projet-travail" className="scroll-mt-28">
     <SectionCard
-      title={`Tâches du projet (${open.length})`}
-      description="Ouvertes d'abord. Les terminées restent repliées."
-      action={<TaskSortSelect value={sort} onChange={choose} />}
+      title={`Travail (${open.length})`}
+      description="Tâches concrètes de ce projet. La direction (étapes) est plus haut — Où je vais."
+      action={<TaskSortSelect value={sort} onChange={choose} criteria={criteria} onCriteriaChange={setSortCriteria} />}
     >
       {capped ? (
         <p className="mb-2 text-sm text-amber-800">
@@ -83,5 +84,6 @@ export default function ProjectTasksPanel({ projectId }: { projectId: string }) 
       ) : null}
       <WorkTaskEditor actions={actions} />
     </SectionCard>
+    </div>
   );
 }

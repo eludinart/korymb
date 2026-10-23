@@ -172,12 +172,29 @@ export type BizWorkTask = {
   due_at: string | null;
   priority: string;
   urgent: boolean;
+  important: boolean;
   notes: string;
   assignee: string;
   reply?: string;
   reply_at?: string;
   chat_conversation_id?: string;
   calendar_event_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type KnowledgeDocument = {
+  id: string;
+  title: string;
+  summary: string;
+  content_md: string;
+  resource_file_id: string;
+  project_id: string | null;
+  tags: string[];
+  category: string;
+  author: string;
+  status: "active" | "archived" | string;
+  archived?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -812,14 +829,27 @@ export const businessApi = {
     }
     return data as { deleted?: boolean };
   },
-  listTasks: async (status?: "open" | "done") => {
-    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+  listTasks: async (status?: "open" | "done", opts?: { unassigned?: boolean; triage?: boolean }) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (opts?.unassigned) params.set("unassigned", "1");
+    if (opts?.triage) params.set("triage", "1");
+    const query = params.toString() ? `?${params.toString()}` : "";
     const { data } = await requestJson(`/business/tasks${query}`, {
       headers: agentHeaders(),
     });
     return ((data as { tasks?: BizWorkTask[] })?.tasks || []) as BizWorkTask[];
   },
-  createTask: async (body: { title: string; due_at?: string | null; project_id?: string | null; priority?: string; urgent?: boolean; notes?: string; assignee?: string }) => {
+  createTask: async (body: {
+    title: string;
+    due_at?: string | null;
+    project_id?: string | null;
+    priority?: string;
+    urgent?: boolean;
+    important?: boolean;
+    notes?: string;
+    assignee?: string;
+  }) => {
     const { data } = await requestJson("/business/tasks", {
       method: "POST",
       headers: agentHeaders(),
@@ -829,13 +859,46 @@ export const businessApi = {
   },
   updateTask: async (
     id: string,
-    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "urgent" | "notes" | "assignee" | "reply" | "chat_conversation_id">>,
+    body: Partial<Pick<BizWorkTask, "title" | "status" | "due_at" | "project_id" | "priority" | "urgent" | "important" | "notes" | "assignee" | "reply" | "chat_conversation_id">>,
   ) => {
     const { data } = await requestJson(`/business/tasks/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: agentHeaders(),
       body: JSON.stringify(body),
     });
+    return data as BizWorkTask;
+  },
+  listScheduleProposals: async (limit = 8) => {
+    const { data } = await requestJson(`/business/schedule-proposals?limit=${limit}`, {
+      headers: agentHeaders(),
+    });
+    return data as {
+      proposals?: Array<{
+        id?: string;
+        task_id?: string;
+        title?: string;
+        project_id?: string | null;
+        project_title?: string;
+        milestone_title?: string;
+        suggested_due_at?: string;
+        slot_label?: string;
+        reason?: string;
+        href?: string;
+      }>;
+      count?: number;
+      auto_slot_note?: string;
+    };
+  },
+  acceptScheduleProposal: async (taskId: string, dueAt: string) => {
+    const { res, data } = await requestJson("/business/schedule-proposals/accept", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify({ task_id: taskId, due_at: dueAt }),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible d'accepter cette proposition.");
+    }
     return data as BizWorkTask;
   },
   deleteTask: async (id: string) => {
@@ -848,6 +911,56 @@ export const businessApi = {
       throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer cette tâche.");
     }
     return data as { deleted?: boolean };
+  },
+  listKnowledgeDocuments: async (params?: {
+    project_id?: string;
+    tag?: string;
+    category?: string;
+    q?: string;
+    include_archived?: boolean;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.project_id) qs.set("project_id", params.project_id);
+    if (params?.tag) qs.set("tag", params.tag);
+    if (params?.category) qs.set("category", params.category);
+    if (params?.q) qs.set("q", params.q);
+    if (params?.include_archived) qs.set("include_archived", "true");
+    const suffix = qs.toString() ? `?${qs}` : "";
+    const { data } = await requestJson(`/business/knowledge-documents${suffix}`, {
+      headers: agentHeaders(),
+    });
+    return ((data as { documents?: KnowledgeDocument[] })?.documents || []) as KnowledgeDocument[];
+  },
+  getKnowledgeDocument: async (id: string) => {
+    const { data } = await requestJson(`/business/knowledge-documents/${encodeURIComponent(id)}`, {
+      headers: agentHeaders(),
+    });
+    return data as KnowledgeDocument;
+  },
+  createKnowledgeDocument: async (
+    body: Partial<KnowledgeDocument> & { title: string },
+  ) => {
+    const { data } = await requestJson("/business/knowledge-documents", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify(body),
+    });
+    return data as KnowledgeDocument;
+  },
+  updateKnowledgeDocument: async (id: string, body: Partial<KnowledgeDocument>) => {
+    const { data } = await requestJson(`/business/knowledge-documents/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: agentHeaders(),
+      body: JSON.stringify(body),
+    });
+    return data as KnowledgeDocument;
+  },
+  archiveKnowledgeDocument: async (id: string) => {
+    const { data } = await requestJson(
+      `/business/knowledge-documents/${encodeURIComponent(id)}/archive`,
+      { method: "POST", headers: agentHeaders() },
+    );
+    return data as KnowledgeDocument;
   },
   setMilestoneReply: async (
     projectId: string,

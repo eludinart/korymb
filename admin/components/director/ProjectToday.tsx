@@ -4,16 +4,14 @@ import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { agentHeaders, requestJson } from "../../lib/api";
-import { businessApi, formatTaskCreated, todayISO, type BizWorkTask } from "../../lib/business";
+import { businessApi, formatTaskCreated } from "../../lib/business";
 import { missionTitleLabel } from "../../lib/missionLabel";
 import { QK } from "../../lib/queryClient";
 import { projectPastel } from "../../lib/projectPastel";
-import { sortTasks, type TaskSortId } from "../../lib/taskSort";
 import type { Job } from "../../lib/types";
 import ReplyComposer from "./ReplyComposer";
 import TaskNotes from "./TaskNotes";
-import WorkTaskList, { missionRefsFromJobs, TaskSortSelect } from "./WorkTaskList";
-import { useWorkTaskActions, WorkTaskEditor } from "./workTaskActions";
+import { missionRefsFromJobs } from "./WorkTaskList";
 
 const PREVIEW = 4;
 
@@ -37,6 +35,12 @@ export type TodayStep = {
   task_id?: string;
 };
 
+export type TodayScienceDoc = {
+  id?: string;
+  title?: string;
+  href?: string;
+};
+
 export type TodayProject = {
   project_id?: string;
   project_title?: string;
@@ -46,6 +50,7 @@ export type TodayProject = {
   updated_at?: string;
   open?: TodayStep[];
   done?: TodayStep[];
+  science_docs?: TodayScienceDoc[];
 };
 
 function stepMeta(item: TodayStep): string {
@@ -140,7 +145,9 @@ function StepRow({ item, done, linkedJobIds }: { item: TodayStep; done?: boolean
             <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">{meta}</span>
           ) : null}
           {!details && notesText ? (
-            <p className="mt-1 line-clamp-2 text-xs leading-snug text-slate-600 dark:text-slate-300">{notesText}</p>
+            <div className="mt-1 max-h-12 overflow-hidden text-xs [&_.prose]:text-xs">
+              <TaskNotes source={notesText} />
+            </div>
           ) : null}
           <button
             type="button"
@@ -333,27 +340,27 @@ function PreviewList<T>({
 
 function ProjectCard({
   card,
-  tasks,
-  actions,
-  missionsByTaskId,
   linkedJobIds,
 }: {
   card: TodayProject;
-  tasks: BizWorkTask[];
-  actions: ReturnType<typeof useWorkTaskActions>;
-  missionsByTaskId: Map<string, { job_id: string; title: string; status?: string }[]>;
   linkedJobIds: Set<string>;
 }) {
-  const today = todayISO();
   const [expanded, setExpanded] = useState(false);
   const openSteps = card.open || [];
   const doneSteps = card.done || [];
+  const scienceDocs = card.science_docs || [];
   const title = card.project_title || "Projet";
   const href = card.href || (card.project_id ? `/gestion/projets/${card.project_id}` : "/gestion/projets");
+  const travailHref = card.project_id ? `${href}#projet-travail` : href;
   const missionCount = card.linked_mission_count || 0;
   const pastel = projectPastel(card.project_id || card.project_title);
-  const stepLabel = openSteps.length === 1 ? "1 étape" : `${openSteps.length} étapes`;
-  const taskLabel = tasks.length === 1 ? "1 tâche" : `${tasks.length} tâches`;
+  const stepLabel = openSteps.length === 1 ? "1 étape ouverte" : `${openSteps.length} étapes ouvertes`;
+  const scienceLabel =
+    scienceDocs.length === 0
+      ? null
+      : scienceDocs.length === 1
+        ? "1 doc science"
+        : `${scienceDocs.length} docs science`;
   return (
     <article className={`rounded-xl border p-3 ${pastel.card}`}>
       <div className="flex items-start gap-2">
@@ -370,13 +377,14 @@ function ProjectCard({
             <span className="mt-0.5 block text-xs text-slate-500">{card.contact_name}</span>
           ) : null}
           <span className={`mt-1 block text-xs font-semibold ${pastel.heading}`}>
-            {stepLabel} · {taskLabel}
+            {stepLabel}
+            {scienceLabel ? ` · ${scienceLabel}` : ""}
             {missionCount > 0 ? ` · ${missionCount === 1 ? "1 mission" : `${missionCount} missions`}` : ""}
           </span>
         </button>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${pastel.chip}`}>
-            Projet
+            Direction
           </span>
           <button
             type="button"
@@ -395,11 +403,9 @@ function ProjectCard({
             <Link href={href} className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200">
               Fiche projet
             </Link>
-            {missionCount > 0 ? (
-              <Link href={href} className="text-[11px] font-bold text-violet-800 hover:underline dark:text-violet-200">
-                {missionCount === 1 ? "1 mission liée" : `${missionCount} missions liées`}
-              </Link>
-            ) : null}
+            <Link href={travailHref} className="text-[11px] font-bold text-slate-600 hover:underline dark:text-slate-300">
+              Travail (tâches) →
+            </Link>
           </div>
 
           <h3 className={`text-xs font-bold uppercase tracking-wide ${pastel.heading}`}>Étapes</h3>
@@ -427,86 +433,32 @@ function ProjectCard({
             </details>
           ) : null}
 
-          <h3 className={`mt-3 text-xs font-bold uppercase tracking-wide ${pastel.heading}`}>
-            Tâches{tasks.length ? ` (${tasks.length})` : ""}
-          </h3>
-          {tasks.length === 0 ? (
-            <p className="mt-1 text-sm text-slate-500">Aucune tâche ouverte.</p>
-          ) : (
-            <TaskPreview
-              tasks={tasks}
-              today={today}
-              actions={actions}
-              missionsByTaskId={missionsByTaskId}
-            />
-          )}
+          {scienceDocs.length > 0 ? (
+            <div className="mt-3">
+              <h3 className={`text-xs font-bold uppercase tracking-wide ${pastel.heading}`}>
+                Science / contexte
+              </h3>
+              <ul className="mt-1 space-y-1">
+                {scienceDocs.map((doc) => (
+                  <li key={doc.id || doc.href}>
+                    <Link
+                      href={doc.href || `/gestion/science/${doc.id || ""}`}
+                      className="text-xs font-semibold text-violet-800 hover:underline dark:text-violet-200"
+                    >
+                      {doc.title || "Document"}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </article>
   );
 }
 
-function TaskPreview({
-  tasks,
-  today,
-  actions,
-  missionsByTaskId,
-}: {
-  tasks: BizWorkTask[];
-  today: string;
-  actions: ReturnType<typeof useWorkTaskActions>;
-  missionsByTaskId: Map<string, { job_id: string; title: string; status?: string }[]>;
-}) {
-  const [open, setOpen] = useState(false);
-  const visible = open ? tasks : tasks.slice(0, PREVIEW);
-  const hidden = tasks.length - visible.length;
-  return (
-    <div className="mt-2">
-      <WorkTaskList
-        tasks={visible}
-        today={today}
-        actions={actions}
-        mode="complete-only"
-        missionsByTaskId={missionsByTaskId}
-        showProject={false}
-      />
-      {hidden > 0 ? (
-        <button
-          type="button"
-          className="mt-2 text-xs font-bold text-violet-700 hover:underline dark:text-violet-300"
-          onClick={() => setOpen(true)}
-        >
-          +{hidden} autres
-        </button>
-      ) : null}
-      {open && tasks.length > PREVIEW ? (
-        <button
-          type="button"
-          className="mt-2 text-xs font-bold text-slate-500 hover:underline"
-          onClick={() => setOpen(false)}
-        >
-          Réduire
-        </button>
-      ) : null}
-    </div>
-  );
-}
-
-export default function ProjectToday({
-  projects,
-  sort,
-  onSort,
-}: {
-  projects: TodayProject[];
-  sort: TaskSortId;
-  onSort: (id: TaskSortId) => void;
-}) {
-  const today = todayISO();
-  const actions = useWorkTaskActions();
-  const tasks = useQuery({
-    queryKey: ["work-tasks", "open"],
-    queryFn: () => businessApi.listTasks("open"),
-  });
+export default function ProjectToday({ projects }: { projects: TodayProject[] }) {
   const jobs = useQuery({
     queryKey: QK.jobsCards,
     queryFn: async () => {
@@ -523,50 +475,48 @@ export default function ProjectToday({
     }
     return ids;
   }, [missionsByTaskId]);
-  const openTasks = tasks.data || [];
 
   return (
     <section
-      id="board-milestones"
-      className="scroll-mt-28 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-4"
+      id="board-direction"
+      className="scroll-mt-28 rounded-2xl border border-sky-200 bg-sky-50/70 p-3 shadow-sm dark:border-sky-800 dark:bg-sky-950/40 sm:p-4"
     >
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50">
-            Projets{projects.length ? ` (${projects.length})` : ""}
+          <h2
+            className="text-sm font-extrabold tracking-tight text-slate-950 dark:text-slate-50"
+            title="Méthode SMART — cible claire, mesurable, datée"
+          >
+            Où je vais{projects.length ? ` (${projects.length})` : ""}
           </h2>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            Chaque projet, ses étapes, puis ses tâches ouvertes.
+          <p
+            className="mt-0.5 text-xs text-slate-500 dark:text-slate-400"
+            title="Méthode SMART — cible claire, mesurable, datée"
+          >
+            Projets actifs, étapes ouvertes et science liée. Les tâches concrètes sont dans « Quoi d&apos;abord » ou sur la fiche.
+            {" "}
+            <span className="font-semibold text-slate-600 dark:text-slate-300">En savoir plus</span>
+            {" "}
+            (SMART).
           </p>
         </div>
-        <TaskSortSelect value={sort} onChange={onSort} />
+        <Link href="/gestion/projets" className="text-xs font-bold text-sky-900 hover:underline dark:text-sky-200">
+          Tous les projets
+        </Link>
       </div>
-      {actions.error ? <p className="mb-2 text-sm text-red-700">{actions.error}</p> : null}
       {projects.length === 0 ? (
-        <p className="text-sm text-slate-500">Aucun projet actif.</p>
+        <p className="text-sm text-slate-500">Aucun projet actif pour poser une direction.</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {projects.map((card) => {
-            const pid = card.project_id || "";
-            const mine = sortTasks(
-              openTasks.filter((task) => task.project_id === pid),
-              sort,
-              today,
-            );
-            return (
-              <ProjectCard
-                key={pid || card.project_title}
-                card={card}
-                tasks={mine}
-                actions={actions}
-                missionsByTaskId={missionsByTaskId}
-                linkedJobIds={linkedJobIds}
-              />
-            );
-          })}
+          {projects.map((card) => (
+            <ProjectCard
+              key={card.project_id || card.project_title}
+              card={card}
+              linkedJobIds={linkedJobIds}
+            />
+          ))}
         </div>
       )}
-      <WorkTaskEditor actions={actions} />
     </section>
   );
 }

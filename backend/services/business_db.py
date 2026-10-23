@@ -685,8 +685,10 @@ def init_business_tables() -> None:
         """)
         _ensure_biz_email_messages_columns(conn)
         from services.work_tasks import ensure_work_task_tables
+        from services.knowledge_documents import ensure_knowledge_document_tables
 
         ensure_work_task_tables(conn)
+        ensure_knowledge_document_tables(conn)
         _ensure_business_hot_indexes(conn)
         ensure_long_text_columns(conn)
         conn.commit()

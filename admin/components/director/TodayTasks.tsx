@@ -15,17 +15,17 @@ import { useWorkTaskActions, WorkTaskEditor } from "./workTaskActions";
 export default function TodayTasks({
   onOpenCount,
   sort,
-  activeProjectIds,
+  criteria,
 }: {
   onOpenCount?: (count: number) => void;
   sort: TaskSortId;
-  activeProjectIds?: Set<string>;
+  criteria?: TaskSortId[];
 }) {
   const today = todayISO();
   const actions = useWorkTaskActions();
   const tasks = useQuery({
-    queryKey: ["work-tasks", "open"],
-    queryFn: () => businessApi.listTasks("open"),
+    queryKey: ["work-tasks", "open", "unassigned"],
+    queryFn: () => businessApi.listTasks("open", { unassigned: true }),
   });
   const jobs = useQuery({
     queryKey: QK.jobsCards,
@@ -45,19 +45,20 @@ export default function TodayTasks({
     return map;
   }, [projects.data]);
   const missionsByTaskId = useMemo(() => missionRefsFromJobs(jobs.data || []), [jobs.data]);
-  const open = useMemo(
-    () => sortTasks(tasks.data || [], sort, today, (id) => (id ? projectsById.get(id) || "" : "")),
-    [tasks.data, sort, today, projectsById],
+  const capture = useMemo(
+    () =>
+      sortTasks(
+        tasks.data || [],
+        criteria?.length ? criteria : [sort],
+        today,
+        (id) => (id ? projectsById.get(id) || "" : ""),
+      ),
+    [tasks.data, criteria, sort, today, projectsById],
   );
-  const loose = open.filter((task) => {
-    if (!task.project_id) return true;
-    if (!activeProjectIds) return false;
-    return !activeProjectIds.has(task.project_id);
-  });
 
   useEffect(() => {
-    onOpenCount?.(tasks.isSuccess ? open.length : 0);
-  }, [onOpenCount, open.length, tasks.isSuccess]);
+    onOpenCount?.(tasks.isSuccess ? capture.length : 0);
+  }, [onOpenCount, capture.length, tasks.isSuccess]);
 
   return (
     <section
@@ -66,11 +67,18 @@ export default function TodayTasks({
     >
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h2 className="text-sm font-extrabold text-slate-950 dark:text-slate-50">
-            Tâches sans projet{tasks.isSuccess ? ` (${loose.length})` : ""}
+          <h2
+            className="text-sm font-extrabold text-slate-950 dark:text-slate-50"
+            title="Méthode GTD — capture sans trier"
+          >
+            Ce qui traîne{tasks.isSuccess ? ` (${capture.length})` : ""}
           </h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Une date les ajoute au calendrier. Celles d&apos;un projet sont sous ce projet.
+          <p className="mt-0.5 text-xs text-slate-500" title="Méthode GTD — capture sans trier">
+            Notes et tâches sans projet. Une date les pose au calendrier. Les décisions agents sont ailleurs.
+            {" "}
+            <span className="font-semibold text-slate-600 dark:text-slate-300">En savoir plus</span>
+            {" "}
+            (GTD).
           </p>
         </div>
         <Link href="/gestion/taches" className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200">
@@ -84,12 +92,12 @@ export default function TodayTasks({
       {actions.error ? <p className="mt-2 text-sm text-red-700">{actions.error}</p> : null}
       {tasks.isLoading ? <p className="mt-3 text-sm text-slate-500">Chargement des tâches…</p> : null}
       {tasks.isError ? <p className="mt-3 text-sm text-red-700">Impossible de charger les tâches.</p> : null}
-      {tasks.isSuccess && loose.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Aucune tâche ouverte sans projet.</p>
+      {tasks.isSuccess && capture.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Rien qui traîne pour l&apos;instant.</p>
       ) : null}
       <div className="mt-2">
         <WorkTaskList
-          tasks={loose}
+          tasks={capture}
           today={today}
           actions={actions}
           mode="complete-only"
