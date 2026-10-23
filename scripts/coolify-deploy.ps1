@@ -45,18 +45,14 @@ function Ensure-Helpers {
     $local = Join-Path $HelperDir $f
     if (-not (Test-Path $local)) { throw "Missing helper: $local" }
   }
-  Write-Host "Upload helpers → $SshTarget:/tmp/coolify-*.php" -ForegroundColor Cyan
+  Write-Host ("Upload helpers → {0}:/tmp/" -f $SshTarget) -ForegroundColor Cyan
   & scp -o BatchMode=yes -o ConnectTimeout=20 `
     (Join-Path $HelperDir "list-korymb-apps.php") `
     (Join-Path $HelperDir "queue-by-uuid.php") `
     (Join-Path $HelperDir "deploy-status.php") `
-    "${SshTarget}:/tmp/"
+    ($SshTarget + ":/tmp/")
   if ($LASTEXITCODE -ne 0) { throw "scp failed ($LASTEXITCODE)" }
-  Invoke-Ssh @"
-docker cp /tmp/list-korymb-apps.php coolify:/tmp/list-korymb-apps.php
-docker cp /tmp/queue-by-uuid.php coolify:/tmp/queue-by-uuid.php
-docker cp /tmp/deploy-status.php coolify:/tmp/deploy-status.php
-"@
+  Invoke-Ssh "docker cp /tmp/list-korymb-apps.php coolify:/tmp/list-korymb-apps.php; docker cp /tmp/queue-by-uuid.php coolify:/tmp/queue-by-uuid.php; docker cp /tmp/deploy-status.php coolify:/tmp/deploy-status.php"
 }
 
 function Queue-And-Wait([string]$Label, [string]$Uuid) {
