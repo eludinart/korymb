@@ -35,6 +35,7 @@ Constitution : activer aussi `eludein-ops-rules`. Boucle Cursor×Hermes×Korymb 
 |-------|------------|
 | missions, jobs, HITL, inbox, tokens LLM | `korymb-analytics` + `korymb-sql.sh` / API |
 | utilisateurs tarot, questionnaires, coach | `fleur-analytics` + `fleur-sql.sh` |
+| carte du jour, post quotidien Fleur | `fleur-card-of-day` — `/opt/data/scripts/fleur-card-of-day.sh`, jamais un tirage inventé |
 | lieux Mandala, carte communautés | `mandala-analytics` + `mandala-sql.sh` — **jamais** fleur/korymb-sql |
 | VPS, Docker, Coolify, down | `hermes-vps-health` + `coolify-services-map` |
 | post-déploiement | `hermes-deploy-check` + `coolify-deploy-checklist` |

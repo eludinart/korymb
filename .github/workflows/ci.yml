@@ -13,6 +13,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Carte du jour Fleur
+        run: python3 ops/hermes-scripts/tests/test_fleur_card_of_day.py
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
