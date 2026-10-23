@@ -199,6 +199,58 @@ export type KnowledgeDocument = {
   updated_at: string;
 };
 
+export type ScienceEntityBrief = {
+  entity_id?: number | string;
+  name: string;
+  entity_type: string;
+  attributes?: Record<string, string>;
+  updated_at?: string;
+};
+
+export type ScienceOverview = {
+  facts: Record<string, string | string[]>;
+  /** Texte complet du contexte global (markdown), pour le hub Science. */
+  global_md?: string;
+  global_preview: {
+    text: string;
+    chars: number;
+    has_more: boolean;
+  };
+  persons: ScienceEntityBrief[];
+  entities: ScienceEntityBrief[];
+  documents: {
+    count: number;
+    recent: Array<{
+      id?: string;
+      title?: string;
+      summary?: string;
+      category?: string;
+      tags?: string[];
+      updated_at?: string;
+    }>;
+  };
+  context_guide: {
+    offers: Array<{
+      id: string;
+      kind?: string;
+      title?: string;
+      hint?: string;
+      question?: string;
+    }>;
+    offers_mode?: string;
+    phase?: string;
+    question?: string;
+    started?: boolean;
+  };
+  calendar_migrate: {
+    pending_count: number;
+  };
+  links: {
+    questionnaire?: string;
+    memory?: string;
+  };
+};
+
 export function todayISO() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -911,6 +963,26 @@ export const businessApi = {
       throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer cette tâche.");
     }
     return data as { deleted?: boolean };
+  },
+  getScienceOverview: async () => {
+    const { data } = await requestJson("/business/science-overview", {
+      headers: agentHeaders(),
+    });
+    return data as ScienceOverview;
+  },
+  migrateKnowledgeFromCalendar: async (dryRun = false) => {
+    const qs = dryRun ? "?dry_run=true" : "";
+    const { data } = await requestJson(`/business/knowledge-documents/migrate-from-calendar${qs}`, {
+      method: "POST",
+      headers: agentHeaders(),
+    });
+    return data as {
+      ok?: boolean;
+      created?: number;
+      skipped?: number;
+      filtered?: number;
+      dry_run?: boolean;
+    };
   },
   listKnowledgeDocuments: async (params?: {
     project_id?: string;

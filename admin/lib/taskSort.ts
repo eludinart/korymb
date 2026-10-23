@@ -19,12 +19,12 @@ export const TASK_SORTS = [
   { id: "awaiting-reply", label: "Réponse en attente" },
 ] as const;
 
-/** Quatre cases « Quoi d’abord » (matrice d’Eisenhower, langage courant). */
+/** Cases « Quoi d’abord » : on affiche les flags tels quels (Eisenhower en tooltip). */
 export const EISENHOWER_BUCKETS = [
   { id: "urgent-important", label: "Urgent et important" },
-  { id: "important", label: "Important, pas urgent" },
-  { id: "urgent", label: "Urgent, pas important" },
-  { id: "neither", label: "Ni l’un ni l’autre" },
+  { id: "important", label: "Important" },
+  { id: "urgent", label: "Urgent" },
+  { id: "neither", label: "Sans flag" },
 ] as const;
 
 export type EisenhowerBucketId = (typeof EISENHOWER_BUCKETS)[number]["id"];

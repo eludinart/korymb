@@ -105,6 +105,7 @@ from services.knowledge_documents import (
     migrate_calendar_document_events,
     update_knowledge_document,
 )
+from services.science_overview import get_science_overview
 
 logger = logging.getLogger("korymb.business")
 
@@ -1213,6 +1214,12 @@ async def business_accept_schedule_proposal(body: ScheduleProposalAccept):
 
 
 # ── Science de l'entreprise (documents) ───────────────────────────────────────
+
+@router.get("/business/science-overview", dependencies=[Depends(resolve_tenant)])
+async def business_science_overview():
+    """Hub lecture seule : faits, mémoire (extrait), entités, docs, guide contexte."""
+    return get_science_overview()
+
 
 @router.get("/business/knowledge-documents", dependencies=[Depends(resolve_tenant)])
 async def business_list_knowledge_documents(

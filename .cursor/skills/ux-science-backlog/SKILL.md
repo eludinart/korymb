@@ -7,7 +7,7 @@ description: >-
 
 # Backlog UX / Science / Mémoire (état code)
 
-Mis à jour 2026-10-23 — lot « tout faire » livré dans le code.
+Mis à jour 2026-10-23 — hub Science entreprise (lecture + guide).
 
 ## Livré
 
@@ -16,9 +16,10 @@ Mis à jour 2026-10-23 — lot « tout faire » livré dans le code.
 3. **Science documentaire** — `knowledge_documents`, API `/business/knowledge-documents`, UI `/gestion/science`, docs liés projet, index Classique
 4. **Mémoire** — contexte global + scrub PII, modes auto/frozen/disabled, garde-fou test SQLite
 5. **Projets** — aperçu description markdown, section Documents liés science
+6. **Hub Science** — `GET /business/science-overview` + `/gestion/science` en sections (identité, dirigeant, contexte extrait, fiches, docs, offres guide, migrate calendrier UI)
 
 ## Reliquats optionnels
 
-- Migration calendrier → science : endpoint `POST /business/knowledge-documents/migrate-from-calendar`
 - Aperçu PDF science dépend de l’auth cookie sur l’iframe preview
 - Passe UX cosmétique restante sur pages hors Gestion / Aujourd’hui
+- Édition inline des fiches entités depuis le hub (aujourd’hui : lecture + lien questionnaire)

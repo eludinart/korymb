@@ -24,7 +24,8 @@ La spécialisation d’un espace se fait par ses **données** (mémoire, agents,
 
 - Inscription `/register` et `/espace` : sélecteur de modèle
 - Briefing `?welcome=1&pack=…` : rappel post-inscription
-- Administration → **Science de l'entreprise** (`/administration/contexte`) — le parcours de prise de connaissance. L'ancienne adresse `/administration/modeles` y renvoie.
+- Gestion → **Science de l'entreprise** (`/gestion/science`) — hub lecture (identité, dirigeant, contexte, fiches, documents) + offres proactives.
+- Administration → **Questionnaire** (`/administration/contexte`) — parcours de prise de connaissance (questions guidées). L'ancienne adresse `/administration/modeles` y renvoie.
 
 ## Implémentation
 
@@ -36,10 +37,11 @@ La spécialisation d’un espace se fait par ses **données** (mémoire, agents,
 
 Après création, l’utilisateur peut :
 
-1. Répondre au **guide de contexte** (`/administration/contexte` et Démarrage) : première question neutre, puis des questions tirées de ce qui est déjà écrit. Tant que le contexte est vide, seuls des standards de gestion apparaissent, masquables. Ensuite, des précisions (chiffres, personnes, offre) n’apparaissent que si le texte ou une demande les justifie. Rien n’est enregistré sans confirmation.
-2. Enrichir la **mémoire partagée** à la main (`/administration/memory`)
+1. Consulter le **hub Science** (`/gestion/science`) pour voir ce qui est déjà connu, puis répondre au **guide de contexte** (`/administration/contexte`) : première question neutre, puis des questions tirées de ce qui est déjà écrit. Tant que le contexte est vide, seuls des standards de gestion apparaissent, masquables. Ensuite, des précisions (chiffres, personnes, offre) n’apparaissent que si le texte ou une demande les justifie. Rien n’est enregistré sans confirmation.
+2. Enrichir la **mémoire partagée** à la main (`/administration/memory`) — édition complète du contexte ; le hub Science n’affiche qu’un extrait.
 3. Créer / renommer des **agents** et **équipes** (templates d’équipes via l’assistant)
 4. Sauver des **playbooks** et **templates de mission** (UI ou outils `korymb_save_*`)
 5. Configurer la **vitrine** (`/administration/vitrine`)
+6. Ajouter des **documents** métier (notes, PDF) dans Science si besoin — distincts de la mémoire structurée
 
 Le pack n’est qu’un accélérateur ; le moteur reste le même pour tous les espaces.

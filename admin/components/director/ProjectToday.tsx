@@ -341,11 +341,14 @@ function PreviewList<T>({
 function ProjectCard({
   card,
   linkedJobIds,
+  expanded,
+  onToggleExpanded,
 }: {
   card: TodayProject;
   linkedJobIds: Set<string>;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const openSteps = card.open || [];
   const doneSteps = card.done || [];
   const scienceDocs = card.science_docs || [];
@@ -368,7 +371,7 @@ function ProjectCard({
           type="button"
           className="min-w-0 flex-1 text-left"
           aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
+          onClick={onToggleExpanded}
         >
           <span className="block truncate text-sm font-extrabold text-slate-950 dark:text-slate-50">
             {title}
@@ -390,7 +393,7 @@ function ProjectCard({
             type="button"
             className="text-xs font-bold text-slate-700 hover:underline dark:text-slate-200"
             aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
+            onClick={onToggleExpanded}
           >
             {expanded ? "Réduire" : "Voir le détail"}
           </button>
@@ -459,6 +462,7 @@ function ProjectCard({
 }
 
 export default function ProjectToday({ projects }: { projects: TodayProject[] }) {
+  const [cardsExpanded, setCardsExpanded] = useState(false);
   const jobs = useQuery({
     queryKey: QK.jobsCards,
     queryFn: async () => {
@@ -513,6 +517,8 @@ export default function ProjectToday({ projects }: { projects: TodayProject[] })
               key={card.project_id || card.project_title}
               card={card}
               linkedJobIds={linkedJobIds}
+              expanded={cardsExpanded}
+              onToggleExpanded={() => setCardsExpanded((value) => !value)}
             />
           ))}
         </div>

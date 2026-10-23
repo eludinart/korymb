@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import secrets
 from datetime import datetime
 from typing import Any
@@ -17,6 +18,40 @@ DOC_STATUSES = ("active", "archived")
 MEMORY_JOB_ID = "memory:knowledge"
 MEMORY_KIND = "knowledge"
 MEMORY_AGENT = "classique"
+
+# Bruit calendrier / studio / démos — pas de matière « science entreprise ».
+_SCIENCE_CAL_EXCLUDE_TITLE = re.compile(
+    r"(?is)"
+    r"("
+    r"\[\s*DEMO\b"  # [DEMO ESPACE] …
+    r"|^\s*test\b"  # test planification / plannification
+    r"|^\s*PDF\s+Brand[eé]"  # livrable studio PDF brandé
+    r"|^\s*Document\s+PDF\s*$"  # titre générique studio
+    r")"
+)
+_SCIENCE_CAL_EXCLUDE_NOTES = re.compile(r"(?i)\bstudio\s+job\b")
+
+
+def is_science_calendar_migrate_candidate(row: dict[str, Any] | None) -> bool:
+    """True si l'événement calendrier avec fichier est un candidat science (pas démo/test/studio)."""
+    if not row:
+        return False
+    fid = str(row.get("resource_file_id") or "").strip()
+    if not fid:
+        return False
+    if str(row.get("status") or "").strip() == "cancelled":
+        return False
+    nature = str(row.get("nature") or "").strip().lower()
+    rtype = str(row.get("resource_type") or "").strip()
+    if nature != "matiere" and not rtype:
+        return False
+    title = str(row.get("title") or "").strip()
+    notes = str(row.get("notes") or "")
+    if _SCIENCE_CAL_EXCLUDE_TITLE.search(title):
+        return False
+    if _SCIENCE_CAL_EXCLUDE_NOTES.search(notes):
+        return False
+    return True
 
 
 def _now() -> str:
@@ -378,9 +413,14 @@ def deindex_knowledge_document(doc_id: str) -> None:
 
 
 def migrate_calendar_document_events(*, dry_run: bool = False) -> dict[str, Any]:
-    """Crée un knowledge_document pour chaque événement matière avec fichier, sans supprimer l'événement."""
+    """Crée un knowledge_document pour chaque candidat science (matière + fichier), sans supprimer l'événement.
+
+    Exclut démos, tests, livrables studio et doublons déjà matérialisés (auteur cal-doc:… ou même fichier).
+    """
     created = 0
     skipped = 0
+    filtered = 0
+    seen_files: set[str] = set()
     with get_conn() as conn:
         rows = [
             dict(r)
@@ -390,16 +430,33 @@ def migrate_calendar_document_events(*, dry_run: bool = False) -> dict[str, Any]
                 (_ws(),),
             ).fetchall()
         ]
+        existing_authors = {
+            str(r["author"])
+            for r in conn.execute(
+                "SELECT author FROM knowledge_documents WHERE workspace_id=? AND author LIKE 'cal-doc:%'",
+                (_ws(),),
+            ).fetchall()
+            if r and r["author"]
+        }
+        existing_files = {
+            str(r["resource_file_id"]).strip()
+            for r in conn.execute(
+                "SELECT resource_file_id FROM knowledge_documents "
+                "WHERE workspace_id=? AND COALESCE(resource_file_id,'') != ''",
+                (_ws(),),
+            ).fetchall()
+            if r and str(r["resource_file_id"] or "").strip()
+        }
     for row in rows:
+        if not is_science_calendar_migrate_candidate(row):
+            filtered += 1
+            continue
         origin = f"cal-doc:{row.get('id')}"
-        with get_conn() as conn:
-            exists = conn.execute(
-                "SELECT id FROM knowledge_documents WHERE workspace_id=? AND author=? LIMIT 1",
-                (_ws(), origin),
-            ).fetchone()
-        if exists:
+        fid = str(row.get("resource_file_id") or "").strip()
+        if origin in existing_authors or fid in existing_files or fid in seen_files:
             skipped += 1
             continue
+        seen_files.add(fid)
         title = str(row.get("title") or "Document calendrier").strip()[:400]
         if dry_run:
             created += 1
@@ -408,11 +465,19 @@ def migrate_calendar_document_events(*, dry_run: bool = False) -> dict[str, Any]
             title=title,
             summary=str(row.get("notes") or "")[:2000],
             content_md=str(row.get("notes") or ""),
-            resource_file_id=str(row.get("resource_file_id") or ""),
+            resource_file_id=fid,
             project_id=str(row.get("project_id") or "") or None,
             tags=["calendrier"],
             category="Calendrier",
             author=origin,
         )
+        existing_authors.add(origin)
+        existing_files.add(fid)
         created += 1
-    return {"ok": True, "created": created, "skipped": skipped, "dry_run": dry_run}
+    return {
+        "ok": True,
+        "created": created,
+        "skipped": skipped,
+        "filtered": filtered,
+        "dry_run": dry_run,
+    }
