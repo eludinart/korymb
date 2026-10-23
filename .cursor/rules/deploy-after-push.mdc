@@ -1,5 +1,5 @@
 ---
-description: Après commit/push, préciser front vs back à redéployer
+description: Après commit/push, préciser front vs back à redéployer ; si l’utilisateur demande de déployer, suivre coolify-deploy
 alwaysApply: true
 ---
 
@@ -17,3 +17,11 @@ Format court en fin de réponse, par exemple :
 > **À redéployer :** front seulement · back seulement · front + back · rien
 
 Ne pas oublier les cas mixtes (ex. nouveau champ API + UI) → **front + back**.
+
+## Si l’utilisateur demande de déployer
+
+Ne pas réinventer : lire et suivre `.cursor/skills/coolify-deploy/SKILL.md`, puis :
+
+```powershell
+.\scripts\coolify-deploy.ps1 -Target front   # ou back | both
+```
