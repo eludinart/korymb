@@ -38,12 +38,16 @@ export function TaskSortSelect({
   criteria?: TaskSortId[];
   onCriteriaChange?: (ids: TaskSortId[]) => void;
 }) {
-  const selected = criteria?.length ? criteria : value ? [value] : ["urgent-overdue"];
+  const selected: TaskSortId[] = criteria?.length
+    ? criteria
+    : value
+      ? [value]
+      : ["urgent-overdue"];
   const toggle = (id: TaskSortId) => {
-    const next = selected.includes(id)
+    const next: TaskSortId[] = selected.includes(id)
       ? selected.filter((item) => item !== id)
       : [...selected, id];
-    const normalized = next.length ? next : (["urgent-overdue"] as TaskSortId[]);
+    const normalized: TaskSortId[] = next.length ? next : ["urgent-overdue"];
     if (onCriteriaChange) onCriteriaChange(normalized);
     else if (onChange) onChange(normalized[0]);
   };
