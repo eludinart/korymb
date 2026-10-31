@@ -18,6 +18,9 @@ _FACT_DISPLAY_KEYS = (
     "activity",
     "tone",
     "icp",
+    "companies",
+    "boats",
+    "org",
 )
 _GLOBAL_PREVIEW_CHARS = 420
 # Garde-fou payload (pas un teaser) — le hub affiche global_md en markdown.

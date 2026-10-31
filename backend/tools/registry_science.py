@@ -1,14 +1,38 @@
 """
-registry_science.py — Outils agents pour la Science de l'entreprise (knowledge_documents).
+registry_science.py — Outils agents pour la Science de l'entreprise.
 
 Écriture immédiate (pas de proposition Décisions) : le dirigeant dit « ok » dans le chat,
-l'assistant appelle science_create_document / science_update_document et le hub
-/gestion/science reflète le résultat tout de suite.
+l'assistant matérialise Identité (faits), fiches/personnes (entités) et documents —
+visibles tout de suite sur /gestion/science.
 """
 from __future__ import annotations
 
 import json
 from typing import Any, Callable
+
+_FACT_KEYS = frozenset({
+    "brand",
+    "tagline",
+    "location",
+    "offers",
+    "activity",
+    "tone",
+    "icp",
+    "assets",
+    "org",
+    "boats",
+    "companies",
+    "contact_email",
+    "intro",
+})
+
+_ENTITY_TYPES = frozenset({
+    "person",
+    "company",
+    "activity",
+    "project",
+    "other",
+})
 
 SCIENCE_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
     "knowledge": (
@@ -17,6 +41,9 @@ SCIENCE_TAG_TO_TOOLS: dict[str, tuple[str, ...]] = {
         "science_get_document",
         "science_create_document",
         "science_update_document",
+        "science_list_entities",
+        "science_merge_facts",
+        "science_upsert_entity",
     ),
 }
 
@@ -110,6 +137,86 @@ SCIENCE_TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["document_id"],
         },
     },
+    {
+        "name": "science_list_entities",
+        "description": (
+            "Liste les fiches Science (personnes, sociétés, activités, projets). "
+            "À appeler avant science_upsert_entity pour éviter les doublons."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Filtre optionnel (nom / type)"},
+                "entity_type": {
+                    "type": "string",
+                    "description": "person | company | activity | project | other",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "science_merge_facts",
+        "description": (
+            "Écrit immédiatement les faits structurés Identité du hub Science "
+            "(brand, tagline, location, offers, activity, tone, icp, companies, boats, org…). "
+            "Fusionne avec l'existant. Après « ok », utilise cet outil pour matérialiser "
+            "le contexte confirmé — ne renvoie pas au questionnaire."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "facts": {
+                    "type": "object",
+                    "description": (
+                        "Objet de faits (string ou liste de strings). "
+                        "Clés : brand, tagline, location, offers, activity, tone, icp, "
+                        "companies, boats, org, assets, contact_email, intro."
+                    ),
+                },
+                "facts_json": {
+                    "type": "string",
+                    "description": "Alternative JSON string si facts objet non supporté",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "science_upsert_entity",
+        "description": (
+            "Crée ou met à jour immédiatement une fiche Science "
+            "(Dirigeant si person, sinon Fiches). "
+            "Ex: dirigeant, société, activité maritime, projet."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "entity_type": {
+                    "type": "string",
+                    "description": "person | company | activity | project | other",
+                },
+                "attributes": {
+                    "type": "object",
+                    "description": "Attributs libres (rôle, structure juridique, bateaux…)",
+                },
+                "attributes_json": {
+                    "type": "string",
+                    "description": "Alternative JSON string pour attributes",
+                },
+                "relations": {
+                    "type": "object",
+                    "description": "Relations optionnelles (parent, linked_to…)",
+                },
+                "relations_json": {
+                    "type": "string",
+                    "description": "Alternative JSON string pour relations",
+                },
+            },
+            "required": ["name"],
+        },
+    },
 ]
 
 
@@ -130,6 +237,20 @@ def _parse_tags(raw: Any) -> list[str]:
     return []
 
 
+def _parse_object(raw: Any, *, json_fallback: Any = None) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return dict(raw)
+    for candidate in (raw, json_fallback):
+        if isinstance(candidate, str) and candidate.strip():
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                continue
+    return {}
+
+
 def dispatch_science_tool(name: str, inp: dict[str, Any]) -> str | None:
     handlers: dict[str, Callable[[], str]] = {
         "science_overview": _do_overview,
@@ -137,6 +258,9 @@ def dispatch_science_tool(name: str, inp: dict[str, Any]) -> str | None:
         "science_get_document": lambda: _do_get(inp),
         "science_create_document": lambda: _do_create(inp),
         "science_update_document": lambda: _do_update(inp),
+        "science_list_entities": lambda: _do_list_entities(inp),
+        "science_merge_facts": lambda: _do_merge_facts(inp),
+        "science_upsert_entity": lambda: _do_upsert_entity(inp),
     }
     fn = handlers.get(name)
     if fn is None:
@@ -148,16 +272,32 @@ def _do_overview() -> str:
     from services.science_overview import get_science_overview
 
     overview = get_science_overview()
-    return _json_ok(
-        {
-            "overview": overview,
-            "hint": (
-                "Pour matérialiser une structure : science_list_documents puis "
-                "science_create_document (une sous-section = un document + catégorie). "
-                "Visible sur /gestion/science."
-            ),
-        }
+    facts = overview.get("facts") if isinstance(overview.get("facts"), dict) else {}
+    persons = overview.get("persons") if isinstance(overview.get("persons"), list) else []
+    entities = overview.get("entities") if isinstance(overview.get("entities"), list) else []
+    docs = overview.get("documents") if isinstance(overview.get("documents"), dict) else {}
+    global_preview = overview.get("global_preview") if isinstance(overview.get("global_preview"), dict) else {}
+    empty_structured = (
+        len([k for k in facts if k != "updated_at"]) == 0
+        and len(persons) == 0
+        and len(entities) == 0
+        and int(docs.get("count") or 0) == 0
     )
+    has_context = int(global_preview.get("chars") or 0) > 80 or bool(
+        str(overview.get("global_md") or "").strip()
+    )
+    hint = (
+        "Pour matérialiser : science_merge_facts (Identité) + science_upsert_entity "
+        "(Dirigeant / Fiches) + science_create_document (Documents). "
+        "Visible sur /gestion/science."
+    )
+    if has_context and empty_structured:
+        hint = (
+            "Contexte confirmé présent mais Identité / fiches / documents vides. "
+            "Propose une matérialisation, puis dès « ok » : science_merge_facts, "
+            "science_upsert_entity, science_create_document — pas le questionnaire."
+        )
+    return _json_ok({"overview": overview, "hint": hint})
 
 
 def _do_list(inp: dict[str, Any]) -> str:
@@ -251,5 +391,105 @@ def _do_update(inp: dict[str, Any]) -> str:
             "document": row,
             "hub": "/gestion/science",
             "open": f"/gestion/science/{row.get('id')}",
+        }
+    )
+
+
+def _do_list_entities(inp: dict[str, Any]) -> str:
+    from services.knowledge import list_entities, search_entities
+
+    query = str(inp.get("query") or "").strip()
+    etype = str(inp.get("entity_type") or "").strip().lower()
+    rows = search_entities(query) if query else list_entities()
+    if etype:
+        rows = [r for r in rows if str(r.get("entity_type") or "").lower() == etype]
+    briefs = [
+        {
+            "entity_id": r.get("entity_id"),
+            "name": r.get("name"),
+            "entity_type": r.get("entity_type"),
+            "attributes": r.get("attributes") or {},
+            "updated_at": r.get("updated_at"),
+        }
+        for r in rows[:40]
+    ]
+    return _json_ok({"entities": briefs, "count": len(briefs)})
+
+
+def _do_merge_facts(inp: dict[str, Any]) -> str:
+    from services.memory_inbox import merge_enterprise_facts
+
+    raw = _parse_object(inp.get("facts"), json_fallback=inp.get("facts_json"))
+    if not raw:
+        return "Erreur science : facts (objet) ou facts_json requis."
+    clean: dict[str, Any] = {}
+    for key, val in raw.items():
+        k = str(key or "").strip()
+        if k not in _FACT_KEYS:
+            continue
+        if isinstance(val, list):
+            items = [str(x).strip()[:120] for x in val if str(x or "").strip()][:12]
+            if items:
+                clean[k] = items
+        else:
+            text = str(val or "").strip()
+            if text:
+                clean[k] = text[:500]
+    if not clean:
+        return (
+            "Erreur science : aucun fait reconnu. "
+            "Clés : " + ", ".join(sorted(_FACT_KEYS))
+        )
+    merged = merge_enterprise_facts(clean)
+    return _json_ok(
+        {
+            "written": True,
+            "facts": merged,
+            "hub": "/gestion/science",
+            "section": "Identité",
+        }
+    )
+
+
+def _do_upsert_entity(inp: dict[str, Any]) -> str:
+    from services.knowledge import get_entity, upsert_entity
+
+    name = str(inp.get("name") or "").strip()
+    if not name:
+        return "Erreur science : name requis."
+    etype = str(inp.get("entity_type") or "other").strip().lower() or "other"
+    if etype not in _ENTITY_TYPES:
+        etype = "other"
+    attributes = _parse_object(inp.get("attributes"), json_fallback=inp.get("attributes_json"))
+    relations = _parse_object(inp.get("relations"), json_fallback=inp.get("relations_json"))
+    for key, val in inp.items():
+        if key in {
+            "name",
+            "entity_type",
+            "attributes",
+            "attributes_json",
+            "relations",
+            "relations_json",
+        }:
+            continue
+        if isinstance(val, (str, int, float, bool)) and str(val).strip():
+            attributes.setdefault(str(key)[:40], str(val).strip()[:200])
+    try:
+        upsert_entity(name, etype, attributes, relations)
+    except ValueError as exc:
+        return f"Erreur science : {exc}"
+    row = get_entity(name) or {
+        "name": name,
+        "entity_type": etype,
+        "attributes": attributes,
+        "relations": relations,
+    }
+    section = "Dirigeant" if etype == "person" else "Fiches"
+    return _json_ok(
+        {
+            "written": True,
+            "entity": row,
+            "hub": "/gestion/science",
+            "section": section,
         }
     )

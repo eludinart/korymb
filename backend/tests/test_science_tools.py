@@ -15,10 +15,14 @@ def test_science_tools_on_assistant_knowledge_tag():
         "science_get_document",
         "science_create_document",
         "science_update_document",
+        "science_list_entities",
+        "science_merge_facts",
+        "science_upsert_entity",
     ):
         assert required in names
     assistant_names = set(tool_names_for_tags(ASSISTANT_TOOL_TAGS))
     assert "science_create_document" in assistant_names
+    assert "science_merge_facts" in assistant_names
 
 
 def test_science_create_list_update(client):
@@ -111,6 +115,98 @@ def test_chat_turn_needs_science_write_on_ok_after_structure():
         )
         is True
     )
+    materialize_hist = [
+        {
+            "role": "assistant",
+            "content": (
+                "Le contexte est plein mais Identité et fiches sont vides. "
+                "Je peux matérialiser dans le hub Science — dis ok."
+            ),
+        }
+    ]
+    assert chat_turn_needs_science_write("ok", materialize_hist) is True
+    assert chat_turn_needs_science_write("remplir l'identité depuis le contexte", []) is True
+
+
+def test_science_merge_facts_and_upsert_entity(client):
+    from tools.registry_science import dispatch_science_tool
+    from services.science_overview import get_science_overview
+
+    facts_out = dispatch_science_tool(
+        "science_merge_facts",
+        {
+            "facts": {
+                "brand": "Mer et Découverte",
+                "activity": "Sorties mer",
+                "companies": ["Mer et Découverte 83 (SASU)", "Bon Aloha (EI)"],
+                "boats": ["Cigno Nero", "ILYAKA"],
+                "org": "Vie pro / perso / projets",
+            }
+        },
+    )
+    assert facts_out is not None
+    facts_data = json.loads(facts_out)
+    assert facts_data.get("written") is True
+    assert facts_data["facts"]["brand"] == "Mer et Découverte"
+    assert "Bon Aloha (EI)" in facts_data["facts"]["companies"]
+
+    person_out = dispatch_science_tool(
+        "science_upsert_entity",
+        {
+            "name": "Cédric",
+            "entity_type": "person",
+            "attributes": {"role": "Dirigeant", "focus": "Organisation & IA"},
+        },
+    )
+    assert person_out is not None
+    person = json.loads(person_out)
+    assert person.get("written") is True
+    assert person["entity"]["name"] == "Cédric"
+    assert person["section"] == "Dirigeant"
+
+    company_out = dispatch_science_tool(
+        "science_upsert_entity",
+        {
+            "name": "Mer et Découverte 83",
+            "entity_type": "company",
+            "attributes_json": json.dumps({"forme": "SASU"}),
+        },
+    )
+    assert json.loads(company_out or "{}").get("written") is True
+
+    listed = dispatch_science_tool("science_list_entities", {})
+    names = [e["name"] for e in json.loads(listed or "{}").get("entities") or []]
+    assert "Cédric" in names
+    assert "Mer et Découverte 83" in names
+
+    overview = get_science_overview()
+    assert overview["facts"].get("brand") == "Mer et Découverte"
+    assert "boats" in overview["facts"]
+    assert any(p.get("name") == "Cédric" for p in overview.get("persons") or [])
+    assert any(e.get("name") == "Mer et Découverte 83" for e in overview.get("entities") or [])
+
+
+def test_science_facts_write_immediately_in_chat_mode(client):
+    from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
+    from services.memory_inbox import get_enterprise_facts
+
+    token = _activate_tool_run_ctx(
+        "jobchat-science-facts",
+        "chat_sync:assistant",
+        "assistant",
+        chat_mode=True,
+    )
+    try:
+        out = _execute_tool(
+            "science_merge_facts",
+            {"facts": {"tagline": "Explorer • Comprendre • Agir • Transmettre"}},
+        )
+    finally:
+        _tool_run_ctx.reset(token)
+    data = json.loads(out)
+    assert data.get("proposal") is not True
+    assert data.get("written") is True
+    assert get_enterprise_facts().get("tagline") == "Explorer • Comprendre • Agir • Transmettre"
 
 
 def test_assistant_system_mentions_science_write():
@@ -118,4 +214,7 @@ def test_assistant_system_mentions_science_write():
 
     folded = ASSISTANT_SYSTEM.lower()
     assert "science_create_document" in folded
+    assert "science_merge_facts" in folded
+    assert "science_upsert_entity" in folded
     assert "gestion/science" in folded
+    assert "questionnaire" in folded

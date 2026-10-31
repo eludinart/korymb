@@ -27,6 +27,9 @@ const FACT_LABELS: Record<string, string> = {
   activity: "Activité",
   tone: "Ton",
   icp: "Public",
+  companies: "Sociétés",
+  boats: "Bateaux",
+  org: "Organisation",
 };
 
 const SUGGESTED_CATEGORIES = ["Stratégie", "Offre", "Process", "Référence", "Note", "Calendrier"];

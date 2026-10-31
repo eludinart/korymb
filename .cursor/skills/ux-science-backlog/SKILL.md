@@ -17,7 +17,7 @@ Mis à jour 2026-10-31 — assistant écrit Science immédiatement après « ok 
 4. **Mémoire** — contexte global + scrub PII, modes auto/frozen/disabled, garde-fou test SQLite
 5. **Projets** — aperçu description markdown, section Documents liés science
 6. **Hub Science** — `GET /business/science-overview` + `/gestion/science` en sections (identité, dirigeant, contexte extrait, fiches, docs, offres guide, migrate calendrier UI)
-7. **Assistant → Science** — outils `science_*` (overview/list/get/create/update), écriture **immédiate** après « ok » (pas Décisions), tag `knowledge`, prompts Assistant + `chat_turn_needs_science_write`
+7. **Assistant → Science** — outils `science_*` (overview/list/get/create/update + merge_facts / upsert_entity / list_entities), écriture **immédiate** après « ok » (pas Décisions), matérialisation Identité+fiches+docs depuis le contexte, tag `knowledge`, `chat_turn_needs_science_write`
 
 ## Reliquats optionnels
 

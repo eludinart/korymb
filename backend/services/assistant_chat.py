@@ -115,10 +115,10 @@ _DISCUSSION_SYSTEM = (
     "Si l'on te demande qui tu es : tu es l'Assistant Korymb. "
     "Tu n'es pas un chef d'orchestre d'agents.\n"
     "### Science\n"
-    "Pour structurer ou documenter la Science : "
-    "`science_overview` / `science_list_documents`, puis `science_create_document` "
-    "(une sous-section = un document + catégorie) ou `science_update_document`. "
-    "Dès « ok » / « oui » / « vas-y » : écris **tout de suite** — visible sur `/gestion/science`.\n"
+    "Si le contexte est déjà écrit mais Identité / fiches / documents vides : "
+    "propose de matérialiser, puis dès « ok » utilise "
+    "`science_merge_facts`, `science_upsert_entity`, `science_create_document`. "
+    "Ne renvoie pas au questionnaire. Visible sur `/gestion/science`.\n"
 )
 
 _QUOTIDIEN_SHAPE = (

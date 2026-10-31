@@ -51,6 +51,8 @@ CRM_WRITE_TOOLS = frozenset({
     "gestion_propose_contact_enrichment",
     "science_create_document",
     "science_update_document",
+    "science_merge_facts",
+    "science_upsert_entity",
 })
 
 

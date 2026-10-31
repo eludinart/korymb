@@ -348,20 +348,26 @@ _PROJECT_WRITE_RE = re.compile(
 _SCIENCE_WRITE_RE = re.compile(
     r"("
     r"\b(cree|creer|ajoute|ajouter|mets? en place|mettre en place|structure|enregistre|"
-    r"enregistrer|documente|documenter|materialise|materialiser)\b.{0,100}"
-    r"\b(science|sous[- ]?sections?|documents? science|knowledge|fiches? science)\b|"
+    r"enregistrer|documente|documenter|materialise|materialiser|remplir|remplis)\b.{0,100}"
+    r"\b(science|sous[- ]?sections?|documents? science|knowledge|fiches?|"
+    r"identite|dirigeant)\b|"
     r"\b(science (de )?(l[' ]?)?entreprise|gestion/science)\b.{0,80}"
-    r"\b(cree|creer|ajoute|ajouter|structure|document)\b|"
-    r"\b(sous[- ]?sections?|categories? science)\b.{0,60}\b(science|korymb|gestion)\b"
+    r"\b(cree|creer|ajoute|ajouter|structure|document|materialise|remplir)\b|"
+    r"\b(sous[- ]?sections?|categories? science|fiches?|identite)\b.{0,60}"
+    r"\b(science|korymb|gestion|contexte)\b|"
+    r"\b(materialise|materialiser|remplir|remplis)\b.{0,80}\b(contexte|science|identite|fiches?)\b"
     r")",
     re.I,
 )
 _SCIENCE_HISTORY_RE = re.compile(
     r"("
     r"science (de )?(l[' ]?)?entreprise|/gestion/science|"
-    r"science_create_document|documents? science|"
+    r"science_create_document|science_merge_facts|science_upsert_entity|"
+    r"documents? science|materialis|"
     r"sous[- ]?sections? .{0,40}(identite|offre|process|strategie)|"
-    r"je (vais |peux )?(creer|ecrire|mettre en place).{0,80}(science|document)"
+    r"\b(identite|dirigeant|fiches?|faits)\b.{0,60}\b(science|hub|gestion)\b|"
+    r"je (vais |peux )?(creer|ecrire|mettre en place|materialiser|remplir)"
+    r".{0,80}(science|document|identite|fiche|contexte)"
     r")",
     re.I,
 )
