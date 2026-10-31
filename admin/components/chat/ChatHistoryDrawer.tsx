@@ -7,7 +7,7 @@ import ChatSidebar from "./ChatSidebar";
 import ChatInterlocutorSelect, { type GroupOpt } from "./ChatInterlocutorSelect";
 import { isPersoConversation, type ChatConversation } from "../../lib/chatSessions";
 import type { PendingChatJob } from "../../lib/chatPendingJobs";
-import { CHAT_USE_MODE_OPTIONS, type ChatUseMode } from "../../lib/chatUseMode";
+import type { ChatUseMode } from "../../lib/chatUseMode";
 import { LlmModelSection } from "../LlmHopList";
 
 type Props = {
@@ -22,9 +22,6 @@ type Props = {
   onDeleteMany: (ids: string[]) => Promise<boolean | void> | boolean | void;
   interlocutorLabel?: (conv: ChatConversation) => string | null;
   chatUseMode: ChatUseMode;
-  onChatUseModeChange: (mode: ChatUseMode) => void;
-  /** Mode Essentiel : pas de bascule Ops. */
-  lockQuotidien?: boolean;
   onOpenPerso: () => void;
   onOpenSettings: () => void;
   activeTitle: string;
@@ -55,8 +52,6 @@ export default function ChatHistoryDrawer({
   onDeleteMany,
   interlocutorLabel,
   chatUseMode,
-  onChatUseModeChange,
-  lockQuotidien = false,
   onOpenPerso,
   onOpenSettings,
   activeTitle,
@@ -141,30 +136,7 @@ export default function ChatHistoryDrawer({
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom, 0px))" }}
         >
           <LlmModelSection />
-          {!lockQuotidien ? (
-          <div className="grid grid-cols-2 gap-1.5" role="group" aria-label="Mode du chat">
-            {CHAT_USE_MODE_OPTIONS.map((opt) => {
-              const active = chatUseMode === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => onChatUseModeChange(opt.id)}
-                  className={
-                    active
-                      ? "rounded-xl bg-violet-700 py-2.5 text-sm font-bold text-white"
-                      : "rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200"
-                  }
-                  aria-pressed={active}
-                  title={opt.hint}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          ) : null}
-          {!lockQuotidien && chatUseMode === "operationnel" ? (
+          {chatUseMode === "operationnel" ? (
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900">
               <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
                 Interlocuteur

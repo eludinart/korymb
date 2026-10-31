@@ -10,10 +10,7 @@ import {
   CHAT_TEXT_SCALE_ORDER,
   type ChatTextScale,
 } from "../../lib/chatTextScale";
-import {
-  CHAT_USE_MODE_OPTIONS,
-  type ChatUseMode,
-} from "../../lib/chatUseMode";
+import type { ChatUseMode } from "../../lib/chatUseMode";
 
 type Props = {
   open: boolean;
@@ -29,10 +26,7 @@ type Props = {
   interlocutorDisabled?: boolean;
   onHandOffToTeam?: () => void;
   chatUseMode?: ChatUseMode;
-  onChatUseModeChange?: (mode: ChatUseMode) => void;
   onOpenPerso?: () => void;
-  /** Mode Essentiel : pas de bascule Ops / missions. */
-  lockQuotidien?: boolean;
 };
 
 /** Menu ⋯ : équipe, affichage, mission liée, suppression. */
@@ -50,9 +44,7 @@ export default function ChatThreadMoreSheet({
   interlocutorDisabled,
   onHandOffToTeam,
   chatUseMode = "quotidien",
-  onChatUseModeChange,
   onOpenPerso,
-  lockQuotidien = false,
 }: Props) {
   const row =
     "flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left text-[15px] font-semibold active:bg-slate-100 disabled:opacity-40 dark:active:bg-slate-800";
@@ -61,42 +53,18 @@ export default function ChatThreadMoreSheet({
   return (
     <ChatBottomSheet open={open} onClose={onClose} title="Conversation">
       <div className="space-y-1 pb-2">
-        {onChatUseModeChange && !lockQuotidien ? (
+        {isQuotidien && onOpenPerso ? (
           <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
-            <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mode</p>
-            <div className="mt-2 grid grid-cols-2 gap-1.5">
-              {CHAT_USE_MODE_OPTIONS.map((opt) => {
-                const active = chatUseMode === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onChatUseModeChange(opt.id)}
-                    className={
-                      active
-                        ? "rounded-xl bg-violet-700 py-2.5 text-sm font-bold text-white"
-                        : "rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 active:bg-slate-100 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-200 dark:active:bg-slate-800"
-                    }
-                    aria-pressed={active}
-                    title={opt.hint}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-            {isQuotidien && onOpenPerso ? (
-              <button
-                type="button"
-                className="mt-2 text-sm font-semibold text-violet-800 dark:text-violet-300"
-                onClick={() => {
-                  onClose();
-                  onOpenPerso();
-                }}
-              >
-                Ouvrir le fil Perso
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="text-sm font-semibold text-violet-800 dark:text-violet-300"
+              onClick={() => {
+                onClose();
+                onOpenPerso();
+              }}
+            >
+              Ouvrir le fil Perso
+            </button>
           </div>
         ) : null}
 

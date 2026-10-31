@@ -44,6 +44,7 @@ import {
   formatChatFileSize,
   type ChatFile,
 } from "../../lib/chatAttachments";
+import { CHAT_USE_MODE_OPTIONS, type ChatUseMode } from "../../lib/chatUseMode";
 
 export type { ChatFile };
 
@@ -154,8 +155,10 @@ type Props = {
   onStopReply?: () => void;
   /** Envoie une réponse QCM comme message utilisateur. */
   onSubmitChoiceAnswers?: (messageId: string, text: string) => void;
-  /** Mode quotidien : chrome ops réduit + chips de reformulation. */
-  chatUseMode?: "quotidien" | "operationnel";
+  /** Mode Ask / Agent : chrome ops réduit + chips de reformulation en Ask. */
+  chatUseMode?: ChatUseMode;
+  /** Bascule Ask / Agent (pastille dans la barre de saisie). */
+  onChatUseModeChange?: (mode: ChatUseMode) => void;
   /** Un tour de conversation vocale : envoie la phrase dite et renvoie la réponse à lire. */
   onVoiceUtterance?: (text: string) => Promise<string>;
   reformChips?: ReadonlyArray<{ label: string; text: string }>;
@@ -426,6 +429,7 @@ export default function ChatShell({
   onRelayToFleet,
   onDismissFleetOffer,
   chatUseMode = "quotidien",
+  onChatUseModeChange,
   reformChips = [],
   onVoiceUtterance,
 }: Props) {
@@ -1234,6 +1238,34 @@ export default function ChatShell({
           </div>
         ) : null}
         <div className="mx-auto flex max-w-3xl lg:max-w-none items-end gap-1">
+          {onChatUseModeChange ? (
+            <div
+              className="mb-0.5 flex shrink-0 gap-0.5 rounded-full border border-slate-200 bg-white p-0.5 dark:border-slate-600 dark:bg-slate-950"
+              role="group"
+              aria-label="Mode du chat"
+            >
+              {CHAT_USE_MODE_OPTIONS.map((opt) => {
+                const active = chatUseMode === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={pending}
+                    onClick={() => onChatUseModeChange(opt.id)}
+                    className={
+                      active
+                        ? "rounded-full bg-violet-700 px-2.5 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                        : "rounded-full px-2.5 py-1.5 text-xs font-semibold text-slate-600 disabled:opacity-50 dark:text-slate-300"
+                    }
+                    aria-pressed={active}
+                    title={opt.hint}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {onAddFiles ? (
             <button
               type="button"

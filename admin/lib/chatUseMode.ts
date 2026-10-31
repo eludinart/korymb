@@ -1,4 +1,4 @@
-/** Mode d'usage du chat — discussion naturelle vs travail (QG). */
+/** Mode d'usage du chat — Ask (réponse) vs Agent (actions / QG). */
 
 export type ChatUseMode = "quotidien" | "operationnel";
 
@@ -27,11 +27,11 @@ export function saveChatUseMode(mode: ChatUseMode) {
 }
 
 export const CHAT_USE_MODE_OPTIONS: { id: ChatUseMode; label: string; hint: string }[] = [
-  { id: "quotidien", label: "Discussion", hint: "Parler avec Korymb, comme dans un chat" },
-  { id: "operationnel", label: "Ops", hint: "Flottes, missions, HITL" },
+  { id: "quotidien", label: "Ask", hint: "Parler avec Korymb, sans lancer d’ops" },
+  { id: "operationnel", label: "Agent", hint: "Flottes, missions, HITL" },
 ];
 
-/** Chips de reformulation (mode quotidien). */
+/** Chips de reformulation (mode Ask / quotidien). */
 export const CHAT_QUICK_CHIPS = [
   { label: "Plus court", text: "Reformule ta dernière réponse en plus court." },
   { label: "En puces", text: "Reformule ta dernière réponse en puces claires." },

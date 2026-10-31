@@ -80,7 +80,6 @@ import {
   type ChatUseMode,
 } from "../../lib/chatUseMode";
 import { postChatStream } from "../../lib/chatStream";
-import { useUiMode } from "../../lib/uiMode";
 
 function scienceCaptureFromPayload(raw: unknown): ChatMsg["scienceCapture"] | undefined {
   if (!raw || typeof raw !== "object") return undefined;
@@ -153,8 +152,6 @@ function ChatPageInner() {
   const urlGroupId = (searchParams.get("group") || "").trim();
 
   const { scale: textScale, setScale: setTextScale } = useChatTextScale();
-  const { isEssential } = useUiMode();
-  const lockQuotidien = isEssential;
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -261,12 +258,6 @@ function ChatPageInner() {
     },
     [refreshConversations],
   );
-
-  useEffect(() => {
-    if (!lockQuotidien) return;
-    if (chatUseModeRef.current === "quotidien") return;
-    applyChatUseMode("quotidien");
-  }, [lockQuotidien, applyChatUseMode]);
 
   const openPersoThread = useCallback(() => {
     const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
@@ -1059,7 +1050,7 @@ function ChatPageInner() {
       const last = payloadSource[payloadSource.length - 1];
       if (last?.role === "user" && last.content.trim() === text) payloadSource = payloadSource.slice(0, -1);
     }
-    const useMode = lockQuotidien ? "quotidien" : chatUseModeRef.current;
+    const useMode = chatUseModeRef.current;
     const histLimit = chatHistoryLimit(useMode);
     const historyPayload = payloadSource
       .map((item) => {
@@ -1281,7 +1272,6 @@ function ChatPageInner() {
     uploadBusy,
     watchJobInBackground,
     refreshConversations,
-    lockQuotidien,
   ]);
 
   const submitChoiceAnswers = useCallback(
@@ -1526,6 +1516,7 @@ function ChatPageInner() {
             uploadBusy={uploadBusy}
             uploadError={uploadError}
             chatUseMode={chatUseMode}
+            onChatUseModeChange={applyChatUseMode}
             reformChips={CHAT_QUICK_CHIPS}
             onTeamCreated={(groupId) => {
               chooseInterlocutor(interlocutorFromGroupId(groupId));
@@ -1548,8 +1539,6 @@ function ChatPageInner() {
         onDeleteMany={(ids) => removeConversations(ids)}
         interlocutorLabel={interlocutorLabel}
         chatUseMode={chatUseMode}
-        onChatUseModeChange={applyChatUseMode}
-        lockQuotidien={lockQuotidien}
         onOpenPerso={openPersoThread}
         onOpenSettings={() => {
           setHistoryOpen(false);
@@ -1598,8 +1587,6 @@ function ChatPageInner() {
         interlocutorDisabled={pending}
         onHandOffToTeam={handOffToTeam}
         chatUseMode={chatUseMode}
-        onChatUseModeChange={applyChatUseMode}
-        lockQuotidien={lockQuotidien}
         onOpenPerso={openPersoThread}
       />
     </div>
