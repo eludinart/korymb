@@ -9,6 +9,7 @@ export type ChatStreamDone = {
   degraded?: boolean;
   claim_guard?: { status?: string; intent?: string; dropped_count?: number };
   pending_blueprint_id?: string;
+  pending_science_suggestion_ids?: string[];
   job_id?: string;
   mirror_ack?: string;
   action_label?: string;

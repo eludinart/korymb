@@ -288,6 +288,64 @@ function ScienceListInner() {
 
       {ov ? <EnrichBanner overview={ov} /> : null}
 
+      {ov ? (
+        <SectionCard
+          title="Ce qui est retenu"
+          description="Synthèse de ce que Korymb a déjà enregistré pour l’entreprise"
+        >
+          {(() => {
+            const factsN = factEntries.length;
+            const personsN = (ov.persons || []).length;
+            const entitiesN = (ov.entities || []).length;
+            const docsN = Number(ov.documents?.count || docs.data?.length || 0);
+            const contextN = (ov.global_preview?.chars || contextSource.length || 0) as number;
+            const total = factsN + personsN + entitiesN + docsN;
+            if (total === 0 && contextN === 0) {
+              return (
+                <p className="text-sm text-slate-500">
+                  Rien encore. Dans le chat, demande de matérialiser la Science puis clique{" "}
+                  <span className="font-semibold">Enregistrer dans Science</span>.
+                </p>
+              );
+            }
+            return (
+              <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
+                <li className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Identité</p>
+                  <p className="mt-0.5 font-extrabold text-slate-900 dark:text-slate-50">
+                    {factsN ? `${factsN} fait${factsN > 1 ? "s" : ""}` : "—"}
+                  </p>
+                </li>
+                <li className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Personnes</p>
+                  <p className="mt-0.5 font-extrabold text-slate-900 dark:text-slate-50">
+                    {personsN || "—"}
+                  </p>
+                </li>
+                <li className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Fiches</p>
+                  <p className="mt-0.5 font-extrabold text-slate-900 dark:text-slate-50">
+                    {entitiesN || "—"}
+                  </p>
+                </li>
+                <li className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Documents</p>
+                  <p className="mt-0.5 font-extrabold text-slate-900 dark:text-slate-50">
+                    {docsN || "—"}
+                  </p>
+                </li>
+              </ul>
+            );
+          })()}
+          {(ov.global_preview?.chars || 0) > 0 && factEntries.length === 0 ? (
+            <p className="mt-3 text-xs text-amber-800 dark:text-amber-200">
+              Du contexte confirmé est présent ci-dessous, mais pas encore structuré en Identité /
+              fiches / documents. Demande au chat de le matérialiser, puis valide avec le bouton.
+            </p>
+          ) : null}
+        </SectionCard>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionCard
           title="Identité"

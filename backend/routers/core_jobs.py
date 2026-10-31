@@ -60,6 +60,14 @@ def _pending_blueprint_for_payload(
     return resolve_pending_blueprint_id(*blobs, direct=direct or None)
 
 
+def extract_science_proposal_ids_from_logs(logs: list | None) -> list[str]:
+    from services.assistant_chat import extract_science_proposal_ids
+
+    if not isinstance(logs, list):
+        return []
+    return extract_science_proposal_ids("\n".join(str(x) for x in logs[-80:]))
+
+
 def _claim_guard_for_payload(job_like: dict | None, events: list | None) -> dict | None:
     """Statut du garde-fou (ancré / partiel / inconnu) pour l'affichage chat."""
     if isinstance(job_like, dict) and isinstance(job_like.get("claim_guard"), dict):
@@ -693,6 +701,11 @@ def get_job(job_id: str, log_offset: int = 0, events_offset: int = 0):
             "chat_session_id": (job.get("chat_session_id") or ((row_db or {}).get("chat_session_id") if row_db else None) or None),
             "hitl": hitl_block,
             "pending_blueprint_id": _pending_blueprint_for_payload(job, row_db, logs),
+            "pending_science_suggestion_ids": (
+                job.get("pending_science_suggestion_ids")
+                if isinstance(job.get("pending_science_suggestion_ids"), list)
+                else extract_science_proposal_ids_from_logs(logs)
+            ),
             "agent_group_id": job.get("agent_group_id"),
         }
         if fb:

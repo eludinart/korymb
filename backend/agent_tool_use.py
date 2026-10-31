@@ -189,6 +189,19 @@ def _is_chat_write_gated() -> bool:
     return bool(str(ctx.get("chat_mode") or ""))
 
 
+def _flush_science_proposals_to_logs(job_logs: list[str] | None) -> None:
+    """Copie les ids de propositions Science vers job_logs avant reset du contexte outils."""
+    ctx = _tool_run_ctx.get()
+    raw = str(ctx.get("science_proposal_ids") or "")
+    if job_logs is None or not raw.strip():
+        return
+    for sid in raw.split(","):
+        sid = sid.strip()
+        if sid and f"[science_proposal] {sid}" not in job_logs:
+            job_logs.append(f"[science_proposal] {sid}")
+    ctx["science_proposal_ids"] = ""
+
+
 def _inject_tool_run_ctx(inp: dict[str, Any]) -> dict[str, Any]:
     ctx = _tool_run_ctx.get()
     out = dict(inp)
@@ -1196,13 +1209,43 @@ def _execute_tool(name: str, inp: Any, *, _from_journal: bool = False) -> str:
         ws = dispatch_workspace_tool(name, inp)
         if ws is not None:
             return ws
+        from services.config_suggestions import (
+            CHAT_WRITE_TOOLS,
+            SCIENCE_WRITE_TOOLS,
+            enqueue_chat_write_proposal,
+            enqueue_science_write_proposal,
+            format_proposal_tool_result,
+        )
+
+        if name in SCIENCE_WRITE_TOOLS:
+            inp = _inject_tool_run_ctx(inp)
+            if _is_chat_write_gated():
+                ctx = _tool_run_ctx.get()
+                sug = enqueue_science_write_proposal(
+                    tool_name=name,
+                    payload=inp,
+                    job_id=str(ctx.get("job_id") or ""),
+                    agent_key=str(ctx.get("agent_key") or ""),
+                )
+                sid = str(sug.get("id") or "").strip()
+                if sid:
+                    prev = [
+                        x
+                        for x in str(ctx.get("science_proposal_ids") or "").split(",")
+                        if x.strip()
+                    ]
+                    if sid not in prev:
+                        prev.append(sid)
+                    ctx["science_proposal_ids"] = ",".join(prev[:20])
+                return format_proposal_tool_result(sug, kind_label="Proposition Science")
+            sci = dispatch_science_tool(name, inp)
+            if sci is not None:
+                return sci
         sci = dispatch_science_tool(name, inp)
         if sci is not None:
             return sci
         if name.startswith("gestion_"):
             inp = _inject_tool_run_ctx(inp)
-            from services.config_suggestions import CHAT_WRITE_TOOLS, enqueue_chat_write_proposal, format_proposal_tool_result
-
             if name in CHAT_WRITE_TOOLS and _is_chat_write_gated():
                 ctx = _tool_run_ctx.get()
                 sug = enqueue_chat_write_proposal(
@@ -1406,6 +1449,7 @@ def llm_turn_with_tools(
             temperature=temperature,
         )
     finally:
+        _flush_science_proposals_to_logs(job_logs)
         _tool_run_ctx.reset(token)
 
 
@@ -1905,6 +1949,7 @@ def llm_chat_with_tools(
             usage_context=usage_context,
         )
     finally:
+        _flush_science_proposals_to_logs(job_logs)
         _tool_run_ctx.reset(token)
 
 

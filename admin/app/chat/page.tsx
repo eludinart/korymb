@@ -94,12 +94,19 @@ function scienceCaptureFromPayload(raw: unknown): ChatMsg["scienceCapture"] | un
     bullets,
     applied: Boolean(o.applied),
     href: String(o.href || "/gestion/science"),
+    suggestionId: String(o.suggestion_id || "").trim() || undefined,
   };
 }
 
 function blueprintIdFromText(text: string): string | undefined {
   const match = text.match(/\bbp-[a-f0-9]{12}\b/i);
   return match ? match[0].toLowerCase() : undefined;
+}
+
+function scienceSuggestionIdsFromPayload(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = raw.map((x) => String(x || "").trim()).filter(Boolean);
+  return ids.length ? ids.slice(0, 12) : undefined;
 }
 
 function stripMarkdownPreview(text: string, max = 120): string {
@@ -572,6 +579,7 @@ function ChatPageInner() {
         drive_artifacts?: unknown;
         claim_guard?: ChatMsg["claimGuard"];
         pending_blueprint_id?: string;
+        pending_science_suggestion_ids?: string[];
         team?: Array<{ phase?: string; status?: string }>;
         events?: Array<{ type?: string; data?: { phase?: string } }>;
       };
@@ -607,6 +615,9 @@ function ChatPageInner() {
           deliverablesMarkdown: String(data.result || ""),
           claimGuard: data.claim_guard,
           pendingBlueprintId: data.pending_blueprint_id || blueprintIdFromText(raw),
+          pendingScienceSuggestionIds: scienceSuggestionIdsFromPayload(
+            data.pending_science_suggestion_ids,
+          ),
         };
       }
       if (status.startsWith("error")) {
@@ -617,7 +628,7 @@ function ChatPageInner() {
   }, []);
 
   const deliverJobResult = useCallback(
-    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string; claimGuard?: ChatMsg["claimGuard"]; pendingBlueprintId?: string } | string, isError = false) => {
+    async (job: PendingChatJob, delivery: { surface: string; degraded?: boolean; driveArtifacts?: unknown[]; deliverablesMarkdown?: string; claimGuard?: ChatMsg["claimGuard"]; pendingBlueprintId?: string; pendingScienceSuggestionIds?: string[] } | string, isError = false) => {
       const surface = stoppedReplyRef.current.has(job.jobId)
         ? "Réponse arrêtée."
         : typeof delivery === "string"
@@ -629,6 +640,8 @@ function ChatPageInner() {
       const claimGuard = typeof delivery === "string" ? undefined : delivery.claimGuard;
       const deliveredBlueprintId =
         typeof delivery === "string" ? blueprintIdFromText(delivery) : delivery.pendingBlueprintId;
+      const deliveredScienceIds =
+        typeof delivery === "string" ? undefined : delivery.pendingScienceSuggestionIds;
       const assistantId = isError ? `e-${job.jobId}` : `a-${job.jobId}`;
       const conv = loadConversations().find((c) => c.id === job.conversationId);
       if (!conv) {
@@ -644,12 +657,16 @@ function ChatPageInner() {
 
       let agentKeys: string[] | undefined;
       let pendingBlueprintId: string | undefined;
+      let pendingScienceSuggestionIds: string[] | undefined = deliveredScienceIds;
       let voiced = surface;
       const relay = job.relayFleet;
       if (!isError) {
         try {
           const { data: jobData } = await requestJson(`/jobs/${encodeURIComponent(job.jobId)}`, { retries: 1 });
           pendingBlueprintId = jobData?.pending_blueprint_id || deliveredBlueprintId || blueprintIdFromText(surface);
+          pendingScienceSuggestionIds =
+            scienceSuggestionIdsFromPayload(jobData?.pending_science_suggestion_ids) ||
+            deliveredScienceIds;
           const keys = await fetchJobAgentKeys(job.jobId);
           const agent = String(jobData?.agent || "");
           if (relay || agent === "assistant" || keys.includes("assistant")) {
@@ -679,6 +696,9 @@ function ChatPageInner() {
           ...(deliverablesMarkdown ? { deliverablesMarkdown } : {}),
           ...(agentKeys ? { agentKeys } : {}),
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
+          ...(pendingScienceSuggestionIds?.length
+            ? { pendingScienceSuggestionIds }
+            : {}),
           ...(degraded ? { degraded: true } : {}),
           ...(claimGuard?.status ? { claimGuard } : {}),
           ...(relay && !isError
@@ -1100,6 +1120,9 @@ function ChatPageInner() {
       const scienceCapture = scienceCaptureFromPayload(data?.science_capture);
       const pendingBlueprintId =
         String(data?.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
+      const pendingScienceSuggestionIds = scienceSuggestionIdsFromPayload(
+        data?.pending_science_suggestion_ids,
+      );
       setReplyProgress(null);
       setMessages([
         ...history,
@@ -1109,6 +1132,7 @@ function ChatPageInner() {
           content: surface,
           agentKeys: [agent],
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
+          ...(pendingScienceSuggestionIds ? { pendingScienceSuggestionIds } : {}),
           ...(degraded ? { degraded: true } : {}),
           ...(claimGuard?.status ? { claimGuard } : {}),
           ...(scienceCapture ? { scienceCapture } : {}),
@@ -1174,6 +1198,9 @@ function ChatPageInner() {
           const scienceCapture = scienceCaptureFromPayload(streamed.done.science_capture);
           const pendingBlueprintId =
             String(streamed.done.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
+          const pendingScienceSuggestionIds = scienceSuggestionIdsFromPayload(
+            streamed.done.pending_science_suggestion_ids,
+          );
           setReplyProgress(null);
           setMessages((prev) =>
             prev.map((m) =>
@@ -1182,6 +1209,7 @@ function ChatPageInner() {
                     ...m,
                     content: surface,
                     ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
+                    ...(pendingScienceSuggestionIds ? { pendingScienceSuggestionIds } : {}),
                     ...(degraded ? { degraded: true } : {}),
                     ...(claimGuard?.status ? { claimGuard } : {}),
                     ...(scienceCapture ? { scienceCapture } : {}),

@@ -17,6 +17,7 @@ import ChatMessageDeliverables from "./ChatMessageDeliverables";
 import ChatSourceNote from "./ChatSourceNote";
 import ChatMessageFiles from "./ChatMessageFiles";
 import TeamBlueprintCard from "./TeamBlueprintCard";
+import ScienceProposeCard, { type ScienceProposeOutcome } from "./ScienceProposeCard";
 import ChatFleetRelayNote from "./ChatFleetRelayNote";
 import CorimbeOrb from "./CorimbeOrb";
 import ChatVoiceConversation from "./ChatVoiceConversation";
@@ -60,6 +61,9 @@ export type ChatMsg = {
   pendingBlueprintId?: string;
   /** Résultat UI après confirm/reject (persiste dans le fil). */
   blueprintOutcome?: { status: "created" | "rejected"; label?: string };
+  /** Propositions Science à valider (bouton Enregistrer). */
+  pendingScienceSuggestionIds?: string[];
+  scienceProposeOutcome?: ScienceProposeOutcome;
   /** Réponse locale : le modèle (crédit, quota ou délai) n'a pas répondu. */
   degraded?: boolean;
   /** Contrôle des précisions (e-mail, montant, lien) contre les données du tour. */
@@ -78,6 +82,7 @@ export type ChatMsg = {
     bullets?: string[];
     applied?: boolean;
     href?: string;
+    suggestionId?: string;
   };
 };
 
@@ -942,6 +947,20 @@ export default function ChatShell({
                         onPatchMessage?.(m.id, {
                           pendingBlueprintId: undefined,
                           blueprintOutcome: outcome,
+                        })
+                      }
+                    />
+                  ) : null}
+                  {m.role === "assistant" &&
+                  ((m.pendingScienceSuggestionIds && m.pendingScienceSuggestionIds.length > 0) ||
+                    m.scienceProposeOutcome) ? (
+                    <ScienceProposeCard
+                      suggestionIds={m.pendingScienceSuggestionIds || []}
+                      initialOutcome={m.scienceProposeOutcome || null}
+                      onSettled={(outcome) =>
+                        onPatchMessage?.(m.id, {
+                          pendingScienceSuggestionIds: undefined,
+                          scienceProposeOutcome: outcome,
                         })
                       }
                     />

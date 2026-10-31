@@ -28,6 +28,15 @@ CHAT_WRITE_TOOLS: frozenset[str] = frozenset(
     }
 )
 
+SCIENCE_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "science_merge_facts",
+        "science_upsert_entity",
+        "science_create_document",
+        "science_update_document",
+    }
+)
+
 _INTEGRATION_TOOL_MAP: dict[str, str] = {
     "web_search": "integration:web_search",
     "read_webpage": "integration:read_webpage",
@@ -181,7 +190,7 @@ def is_applyable(suggestion: dict[str, Any] | None) -> bool:
     if not suggestion:
         return False
     kind = str(suggestion.get("kind") or "").strip()
-    if kind in {"crm_write", "platform_spec"}:
+    if kind in {"crm_write", "science_write", "platform_spec"}:
         return True
     if kind == "behavior":
         return _behavior_key_from_target(str(suggestion.get("target_key") or "")) in APPLYABLE_BEHAVIOR_KEYS
@@ -235,6 +244,51 @@ def enqueue_chat_write_proposal(
         )
     except Exception:
         logger.exception("notify crm write proposal")
+    return sug
+
+
+def enqueue_science_write_proposal(
+    *,
+    tool_name: str,
+    payload: dict[str, Any],
+    job_id: str = "",
+    agent_key: str = "",
+) -> dict[str, Any]:
+    """Proposition Science : appliquée via le bouton chat (ou Décisions)."""
+    from database import insert_config_suggestion
+
+    name = (tool_name or "").strip()
+    facts = payload.get("facts") if isinstance(payload.get("facts"), dict) else {}
+    title_hint = str(
+        payload.get("title") or payload.get("name") or facts.get("brand") or name
+    )[:80]
+    sug = insert_config_suggestion(
+        kind="science_write",
+        target_key=f"tool:{name}",
+        title=f"Science — {title_hint or name}",
+        body=(
+            f"Le chat propose d'écrire dans Science via `{name}`. "
+            "Validez avec le bouton « Enregistrer dans Science » sous le message."
+        ),
+        payload={
+            "tool": name,
+            "input": payload,
+            "job_id": (job_id or "")[:64],
+            "agent_key": (agent_key or "")[:64],
+        },
+    )
+    try:
+        from services.director_platform import emit_director_notification
+
+        emit_director_notification(
+            kind="config_suggestion",
+            title="Proposition Science (chat)",
+            body=str(sug.get("title") or name)[:180],
+            job_id=job_id or None,
+            action_url="/gestion/science",
+        )
+    except Exception:
+        logger.exception("notify science write proposal")
     return sug
 
 
@@ -320,10 +374,11 @@ def apply_config_suggestion(suggestion_id: str) -> dict[str, Any]:
     payload = sug.get("payload") if isinstance(sug.get("payload"), dict) else {}
     result: dict[str, Any] = {"applied": True, "kind": kind}
 
-    if kind == "crm_write":
+    if kind in {"crm_write", "science_write"}:
         tool = str(payload.get("tool") or "").strip()
-        if tool not in CHAT_WRITE_TOOLS:
-            raise PermissionError(f"Outil CRM non autorisé : {tool}")
+        allowed = CHAT_WRITE_TOOLS if kind == "crm_write" else SCIENCE_WRITE_TOOLS
+        if tool not in allowed:
+            raise PermissionError(f"Outil non autorisé pour {kind} : {tool}")
         inp = payload.get("input") if isinstance(payload.get("input"), dict) else {}
         from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
 

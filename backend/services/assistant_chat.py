@@ -116,9 +116,10 @@ _DISCUSSION_SYSTEM = (
     "Tu n'es pas un chef d'orchestre d'agents.\n"
     "### Science\n"
     "Si le contexte est déjà écrit mais Identité / fiches / documents vides : "
-    "propose de matérialiser, puis dès « ok » utilise "
-    "`science_merge_facts`, `science_upsert_entity`, `science_create_document`. "
-    "Ne renvoie pas au questionnaire. Visible sur `/gestion/science`.\n"
+    "propose de matérialiser et appelle `science_merge_facts` / "
+    "`science_upsert_entity` / `science_create_document` (proposition). "
+    "Le dirigeant valide avec le bouton **Enregistrer dans Science**. "
+    "Ne dis pas que c'est déjà enregistré avant ce clic.\n"
 )
 
 _QUOTIDIEN_SHAPE = (
@@ -347,6 +348,27 @@ def _extract_blueprint_id(*texts: str) -> str | None:
     return None
 
 
+def extract_science_proposal_ids(*texts: str) -> list[str]:
+    """Ids de propositions Science créées dans ce tour (bouton Enregistrer)."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for text in texts:
+        for match in re.finditer(r"\[science_proposal\]\s*([a-zA-Z0-9_-]{6,80})", text or ""):
+            sid = match.group(1).strip()
+            if sid and sid not in seen:
+                seen.add(sid)
+                found.append(sid)
+        for match in re.finditer(
+            r'"suggestion_id"\s*:\s*"([a-zA-Z0-9_-]{6,80})"',
+            text or "",
+        ):
+            sid = match.group(1).strip()
+            if sid and sid not in seen and '"kind": "science_write"' in (text or "").replace(" ", ""):
+                # Fallback loose — préférer le marqueur [science_proposal]
+                pass
+    return found[:12]
+
+
 def resolve_pending_blueprint_id(*texts: str, direct: str | None = None) -> str | None:
     """Id encore « proposed », ou l'id déjà posé sur le job."""
     direct_id = (direct or "").strip()
@@ -538,9 +560,9 @@ def run_assistant_turn(
 
     from services.chat_intelligence import strip_unbacked_team_button
 
-    pending_bp = resolve_pending_blueprint_id(
-        reply, "\n".join(str(x) for x in logs[-50:])
-    )
+    log_blob = "\n".join(str(x) for x in logs[-80:])
+    pending_bp = resolve_pending_blueprint_id(reply, log_blob)
+    pending_science = extract_science_proposal_ids(log_blob, reply)
     if pending_bp:
         surface = (
             f"{surface}\n\n---\n"
@@ -549,6 +571,13 @@ def run_assistant_turn(
         )
     else:
         surface = strip_unbacked_team_button(surface)
+    if pending_science:
+        surface = (
+            f"{surface}\n\n---\n"
+            "**Science de l'entreprise** — une proposition est prête. "
+            "Valide avec le bouton **Enregistrer dans Science** sous ce message "
+            "(rien n'est écrit tant que tu n'as pas cliqué)."
+        )
 
     reply, surface, claim_payload = _maybe_seal(
         reply,
@@ -565,6 +594,7 @@ def run_assistant_turn(
         "tokens_in": int(ti or 0),
         "tokens_out": int(to or 0),
         "pending_blueprint_id": pending_bp,
+        "pending_science_suggestion_ids": pending_science,
         "claim_guard": claim_payload,
         "degraded": False,
         "keep_questionnaire": keep_q,
@@ -846,6 +876,7 @@ def start_assistant_chat_job(
                 graph_node="chat",
             )
             pending_bp = turn.get("pending_blueprint_id")
+            pending_science = turn.get("pending_science_suggestion_ids") or []
             _add_daily_svc(ti, to)
             if job_id in active_jobs:
                 active_jobs[job_id].update({
@@ -855,6 +886,7 @@ def start_assistant_chat_job(
                     "tokens_in": ti,
                     "tokens_out": to,
                     "pending_blueprint_id": pending_bp,
+                    "pending_science_suggestion_ids": pending_science,
                     "team": [{"key": "assistant", "label": "Assistant", "status": "done", "phase": "chat"}],
                 })
                 if turn.get("claim_guard"):

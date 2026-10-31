@@ -63,10 +63,11 @@ def test_science_create_list_update(client):
     assert row["category"] == "Offre"
 
 
-def test_science_create_writes_immediately_in_chat_mode(client):
-    """Après « ok » conversationnel : pas de proposition Décisions, écriture réelle."""
+def test_science_create_is_proposal_in_chat_mode(client):
+    """En chat : proposition à valider (bouton), pas d'écriture immédiate."""
     from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
     from services.knowledge_documents import list_knowledge_documents
+    from services.config_suggestions import apply_config_suggestion
 
     token = _activate_tool_run_ctx(
         "jobchat-science",
@@ -86,10 +87,15 @@ def test_science_create_writes_immediately_in_chat_mode(client):
     finally:
         _tool_run_ctx.reset(token)
     data = json.loads(out)
-    assert data.get("proposal") is not True
-    assert data.get("written") is True
+    assert data.get("proposal") is True
+    sid = str(data.get("suggestion_id") or "")
+    assert sid
     titles = [str(d.get("title") or "") for d in list_knowledge_documents(limit=50)]
-    assert "Sous-section Identité" in titles
+    assert "Sous-section Identité" not in titles
+    applied = apply_config_suggestion(sid)
+    assert applied.get("status") == "applied"
+    titles2 = [str(d.get("title") or "") for d in list_knowledge_documents(limit=50)]
+    assert "Sous-section Identité" in titles2
 
 
 def test_chat_turn_needs_science_write_on_ok_after_structure():
@@ -186,9 +192,10 @@ def test_science_merge_facts_and_upsert_entity(client):
     assert any(e.get("name") == "Mer et Découverte 83" for e in overview.get("entities") or [])
 
 
-def test_science_facts_write_immediately_in_chat_mode(client):
+def test_science_facts_proposal_then_apply_in_chat_mode(client):
     from agent_tool_use import _activate_tool_run_ctx, _execute_tool, _tool_run_ctx
     from services.memory_inbox import get_enterprise_facts
+    from services.config_suggestions import apply_config_suggestion
 
     token = _activate_tool_run_ctx(
         "jobchat-science-facts",
@@ -204,8 +211,9 @@ def test_science_facts_write_immediately_in_chat_mode(client):
     finally:
         _tool_run_ctx.reset(token)
     data = json.loads(out)
-    assert data.get("proposal") is not True
-    assert data.get("written") is True
+    assert data.get("proposal") is True
+    assert get_enterprise_facts().get("tagline") != "Explorer • Comprendre • Agir • Transmettre"
+    apply_config_suggestion(str(data["suggestion_id"]))
     assert get_enterprise_facts().get("tagline") == "Explorer • Comprendre • Agir • Transmettre"
 
 
@@ -216,5 +224,5 @@ def test_assistant_system_mentions_science_write():
     assert "science_create_document" in folded
     assert "science_merge_facts" in folded
     assert "science_upsert_entity" in folded
-    assert "gestion/science" in folded
-    assert "questionnaire" in folded
+    assert "gestion/science" in folded or "enregistrer dans science" in folded
+    assert "enregistrer dans science" in folded
