@@ -120,6 +120,11 @@ function awaitingReply(task: BizWorkTask): boolean {
   return Boolean(notes.trim());
 }
 
+type CompareOpts = {
+  /** Si false : égalité du critère principal → 0 (laisse la main au critère suivant). */
+  softTiebreak?: boolean;
+};
+
 /** Compare a vs b for one criterion. Negative → a before b. */
 export function compareTasksBy(
   a: BizWorkTask,
@@ -127,18 +132,23 @@ export function compareTasksBy(
   sort: TaskSortId,
   today: string,
   projectTitle: (id: string | null | undefined) => string = () => "",
+  opts: CompareOpts = {},
 ): number {
+  const soft = opts.softTiebreak !== false;
   const title = a.title.localeCompare(b.title, "fr");
+  const afterPrimary = (gap: number) => {
+    if (gap !== 0) return gap;
+    if (!soft) return 0;
+    return stamp(b.updated_at).localeCompare(stamp(a.updated_at)) || title;
+  };
   if (sort === "created") {
     return stamp(b.created_at).localeCompare(stamp(a.created_at)) || title;
   }
   if (sort === "urgent") {
-    const gap = Number(Boolean(b.urgent)) - Number(Boolean(a.urgent));
-    return gap || stamp(b.updated_at).localeCompare(stamp(a.updated_at)) || title;
+    return afterPrimary(Number(Boolean(b.urgent)) - Number(Boolean(a.urgent)));
   }
   if (sort === "important") {
-    const gap = Number(Boolean(b.important)) - Number(Boolean(a.important));
-    return gap || stamp(b.updated_at).localeCompare(stamp(a.updated_at)) || title;
+    return afterPrimary(Number(Boolean(b.important)) - Number(Boolean(a.important)));
   }
   if (sort === "important-urgent") {
     const importantGap = Number(Boolean(b.important)) - Number(Boolean(a.important));
@@ -201,13 +211,16 @@ export function sortTasks(
   projectTitle: (id: string | null | undefined) => string = () => "",
 ): BizWorkTask[] {
   const criteria = normalizeCriteria(Array.isArray(sort) ? sort : [sort]);
+  const multi = criteria.length > 1;
   const copy = [...tasks];
   copy.sort((a, b) => {
     for (const id of criteria) {
-      const gap = compareTasksBy(a, b, id, today, projectTitle);
+      const gap = compareTasksBy(a, b, id, today, projectTitle, { softTiebreak: !multi });
       if (gap !== 0) return gap;
     }
-    return a.title.localeCompare(b.title, "fr");
+    return (
+      stamp(b.updated_at).localeCompare(stamp(a.updated_at)) || a.title.localeCompare(b.title, "fr")
+    );
   });
   return copy;
 }

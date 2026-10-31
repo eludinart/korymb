@@ -16,23 +16,19 @@ export default function PublicShell({ children }: { children: React.ReactNode })
   const loginHref =
     next.startsWith("/") && !next.startsWith("//") ? `/login?next=${encodeURIComponent(next)}` : "/login";
   const [me, setMe] = useState<AuthMeResponse | null>(null);
-  const [homeSettled, setHomeSettled] = useState(pathname !== "/");
 
   const load = useCallback(async () => {
     const onHome = pathname === "/";
-    if (onHome) setHomeSettled(false);
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
       const data = res.ok ? ((await res.json()) as AuthMeResponse) : null;
       setMe(data);
       if (onHome && (data?.role === "admin" || data?.role === "member")) {
         window.location.replace("/chat");
-        return;
       }
     } catch {
       setMe(null);
     }
-    if (onHome) setHomeSettled(true);
   }, [pathname]);
 
   useEffect(() => {
@@ -122,13 +118,7 @@ export default function PublicShell({ children }: { children: React.ReactNode })
           </nav>
         </div>
       </header>
-      <main className={isVitrine ? "flex-1" : undefined}>
-        {pathname === "/" && !homeSettled ? (
-          <p className="px-4 py-16 text-center text-sm font-medium text-slate-500">Ouverture…</p>
-        ) : (
-          children
-        )}
-      </main>
+      <main className={isVitrine ? "flex-1" : undefined}>{children}</main>
       {isVitrine ? (
         <PracticePoweredBy />
       ) : (
