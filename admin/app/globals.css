@@ -1051,7 +1051,7 @@ html.dark .pull-refresh-cue {
   }
 
   .chat-composer-shell {
-    border-top: 1px solid #e2e8f0;
+    /* Séparation fil / composer : .chat-composer-footer (évite double trait). */
     background-color: #ffffff !important;
   }
 
