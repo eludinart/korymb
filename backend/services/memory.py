@@ -58,6 +58,14 @@ def _parse_proposal_version(stem: str) -> tuple[int, int, int]:
 
 
 def _collect_proposals(limit: int = 8) -> list[dict[str, str]]:
+    """Proposals repo = artefacts instance legacy uniquement (pas de fuite vers un client)."""
+    try:
+        from services.workspace_brand import is_legacy_elude_workspace
+
+        if not is_legacy_elude_workspace():
+            return []
+    except Exception:
+        return []
     root = _repo_root()
     files = sorted(root.rglob("*.proposal.tsx"), key=lambda p: p.stat().st_mtime, reverse=True)
     capped = files[: max(1, min(limit, 20))]

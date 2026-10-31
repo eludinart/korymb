@@ -195,14 +195,13 @@ def classique_workspace_id() -> str:
 
 
 def _memory_workspace() -> str:
-    """Espace courant, sinon celui de Classique (tour sans contexte de requête)."""
+    """Espace courant uniquement — pas de repli Classique (fuite multi-tenant)."""
     try:
         from database import _ws
 
-        ws = (_ws() or "").strip()
+        return (_ws() or "").strip()
     except Exception:
-        ws = ""
-    return ws or classique_workspace_id()
+        return ""
 
 
 def search_trace_memory(
@@ -225,6 +224,8 @@ def search_trace_memory(
         if not _is_mariadb():
             return []
         ws_list = [w for w in dict.fromkeys(workspaces or [_memory_workspace()]) if w]
+        if not ws_list:
+            return []
         ws_sql = "workspace_id IN (" + ",".join("?" for _ in ws_list) + ")"
         literal = json.dumps(vector, separators=(",", ":"))
         kind_params = [str(k)[:32] for k in (kinds or []) if str(k).strip()]
@@ -260,17 +261,30 @@ def search_trace_memory(
 
 
 CONVERSATION_MEMORY_HEADING = "### Ce que tu sais d'Eric et de vos échanges"
+_CLIENT_CONVERSATION_MEMORY_HEADING = "### Ce que tu sais de ce workspace et de vos échanges"
+
+
+def conversation_memory_workspaces(current: str) -> list[str]:
+    """Fiches conversation : uniquement l'espace courant (pas de fusion Classique)."""
+    wid = (current or "").strip()
+    return [wid] if wid else []
 
 
 def trace_memory_block(query: str) -> str:
-    """Bloc pour le prompt : d'abord ce qu'on sait d'Eric (fiches de conversation), puis le journal."""
+    """Bloc pour le prompt : fiches conversation du workspace, puis journal du même espace."""
     vector = embed_excerpt(query)
     if not vector:
         return ""
     current = _memory_workspace()
+    if not current:
+        return ""
+    classique = classique_workspace_id()
     convo = search_trace_memory(
-        query, limit=3, kinds=["conversation"],
-        workspaces=[current, classique_workspace_id()], vector=vector,
+        query,
+        limit=3,
+        kinds=["conversation"],
+        workspaces=conversation_memory_workspaces(current),
+        vector=vector,
     )
     journal = search_trace_memory(
         query, limit=3, exclude_kinds=["conversation"], workspaces=[current], vector=vector,
@@ -292,12 +306,21 @@ def trace_memory_block(query: str) -> str:
             notes.append(f"- {str(row.get('kind') or 'note')} : {excerpt}")
     out = ""
     if facts:
-        out += (
-            f"\n{CONVERSATION_MEMORY_HEADING}\n"
-            "Ces éléments sont des faits que tu connais déjà sur Eric, la personne avec qui tu parles, "
-            "et sur vos échanges passés. Utilise-les naturellement comme tes propres souvenirs ; "
-            "ne dis pas que tu ne sais rien de lui.\n" + "\n".join(facts) + "\n"
-        )
+        if current == classique:
+            out += (
+                f"\n{CONVERSATION_MEMORY_HEADING}\n"
+                "Ces éléments sont des faits que tu connais déjà sur Eric, la personne avec qui tu parles, "
+                "et sur vos échanges passés. Utilise-les naturellement comme tes propres souvenirs ; "
+                "ne dis pas que tu ne sais rien de lui.\n" + "\n".join(facts) + "\n"
+            )
+        else:
+            out += (
+                f"\n{_CLIENT_CONVERSATION_MEMORY_HEADING}\n"
+                "Ces éléments sont des faits déjà connus pour ce workspace et vos échanges passés. "
+                "Utilise-les naturellement ; n'emprunte pas l'identité d'un autre espace.\n"
+                + "\n".join(facts)
+                + "\n"
+            )
     if notes:
         out += "\n### Souvenirs du journal\n" + "\n".join(notes) + "\n"
     return out

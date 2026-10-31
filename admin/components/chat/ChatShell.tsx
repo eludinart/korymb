@@ -72,6 +72,13 @@ export type ChatMsg = {
   replyTo?: ChatReplyTarget;
   /** Relais vers une flotte déjà en place : l'assistant reste le locuteur du fil. */
   fleetRelay?: { groupId: string; label: string; jobId?: string };
+  /** Faits retenus pour la science d'entreprise après un tour Discussion. */
+  scienceCapture?: {
+    title?: string;
+    bullets?: string[];
+    applied?: boolean;
+    href?: string;
+  };
 };
 
 export type { ChatReplyTarget };
@@ -887,6 +894,35 @@ export default function ChatShell({
                       >
                         Annuler
                       </button>
+                    </div>
+                  ) : null}
+                  {m.role === "assistant" && m.scienceCapture?.bullets?.length ? (
+                    <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 dark:border-emerald-800 dark:bg-emerald-950/40">
+                      <p className="text-sm font-bold text-emerald-950 dark:text-emerald-100">
+                        {m.scienceCapture.title || "J’ai retenu pour ton entreprise"}
+                      </p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-emerald-900 dark:text-emerald-100">
+                        {m.scienceCapture.bullets.slice(0, 6).map((b) => (
+                          <li key={b}>{b}</li>
+                        ))}
+                      </ul>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <a
+                          href={m.scienceCapture.href || "/gestion/science"}
+                          className="rounded-xl bg-emerald-700 px-3 py-1.5 text-xs font-bold text-white hover:bg-emerald-800"
+                        >
+                          Voir mon entreprise
+                        </a>
+                        {m.scienceCapture.applied ? (
+                          <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-200">
+                            Enregistré
+                          </span>
+                        ) : (
+                          <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                            À confirmer dans la file
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ) : null}
                   {m.role === "assistant" && (m.pendingBlueprintId || m.blueprintOutcome) ? (

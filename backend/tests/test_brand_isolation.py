@@ -37,3 +37,48 @@ def test_legacy_workspace_keeps_product_database(client):
     assert is_legacy_elude_workspace() is True
     names = tool_names_for_tags(["db"])
     assert "db_query" in names
+
+
+def test_client_workspace_skips_repo_proposal_files(client, tmp_path, monkeypatch):
+    """Les *.proposal.tsx du monorepo ne doivent pas fuir dans un espace client."""
+    from services import memory as memory_svc
+
+    leak = tmp_path / "admin" / "elude-secret.proposal.tsx"
+    leak.parent.mkdir(parents=True)
+    leak.write_text("// Élude In Art tarot Fleur secret proposal\n", encoding="utf-8")
+    monkeypatch.setattr(memory_svc, "_repo_root", lambda: tmp_path)
+    set_tenant_context(workspace_id="ws-blank-example")
+    assert memory_svc._collect_proposals(limit=8) == []
+    snap = memory_svc.read_active_memory(proposal_limit=8, digest_limit=1)
+    assert snap.proposals == []
+    set_tenant_context(workspace_id="ws-default-legacy")
+    legacy = memory_svc._collect_proposals(limit=8)
+    assert len(legacy) == 1
+    assert "elude-secret.proposal.tsx" in legacy[0]["path"]
+
+
+def test_quotidien_prompt_uses_workspace_brand_not_eric_classique(client, monkeypatch):
+    """Discussion client : identité du workspace, pas la mémoire Classique d'Éric."""
+    from services.assistant_chat import build_assistant_system_prompt
+
+    monkeypatch.setenv("KORYMB_EMBED_PROVIDER", "")
+    set_tenant_context(workspace_id="ws-blank-example")
+    monkeypatch.setattr(
+        "services.workspace_brand._workspace_label",
+        lambda _wid: "mer et découverte 83",
+    )
+    monkeypatch.setattr(
+        "services.workspace_brand._memory_global_context",
+        lambda: "Sorties en mer et découverte du littoral varois.",
+    )
+    daily = build_assistant_system_prompt(
+        "parle moi de mon entreprise",
+        chat_use_mode="quotidien",
+        tools_enabled=False,
+    )
+    folded = daily.lower()
+    assert "mer et découverte 83" in folded
+    assert "littoral varois" in folded
+    assert "ce que tu sais d'eric" not in folded
+    assert "fleur d" not in folded
+    assert "tarot" not in folded

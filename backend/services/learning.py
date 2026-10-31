@@ -22,23 +22,84 @@ _SYSTEM_MEMORY_KEYS = frozenset(
 )
 
 
+def _is_chat_job(job: dict) -> bool:
+    return str(job.get("source") or "").strip().lower().startswith("chat")
+
+
 def _heuristic_learning(job: dict) -> dict:
+    """Repli sans LLM : n'écrit plus de « Dernière mission validée » (bruit, pas science)."""
     mission = str(job.get("mission") or "").strip()
-    result = str(job.get("result") or "").strip()
+    title_src = mission.splitlines()[0].strip() if mission else str(job.get("id") or "")
+    # Chat : sans extraction LLM on ne pollue pas la mémoire globale.
+    if _is_chat_job(job):
+        return {
+            "title": f"Science — {title_src[:80]}",
+            "learnings": [],
+            "suggested_memory_keys": {},
+            "suggested_prompt_tweaks": [],
+            "enterprise_facts": {},
+        }
     learnings: list[str] = []
-    if mission:
-        learnings.append(f"Mission validée : {mission[:200]}")
-    if len(result) > 120:
-        learnings.append(f"Livrable clé : {result[:280]}…")
-    memory_keys: dict[str, str] = {}
-    if mission and len(mission) > 20:
-        memory_keys["global"] = f"Dernière mission validée : {mission[:500]}"
+    if mission and len(mission) > 40:
+        learnings.append(f"Mission traitée : {mission[:200]}")
+    result = str(job.get("result") or "").strip()
+    if len(result) > 160:
+        learnings.append(f"Livrable notable : {result[:240]}…")
     return {
-        "title": f"Apprentissage — {mission[:80] or job.get('id', '')}",
+        "title": f"Science — {title_src[:80] or job.get('id', '')}",
         "learnings": learnings,
-        "suggested_memory_keys": memory_keys,
+        "suggested_memory_keys": {},
         "suggested_prompt_tweaks": [],
+        "enterprise_facts": {},
     }
+
+
+def _clip_memory_keys_for_auto_apply(keys: dict[str, str], *, max_chars: int | None = None) -> dict[str, str]:
+    """Garde chaque volet sous le plafond safe pour ne pas bloquer l'auto-apply."""
+    limit = max_chars if max_chars is not None else _SAFE_AUTO_APPLY_MAX_CHARS
+    out: dict[str, str] = {}
+    for k, v in keys.items():
+        text = str(v or "").strip()
+        if not text:
+            continue
+        if len(text) > limit:
+            text = text[: max(0, limit - 1)].rstrip() + "…"
+        out[str(k)] = text
+    return out
+
+
+def _sanitize_enterprise_facts(raw: object) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    allowed = (
+        "brand",
+        "tagline",
+        "location",
+        "offers",
+        "activity",
+        "tone",
+        "icp",
+        "assets",
+        "org",
+        "boats",
+        "companies",
+        "contact_email",
+        "intro",
+    )
+    out: dict = {}
+    for key in allowed:
+        if key not in raw:
+            continue
+        val = raw[key]
+        if isinstance(val, list):
+            clean = [str(x).strip()[:120] for x in val if str(x or "").strip()][:12]
+            if clean:
+                out[key] = clean
+        else:
+            text = str(val or "").strip()
+            if text:
+                out[key] = text[:500]
+    return out
 
 
 def get_learning_auto_apply_mode() -> str:
@@ -283,18 +344,37 @@ def trigger_learning_on_validate(job_id: str) -> dict | None:
     payload = _heuristic_learning(row)
     if os.getenv("ENV") != "test":
         try:
-            payload = _llm_extract_learning(row) or payload
+            extracted = _llm_extract_learning(row)
+            if extracted and (
+                extracted.get("suggested_memory_keys")
+                or extracted.get("enterprise_facts")
+                or extracted.get("learnings")
+            ):
+                payload = extracted
         except Exception:
             logger.exception("LLM learning extraction failed for %s", job_id)
-    sug = propose_memory_suggestion(
-        title=str(payload.get("title") or "Apprentissage mission"),
-        learnings=payload.get("learnings") if isinstance(payload.get("learnings"), list) else [],
-        suggested_memory_keys=payload.get("suggested_memory_keys")
+    keys = (
+        payload.get("suggested_memory_keys")
         if isinstance(payload.get("suggested_memory_keys"), dict)
-        else {},
+        else {}
+    )
+    facts = (
+        payload.get("enterprise_facts")
+        if isinstance(payload.get("enterprise_facts"), dict)
+        else {}
+    )
+    keys = _clip_memory_keys_for_auto_apply(keys)
+    facts = _sanitize_enterprise_facts(facts)
+    if not keys and not facts:
+        return None
+    sug = propose_memory_suggestion(
+        title=str(payload.get("title") or "Science entreprise"),
+        learnings=payload.get("learnings") if isinstance(payload.get("learnings"), list) else [],
+        suggested_memory_keys=keys,
         suggested_prompt_tweaks=payload.get("suggested_prompt_tweaks")
         if isinstance(payload.get("suggested_prompt_tweaks"), list)
         else [],
+        enterprise_facts=facts or None,
         source="mission_validate",
         job_id=job_id,
         source_ref=job_id,
@@ -309,33 +389,263 @@ def trigger_learning_on_validate(job_id: str) -> dict | None:
     return sug
 
 
+def _existing_science_snapshot(*, max_chars: int = 1800) -> str:
+    """Contexte déjà connu — pour enrichir sans répéter."""
+    parts: list[str] = []
+    try:
+        from database import get_enterprise_memory
+
+        mem = get_enterprise_memory()
+        contexts = mem.get("contexts") if isinstance(mem.get("contexts"), dict) else {}
+        global_ctx = str(contexts.get("global") or "").strip()
+        if global_ctx:
+            parts.append("Contexte global actuel :\n" + global_ctx[:900])
+    except Exception:
+        pass
+    try:
+        from services.memory_inbox import format_enterprise_facts_prompt
+
+        facts_blk = format_enterprise_facts_prompt(max_chars=500)
+        if facts_blk:
+            parts.append(facts_blk)
+    except Exception:
+        pass
+    text = "\n\n".join(parts).strip()
+    if len(text) > max_chars:
+        return text[: max_chars - 1].rstrip() + "…"
+    return text
+
+
 def _llm_extract_learning(job: dict) -> dict | None:
+    """Extrait une science d'entreprise riche (faits + mémoire), pas un écho de mission."""
     from llm_client import llm_turn
 
-    mission = str(job.get("mission") or "")[:1500]
-    result = str(job.get("result") or "")[:3000]
-    prompt = (
-        "Extrais des apprentissages actionnables pour la mémoire entreprise.\n"
-        f"Mission:\n{mission}\n\nRésultat:\n{result}\n\n"
-        "Réponds UNIQUEMENT en JSON:\n"
-        '{"title":"...","learnings":["..."],"suggested_memory_keys":{"cle":"valeur"},'
-        '"suggested_prompt_tweaks":["..."]}'
+    mission = str(job.get("mission") or "")[:3500]
+    result = str(job.get("result") or "")[:2500]
+    if not mission.strip() and not result.strip():
+        return None
+    existing = _existing_science_snapshot()
+    chat_note = (
+        "Source = chat dirigeant : le message utilisateur est la source de vérité "
+        "(identité, organisation, actifs, offres). La réponse assistant n'est qu'un appui. "
+        "Ignore le méta Korymb (flotte, HITL, boutons, questionnaires).\n"
+        if _is_chat_job(job)
+        else "Source = mission : tire les faits durables du brief et du livrable.\n"
     )
-    text, _, _ = llm_turn(prompt, max_tokens=800, or_profile="lite", usage_context="learning:validate")
+    prompt = (
+        "Tu enrichis la SCIENCE D'ENTREPRISE d'un espace Korymb.\n"
+        "Objectif : capturer au maximum ce qui aide à connaître l'activité réelle "
+        "(qui, quoi, où, comment, pour qui, avec quels actifs), de façon durable.\n"
+        f"{chat_note}"
+        "Sois prolifique sur les faits métier utiles, mais judicieux : "
+        "pas de reformulation vide, pas de conseils, pas de processus UI, "
+        "pas de « dernière mission validée », pas de secrets (mots de passe, clés).\n"
+        "N'invente rien. Ne répète pas ce qui est déjà dans la science connue "
+        "(sauf précision nouvelle).\n\n"
+        f"Science déjà connue (ne pas redire) :\n{existing or '(vide)'}\n\n"
+        f"Message / mission :\n{mission or '(vide)'}\n\n"
+        f"Réponse / livrable :\n{result or '(vide)'}\n\n"
+        "Réponds UNIQUEMENT en JSON valide :\n"
+        "{\n"
+        '  "title": "Science — …",\n'
+        '  "learnings": ["fait durable 1", "fait 2", "... jusqu\'à 10"],\n'
+        '  "suggested_memory_keys": {\n'
+        '    "global": "- puces activité, organisation, actifs, géographie (max ~700 car.)",\n'
+        '    "commercial": "- offres, clients cibles, canaux (si pertinent)",\n'
+        '    "comptable": "- structure juridique / sociétés (si pertinent)"\n'
+        "  },\n"
+        '  "enterprise_facts": {\n'
+        '    "brand": "nom commercial",\n'
+        '    "activity": "activité en une phrase",\n'
+        '    "location": "lieu",\n'
+        '    "offers": ["offre1", "offre2"],\n'
+        '    "companies": ["raison sociale 1"],\n'
+        '    "assets": ["bateau / lieu / outil"],\n'
+        '    "org": "structure / personnes clés",\n'
+        '    "icp": "clients types",\n'
+        '    "tone": "ton relationnel si dit"\n'
+        "  },\n"
+        '  "suggested_prompt_tweaks": []\n'
+        "}\n"
+        "Omets les clés vides. Chaque valeur de suggested_memory_keys ≤ 700 caractères. "
+        "Préfère des puces « - … » concrètes.\n"
+    )
+    text, _, _ = llm_turn(
+        prompt,
+        max_tokens=1600,
+        or_profile="standard",
+        usage_context="learning:science_extract",
+    )
     start = text.find("{")
     end = text.rfind("}") + 1
     if start < 0 or end <= start:
         return None
-    data = json.loads(text[start:end])
+    try:
+        data = json.loads(text[start:end])
+    except json.JSONDecodeError:
+        return None
     if not isinstance(data, dict):
         return None
+    raw_keys = data.get("suggested_memory_keys") if isinstance(data.get("suggested_memory_keys"), dict) else {}
+    # Filtre les échos de mission / méta chat.
+    clean_keys: dict[str, str] = {}
+    for k, v in raw_keys.items():
+        val = str(v or "").strip()
+        if not val:
+            continue
+        fold = val.casefold()
+        if fold.startswith("dernière mission validée") or fold.startswith("derniere mission validee"):
+            continue
+        if _is_chat_job(job) and all(tok in fold for tok in ("korymb", "flotte")) and len(val) < 120:
+            continue
+        clean_keys[str(k)] = val
+    learnings = []
+    if isinstance(data.get("learnings"), list):
+        for item in data["learnings"][:12]:
+            line = str(item or "").strip()
+            if line and not line.casefold().startswith("mission validée"):
+                learnings.append(line[:280])
+    facts = _sanitize_enterprise_facts(data.get("enterprise_facts"))
+    if not clean_keys and not facts and not learnings:
+        return None
+    # Si uniquement des learnings : les pousser en global.
+    if not clean_keys and learnings:
+        clean_keys["global"] = "\n".join(f"- {x}" for x in learnings[:8])
     return {
-        "title": str(data.get("title") or "")[:160],
-        "learnings": data.get("learnings") if isinstance(data.get("learnings"), list) else [],
-        "suggested_memory_keys": data.get("suggested_memory_keys")
-        if isinstance(data.get("suggested_memory_keys"), dict)
-        else {},
+        "title": str(data.get("title") or "Science entreprise")[:160],
+        "learnings": learnings,
+        "suggested_memory_keys": _clip_memory_keys_for_auto_apply(clean_keys),
         "suggested_prompt_tweaks": data.get("suggested_prompt_tweaks")
         if isinstance(data.get("suggested_prompt_tweaks"), list)
         else [],
+        "enterprise_facts": facts,
+    }
+
+
+def chat_message_looks_like_science(message: str) -> bool:
+    """Heuristique légère : message assez riche pour enrichir l'entreprise."""
+    text = (message or "").strip()
+    if len(text) < 80:
+        return False
+    fold = text.casefold()
+    skip = (
+        "bonjour",
+        "salut",
+        "merci",
+        "ok ",
+        "okay",
+        "qui es-tu",
+        "reformule",
+        "plus court",
+        "continue",
+    )
+    if any(fold.startswith(s) for s in skip) and len(text) < 160:
+        return False
+    signals = (
+        "entreprise",
+        "société",
+        "societe",
+        "activité",
+        "activite",
+        "client",
+        "offre",
+        "bateau",
+        "organisation",
+        "je suis",
+        "nous sommes",
+        "mon ",
+        "ma ",
+        "sasu",
+        "ei ",
+        "gîte",
+        "gite",
+        "ferme",
+        "cabinet",
+        "coach",
+        "var",
+        "tourves",
+    )
+    if any(s in fold for s in signals):
+        return True
+    return len(text) >= 220
+
+
+def maybe_capture_science_from_chat(
+    user_message: str,
+    assistant_reply: str = "",
+) -> dict | None:
+    """
+    Enrichit la science après un tour de Discussion (sans jargon mission).
+    Retourne un résumé UI ou None si rien à retenir.
+    """
+    if os.getenv("ENV") == "test":
+        return None
+    if not chat_message_looks_like_science(user_message):
+        return None
+    job = {
+        "id": "chat-science",
+        "source": "chat",
+        "mission": (user_message or "")[:3500],
+        "result": (assistant_reply or "")[:2000],
+    }
+    try:
+        payload = _llm_extract_learning(job)
+    except Exception:
+        logger.exception("maybe_capture_science_from_chat extract failed")
+        return None
+    if not payload:
+        return None
+    keys = (
+        payload.get("suggested_memory_keys")
+        if isinstance(payload.get("suggested_memory_keys"), dict)
+        else {}
+    )
+    facts = _sanitize_enterprise_facts(payload.get("enterprise_facts"))
+    keys = _clip_memory_keys_for_auto_apply(keys)
+    if not keys and not facts:
+        return None
+    from services.memory_inbox import propose_memory_suggestion
+
+    sug = propose_memory_suggestion(
+        title=str(payload.get("title") or "Science — conversation")[:160],
+        learnings=payload.get("learnings") if isinstance(payload.get("learnings"), list) else [],
+        suggested_memory_keys=keys,
+        enterprise_facts=facts or None,
+        source="chat_science",
+        job_id="",
+        source_ref="chat",
+        notify=False,
+        allow_auto_apply=True,
+    )
+    bullets: list[str] = []
+    if isinstance(payload.get("learnings"), list):
+        for item in payload["learnings"][:6]:
+            line = str(item or "").strip()
+            if line:
+                bullets.append(line[:160])
+    if not bullets:
+        for val in keys.values():
+            for ln in str(val).splitlines():
+                clean = ln.strip().lstrip("-• ").strip()
+                if clean:
+                    bullets.append(clean[:160])
+                if len(bullets) >= 6:
+                    break
+            if len(bullets) >= 6:
+                break
+    if not bullets and facts:
+        for k, v in list(facts.items())[:6]:
+            if isinstance(v, list):
+                bullets.append(f"{k}: {', '.join(str(x) for x in v[:4])}")
+            else:
+                bullets.append(f"{k}: {v}")
+    if not bullets:
+        return None
+    applied = bool(sug and str(sug.get("status") or "") == "auto_applied")
+    return {
+        "title": "J’ai retenu pour ton entreprise",
+        "bullets": bullets[:6],
+        "applied": applied,
+        "suggestion_id": str((sug or {}).get("id") or ""),
+        "href": "/gestion/science",
     }

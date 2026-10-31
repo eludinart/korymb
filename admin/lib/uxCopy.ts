@@ -8,18 +8,18 @@ export const UX_COPY = {
     hint: "Ce qui a besoin de vous",
   },
   decisions: {
-    label: "À valider",
-    subtitle: "Rien ne part sans vous",
-    hint: "À relire avant envoi — pas les messages",
+    label: "À confirmer",
+    subtitle: "Quelques points à valider",
+    hint: "Relire avant d’envoyer ou d’enregistrer",
   },
   missions: {
     label: "Missions",
     subtitle: "En cours",
-    hint: "Missions lancées",
+    hint: "Travaux lancés (mode avancé)",
   },
   chat: {
     label: "Conversation",
-    hint: "Décrire une demande",
+    hint: "Parler à Korymb — il retient ton entreprise",
   },
   gestion: {
     label: "Gestion",

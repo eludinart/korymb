@@ -80,6 +80,22 @@ import {
   type ChatUseMode,
 } from "../../lib/chatUseMode";
 import { postChatStream } from "../../lib/chatStream";
+import { useUiMode } from "../../lib/uiMode";
+
+function scienceCaptureFromPayload(raw: unknown): ChatMsg["scienceCapture"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const bullets = Array.isArray(o.bullets)
+    ? o.bullets.map((b) => String(b || "").trim()).filter(Boolean).slice(0, 6)
+    : [];
+  if (!bullets.length) return undefined;
+  return {
+    title: String(o.title || "J’ai retenu pour ton entreprise"),
+    bullets,
+    applied: Boolean(o.applied),
+    href: String(o.href || "/gestion/science"),
+  };
+}
 
 function blueprintIdFromText(text: string): string | undefined {
   const match = text.match(/\bbp-[a-f0-9]{12}\b/i);
@@ -130,6 +146,8 @@ function ChatPageInner() {
   const urlGroupId = (searchParams.get("group") || "").trim();
 
   const { scale: textScale, setScale: setTextScale } = useChatTextScale();
+  const { isEssential } = useUiMode();
+  const lockQuotidien = isEssential;
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -236,6 +254,12 @@ function ChatPageInner() {
     },
     [refreshConversations],
   );
+
+  useEffect(() => {
+    if (!lockQuotidien) return;
+    if (chatUseModeRef.current === "quotidien") return;
+    applyChatUseMode("quotidien");
+  }, [lockQuotidien, applyChatUseMode]);
 
   const openPersoThread = useCallback(() => {
     const perso = ensurePersoConversation(CHAT_PERSO_TITLE);
@@ -1015,7 +1039,7 @@ function ChatPageInner() {
       const last = payloadSource[payloadSource.length - 1];
       if (last?.role === "user" && last.content.trim() === text) payloadSource = payloadSource.slice(0, -1);
     }
-    const useMode = chatUseModeRef.current;
+    const useMode = lockQuotidien ? "quotidien" : chatUseModeRef.current;
     const histLimit = chatHistoryLimit(useMode);
     const historyPayload = payloadSource
       .map((item) => {
@@ -1073,6 +1097,7 @@ function ChatPageInner() {
       const surface = toChatSurface(String(data?.response || ""));
       const degraded = Boolean(data?.degraded) || chatTextIsDegraded(surface);
       const claimGuard = data?.claim_guard as ChatMsg["claimGuard"] | undefined;
+      const scienceCapture = scienceCaptureFromPayload(data?.science_capture);
       const pendingBlueprintId =
         String(data?.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
       setReplyProgress(null);
@@ -1086,6 +1111,7 @@ function ChatPageInner() {
           ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
           ...(degraded ? { degraded: true } : {}),
           ...(claimGuard?.status ? { claimGuard } : {}),
+          ...(scienceCapture ? { scienceCapture } : {}),
         },
       ]);
     };
@@ -1145,6 +1171,7 @@ function ChatPageInner() {
           spoken = surface;
           const degraded = Boolean(streamed.done.degraded) || chatTextIsDegraded(surface);
           const claimGuard = streamed.done.claim_guard as ChatMsg["claimGuard"] | undefined;
+          const scienceCapture = scienceCaptureFromPayload(streamed.done.science_capture);
           const pendingBlueprintId =
             String(streamed.done.pending_blueprint_id || "") || blueprintIdFromText(surface) || undefined;
           setReplyProgress(null);
@@ -1157,6 +1184,7 @@ function ChatPageInner() {
                     ...(pendingBlueprintId ? { pendingBlueprintId } : {}),
                     ...(degraded ? { degraded: true } : {}),
                     ...(claimGuard?.status ? { claimGuard } : {}),
+                    ...(scienceCapture ? { scienceCapture } : {}),
                   }
                 : m,
             ),
@@ -1225,6 +1253,7 @@ function ChatPageInner() {
     uploadBusy,
     watchJobInBackground,
     refreshConversations,
+    lockQuotidien,
   ]);
 
   const submitChoiceAnswers = useCallback(
@@ -1492,6 +1521,7 @@ function ChatPageInner() {
         interlocutorLabel={interlocutorLabel}
         chatUseMode={chatUseMode}
         onChatUseModeChange={applyChatUseMode}
+        lockQuotidien={lockQuotidien}
         onOpenPerso={openPersoThread}
         onOpenSettings={() => {
           setHistoryOpen(false);
@@ -1541,6 +1571,7 @@ function ChatPageInner() {
         onHandOffToTeam={handOffToTeam}
         chatUseMode={chatUseMode}
         onChatUseModeChange={applyChatUseMode}
+        lockQuotidien={lockQuotidien}
         onOpenPerso={openPersoThread}
       />
     </div>

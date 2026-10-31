@@ -234,8 +234,12 @@ def build_assistant_system_prompt(
             else ""
         )
         fleet_addon = existing_fleet_prompt_addon(message, history)
+        # Identité du workspace courant (pas de pack Classique cross-tenant).
+        brand = str(FLEUR_CONTEXT).strip()
+        brand_block = f"\n{brand}\n" if brand else ""
         system_prompt = (
             _DISCUSSION_SYSTEM
+            + brand_block
             + shape
             + qcm_block
             + force
@@ -568,6 +572,15 @@ def run_assistant_chat_sync(
         }
         if turn.get("claim_guard"):
             out["claim_guard"] = turn["claim_guard"]
+        if mode == CHAT_USE_MODE_QUOTIDIEN:
+            try:
+                from services.learning import maybe_capture_science_from_chat
+
+                science = maybe_capture_science_from_chat(message, turn["surface"])
+                if science:
+                    out["science_capture"] = science
+            except Exception:
+                logger.exception("science_capture chat sync ignorée")
         return out
     except Exception as e:
         outage = llm_outage_kind(e)
@@ -676,6 +689,15 @@ def iter_assistant_chat_stream(
         }
         if claim_payload:
             done["claim_guard"] = claim_payload
+        if mode == CHAT_USE_MODE_QUOTIDIEN:
+            try:
+                from services.learning import maybe_capture_science_from_chat
+
+                science = maybe_capture_science_from_chat(message, surface)
+                if science:
+                    done["science_capture"] = science
+            except Exception:
+                logger.exception("science_capture chat stream ignorée")
         yield _sse("done", done)
     except Exception as e:
         outage = llm_outage_kind(e)

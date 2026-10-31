@@ -31,6 +31,8 @@ type Props = {
   chatUseMode?: ChatUseMode;
   onChatUseModeChange?: (mode: ChatUseMode) => void;
   onOpenPerso?: () => void;
+  /** Mode Essentiel : pas de bascule Ops / missions. */
+  lockQuotidien?: boolean;
 };
 
 /** Menu ⋯ : équipe, affichage, mission liée, suppression. */
@@ -50,6 +52,7 @@ export default function ChatThreadMoreSheet({
   chatUseMode = "quotidien",
   onChatUseModeChange,
   onOpenPerso,
+  lockQuotidien = false,
 }: Props) {
   const row =
     "flex w-full items-center gap-3 rounded-2xl px-3 py-3.5 text-left text-[15px] font-semibold active:bg-slate-100 disabled:opacity-40 dark:active:bg-slate-800";
@@ -58,7 +61,7 @@ export default function ChatThreadMoreSheet({
   return (
     <ChatBottomSheet open={open} onClose={onClose} title="Conversation">
       <div className="space-y-1 pb-2">
-        {onChatUseModeChange ? (
+        {onChatUseModeChange && !lockQuotidien ? (
           <div className="mb-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-900">
             <p className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">Mode</p>
             <div className="mt-2 grid grid-cols-2 gap-1.5">

@@ -74,7 +74,7 @@ def test_memory_block_puts_conversation_facts_first(monkeypatch):
 
     monkeypatch.delenv("CLASSIQUE_WORKSPACE_ID", raising=False)
     long_fact = "Eric a grandi au Brusc. " + "x" * 700
-    calls = _patch_db(monkeypatch, "ws-eric", {
+    calls = _patch_db(monkeypatch, "ws-default-legacy", {
         "conversation": [{"span_id": "c1", "kind": "conversation", "excerpt": long_fact}],
         "journal": [
             {"span_id": "c1", "kind": "conversation", "excerpt": long_fact},
@@ -88,13 +88,44 @@ def test_memory_block_puts_conversation_facts_first(monkeypatch):
     fact_line = [l for l in block.splitlines() if "Brusc" in l][0]
     assert 500 < len(fact_line) <= 602
     convo_sql, convo_params = calls[0]
-    assert "workspace_id IN (?,?)" in convo_sql
-    assert "ws-eric" in convo_params and "ws-default-legacy" in convo_params
+    assert "workspace_id IN (?)" in convo_sql
+    assert convo_params.count("ws-default-legacy") == 1
     journal_sql, journal_params = calls[1]
-    assert "kind NOT IN (?)" in journal_sql and "ws-default-legacy" not in journal_params
+    assert "kind NOT IN (?)" in journal_sql and journal_params.count("ws-default-legacy") == 1
 
 
-def test_memory_block_falls_back_to_classique_workspace(monkeypatch):
+def test_client_workspace_does_not_pull_classique_conversation(monkeypatch):
+    """Isolation : Mer et Découverte ne doit pas recevoir la mémoire Classique d'Éric."""
+    from services.trace_vectors import CONVERSATION_MEMORY_HEADING, trace_memory_block
+
+    monkeypatch.delenv("CLASSIQUE_WORKSPACE_ID", raising=False)
+    calls = _patch_db(
+        monkeypatch,
+        "ws-d6af5581106a467e",
+        {
+            "conversation": [
+                {
+                    "span_id": "c-mer",
+                    "kind": "conversation",
+                    "excerpt": "Mer et Découverte 83 organise des sorties en mer.",
+                }
+            ],
+            "journal": [],
+        },
+    )
+    block = trace_memory_block("parle moi de mon entreprise")
+    assert "Mer et Découverte 83" in block
+    assert CONVERSATION_MEMORY_HEADING not in block
+    assert "Eric" not in block
+    assert "la personne avec qui tu parles" not in block
+    convo_sql, convo_params = calls[0]
+    assert "workspace_id IN (?)" in convo_sql
+    assert "ws-d6af5581106a467e" in convo_params
+    assert "ws-default-legacy" not in convo_params
+
+
+def test_memory_block_without_tenant_does_not_fallback_to_classique(monkeypatch):
+    """Sans workspace courant : aucun souvenir Classique (évite la fuite multi-tenant)."""
     from services.trace_vectors import trace_memory_block
 
     monkeypatch.setenv("CLASSIQUE_WORKSPACE_ID", "ws-classique")
@@ -103,6 +134,5 @@ def test_memory_block_falls_back_to_classique_workspace(monkeypatch):
         "journal": [],
     })
     block = trace_memory_block("le bateau")
-    assert "Tispoun" in block and "Souvenirs du journal" not in block
-    assert calls[0][0].count("?") >= 1 and "workspace_id IN (?)" in calls[0][0]
-    assert "ws-classique" in calls[0][1] and "ws-classique" in calls[1][1]
+    assert block == ""
+    assert calls == []

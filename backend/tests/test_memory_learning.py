@@ -359,3 +359,133 @@ def test_unseen_memory_leaves_a_receipt(monkeypatch):
     assert sug.get("status") == "auto_applied"
     assert notes and notes[0]["kind"] == "memory_applied"
     assert notes[0]["body"].startswith("Mémorisé :")
+
+
+def test_chat_heuristic_does_not_dump_mission_echo():
+    from services.learning import _heuristic_learning
+
+    out = _heuristic_learning(
+        {
+            "id": "j1",
+            "source": "chat",
+            "mission": "Mer et Découverte 83 — sorties en mer, bateaux Cigno Nero et ILYAKA.",
+            "result": "OK",
+        }
+    )
+    assert out["suggested_memory_keys"] == {}
+    assert "Dernière mission" not in str(out)
+
+
+def test_chat_message_looks_like_science():
+    from services.learning import chat_message_looks_like_science
+
+    assert chat_message_looks_like_science("bonjour") is False
+    assert (
+        chat_message_looks_like_science(
+            "Mon entreprise Mer et Découverte 83 organise des sorties en mer "
+            "avec les bateaux Cigno Nero et ILYAKA sur le littoral varois."
+        )
+        is True
+    )
+
+
+def test_maybe_capture_science_from_chat_returns_ui_card(monkeypatch):
+    from services import learning as learn
+
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setattr(
+        learn,
+        "_llm_extract_learning",
+        lambda job: {
+            "title": "Science — Mer",
+            "learnings": ["SASU Mer et Découverte 83", "Bateaux Cigno Nero"],
+            "suggested_memory_keys": {"global": "- SASU Mer et Découverte 83"},
+            "enterprise_facts": {"brand": "Mer et Découverte 83"},
+            "suggested_prompt_tweaks": [],
+        },
+    )
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    card = learn.maybe_capture_science_from_chat(
+        "Mon entreprise Mer et Découverte 83 organise des sorties en mer "
+        "avec les bateaux Cigno Nero et ILYAKA sur le littoral varois.",
+        "Merci pour ces infos.",
+    )
+    assert card is not None
+    assert card["applied"] is True
+    assert any("Mer et Découverte" in b for b in card["bullets"])
+    assert card["href"] == "/gestion/science"
+
+
+def test_llm_science_extract_parses_facts_and_memory(monkeypatch):
+    from services import learning as learn
+
+    monkeypatch.setattr(learn, "_existing_science_snapshot", lambda: "")
+    monkeypatch.setattr(
+        "llm_client.llm_turn",
+        lambda *a, **k: (
+            """{
+              "title": "Science — Mer et Découverte",
+              "learnings": ["SASU Mer et Découverte 83", "Bateaux Cigno Nero et ILYAKA"],
+              "suggested_memory_keys": {
+                "global": "- Activité : sorties en mer (Var)\\n- Bateaux : Cigno Nero, ILYAKA"
+              },
+              "enterprise_facts": {
+                "brand": "Mer et Découverte 83",
+                "activity": "Sorties en mer et découverte du littoral",
+                "companies": ["Mer et Découverte 83 (SASU)", "Bon Aloha (EI)"],
+                "assets": ["Cigno Nero", "ILYAKA", "Aventura 28"],
+                "location": "Var"
+              },
+              "suggested_prompt_tweaks": []
+            }""",
+            10,
+            20,
+        ),
+    )
+    out = learn._llm_extract_learning(
+        {
+            "id": "j2",
+            "source": "chat",
+            "mission": "Voici mon organisation maritime…",
+            "result": "Merci pour ces infos.",
+        }
+    )
+    assert out is not None
+    assert "Cigno Nero" in (out["suggested_memory_keys"].get("global") or "")
+    assert out["enterprise_facts"]["brand"] == "Mer et Découverte 83"
+    assert "Bon Aloha (EI)" in out["enterprise_facts"]["companies"]
+    assert "Dernière mission" not in (out["suggested_memory_keys"].get("global") or "")
+
+
+def test_trigger_learning_passes_enterprise_facts(client, monkeypatch):
+    from database import save_job, update_job
+    from services import learning as learn
+
+    monkeypatch.setenv("ENV", "dev")
+    monkeypatch.setattr(
+        learn,
+        "_llm_extract_learning",
+        lambda job: {
+            "title": "Science — test",
+            "learnings": ["Fait A"],
+            "suggested_memory_keys": {"global": "- Fait A durable"},
+            "enterprise_facts": {"brand": "Test Brand", "activity": "Activité test"},
+            "suggested_prompt_tweaks": [],
+        },
+    )
+    monkeypatch.setattr(learn, "get_learning_auto_apply_mode", lambda: "safe")
+    job_id = "learn-sci-1"
+    save_job(job_id, "assistant", "Infos entreprise", source="chat")
+    update_job(job_id, "completed", result="ok")
+    sug = learn.trigger_learning_on_validate(job_id)
+    assert sug is not None
+    from services.memory_inbox import get_enterprise_facts
+    from database import get_enterprise_memory
+
+    facts = get_enterprise_facts()
+    assert facts.get("brand") == "Test Brand"
+    mem = get_enterprise_memory()
+    global_ctx = str((mem.get("contexts") or {}).get("global") or "")
+    assert "Fait A durable" in global_ctx
+    assert "Dernière mission validée" not in global_ctx

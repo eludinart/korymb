@@ -13,6 +13,13 @@ export type ChatStreamDone = {
   mirror_ack?: string;
   action_label?: string;
   proposal?: string;
+  science_capture?: {
+    title?: string;
+    bullets?: string[];
+    applied?: boolean;
+    href?: string;
+    suggestion_id?: string;
+  };
 };
 
 export type ChatStreamResult =
