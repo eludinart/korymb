@@ -6,6 +6,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
 import AgentMessageMarkdown from "../../../components/AgentMessageMarkdown";
 import {
+  ScienceIdentityEditor,
+  SciencePersonEditor,
+  SCIENCE_FACT_LABELS,
+  formatFactValue,
+} from "../../../components/gestion/ScienceIdentityEditor";
+import {
   AlertBox,
   LoadingLine,
   PageHeader,
@@ -19,25 +25,7 @@ import {
   type ScienceOverview,
 } from "../../../lib/business";
 
-const FACT_LABELS: Record<string, string> = {
-  brand: "Marque",
-  tagline: "Formule",
-  location: "Lieu",
-  offers: "Offres",
-  activity: "Activité",
-  tone: "Ton",
-  icp: "Public",
-  companies: "Sociétés",
-  boats: "Bateaux",
-  org: "Organisation",
-};
-
 const SUGGESTED_CATEGORIES = ["Stratégie", "Offre", "Process", "Référence", "Note", "Calendrier"];
-
-function formatFactValue(value: string | string[] | undefined): string {
-  if (Array.isArray(value)) return value.filter(Boolean).join(" · ");
-  return String(value || "").trim();
-}
 
 function EntityChip({ entity }: { entity: ScienceEntityBrief }) {
   const attrs = Object.entries(entity.attributes || {}).slice(0, 3);
@@ -171,6 +159,8 @@ function ScienceListInner() {
   const [projectId, setProjectId] = useState(projectFromUrl);
   const [error, setError] = useState("");
   const [migrateMsg, setMigrateMsg] = useState("");
+  const [editIdentity, setEditIdentity] = useState(false);
+  const [editPerson, setEditPerson] = useState(false);
 
   const overview = useQuery({
     queryKey: ["science-overview"],
@@ -351,23 +341,35 @@ function ScienceListInner() {
           title="Identité"
           description="Faits structurés de l’entreprise"
           action={
-            <Link href={memoryHref} className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200">
-              Enrichir
-            </Link>
+            <button
+              type="button"
+              className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200"
+              onClick={() => setEditIdentity((v) => !v)}
+            >
+              {editIdentity ? "Fermer" : "Enrichir"}
+            </button>
           }
         >
-          {factEntries.length === 0 ? (
+          {factEntries.length === 0 && !editIdentity ? (
             <p className="text-sm text-slate-500">
-              Aucun fait encore.{" "}
+              Aucun fait encore. Cliquez{" "}
+              <button
+                type="button"
+                className="font-semibold text-violet-700 underline dark:text-violet-300"
+                onClick={() => setEditIdentity(true)}
+              >
+                Enrichir
+              </button>{" "}
+              pour ajouter des sections, ou{" "}
               <Link href={questionnaireHref} className="font-semibold text-violet-700 underline dark:text-violet-300">
-                Répondre au questionnaire
-              </Link>{" "}
-              ou laisser l’usage remplir.
+                répondre au questionnaire
+              </Link>
+              .
             </p>
-          ) : (
+          ) : !editIdentity ? (
             <dl className="grid gap-2 sm:grid-cols-2">
               {factEntries.map(([key, value]) => {
-                const label = FACT_LABELS[key] || key;
+                const label = SCIENCE_FACT_LABELS[key] || key;
                 const text = formatFactValue(value);
                 if (!text) return null;
                 return (
@@ -378,22 +380,45 @@ function ScienceListInner() {
                 );
               })}
             </dl>
-          )}
+          ) : null}
+          <ScienceIdentityEditor
+            facts={(ov?.facts || {}) as Record<string, string | string[]>}
+            open={editIdentity}
+            onClose={() => setEditIdentity(false)}
+          />
         </SectionCard>
 
         <SectionCard
           title="Dirigeant"
           description="Personnes liées à l’activité"
           action={
-            <Link href={questionnaireHref} className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200">
-              Préciser
-            </Link>
+            <button
+              type="button"
+              className="text-xs font-bold text-violet-800 hover:underline dark:text-violet-200"
+              onClick={() => setEditPerson((v) => !v)}
+            >
+              {editPerson ? "Fermer" : "Préciser"}
+            </button>
           }
         >
-          {(ov?.persons || []).length === 0 ? (
+          {(ov?.persons || []).length === 0 && !editPerson ? (
             <p className="text-sm text-slate-500">
-              Aucune fiche personne. Le questionnaire peut en proposer une quand c’est utile.
+              Aucune fiche personne.{" "}
+              <button
+                type="button"
+                className="font-semibold text-violet-700 underline dark:text-violet-300"
+                onClick={() => setEditPerson(true)}
+              >
+                Préciser
+              </button>{" "}
+              pour en ajouter une.
             </p>
+          ) : !editPerson ? (
+            <ul className="grid gap-2">
+              {(ov?.persons || []).map((p) => (
+                <EntityChip key={String(p.entity_id || p.name)} entity={p} />
+              ))}
+            </ul>
           ) : (
             <ul className="grid gap-2">
               {(ov?.persons || []).map((p) => (
@@ -401,6 +426,7 @@ function ScienceListInner() {
               ))}
             </ul>
           )}
+          <SciencePersonEditor open={editPerson} onClose={() => setEditPerson(false)} />
         </SectionCard>
       </div>
 

@@ -40,19 +40,25 @@ def _clip(value: Any, limit: int) -> str:
 def _safe_facts(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
+    from services.science_facts import format_fact_for_display
+
     out: dict[str, Any] = {}
-    for key in _FACT_DISPLAY_KEYS:
+    # Clés connues d'abord, puis sections custom ajoutées par l'utilisateur.
+    ordered_keys = list(_FACT_DISPLAY_KEYS) + [
+        k for k in raw.keys() if k not in _FACT_DISPLAY_KEYS and k != "updated_at"
+    ]
+    for key in ordered_keys:
         if key not in raw:
             continue
         val = raw[key]
         if isinstance(val, list):
             clean = [_clip(x, 80) for x in val if str(x or "").strip()][:12]
             if clean:
-                out[key] = clean
-        else:
-            text = _clip(val, 240)
-            if text:
-                out[key] = text
+                out[str(key)[:40]] = clean
+            continue
+        text = _clip(format_fact_for_display(val), 240)
+        if text:
+            out[str(key)[:40]] = text
     updated = str(raw.get("updated_at") or "").strip()
     if updated:
         out["updated_at"] = updated[:40]

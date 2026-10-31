@@ -970,6 +970,45 @@ export const businessApi = {
     });
     return data as ScienceOverview;
   },
+  putScienceFacts: async (facts: Record<string, string | string[]>) => {
+    const { res, data } = await requestJson("/business/science-facts", {
+      method: "PUT",
+      headers: agentHeaders(),
+      body: JSON.stringify({ facts }),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible d’enregistrer les faits.");
+    }
+    return data as { facts: Record<string, string | string[]>; overview?: ScienceOverview };
+  },
+  deleteScienceFact: async (key: string) => {
+    const { res, data } = await requestJson(`/business/science-facts/${encodeURIComponent(key)}`, {
+      method: "DELETE",
+      headers: agentHeaders(),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible de supprimer cette section.");
+    }
+    return data as { facts: Record<string, string | string[]>; overview?: ScienceOverview };
+  },
+  createScienceEntity: async (payload: {
+    name: string;
+    entity_type?: string;
+    attributes?: Record<string, string>;
+  }) => {
+    const { res, data } = await requestJson("/business/science-entities", {
+      method: "POST",
+      headers: agentHeaders(),
+      body: JSON.stringify(payload),
+      expectOk: false,
+    });
+    if (!res.ok) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Impossible d’enregistrer la fiche.");
+    }
+    return data as { entity: ScienceEntityBrief; overview?: ScienceOverview };
+  },
   migrateKnowledgeFromCalendar: async (dryRun = false) => {
     const qs = dryRun ? "?dry_run=true" : "";
     const { data } = await requestJson(`/business/knowledge-documents/migrate-from-calendar${qs}`, {

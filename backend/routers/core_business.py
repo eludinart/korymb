@@ -4,6 +4,7 @@ routers/core_business.py — API gestion métier (contacts, projets, devis, plan
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile
 from fastapi.responses import Response
@@ -238,6 +239,17 @@ class KnowledgeDocumentCreate(BaseModel):
     tags: list[str] = Field(default_factory=list)
     category: str = Field(default="", max_length=120)
     author: str = Field(default="", max_length=120)
+
+
+class ScienceFactsPut(BaseModel):
+    # str | list | dict — les dict sont normalisés en texte lisible côté service.
+    facts: dict[str, Any] = Field(default_factory=dict)
+
+
+class ScienceEntityCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    entity_type: str = Field(default="person", max_length=32)
+    attributes: dict[str, str] = Field(default_factory=dict)
 
 
 class KnowledgeDocumentUpdate(BaseModel):
@@ -1219,6 +1231,44 @@ async def business_accept_schedule_proposal(body: ScheduleProposalAccept):
 async def business_science_overview():
     """Hub lecture seule : faits, mémoire (extrait), entités, docs, guide contexte."""
     return get_science_overview()
+
+
+@router.put("/business/science-facts", dependencies=[Depends(resolve_tenant)])
+async def business_put_science_facts(body: ScienceFactsPut):
+    """Enregistre / fusionne des sections Identité (formulaire grand public)."""
+    from services.science_facts import put_science_facts
+
+    try:
+        facts = put_science_facts(body.facts)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"facts": facts, "overview": get_science_overview()}
+
+
+@router.delete("/business/science-facts/{key}", dependencies=[Depends(resolve_tenant)])
+async def business_delete_science_fact(key: str = Path(..., min_length=1, max_length=64)):
+    from services.science_facts import delete_science_fact
+
+    try:
+        facts = delete_science_fact(key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404 if "introuvable" in str(exc).lower() else 422, detail=str(exc)) from exc
+    return {"facts": facts, "overview": get_science_overview()}
+
+
+@router.post("/business/science-entities", dependencies=[Depends(resolve_tenant)])
+async def business_create_science_entity(body: ScienceEntityCreate):
+    from services.science_facts import upsert_science_entity
+
+    try:
+        entity = upsert_science_entity(
+            name=body.name,
+            entity_type=body.entity_type,
+            attributes=body.attributes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"entity": entity, "overview": get_science_overview()}
 
 
 @router.get("/business/knowledge-documents", dependencies=[Depends(resolve_tenant)])
