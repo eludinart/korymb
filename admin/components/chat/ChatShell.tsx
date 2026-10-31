@@ -716,8 +716,13 @@ export default function ChatShell({
               m.role === "assistant"
                 ? stripChoiceQuestionnaireFences(chatBubbleDisplayText(m.id, m.content))
                 : m.content;
-            const folded = m.role === "assistant" ? splitLead(displaySource) : { lead: displaySource, rest: "" };
-            const replyOpen = Boolean(expandedReply[m.id]);
+            const isLatestAssistant = m.id === lastAssistantId;
+            const folded =
+              m.role === "assistant" && !isLatestAssistant
+                ? splitLead(displaySource)
+                : { lead: displaySource, rest: "" };
+            // Dernier message assistant : toujours ouvert (c'est celui à lire).
+            const replyOpen = isLatestAssistant || Boolean(expandedReply[m.id]);
             const shownSource = replyOpen || !folded.rest.trim() ? displaySource : folded.lead;
             const copySource =
               (m.role === "assistant" ? displaySource : m.content).trim() ||
@@ -771,7 +776,7 @@ export default function ChatShell({
                         ) : null}
                         {m.replyTo ? <ChatQuoteChip reply={m.replyTo} onSurface="assistant" /> : null}
                         {shownSource.trim() ? <AgentMessageMarkdown source={shownSource} /> : null}
-                        {folded.rest.trim() ? (
+                        {folded.rest.trim() && !isLatestAssistant ? (
                           <button
                             type="button"
                             onClick={() => setExpandedReply((prev) => ({ ...prev, [m.id]: !replyOpen }))}
