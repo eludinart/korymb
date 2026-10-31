@@ -253,6 +253,11 @@ from tools.registry_extended import (
     EXTENDED_TOOL_SCHEMAS,
     dispatch_extended_tool,
 )
+from tools.registry_science import (
+    SCIENCE_TAG_TO_TOOLS,
+    SCIENCE_TOOL_SCHEMAS,
+    dispatch_science_tool,
+)
 from tools.workspace_setup import (
     WORKSPACE_TAG_TO_TOOLS,
     WORKSPACE_TOOL_SCHEMAS,
@@ -328,6 +333,8 @@ for _tag, _names in GESTION_TAG_TO_TOOLS.items():
 for _tag, _names in EXTENDED_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 for _tag, _names in WORKSPACE_TAG_TO_TOOLS.items():
+    _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
+for _tag, _names in SCIENCE_TAG_TO_TOOLS.items():
     _TAG_TO_TOOLS[_tag] = _TAG_TO_TOOLS.get(_tag, ()) + _names
 
 _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
@@ -814,6 +821,7 @@ _ALL_ANTHROPIC_TOOLS: list[dict[str, Any]] = [
 _ALL_ANTHROPIC_TOOLS.extend(EXTENDED_TOOL_SCHEMAS)
 _ALL_ANTHROPIC_TOOLS.extend(BUSINESS_TOOL_SCHEMAS)
 _ALL_ANTHROPIC_TOOLS.extend(WORKSPACE_TOOL_SCHEMAS)
+_ALL_ANTHROPIC_TOOLS.extend(SCIENCE_TOOL_SCHEMAS)
 
 
 _PRODUCT_DB_TOOLS = frozenset({
@@ -1188,6 +1196,9 @@ def _execute_tool(name: str, inp: Any, *, _from_journal: bool = False) -> str:
         ws = dispatch_workspace_tool(name, inp)
         if ws is not None:
             return ws
+        sci = dispatch_science_tool(name, inp)
+        if sci is not None:
+            return sci
         if name.startswith("gestion_"):
             inp = _inject_tool_run_ctx(inp)
             from services.config_suggestions import CHAT_WRITE_TOOLS, enqueue_chat_write_proposal, format_proposal_tool_result

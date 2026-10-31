@@ -345,10 +345,59 @@ _PROJECT_WRITE_RE = re.compile(
     re.I,
 )
 
+_SCIENCE_WRITE_RE = re.compile(
+    r"("
+    r"\b(cree|creer|ajoute|ajouter|mets? en place|mettre en place|structure|enregistre|"
+    r"enregistrer|documente|documenter|materialise|materialiser)\b.{0,100}"
+    r"\b(science|sous[- ]?sections?|documents? science|knowledge|fiches? science)\b|"
+    r"\b(science (de )?(l[' ]?)?entreprise|gestion/science)\b.{0,80}"
+    r"\b(cree|creer|ajoute|ajouter|structure|document)\b|"
+    r"\b(sous[- ]?sections?|categories? science)\b.{0,60}\b(science|korymb|gestion)\b"
+    r")",
+    re.I,
+)
+_SCIENCE_HISTORY_RE = re.compile(
+    r"("
+    r"science (de )?(l[' ]?)?entreprise|/gestion/science|"
+    r"science_create_document|documents? science|"
+    r"sous[- ]?sections? .{0,40}(identite|offre|process|strategie)|"
+    r"je (vais |peux )?(creer|ecrire|mettre en place).{0,80}(science|document)"
+    r")",
+    re.I,
+)
+_SCIENCE_CONFIRM_RE = re.compile(
+    r"^("
+    r"oui|ouais|ok|okay|d accord|daccord|vas[- ]y|go|"
+    r"valide|valider|c est bon|parfait|fais[- ]le|"
+    r"je valide|confirme|confirmer|ecris|ecrire|cree|creer"
+    r")\b.{0,40}$"
+)
+
 
 def chat_turn_needs_project_write(text: str) -> bool:
     """Vrai si ce tour doit pouvoir écrire un projet et ses tâches."""
     return bool(_PROJECT_WRITE_RE.search(_fold(text or "")))
+
+
+def chat_turn_needs_science_write(message: str, history: list | None = None) -> bool:
+    """Vrai si ce tour doit écrire dans Science (création ou « ok » après proposition)."""
+    folded = _fold(message).replace("'", " ").replace("’", " ")
+    folded = re.sub(r"\s+", " ", folded).strip()
+    folded = re.sub(r"[.!?]+$", "", folded).strip()
+    if not folded:
+        return False
+    if _SCIENCE_WRITE_RE.search(folded):
+        return True
+    if len(folded) > 80 or not _SCIENCE_CONFIRM_RE.search(folded):
+        return False
+    recent: list[str] = []
+    for item in reversed(history or []):
+        if not isinstance(item, dict) or item.get("role") != "assistant":
+            continue
+        recent.append(_fold(str(item.get("content") or "")))
+        if len(recent) >= 2:
+            break
+    return bool(_SCIENCE_HISTORY_RE.search("\n".join(recent)))
 
 
 def chat_message_needs_action(text: str) -> bool:
@@ -370,6 +419,8 @@ def chat_message_needs_action(text: str) -> bool:
     if _ACTION_RE.search(folded):
         return True
     if chat_turn_needs_project_write(raw):
+        return True
+    if chat_turn_needs_science_write(raw):
         return True
     return bool(
         re.search(

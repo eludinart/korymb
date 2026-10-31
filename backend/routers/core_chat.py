@@ -170,7 +170,11 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                 CHAT_USE_MODE_QUOTIDIEN,
             )
             from services.chat_attachments import build_attachment_mission_block
-            from services.chat_intelligence import chat_message_needs_action, chat_turn_needs_team_tools
+            from services.chat_intelligence import (
+                chat_message_needs_action,
+                chat_turn_needs_science_write,
+                chat_turn_needs_team_tools,
+            )
 
             use_mode = normalize_chat_use_mode(request.chat_use_mode)
             logger.info(
@@ -191,8 +195,12 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     use_tools=False,
                     reply_context=draft_context,
                 )
-            # Quotidien : réponse sync (pas de job) sauf action, équipe ou pièce jointe.
-            needs_tools = chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist)
+            # Quotidien : réponse sync (pas de job) sauf action, équipe, Science ou pièce jointe.
+            needs_tools = (
+                chat_message_needs_action(msg_raw)
+                or chat_turn_needs_team_tools(msg_raw, hist)
+                or chat_turn_needs_science_write(msg_raw, hist)
+            )
             if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
                 return run_assistant_chat_sync(
                     message=turn,
@@ -710,6 +718,7 @@ async def chat_stream(request: ChatRequest):
     from services.chat_intelligence import (
         chat_message_needs_action,
         chat_message_needs_confirmation,
+        chat_turn_needs_science_write,
         chat_turn_needs_team_tools,
         irreversible_action_label,
     )
@@ -741,7 +750,12 @@ async def chat_stream(request: ChatRequest):
     turn = _user_turn_text(msg_raw, att_block)
     hist = list(request.history or [])
 
-    if att_snap or chat_message_needs_action(msg_raw) or chat_turn_needs_team_tools(msg_raw, hist):
+    if (
+        att_snap
+        or chat_message_needs_action(msg_raw)
+        or chat_turn_needs_team_tools(msg_raw, hist)
+        or chat_turn_needs_science_write(msg_raw, hist)
+    ):
         return start_assistant_chat_job(
             message=turn,
             history=hist,

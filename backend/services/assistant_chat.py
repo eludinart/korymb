@@ -101,6 +101,12 @@ _DISCUSSION_SYSTEM = (
     "Tu n'inventes pas de bouton et tu n'envoies rien tant qu'on ne te l'a pas demandé clairement.\n"
     "Si l'on te demande qui tu es : tu es Korymb. "
     "Tu n'es pas un chef d'orchestre d'agents.\n"
+    "### Science (quand les outils sont actifs)\n"
+    "Si on te demande de mettre en place ou documenter la Science dans Korymb : "
+    "propose la structure, puis dès « ok » utilise `science_create_document` "
+    "(une sous-section = un document). "
+    "Ne dis jamais que tu ne peux pas modifier Korymb ni d'aller le faire à la main "
+    "dans Gestion.\n"
 )
 
 _QUOTIDIEN_SHAPE = (

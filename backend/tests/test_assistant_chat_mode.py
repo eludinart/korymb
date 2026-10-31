@@ -112,11 +112,14 @@ def test_assistant_tools_cover_templates_agenda_and_calendar():
         "create_calendar_event",
         "list_calendar_events",
         "korymb_overview",
+        "science_create_document",
+        "science_list_documents",
     ):
         assert required in names
     assert BUILTIN_AGENT_DEFINITIONS["assistant"]["tools"] == ASSISTANT_TOOL_TAGS
     folded = ASSISTANT_SYSTEM.lower()
     assert "korymb_save_mission_template" in folded
+    assert "science_create_document" in folded
     assert "décisions" in folded
     assert "n'écris pas de fiche" not in folded
 

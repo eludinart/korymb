@@ -49,6 +49,8 @@ CRM_WRITE_TOOLS = frozenset({
     "gestion_schedule_event",
     "gestion_create_quote",
     "gestion_propose_contact_enrichment",
+    "science_create_document",
+    "science_update_document",
 })
 
 
