@@ -172,6 +172,7 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             from services.chat_attachments import build_attachment_mission_block
             from services.chat_intelligence import (
                 chat_message_needs_action,
+                chat_turn_needs_korymb_agency,
                 chat_turn_needs_science_write,
                 chat_turn_needs_team_tools,
             )
@@ -195,11 +196,12 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
                     use_tools=False,
                     reply_context=draft_context,
                 )
-            # Quotidien : réponse sync (pas de job) sauf action, équipe, Science ou pièce jointe.
+            # Quotidien : réponse sync (pas de job) sauf action, équipe, Science, agency ou pièce jointe.
             needs_tools = (
                 chat_message_needs_action(msg_raw)
                 or chat_turn_needs_team_tools(msg_raw, hist)
                 or chat_turn_needs_science_write(msg_raw, hist)
+                or chat_turn_needs_korymb_agency(msg_raw)
             )
             if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
                 return run_assistant_chat_sync(
@@ -718,6 +720,7 @@ async def chat_stream(request: ChatRequest):
     from services.chat_intelligence import (
         chat_message_needs_action,
         chat_message_needs_confirmation,
+        chat_turn_needs_korymb_agency,
         chat_turn_needs_science_write,
         chat_turn_needs_team_tools,
         irreversible_action_label,
@@ -755,6 +758,7 @@ async def chat_stream(request: ChatRequest):
         or chat_message_needs_action(msg_raw)
         or chat_turn_needs_team_tools(msg_raw, hist)
         or chat_turn_needs_science_write(msg_raw, hist)
+        or chat_turn_needs_korymb_agency(msg_raw)
     ):
         return start_assistant_chat_job(
             message=turn,

@@ -80,6 +80,30 @@ def test_quotidien_without_tools_stays_a_plain_conversation():
     assert "korymb" in daily.lower()
     assert "crée l'équipe" not in daily.lower()
     assert "créer l'équipe" not in daily.lower()
+    folded = daily.lower()
+    assert "interdit" in folded
+    assert "science" in folded
+    assert "environnement externe" in folded
+
+
+def test_quotidien_prompt_forbids_disconnected_llm_persona():
+    daily = build_assistant_system_prompt("bonjour", chat_use_mode="quotidien", tools_enabled=False)
+    folded = daily.lower()
+    assert "assistant korymb" in folded
+    assert "interdit" in folded and "environnement externe" in folded
+    assert "science_create_document" in folded
+
+
+def test_chat_needs_tools_when_user_challenges_korymb_agency():
+    from services.chat_intelligence import chat_message_needs_action, chat_turn_needs_korymb_agency
+
+    msg = (
+        "même avec cette modification, tu ne peux pas vérifier ni interagir "
+        "avec mon environnement Korymb ?"
+    )
+    assert chat_turn_needs_korymb_agency(msg) is True
+    assert chat_message_needs_action(msg) is True
+    assert chat_turn_needs_korymb_agency("bonjour") is False
 
 
 def test_resolve_pending_blueprint_only_when_proposed(monkeypatch):

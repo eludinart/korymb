@@ -400,6 +400,29 @@ def chat_turn_needs_science_write(message: str, history: list | None = None) -> 
     return bool(_SCIENCE_HISTORY_RE.search("\n".join(recent)))
 
 
+_KORYMB_AGENCY_RE = re.compile(
+    r"("
+    r"\b(peux[- ]tu|tu peux|es[- ]tu capable|capable de|capacite (a|de)|"
+    r"as[- ]tu (acces|la capacite)|tu n[' ]as pas|tu ne peux pas|"
+    r"impossible (de|d)|verifier ni|meme avec|malgre (cette |la )?)\b"
+    r".{0,120}\b(korymb|science|gestion|interagir|verifier|ecrire|creer|modifier|"
+    r"environnement|systeme|outils?)\b|"
+    r"\b(interagir|verifier|ecrire|creer|modifier|connecter)\b.{0,80}"
+    r"\b(korymb|science|gestion|environnement)\b|"
+    r"\benvironnement (externe|korymb)\b|"
+    r"\bmodele de langage\b|"
+    r"\b(montre|prouve|demontre)\b.{0,60}\b(korymb|science|tu peux)\b"
+    r")",
+    re.I,
+)
+
+
+def chat_turn_needs_korymb_agency(text: str) -> bool:
+    """Vrai si le tour challenge la capacité d'agir dans Korymb (outils requis)."""
+    folded = _fold(text or "")
+    return bool(_KORYMB_AGENCY_RE.search(folded))
+
+
 def chat_message_needs_action(text: str) -> bool:
     """Vrai si le message demande un travail (recherche, rédaction, envoi, livrable)."""
     raw = (text or "").strip()
@@ -421,6 +444,8 @@ def chat_message_needs_action(text: str) -> bool:
     if chat_turn_needs_project_write(raw):
         return True
     if chat_turn_needs_science_write(raw):
+        return True
+    if chat_turn_needs_korymb_agency(raw):
         return True
     return bool(
         re.search(
