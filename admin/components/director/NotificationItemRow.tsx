@@ -10,6 +10,7 @@ import {
   notificationPreviewText,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
+import { useUiMode } from "../../lib/uiMode";
 
 type Props = {
   notification: DirectorNotification;
@@ -37,7 +38,8 @@ export default function NotificationItemRow({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const actions = buildNotificationActions(n);
+  const { isEssential, isPlatformOwner } = useUiMode();
+  const actions = buildNotificationActions(n, { essential: isEssential, platformOwner: isPlatformOwner });
   const primary = actions.find((a) => a.primary) || actions[0];
   const memoryDecision = String(n.kind || "").toLowerCase() === "learning_suggestion" && Boolean(n.suggestion_id);
   const body = notificationPreviewText(n.body, 400);

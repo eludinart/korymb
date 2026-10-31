@@ -1,3 +1,5 @@
+import { safeSurfaceHref } from "./essentialSurface";
+
 export type DirectorNotification = {
   id: string;
   kind: string;
@@ -86,22 +88,33 @@ function primaryLabel(kind: string, href: string): string {
   if (k === "bug_report") return "Ouvrir l'aide";
   if (href.includes("/gestion/courrier")) return "Ouvrir le courrier";
   if (href.includes("/missions")) return "Ouvrir la mission";
-  if (href.includes("/inbox")) return "Ouvrir Décisions";
+  if (href.includes("/inbox")) return "Ouvrir À confirmer";
   if (href.includes("/chat")) return "Ouvrir le chat";
   return "Ouvrir";
 }
 
 /** Une seule porte de sortie. Garder / Ignorer d'une mémoire en attente ne passent pas par un lien. */
-export function buildNotificationActions(n: DirectorNotification): NotificationAction[] {
+export function buildNotificationActions(
+  n: DirectorNotification,
+  surface?: { essential?: boolean; platformOwner?: boolean },
+): NotificationAction[] {
   const kind = String(n.kind || "").toLowerCase();
   const suggestionId = String(n.suggestion_id || "").trim();
   if (kind === "learning_suggestion" && suggestionId) return [];
 
   const actionUrl = String(n.action_url || "").trim();
-  const href =
+  const raw =
     actionUrl ||
     (kind === "memory_applied" || kind === "learning_suggestion" ? "/administration/memory" : "");
-  if (!href) return [{ id: "briefing", label: "Briefing", href: "/briefing", primary: true }];
+  if (!raw) {
+    return [{ id: "briefing", label: "Aujourd'hui", href: "/briefing", primary: true }];
+  }
+  const href = surface
+    ? safeSurfaceHref(raw, {
+        essential: Boolean(surface.essential),
+        platformOwner: surface.platformOwner,
+      })
+    : raw;
   return [{ id: "primary", label: primaryLabel(kind, href), href, primary: true }];
 }
 

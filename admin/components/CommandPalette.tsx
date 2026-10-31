@@ -8,7 +8,14 @@ import { businessApi, type MailboxThread } from "../lib/business";
 import { mailtoHref, telHref } from "../lib/contactLinks";
 import { QK } from "../lib/queryClient";
 import { DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_HINT, DIRECTOR_QUEUE_LABEL } from "../lib/directorQueue";
-import { GESTION_NAV_LINKS, GESTION_QUICK_ACTIONS, filterGestionNavLinks } from "../lib/gestionNav";
+import { ESSENTIAL_ADMIN_ENTRY } from "../lib/adminNav";
+import { isEssentialAllowedPath } from "../lib/essentialSurface";
+import {
+  GESTION_NAV_LINKS,
+  GESTION_QUICK_ACTIONS,
+  filterGestionNavLinks,
+  filterGestionQuickActions,
+} from "../lib/gestionNav";
 import type { Job } from "../lib/types";
 import { useUiMode } from "../lib/uiMode";
 
@@ -53,8 +60,9 @@ function CommandPaletteInner() {
   const needle = query.trim().toLowerCase();
   const lensOn = open && needle.length >= 2;
 
-  const { showAdvanced, isPlatformOwner, workspaceSlug } = useUiMode();
+  const { showAdvanced, isPlatformOwner, workspaceSlug, role } = useUiMode();
   const essential = !showAdvanced;
+  const canAdmin = role === "admin";
 
   const jobs = useQuery({
     queryKey: QK.jobsCards,
@@ -100,16 +108,15 @@ function CommandPaletteInner() {
       href: link.href,
       group: "Gestion entreprise",
     }));
-    const gestionActions: Command[] = (essential
-      ? GESTION_QUICK_ACTIONS.filter((a) => ["new-contact", "new-event", "new-quote", "new-task"].includes(a.id))
-      : GESTION_QUICK_ACTIONS
-    ).map((action) => ({
-      id: action.id,
-      label: action.label,
-      hint: action.hint,
-      href: action.href,
-      group: "Actions gestion",
-    }));
+    const gestionActions: Command[] = filterGestionQuickActions(GESTION_QUICK_ACTIONS, { essential }).map(
+      (action) => ({
+        id: action.id,
+        label: action.label,
+        hint: action.hint,
+        href: action.href,
+        group: "Actions gestion",
+      }),
+    );
     const slug = workspaceSlug;
     const espaceCommands: Command[] = slug
       ? [
@@ -140,20 +147,36 @@ function CommandPaletteInner() {
       ...espaceCommands,
       ...gestionNav,
       ...gestionActions,
-      {
-        id: "triage",
-        label: "Traiter ce qui est à valider",
-        hint: DIRECTOR_QUEUE_HINT,
-        href: `${DIRECTOR_QUEUE_HREF}?triage=1`,
-        group: "Actions IA",
-      },
-      {
-        id: "inbox",
-        label: DIRECTOR_QUEUE_LABEL,
-        hint: DIRECTOR_QUEUE_HINT,
-        href: DIRECTOR_QUEUE_HREF,
-        group: "Navigation",
-      },
+      ...(canAdmin
+        ? [
+            {
+              id: "triage",
+              label: "Traiter ce qui est à valider",
+              hint: DIRECTOR_QUEUE_HINT,
+              href: `${DIRECTOR_QUEUE_HREF}?triage=1`,
+              group: "Actions IA",
+            },
+            {
+              id: "inbox",
+              label: DIRECTOR_QUEUE_LABEL,
+              hint: DIRECTOR_QUEUE_HINT,
+              href: DIRECTOR_QUEUE_HREF,
+              group: "Navigation",
+            },
+            {
+              id: "admin-memory",
+              label: "Votre activité",
+              href: ESSENTIAL_ADMIN_ENTRY,
+              group: "Administration",
+            },
+            {
+              id: "admin-reprise",
+              label: "Audit reprise",
+              href: "/administration/reprise",
+              group: "Administration",
+            },
+          ]
+        : []),
       ...(essential
         ? []
         : [
@@ -176,7 +199,7 @@ function CommandPaletteInner() {
               : []),
           ]),
     ];
-  }, [essential, isPlatformOwner, workspaceSlug]);
+  }, [canAdmin, essential, isPlatformOwner, workspaceSlug]);
 
   const jobCommands: Command[] = useMemo(() => {
     if (essential) return [];
@@ -213,20 +236,22 @@ function CommandPaletteInner() {
           actions,
         };
       });
-    const projects = (projectsQ.data || [])
-      .filter((p) => includesQuery(needle, [p.title, p.description, p.location, p.status]))
-      .slice(0, 5)
-      .map((p): LensHit => {
-        const href = `/gestion/projets/${encodeURIComponent(p.id)}`;
-        return {
-          id: `lens-project-${p.id}`,
-          group: "Projets",
-          label: p.title,
-          hint: p.status,
-          href,
-          actions: [{ label: "Ouvrir", href }],
-        };
-      });
+    const projects = essential
+      ? []
+      : (projectsQ.data || [])
+          .filter((p) => includesQuery(needle, [p.title, p.description, p.location, p.status]))
+          .slice(0, 5)
+          .map((p): LensHit => {
+            const href = `/gestion/projets/${encodeURIComponent(p.id)}`;
+            return {
+              id: `lens-project-${p.id}`,
+              group: "Projets",
+              label: p.title,
+              hint: p.status,
+              href,
+              actions: [{ label: "Ouvrir", href }],
+            };
+          });
     const threads = (mailboxQ.data?.threads || [])
       .filter((t) => includesQuery(needle, [t.subject, t.to_email, t.preview, t.contact?.name, t.contact?.email]))
       .slice(0, 5)
@@ -241,8 +266,8 @@ function CommandPaletteInner() {
           actions: [{ label: "Ouvrir", href }],
         };
       });
-    return [...people, ...projects, ...threads];
-  }, [needle, contactsQ.data, projectsQ.data, mailboxQ.data]);
+    return [...people, ...projects, ...threads].filter((hit) => !essential || isEssentialAllowedPath(hit.href));
+  }, [essential, needle, contactsQ.data, projectsQ.data, mailboxQ.data]);
 
   const rows = useMemo(() => {
     const commands = needle

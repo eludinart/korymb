@@ -918,9 +918,12 @@ export default function ChatShell({
                             Enregistré
                           </span>
                         ) : (
-                          <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                          <a
+                            href="/inbox"
+                            className="text-xs font-semibold text-amber-800 underline-offset-2 hover:underline dark:text-amber-200"
+                          >
                             À confirmer dans la file
-                          </span>
+                          </a>
                         )}
                       </div>
                     </div>

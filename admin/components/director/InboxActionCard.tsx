@@ -181,7 +181,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
   const learningMut = useLearningResolve();
   const configMut = useConfigSuggestionResolve(() => flashDoneThenHide("Suggestion appliquée."));
   const qualityMut = useQualityOverride(jobId);
-  const dismissMut = useInboxDismiss(() => flashDoneThenHide("Retiré de Décisions."));
+  const dismissMut = useInboxDismiss(() => flashDoneThenHide("Retiré de À confirmer."));
   const prepareFollowUpMut = usePrepareCrmFollowUp((data) => {
     showChainThenHide(data as { chain?: { steps?: string[] } });
   });
@@ -515,7 +515,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
                   disabled={busy}
                   onClick={prepareFollowUp}
                   className="btn-success flex-1 px-4 text-sm sm:flex-none"
-                  title="Préparer un brouillon e-mail à valider dans Décisions"
+                  title="Préparer un brouillon e-mail à valider dans À confirmer"
                 >
                   {prepareFollowUpMut.isPending ? "Préparation…" : item.primary_cta || "Préparer l'e-mail"}
                 </button>
@@ -590,7 +590,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
               onClick={onDismiss}
               disabled={busy}
               className="touch-target flex-1 rounded-lg border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50 sm:flex-none"
-              title="Retirer cette décision de votre briefing et de Décisions"
+              title="Retirer cette décision de votre briefing et de À confirmer"
             >
               {dismissMut.isPending ? "…" : "Mettre de côté"}
             </button>
@@ -823,7 +823,7 @@ export default function InboxActionCard({ item, defaultExpanded = false, onDismi
             <button
               type="button"
               disabled={busy}
-              onClick={() => qualityMut.mutate("Override dirigeant depuis Décisions")}
+              onClick={() => qualityMut.mutate("Override dirigeant depuis À confirmer")}
               className="btn-primary"
             >
               {qualityMut.isPending ? "Override…" : "Override qualité"}

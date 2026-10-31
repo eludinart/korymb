@@ -35,7 +35,8 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { href: "/administration/apify", label: "Robots Apify", operatorOnly: true },
       { href: "/administration/recommandations", label: "Recommandations", operatorOnly: true },
       { href: "/administration/budget", label: "Budget & coûts", operatorOnly: true },
-      { href: "/administration/reprise", label: "Audit reprise", operatorOnly: true },
+      // Visible à tout admin d'espace : le badge Administration pointe ici.
+      { href: "/administration/reprise", label: "Audit reprise" },
     ],
   },
   {
@@ -53,7 +54,6 @@ export const ADMIN_NAV_GROUPS: readonly AdminNavGroup[] = [
       { href: "/administration/orchestration", label: "Prompts d’orchestration", operatorOnly: true },
       { href: "/administration/comportements", label: "Comportements", operatorOnly: true },
       { href: "/administration/memory", label: "Votre activité" },
-      { href: "/gestion/science", label: "Science de l'entreprise" },
       { href: "/administration/contexte", label: "Questionnaire de contexte" },
     ],
   },
@@ -73,9 +73,9 @@ export const ESSENTIAL_ADMIN_HREFS = new Set([
   "/administration/memory",
   "/administration/contexte",
   "/administration/vitrine",
-  "/administration/modeles",
   "/administration/integrations",
   "/administration/equipes",
+  "/administration/reprise",
 ]);
 
 /** Entrée Administration quand le tableau de santé système est masqué. */
@@ -86,7 +86,6 @@ export const OPERATOR_ADMIN_PREFIXES = [
   "/administration/dashboard",
   "/administration/recommandations",
   "/administration/budget",
-  "/administration/reprise",
   "/administration/apify",
   "/administration/templates",
   "/administration/orchestration",

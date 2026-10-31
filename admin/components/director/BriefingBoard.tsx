@@ -214,6 +214,7 @@ type Props = {
 };
 
 const WHERE_TONE: Record<string, string> = {
+  "À confirmer": "bg-violet-100 text-violet-950 ring-violet-200 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-700",
   Décisions: "bg-violet-100 text-violet-950 ring-violet-200 dark:bg-violet-900 dark:text-violet-100 dark:ring-violet-700",
   Missions: "bg-sky-100 text-sky-950 ring-sky-200 dark:bg-sky-900 dark:text-sky-100 dark:ring-sky-700",
   Planning: "bg-amber-100 text-amber-950 ring-amber-200 dark:bg-amber-900 dark:text-amber-100 dark:ring-amber-700",
@@ -398,7 +399,8 @@ export default function BriefingBoard({
   deleteBusyId,
 }: Props) {
   const qc = useQueryClient();
-  const { isPlatformOwner } = useUiMode();
+  const { showAdvanced, role } = useUiMode();
+  const canAdmin = role === "admin";
   const serverReady = Boolean(board?.counts);
   const inbox = useQuery({
     queryKey: ["admin-inbox"],
@@ -469,7 +471,7 @@ export default function BriefingBoard({
 
   return (
     <div className="space-y-4">
-      {isPlatformOwner ? <RepriseWarningProbe onItem={setRepriseWarning} /> : null}
+      {canAdmin ? <RepriseWarningProbe onItem={setRepriseWarning} /> : null}
       <header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-wide text-slate-500 capitalize dark:text-slate-400">
@@ -546,18 +548,22 @@ export default function BriefingBoard({
             <a href="#board-todo" className="btn-primary">
               Décider
             </a>
-          ) : (
+          ) : showAdvanced ? (
             <Link href="/missions?create=1" className="btn-primary">
               Nouvelle intention
             </Link>
+          ) : (
+            <Link href="/chat" className="btn-primary">
+              Ouvrir la conversation
+            </Link>
           )}
-          {urgentCount > 0 || todoCount > 0 ? (
+          {showAdvanced && (urgentCount > 0 || todoCount > 0) ? (
             <Link href="/missions?create=1" className="btn-link-secondary">
               Nouvelle intention
             </Link>
           ) : null}
           <Link href="/inbox" className="btn-link-secondary">
-            Décisions{inboxTotal > 0 ? ` (${inboxTotal})` : ""}
+            À confirmer{inboxTotal > 0 ? ` (${inboxTotal})` : ""}
           </Link>
         </div>
       </header>
@@ -587,7 +593,7 @@ export default function BriefingBoard({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-12 xl:items-start">
         <p id="board-decisions" className="sr-only">
-          Décisions agents — validation HITL, distincte du coaching.
+          À confirmer — validation HITL, distincte du coaching.
         </p>
         {warningCount === 0 ? <div id="board-warnings" className="hidden" /> : null}
         {warningCount > 0 ? (
@@ -684,7 +690,7 @@ export default function BriefingBoard({
 
         <Lane
           id="board-todo"
-          title="Décisions en attente"
+          title="À confirmer — en attente"
           hint="Validations qui vous attendent, hors urgences."
           count={todoCount}
           accent="bg-violet-100 text-violet-900 dark:bg-violet-900 dark:text-violet-100"
@@ -710,128 +716,132 @@ export default function BriefingBoard({
           {todoCount > todo.length ? (
             <p className="mt-2 text-xs font-semibold text-slate-500">
               <Link href="/inbox" className="font-bold text-violet-700 hover:underline dark:text-violet-300">
-                {todoCount - todo.length} de plus dans Décisions
+                {todoCount - todo.length} de plus dans À confirmer
               </Link>
             </p>
           ) : null}
         </Lane>
 
-        <Lane
-          id="board-running"
-          title="Missions en cours"
-          hint="Missions qui tournent en ce moment."
-          count={runningRows.length}
-          accent="bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100"
-          bar="bg-sky-500"
-          className="xl:col-span-3"
-          action={
-            <Link href="/missions" className="text-xs font-bold text-sky-800 hover:underline dark:text-sky-200">
-              Missions
-            </Link>
-          }
-        >
-          {runningRows.length === 0 ? (
-            <EmptyLine>Aucune mission en cours.</EmptyLine>
-          ) : (
-            <ul className="space-y-2">
-              {runningRows.map((m) => (
-                <li
-                  key={m.job_id}
-                  className="rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-2.5 dark:border-sky-800 dark:bg-sky-950/40"
-                >
-                  <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
-                    {missionTitleLabel(m.mission, 90) || m.job_id}
-                  </p>
-                  <span className="mt-1.5 inline-flex">
-                    <Where>Missions</Where>
-                  </span>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary text-xs">
-                      Suivre
-                    </Link>
-                    {onDeleteRunning ? (
-                      <button
-                        type="button"
-                        disabled={deleteBusyId === m.job_id}
-                        onClick={() => onDeleteRunning(m.job_id, m.mission)}
-                        className={BTN_DELETE}
-                      >
-                        {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Lane>
-
-        <Lane
-          id="board-advance"
-          title="Missions planifiées et résultats"
-          hint="Résultats non consultés, puis missions pas encore lancées."
-          count={advanceCount}
-          accent="bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100"
-          bar="bg-amber-500"
-          className="xl:col-span-4"
-          action={
-            <Link href="/missions?view=kanban" className="text-xs font-bold text-amber-800 hover:underline dark:text-amber-200">
-              Kanban
-            </Link>
-          }
-        >
-          {advanceCount === 0 ? (
-            <EmptyLine>Aucune mission planifiée, aucun résultat à lire.</EmptyLine>
-          ) : (
-            <ul className="space-y-2">
-              {resumeRows.map((m) => (
-                <li key={`resume-${m.job_id}`}>
-                  <Link
-                    href={`/missions?job=${encodeURIComponent(m.job_id)}`}
-                    className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 hover:border-amber-300 dark:border-amber-800 dark:bg-amber-950/40"
+        {showAdvanced ? (
+          <Lane
+            id="board-running"
+            title="Missions en cours"
+            hint="Missions qui tournent en ce moment."
+            count={runningRows.length}
+            accent="bg-sky-100 text-sky-950 dark:bg-sky-900 dark:text-sky-100"
+            bar="bg-sky-500"
+            className="xl:col-span-3"
+            action={
+              <Link href="/missions" className="text-xs font-bold text-sky-800 hover:underline dark:text-sky-200">
+                Missions
+              </Link>
+            }
+          >
+            {runningRows.length === 0 ? (
+              <EmptyLine>Aucune mission en cours.</EmptyLine>
+            ) : (
+              <ul className="space-y-2">
+                {runningRows.map((m) => (
+                  <li
+                    key={m.job_id}
+                    className="rounded-xl border border-sky-200 bg-sky-50/70 px-3 py-2.5 dark:border-sky-800 dark:bg-sky-950/40"
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
-                        {missionTitleLabel(m.mission, 90) || m.job_id}
-                      </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Where>Missions</Where>
-                        <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
-                          {resultStatus(m.status)}
-                        </span>
-                      </span>
-                      {m.result_surface ? (
-                        <span className="mt-1 line-clamp-2 block text-xs text-slate-600 dark:text-slate-300">
-                          {m.result_surface}
-                        </span>
+                    <p className="text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
+                      {missionTitleLabel(m.mission, 90) || m.job_id}
+                    </p>
+                    <span className="mt-1.5 inline-flex">
+                      <Where>Missions</Where>
+                    </span>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Link href={`/missions?job=${encodeURIComponent(m.job_id)}`} className="btn-link-primary text-xs">
+                        Suivre
+                      </Link>
+                      {onDeleteRunning ? (
+                        <button
+                          type="button"
+                          disabled={deleteBusyId === m.job_id}
+                          onClick={() => onDeleteRunning(m.job_id, m.mission)}
+                          className={BTN_DELETE}
+                        >
+                          {deleteBusyId === m.job_id ? "Suppression…" : "Supprimer"}
+                        </button>
                       ) : null}
-                    </span>
-                    <span className="shrink-0 text-xs font-bold text-amber-800 dark:text-amber-200">Reprendre</span>
-                  </Link>
-                </li>
-              ))}
-              {plannedRows.map((m) => (
-                <li key={`plan-${m.job_id}`}>
-                  <Link
-                    href={`/missions?job=${encodeURIComponent(m.job_id)}`}
-                    className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:border-amber-300 dark:border-slate-700 dark:bg-slate-950"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
-                        {missionTitleLabel(m.mission, 90) || m.job_id}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Lane>
+        ) : null}
+
+        {showAdvanced ? (
+          <Lane
+            id="board-advance"
+            title="Missions planifiées et résultats"
+            hint="Résultats non consultés, puis missions pas encore lancées."
+            count={advanceCount}
+            accent="bg-amber-100 text-amber-950 dark:bg-amber-900 dark:text-amber-100"
+            bar="bg-amber-500"
+            className="xl:col-span-4"
+            action={
+              <Link href="/missions?view=kanban" className="text-xs font-bold text-amber-800 hover:underline dark:text-amber-200">
+                Kanban
+              </Link>
+            }
+          >
+            {advanceCount === 0 ? (
+              <EmptyLine>Aucune mission planifiée, aucun résultat à lire.</EmptyLine>
+            ) : (
+              <ul className="space-y-2">
+                {resumeRows.map((m) => (
+                  <li key={`resume-${m.job_id}`}>
+                    <Link
+                      href={`/missions?job=${encodeURIComponent(m.job_id)}`}
+                      className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2.5 hover:border-amber-300 dark:border-amber-800 dark:bg-amber-950/40"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
+                          {missionTitleLabel(m.mission, 90) || m.job_id}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Where>Missions</Where>
+                          <span className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                            {resultStatus(m.status)}
+                          </span>
+                        </span>
+                        {m.result_surface ? (
+                          <span className="mt-1 line-clamp-2 block text-xs text-slate-600 dark:text-slate-300">
+                            {m.result_surface}
+                          </span>
+                        ) : null}
                       </span>
-                      <span className="mt-1 flex flex-wrap items-center gap-1.5">
-                        <Where>Missions</Where>
-                        <span className="text-xs text-slate-500">Prévue, pas encore lancée</span>
+                      <span className="shrink-0 text-xs font-bold text-amber-800 dark:text-amber-200">Reprendre</span>
+                    </Link>
+                  </li>
+                ))}
+                {plannedRows.map((m) => (
+                  <li key={`plan-${m.job_id}`}>
+                    <Link
+                      href={`/missions?job=${encodeURIComponent(m.job_id)}`}
+                      className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:border-amber-300 dark:border-slate-700 dark:bg-slate-950"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold leading-snug text-slate-900 dark:text-slate-50">
+                          {missionTitleLabel(m.mission, 90) || m.job_id}
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <Where>Missions</Where>
+                          <span className="text-xs text-slate-500">Prévue, pas encore lancée</span>
+                        </span>
                       </span>
-                    </span>
-                    <span className="shrink-0 text-xs font-bold text-violet-700 dark:text-violet-300">Ouvrir</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Lane>
+                      <span className="shrink-0 text-xs font-bold text-violet-700 dark:text-violet-300">Ouvrir</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Lane>
+        ) : null}
 
         <Lane
           id="board-proposals"
@@ -861,7 +871,7 @@ export default function BriefingBoard({
           {proposalCount > proposals.length ? (
             <p className="mt-2 text-xs font-semibold">
               <Link href="/inbox" className="font-bold text-emerald-800 hover:underline dark:text-emerald-200">
-                {proposalCount - proposals.length} autre{proposalCount - proposals.length > 1 ? "s" : ""} dans Décisions
+                {proposalCount - proposals.length} autre{proposalCount - proposals.length > 1 ? "s" : ""} dans À confirmer
               </Link>
             </p>
           ) : null}

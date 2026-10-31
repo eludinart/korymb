@@ -7,6 +7,7 @@ import {
   notificationPreviewText,
   type DirectorNotification,
 } from "../../lib/directorNotificationUi";
+import { useUiMode } from "../../lib/uiMode";
 
 type Props = {
   notification: DirectorNotification;
@@ -16,7 +17,11 @@ type Props = {
 };
 
 export default function DirectorToast({ notification, onDismiss, onNavigate, onMarkRead }: Props) {
-  const actions = buildNotificationActions(notification);
+  const { isEssential, isPlatformOwner } = useUiMode();
+  const actions = buildNotificationActions(notification, {
+    essential: isEssential,
+    platformOwner: isPlatformOwner,
+  });
   const primary = actions.find((a) => a.primary) || actions[0];
   const secondary = actions.find((a) => a !== primary);
 

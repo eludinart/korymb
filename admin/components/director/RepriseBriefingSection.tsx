@@ -36,9 +36,9 @@ function DomainRow({ domain }: { domain: RepriseDomain }) {
 }
 
 export default function RepriseBriefingSection() {
-  const { isPlatformOwner } = useUiMode();
+  const { role } = useUiMode();
   const coverage = useRepriseCoverage();
-  if (!isPlatformOwner) return null;
+  if (role !== "admin") return null;
   const data = coverage.data;
   const gaps = data?.gaps ?? [];
   const attention = (data?.domains ?? []).filter(

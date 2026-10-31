@@ -17,9 +17,11 @@ import { filterSnoozedItems } from "../../lib/inboxSnooze";
 import { asInboxItems, fetchAdminInboxItems } from "../../lib/inboxQuery";
 import { DIRECTOR_QUEUE_EMPTY, DIRECTOR_QUEUE_HREF, DIRECTOR_QUEUE_LABEL, DIRECTOR_QUEUE_SUBTITLE, DIRECTOR_QUEUE_TITLE } from "../../lib/directorQueue";
 import { closeInboxBulk, resolveLearningBulk } from "../../lib/missionActions";
+import { useUiMode } from "../../lib/uiMode";
 
 function InboxPageContent() {
   const qc = useQueryClient();
+  const { showAdvanced } = useUiMode();
   const searchParams = useSearchParams();
   const triageMode = searchParams.get("triage") === "1";
   const severityParam = (searchParams.get("severity") || "").trim().toLowerCase();
@@ -101,9 +103,15 @@ function InboxPageContent() {
           <>
             <PageLink href={`${DIRECTOR_QUEUE_HREF}?triage=1`}>Traiter</PageLink>
             <PageLink href="/briefing">Aujourd&apos;hui</PageLink>
-            <PageLink href="/missions" variant="secondary">
-              Missions
-            </PageLink>
+            {showAdvanced ? (
+              <PageLink href="/missions" variant="secondary">
+                Missions
+              </PageLink>
+            ) : (
+              <PageLink href="/chat" variant="secondary">
+                Conversation
+              </PageLink>
+            )}
           </>
         }
       />

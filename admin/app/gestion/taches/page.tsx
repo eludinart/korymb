@@ -69,7 +69,7 @@ export default function GestionTachesPage() {
         accent="emerald"
         badge="Tâches"
         title="Tâches à faire"
-        description="Ce qui traîne = sans projet. Quoi d’abord = avec projet, urgent / important. Les décisions agents sont dans Décisions, pas ici."
+        description="Ce qui traîne = sans projet. Quoi d’abord = avec projet, urgent / important. Les validations agents sont dans À confirmer, pas ici."
         actions={
           <Link href="/briefing#board-triage" className="btn-primary">
             Voir dans Aujourd&apos;hui

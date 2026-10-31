@@ -871,11 +871,19 @@ export default function MemoryConsolePage() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">Votre activité</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           Quelques phrases sur ce que vous faites, pour qui, avec quels mots. L&apos;assistant s&apos;en sert pour
-          préparer le travail. Le parcours qui la constitue est{" "}
-          <Link href="/administration/contexte" className="font-semibold text-violet-700 underline-offset-2 hover:underline dark:text-violet-300">
-            la science de l&apos;entreprise
+          préparer le travail. Pour lire l&apos;ensemble :{" "}
+          <Link href="/gestion/science" className="font-semibold text-violet-700 underline-offset-2 hover:underline dark:text-violet-300">
+            Science de l&apos;entreprise
           </Link>
-          . Le détail par rôle est plus bas. Les équipes se gèrent depuis{" "}
+          {" · "}
+          <Link href="/administration/contexte" className="font-semibold text-violet-700 underline-offset-2 hover:underline dark:text-violet-300">
+            questionnaire
+          </Link>
+          {" · "}
+          <Link href="/administration/reprise" className="font-semibold text-violet-700 underline-offset-2 hover:underline dark:text-violet-300">
+            audit reprise
+          </Link>
+          . Les équipes se gèrent depuis{" "}
           <Link href="/administration/equipes" className="font-semibold text-violet-700 underline-offset-2 hover:underline dark:text-violet-300">
             Équipes
           </Link>

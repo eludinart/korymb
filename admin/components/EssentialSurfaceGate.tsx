@@ -2,16 +2,15 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { isOperatorAdminPath } from "../lib/adminNav";
 import { isEssentialAllowedPath } from "../lib/essentialSurface";
 import { useUiMode } from "../lib/uiMode";
 
-/** En mode Essentiel, une adresse avancée ne s'affiche pas : retour à la conversation. */
+/** En mode Essentiel, une adresse hors allowlist renvoie à la conversation (y compris pages opérateur). */
 export default function EssentialSurfaceGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
   const router = useRouter();
   const { isEssential, loading } = useUiMode();
-  const blocked = !isOperatorAdminPath(pathname) && !isEssentialAllowedPath(pathname);
+  const blocked = !isEssentialAllowedPath(pathname);
   const hidePage = blocked && (loading || isEssential);
 
   useEffect(() => {

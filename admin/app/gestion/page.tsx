@@ -5,8 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../components/ui/PageChrome";
 import { businessApi } from "../../lib/business";
 import { groupedGestionNavLinks, gestionNavGroupCardBorderClass, gestionNavGroupHeadingClass } from "../../lib/gestionNav";
+import { useUiMode } from "../../lib/uiMode";
 
 export default function GestionHubPage() {
+  const { showAdvanced } = useUiMode();
+  const essential = !showAdvanced;
   const overview = useQuery({
     queryKey: ["business-overview"],
     queryFn: () => businessApi.overview(),
@@ -32,12 +35,22 @@ export default function GestionHubPage() {
         accent="emerald"
         badge="Gestion entreprise"
         title="Vue d'ensemble"
-        description="Création de contenus, contextes d’équipes projet, et activité commerciale (contacts, courrier, planning, devis). Les factures légales passent par Tiime."
+        description={
+          essential
+            ? "Science, contacts, courrier, tâches, planning et devis. Passez en Avancé pour le studio et les projets."
+            : "Création de contenus, contextes d’équipes projet, et activité commerciale (contacts, courrier, planning, devis). Les factures légales passent par Tiime."
+        }
         actions={
           <>
-            <Link href="/gestion/studio" className="btn-link-primary">
-              Ouvrir le studio
-            </Link>
+            {essential ? (
+              <Link href="/gestion/science" className="btn-link-primary">
+                Science de l&apos;entreprise
+              </Link>
+            ) : (
+              <Link href="/gestion/studio" className="btn-link-primary">
+                Ouvrir le studio
+              </Link>
+            )}
             <Link href="/gestion/contacts/nouveau" className="btn-link-secondary">
               Nouveau contact
             </Link>
@@ -52,7 +65,7 @@ export default function GestionHubPage() {
         </AlertBox>
       ) : null}
 
-      {groupedGestionNavLinks().map((group) => (
+      {groupedGestionNavLinks(essential).map((group) => (
         <section key={group.id} className="space-y-3">
           <h2 className={`text-xs font-extrabold uppercase tracking-wider ${gestionNavGroupHeadingClass(group.id)}`}>
             {group.label}

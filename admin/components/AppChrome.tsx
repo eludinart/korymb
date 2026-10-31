@@ -32,7 +32,9 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
     visitingClientSpace,
     error: uiModeError,
     loading: uiLoading,
+    role,
   } = useUiMode();
+  const canAdmin = role === "admin";
   const headerRef = useRef<HTMLElement>(null);
   const pathname = usePathname() || "";
   const isChat = pathname === "/chat";
@@ -128,29 +130,29 @@ export default function AppChrome({ children }: { children: React.ReactNode }) {
             ) : null}
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2 lg:items-start">
-            <div className={`flex shrink-0 items-center gap-1.5 sm:gap-2 ${isChat ? "lg:flex" : ""}`}>
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <ColorSchemeToggle compact />
               <div className={isChat ? "hidden lg:block" : undefined}>
                 <HeaderActivityToggle open={statusOpen} onToggle={() => setStatusOpen((v) => !v)} />
               </div>
-              <div className={isChat ? "hidden lg:block" : undefined}>
+              <div className={isChat ? "hidden sm:block" : undefined}>
                 <AuthBar />
               </div>
               <Link
                 href="/aide"
-                className="flex h-9 items-center rounded-full px-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950"
+                className={`flex h-9 items-center rounded-full px-2.5 text-sm font-bold text-violet-800 hover:bg-violet-50 dark:text-violet-200 dark:hover:bg-violet-950 ${
+                  isChat ? "hidden sm:flex" : ""
+                }`}
               >
                 Aide
               </Link>
-              <NotificationBell />
+              {canAdmin ? <NotificationBell /> : null}
             </div>
-            <div className={isChat ? "hidden lg:block" : undefined}>
-              <AppNav />
-            </div>
+            <AppNav />
             {isChat ? (
               <Link
                 href="/briefing"
-                className="flex h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 dark:text-violet-200 dark:active:bg-violet-950 lg:hidden"
+                className="hidden h-9 items-center rounded-full px-3 text-xs font-semibold text-violet-800 active:bg-violet-50 dark:text-violet-200 dark:active:bg-violet-950 sm:flex lg:hidden"
               >
                 Aujourd&apos;hui
               </Link>

@@ -39,13 +39,6 @@ export const GESTION_NAV_LINKS: readonly GestionNavLink[] = [
     exact: true,
   },
   {
-    href: "/carte",
-    label: "Carte",
-    hint: "Graphe équipes · missions · projets",
-    icon: "🗺️",
-    group: "equipes",
-  },
-  {
     href: "/gestion/studio",
     label: "Studio",
     hint: "Articles, PDF, podcasts, vidéo, réseaux",
@@ -157,12 +150,31 @@ export const ESSENTIAL_GESTION_HREFS = new Set([
   "/gestion/devis",
 ]);
 
+/** Actions rapides visibles en mode Essentiel (pas Studio / projets / carte). */
+export const ESSENTIAL_GESTION_QUICK_IDS = new Set([
+  "new-science",
+  "new-contact",
+  "new-event",
+  "new-task",
+  "triage",
+  "when",
+  "new-quote",
+]);
+
 export function filterGestionNavLinks(
   links: readonly GestionNavLink[],
   opts: { essential: boolean },
 ): GestionNavLink[] {
   if (!opts.essential) return [...links];
   return links.filter((l) => ESSENTIAL_GESTION_HREFS.has(l.href));
+}
+
+export function filterGestionQuickActions(
+  actions: readonly GestionQuickAction[],
+  opts: { essential: boolean },
+): GestionQuickAction[] {
+  if (!opts.essential) return [...actions];
+  return actions.filter((a) => ESSENTIAL_GESTION_QUICK_IDS.has(a.id));
 }
 
 export function groupedGestionNavLinks(essential = false): {

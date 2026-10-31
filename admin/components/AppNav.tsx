@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRepriseCoverage } from "../lib/repriseCoverage";
@@ -12,12 +13,15 @@ import {
   GESTION_NAV_LINKS,
   GESTION_QUICK_ACTIONS,
   filterGestionNavLinks,
+  filterGestionQuickActions,
   groupedGestionNavLinks,
   gestionNavGroupCompactClass,
   gestionNavGroupHeadingClass,
   isGestionLinkActive,
   isGestionPath,
 } from "../lib/gestionNav";
+import { asInboxItems, fetchAdminInboxItems } from "../lib/inboxQuery";
+import { filterSnoozedItems } from "../lib/inboxSnooze";
 import { useUiMode } from "../lib/uiMode";
 import { UX_COPY } from "../lib/uxCopy";
 
@@ -102,9 +106,10 @@ function RepriseNavBadge({ count }: { count: number }) {
   );
 }
 
-function adminHref(href: string, platformOwner: boolean) {
-  if (href === "/administration") return platformOwner ? "/administration/dashboard" : ESSENTIAL_ADMIN_ENTRY;
-  return href;
+function adminHref(href: string, platformOwner: boolean, repriseGapCount = 0) {
+  if (href !== "/administration") return href;
+  if (repriseGapCount > 0) return "/administration/reprise";
+  return platformOwner ? "/administration/dashboard" : ESSENTIAL_ADMIN_ENTRY;
 }
 
 export default function AppNav() {
@@ -121,10 +126,22 @@ export default function AppNav() {
   const moreRef = useRef<HTMLDivElement>(null);
   const gestionRef = useRef<HTMLDivElement>(null);
   const reprise = useRepriseCoverage();
-  const repriseGapCount = reprise.data?.gaps?.length ?? 0;
+  const repriseGapCount = canAdmin ? (reprise.data?.gaps?.length ?? 0) : 0;
+  const inboxQ = useQuery({
+    queryKey: ["admin-inbox"],
+    queryFn: () => fetchAdminInboxItems(100),
+    enabled: canAdmin,
+    staleTime: 45_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const inboxPending = canAdmin ? filterSnoozedItems(asInboxItems(inboxQ.data)).length : 0;
 
   const navBefore = essentialNav ? NAV_BEFORE_GESTION_ESSENTIAL : NAV_BEFORE_GESTION_FULL;
-  const navAfter = essentialNav ? NAV_AFTER_GESTION_ESSENTIAL : NAV_AFTER_GESTION_FULL;
+  const navAfterRaw = essentialNav ? NAV_AFTER_GESTION_ESSENTIAL : NAV_AFTER_GESTION_FULL;
+  const navAfter = canAdmin
+    ? [...navAfterRaw]
+    : navAfterRaw.filter((item) => item.href !== DIRECTOR_QUEUE_HREF);
   const navPrimary = [...navBefore, ...navAfter];
   const adminGroups = filterAdminNavGroups(ADMIN_NAV_GROUPS, {
     essential: essentialNav,
@@ -132,11 +149,7 @@ export default function AppNav() {
   });
   const gestionLinks = filterGestionNavLinks(GESTION_NAV_LINKS, { essential: essentialNav });
   const gestionGroups = groupedGestionNavLinks(essentialNav);
-  const gestionQuick = essentialNav
-    ? GESTION_QUICK_ACTIONS.filter((a) =>
-        ["new-contact", "new-event", "new-quote"].includes(a.id),
-      )
-    : GESTION_QUICK_ACTIONS;
+  const gestionQuick = filterGestionQuickActions(GESTION_QUICK_ACTIONS, { essential: essentialNav });
 
   useEffect(() => setMounted(true), []);
 
@@ -292,7 +305,7 @@ export default function AppNav() {
         return (
           <Link
             key={item.href}
-            href={adminHref(item.href, isPlatformOwner)}
+            href={adminHref(item.href, isPlatformOwner, repriseGapCount)}
             onClick={() => {
               closeMenu();
               closeMore();
@@ -378,6 +391,7 @@ export default function AppNav() {
     <>
       {navPrimary.map((item) => {
         const active = isNavActive(pathname, item.href);
+        const showInboxBadge = item.href === DIRECTOR_QUEUE_HREF && inboxPending > 0;
         return (
           <Link
             key={item.href}
@@ -387,6 +401,7 @@ export default function AppNav() {
             title={item.hint}
           >
             {item.label}
+            {showInboxBadge ? <RepriseNavBadge count={inboxPending} /> : null}
           </Link>
         );
       })}
@@ -466,6 +481,7 @@ export default function AppNav() {
 
           {navAfter.map((item) => {
             const active = isNavActive(pathname, item.href);
+            const showInboxBadge = item.href === DIRECTOR_QUEUE_HREF && inboxPending > 0;
             return (
               <Link
                 key={item.href}
@@ -473,6 +489,7 @@ export default function AppNav() {
                 className={`${desktopLinkClass(active, item.priority, item.tone)} inline-flex items-center`}
               >
                 {item.label}
+                {showInboxBadge ? <RepriseNavBadge count={inboxPending} /> : null}
               </Link>
             );
           })}
@@ -502,7 +519,7 @@ export default function AppNav() {
                   return (
                     <Link
                       key={item.href}
-                      href={adminHref(item.href, isPlatformOwner)}
+                      href={adminHref(item.href, isPlatformOwner, repriseGapCount)}
                       role="menuitem"
                       onClick={closeMore}
                       className={`flex items-center rounded-xl px-3 py-2.5 text-sm font-semibold ${
