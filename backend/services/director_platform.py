@@ -225,6 +225,11 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
         except ValueError:
             return False
 
+    from services.deliverable_library import (
+        job_has_real_deliverable,
+        maybe_auto_close_job_without_deliverable,
+    )
+
     for row in jobs:
         jid = row.get("id")
         st = str(row.get("status") or "")
@@ -246,6 +251,11 @@ def build_enriched_inbox(*, limit: int = 40, jobs: list[dict] | None = None) -> 
                 "priority_score": _priority_score("hitl"),
             }, job_row=row))
         elif st == "completed" and not _user_validated_set(row) and not skip_closure:
+            # Sans vrai livrable : auto-clôture silencieuse (backlog + sécurité).
+            if not job_has_real_deliverable(row):
+                if jid:
+                    maybe_auto_close_job_without_deliverable(str(jid), row)
+                continue
             items.append(_enrich_inbox_item({
                 "kind": "closure",
                 "job_id": jid,

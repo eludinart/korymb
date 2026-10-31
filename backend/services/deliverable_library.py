@@ -365,6 +365,61 @@ def _consolidate_library_items(items: list[dict[str, Any]]) -> list[dict[str, An
     return out
 
 
+def job_has_real_deliverable(row: dict[str, Any] | None) -> bool:
+    """Vrai livrable = fichiers Drive/rfil, blocs #### LIVRABLE, ou liens Drive/Docs — pas un texte chat seul."""
+    if not isinstance(row, dict):
+        return False
+    has_payload = (
+        row.get("result") is not None
+        or row.get("drive_artifacts_json") is not None
+        or isinstance(row.get("drive_artifacts"), list)
+    )
+    # Flag SQL (inbox summary) quand result/artifacts ne sont pas chargés.
+    if not has_payload and "has_real_deliverable" in row:
+        try:
+            return bool(int(row.get("has_real_deliverable") or 0))
+        except (TypeError, ValueError):
+            return bool(row.get("has_real_deliverable"))
+    return bool(_entries_from_job(row))
+
+
+def maybe_auto_close_job_without_deliverable(
+    job_id: str,
+    row: dict[str, Any] | None = None,
+) -> bool:
+    """
+    Clôture silencieuse (user_validated_at) si completed sans vrai livrable.
+    Pas d'apprentissage / veille — réservés à la clôture manuelle.
+    Retourne True si une nouvelle validation a été posée.
+    """
+    from database import _user_validated_set, get_job, job_set_user_validated
+
+    jid = str(job_id or "").strip()
+    if not jid:
+        return False
+    data = row if isinstance(row, dict) else None
+    has_payload = bool(
+        data
+        and (
+            data.get("result") is not None
+            or data.get("drive_artifacts_json") is not None
+            or isinstance(data.get("drive_artifacts"), list)
+            or "has_real_deliverable" in data
+        )
+    )
+    if data is None or not has_payload:
+        data = get_job(jid) or data
+    if not data:
+        return False
+    if str(data.get("status") or "").strip() != "completed":
+        return False
+    if _user_validated_set(data):
+        return False
+    if job_has_real_deliverable(data):
+        return False
+    return bool(job_set_user_validated(jid))
+
+
 def _entries_from_job(row: dict[str, Any]) -> list[dict[str, Any]]:
     job_id = str(row.get("id") or "")
     mission = str(row.get("mission") or "")
@@ -412,10 +467,14 @@ def _entries_from_job(row: dict[str, Any]) -> list[dict[str, Any]]:
         entry.setdefault("job_href", href_base)
         entries.append(entry)
 
-    try:
-        artifacts = json.loads(str(row.get("drive_artifacts_json") or "[]"))
-    except Exception:
-        artifacts = []
+    raw_arts = row.get("drive_artifacts")
+    if isinstance(raw_arts, list):
+        artifacts = raw_arts
+    else:
+        try:
+            artifacts = json.loads(str(row.get("drive_artifacts_json") or "[]"))
+        except Exception:
+            artifacts = []
     if isinstance(artifacts, list):
         for art in artifacts:
             if not isinstance(art, dict):

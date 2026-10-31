@@ -79,13 +79,45 @@ def test_admin_inbox_dismiss_accepts_long_job_id(client):
     assert dismiss.json().get("dismiss_key") == f"cio_question:{long_id}"
 
 
-def test_admin_inbox_includes_chat_closures(client):
-    save_job("chatinbx1", "coordinateur", "Prospection chat à clôturer", source="chat")
-    update_job("chatinbx1", "completed", "Résultat chat", [], 0, 0)
+def test_admin_inbox_auto_closes_chat_without_deliverable(client):
+    save_job("chatinbx1", "coordinateur", "oui, les deux", source="chat")
+    update_job("chatinbx1", "completed", "Résultat chat sans livrable", [], 0, 0)
+    row = get_job("chatinbx1")
+    assert row and row.get("user_validated_at"), "sans livrable → auto-clôture"
     r = client.get("/admin/inbox?limit=80")
     assert r.status_code == 200
-    item = next(i for i in r.json()["items"] if i.get("job_id") == "chatinbx1" and i.get("kind") == "closure")
-    assert "Prospection chat" in (item.get("title") or "")
+    assert not any(
+        i.get("job_id") == "chatinbx1" and i.get("kind") == "closure" for i in r.json()["items"]
+    )
+
+
+def test_admin_inbox_includes_closure_with_deliverable(client):
+    save_job("chatliv01", "coordinateur", "Prospection avec livrable", source="chat")
+    update_job(
+        "chatliv01",
+        "completed",
+        "#### LIVRABLE — Pitch\n\nTexte du pitch commercial.\n",
+        [],
+        0,
+        0,
+    )
+    row = get_job("chatliv01")
+    assert row and not row.get("user_validated_at")
+    r = client.get("/admin/inbox?limit=80")
+    assert r.status_code == 200
+    item = next(i for i in r.json()["items"] if i.get("job_id") == "chatliv01" and i.get("kind") == "closure")
+    assert "Prospection" in (item.get("title") or "")
+
+
+def test_admin_inbox_auto_closes_mission_without_deliverable(client):
+    save_job("misnone1", "coordinateur", "Mission sans livrable", source="mission")
+    update_job("misnone1", "completed", "Résumé sans fichier", [], 0, 0)
+    row = get_job("misnone1")
+    assert row and row.get("user_validated_at")
+    r = client.get("/admin/inbox?limit=80")
+    assert not any(
+        i.get("job_id") == "misnone1" and i.get("kind") == "closure" for i in r.json()["items"]
+    )
 
 
 def test_admin_inbox_includes_mission_errors(client):
@@ -99,7 +131,14 @@ def test_admin_inbox_includes_mission_errors(client):
 
 def test_admin_inbox_close_bulk(client):
     save_job("bulkcl01", "coordinateur", "À clôturer en masse", source="chat")
-    update_job("bulkcl01", "completed", "ok", [], 0, 0)
+    update_job(
+        "bulkcl01",
+        "completed",
+        "#### LIVRABLE — Note\n\nContenu à clôturer en masse.\n",
+        [],
+        0,
+        0,
+    )
     r = client.post("/admin/inbox/close-bulk", json={"kinds": ["closure"], "limit": 80})
     assert r.status_code == 200
     body = r.json()

@@ -2469,6 +2469,13 @@ def update_job(
     if events is not None:
         append_mission_events_rows(job_id, events)
     _bust_briefing_cache()
+    if str(status or "").strip() == "completed":
+        try:
+            from services.deliverable_library import maybe_auto_close_job_without_deliverable
+
+            maybe_auto_close_job_without_deliverable(job_id)
+        except Exception:
+            pass
 
 
 def set_job_status_quick(job_id: str, status: str) -> None:
@@ -5416,7 +5423,13 @@ def list_jobs_summary(limit: int = 80) -> list[dict]:
     with get_conn() as conn:
         rows = conn.execute(
             "SELECT id, agent, mission, status, source, created_at, updated_at, tokens_in, tokens_out, "
-            "user_validated_at, parent_job_id, hitl_gate_json "
+            "user_validated_at, parent_job_id, hitl_gate_json, "
+            "CASE WHEN ("
+            "(drive_artifacts_json IS NOT NULL AND drive_artifacts_json != '[]' AND drive_artifacts_json != '') "
+            "OR result LIKE '%%#### LIVRABLE%%' "
+            "OR result LIKE '%%drive.google.com%%' "
+            "OR result LIKE '%%docs.google.com%%'"
+            ") THEN 1 ELSE 0 END AS has_real_deliverable "
             "FROM jobs WHERE workspace_id=? ORDER BY created_at DESC LIMIT ?",
             (_ws(), lim),
         ).fetchall()
@@ -5431,6 +5444,10 @@ def list_jobs_summary(limit: int = 80) -> list[dict]:
         except json.JSONDecodeError:
             gate = {}
         d["hitl_gate"] = gate if isinstance(gate, dict) else {}
+        try:
+            d["has_real_deliverable"] = int(d.get("has_real_deliverable") or 0)
+        except (TypeError, ValueError):
+            d["has_real_deliverable"] = 0
         out.append(d)
     return out
 
