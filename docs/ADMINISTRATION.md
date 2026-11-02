@@ -8,11 +8,11 @@ Ce document centralise l'exploitation de **Korymb** (application) et **Hermes Ag
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  VPS 187.124.42.135 (srv1498916)                            │
+│  VPS (voir ops/hermes/VPS-ACCESS.md / workspace-vps)        │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
 │  │ Coolify      │  │ Traefik      │  │ Hermes Agent     │  │
 │  │ Korymb prod  │  │ coolify-proxy│  │ docker compose   │  │
-│  │ MariaDB      │  │ :443         │  │ :4860            │  │
+│  │ MariaDB      │  │ :443         │  │ gateway          │  │
 │  └──────────────┘  └──────────────┘  └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
          ▲                                    ▲
@@ -24,6 +24,7 @@ Ce document centralise l'exploitation de **Korymb** (application) et **Hermes Ag
 │  admin :3000  ·  backend :8020                              │
 └─────────────────────────────────────────────────────────────┘
 ```
+
 
 ## Site WordPress public (hors VPS)
 
@@ -40,9 +41,8 @@ Le cœur WordPress et WooCommerce ne se versionnent pas ici. Workflow thème : [
 
 | Paramètre | Valeur |
 |-----------|--------|
-| Hôte | `187.124.42.135` |
-| Utilisateur | `root` |
-| Variable locale | `$env:KORYMB_VPS_SSH` (défaut `root@187.124.42.135`) |
+| Hôte / user | via `$env:KORYMB_VPS_SSH` (détails hors doc publique : `VPS-SSH.md`) |
+| Variable locale | `$env:KORYMB_VPS_SSH` |
 
 Depuis Cursor (terminal intégré) :
 
@@ -96,7 +96,7 @@ Contrôle P0 écosystème (HTTP public, **sans SSH** — Korymb, API + MariaDB, 
 npm run smoke:p0
 ```
 
-`GET /health` est un liveness (pas de ping DB, `connected` peut être `null`). La preuve MariaDB est `GET /health/database` → `connected: true`.
+`GET /health` public ne renvoie que `status`/`version` en production. La preuve MariaDB est `GET /health/database` → `connected: true` (sans host/user). `/tokens` et `/health/tools` exigent une auth.
 
 SSH VPS (conteneurs, crons, backups) : `.\scripts\vps-ssh.ps1` puis skill `hermes-vps-health`. Le middleware Next exige un cookie JWT sur les pages cockpit : le secret agent ne contourne plus le login.
 
@@ -148,7 +148,7 @@ docker compose up -d --force-recreate   # après modification compose
 |-----------|--------|
 | Image | `ghcr.io/hostinger/hvps-hermes-agent:latest` |
 | Modèle | Gemini `gemini-2.5-flash`, puis bascule gratuite sans Mistral (voir ci-dessous) |
-| Terminal | `ssh` → `root@10.0.3.1` (passerelle Docker) |
+| Terminal | `ssh` → passerelle Docker interne (user dédié recommandé) |
 | execute_code | Docker (socket monté + init-docker-access) |
 | Réseaux Docker | `coolify`, `default` |
 

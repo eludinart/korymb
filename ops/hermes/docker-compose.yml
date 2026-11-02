@@ -68,6 +68,7 @@ services:
     environment:
       HERMES_WEBUI_STATE_DIR: /opt/data/hermes-webui-state
       HERMES_HOME: /opt/data
+      HERMES_WEBUI_AGENT_DIR: /opt/hermes
       HERMES_WEBUI_DEFAULT_WORKSPACE: /opt/data/livrables
       HERMES_AGENT_URL: http://hermes-agent:4860
       HERMES_WEBUI_PASSWORD: ${ADMIN_PASSWORD}
