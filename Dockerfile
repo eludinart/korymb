@@ -1,6 +1,6 @@
 # Unified Next.js frontend image
 # Coolify : utiliser le build pack « Dockerfile » (racine /Dockerfile), pas Nixpacks.
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 
 # Seul `NEXT_PUBLIC_*` autorisé au build. Ne pas passer le secret agent en ARG.

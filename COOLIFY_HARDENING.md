@@ -130,14 +130,14 @@ Si Coolify refuse de sauvegarder après changement de build pack (bug connu v4) 
 
 Le backend (`api-korymb.eludein.art`) utilise **`backend/Dockerfile`** avec le build pack Dockerfile et le base directory `/backend` (ou contexte `backend/` selon votre config).
 
-**Vérification post-fix** : les logs de build doivent afficher `FROM node:20-alpine`, pas `nixpacks` ni `nix-env`.
+**Vérification post-fix** : les logs de build doivent afficher `FROM node:22-alpine`, pas `nixpacks` ni `nix-env`.
 
 ## 8) Dépannage — échec build Next.js (module not found / next/font)
 
 Symptômes :
 
 - `Failed to compile` / `Module not found` sur `@/lib/...` ou `app/layout.tsx` + `next/font`
-- Build Dockerfile avec `node:20-alpine` mais échec à `RUN npm run build`
+- Build Dockerfile avec `node:22-alpine` mais échec à `RUN npm run build`
 
 **Causes fréquentes** :
 
