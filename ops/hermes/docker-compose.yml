@@ -51,7 +51,8 @@ services:
         bash /opt/hermes-webui-patches/apply-patches.sh
         exec /hermeswebui_init.bash
     ports:
-      - "3001:8787"
+      # Bind loopback only — Traefik publishes HTTPS; do not expose :3001 on the public NIC.
+      - "127.0.0.1:3001:8787"
     labels:
       - traefik.enable=true
       - traefik.docker.network=coolify

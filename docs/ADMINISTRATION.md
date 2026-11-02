@@ -168,7 +168,7 @@ Les tâches annexes (compression, vision, extraction web) restent sur `gemini-3.
 
 | Paramètre | Valeur |
 |-----------|--------|
-| URL | https://hermeswebui.eludein.art (fallback http://187.124.42.135:3001) |
+| URL | https://hermeswebui.eludein.art (fallback local `127.0.0.1:3001` on the VPS only) |
 | Conteneur | `hermes-agent-aoxw-hermes-webui-1` |
 | Image | `hermes-webui-local:latest` |
 | Agent cible | `http://hermes-agent:4860` (réseau Docker interne) |
