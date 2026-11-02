@@ -43,9 +43,15 @@ def test_llm_public_shape(client):
     assert "model" in body
 
 
-def test_health_tools_without_secret(client):
+def test_health_tools_requires_auth(client, app):
     r = client.get("/health/tools")
     assert r.status_code == 200
+
+    from fastapi.testclient import TestClient
+
+    bare = TestClient(app)
+    assert bare.get("/health/tools").status_code in (401, 403)
+    assert bare.get("/tokens").status_code in (401, 403)
 
 
 def test_admin_settings_requires_secret(app):
@@ -54,3 +60,12 @@ def test_admin_settings_requires_secret(app):
     bare = TestClient(app)
     r = bare.get("/admin/settings")
     assert r.status_code in (401, 403)
+
+
+def test_health_database_public_omits_credentials(client):
+    r = client.get("/health/database")
+    assert r.status_code == 200
+    db = r.json()["database"]
+    assert db.get("connected") is True
+    for key in ("host", "user", "database", "path", "probe_detail"):
+        assert key not in db

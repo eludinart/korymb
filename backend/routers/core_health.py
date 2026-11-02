@@ -114,7 +114,8 @@ def _integration_health_snapshot(*, refresh_tools: bool = False) -> dict:
     return integrations_from_tools_probe(tools_probe, llm_cfg=merge_with_env())
 
 
-def _database_runtime_snapshot(*, include_probe: bool = True) -> dict:
+def _database_runtime_snapshot(*, include_probe: bool = True, public: bool = True) -> dict:
+    """Snapshot DB. `public=True` omits host/user/path (safe for unauthenticated routes)."""
     engine = str(DB_ENGINE or "sqlite").strip().lower()
     is_maria = engine in {"mariadb", "mysql"}
     runtime_env = str(os.getenv("ENV") or os.getenv("NODE_ENV") or "development").strip().lower()
@@ -123,19 +124,20 @@ def _database_runtime_snapshot(*, include_probe: bool = True) -> dict:
         "runtime_env": runtime_env,
         "connected": False,
     }
-    if is_maria:
-        host = str(os.getenv("KORYMB_DB_HOST") or os.getenv("FLEUR_DB_HOST") or "127.0.0.1")
-        port = int(os.getenv("KORYMB_DB_PORT") or os.getenv("FLEUR_DB_PORT") or "3306")
-        user = str(os.getenv("KORYMB_DB_USER") or os.getenv("FLEUR_DB_USER") or "")
-        name = str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb")
-        details.update({
-            "host": host,
-            "port": port,
-            "database": name,
-            "user": user,
-        })
-    else:
-        details["path"] = str(DB_PATH)
+    if not public:
+        if is_maria:
+            host = str(os.getenv("KORYMB_DB_HOST") or os.getenv("FLEUR_DB_HOST") or "127.0.0.1")
+            port = int(os.getenv("KORYMB_DB_PORT") or os.getenv("FLEUR_DB_PORT") or "3306")
+            user = str(os.getenv("KORYMB_DB_USER") or os.getenv("FLEUR_DB_USER") or "")
+            name = str(os.getenv("KORYMB_DB_NAME") or os.getenv("FLEUR_DB_NAME") or "korymb")
+            details.update({
+                "host": host,
+                "port": port,
+                "database": name,
+                "user": user,
+            })
+        else:
+            details["path"] = str(DB_PATH)
 
     if include_probe:
         try:
@@ -144,7 +146,8 @@ def _database_runtime_snapshot(*, include_probe: bool = True) -> dict:
             details["connected"] = True
         except Exception as e:
             details["connected"] = False
-            details["probe_detail"] = str(e)[:180]
+            if not public:
+                details["probe_detail"] = str(e)[:180]
     else:
         details["connected"] = None
     return details
@@ -277,8 +280,11 @@ async def health_live():
 
 @router.get("/health/database")
 def health_database():
-    """Probe MariaDB/SQLite — bandeau UI (tunnel SSH requis en dev MariaDB)."""
-    snap = _database_runtime_snapshot(include_probe=True)
+    """Probe MariaDB/SQLite — bandeau UI (tunnel SSH requis en dev MariaDB).
+
+    Public response: engine + connected only (no host/user/path).
+    """
+    snap = _database_runtime_snapshot(include_probe=True, public=True)
     status_code = 200 if snap.get("connected") is True else 503
     body = {"status": "ok" if status_code == 200 else "degraded", "database": snap}
     return JSONResponse(
@@ -293,20 +299,20 @@ def health(
     include_tools: bool = Query(False),
     refresh_tools: bool = Query(False),
 ):
-    """Liveness process : pas de ping DB (`database.connected` = null). Voir `/health/database`."""
-    from database import JOB_ID_MAX_LEN
-
+    """Public liveness: status + version only. DB probe → `/health/database`."""
     body: dict = {
         "status": "ok",
         "service": "korymb-backend",
         "version": BACKEND_VERSION,
         "revision": BACKEND_VERSION,
-        "revision_at": BACKEND_REVISION_AT or None,
-        "code_dir": str(_KORYMB_BACKEND_DIR),
-        "mission_session_delete_routes": True,
-        "database": _database_runtime_snapshot(include_probe=False),
     }
-    if include_tools:
+    # Local/dev tooling (verify-korymb-health) still needs code_dir; never in production.
+    if str(settings.env or "").strip().lower() != "production":
+        body["revision_at"] = BACKEND_REVISION_AT or None
+        body["code_dir"] = str(_KORYMB_BACKEND_DIR)
+        body["mission_session_delete_routes"] = True
+        body["database"] = _database_runtime_snapshot(include_probe=False, public=True)
+    if include_tools and str(settings.env or "").strip().lower() != "production":
         from tools_health import probe_tools_health
         body["tools"] = probe_tools_health(force=bool(refresh_tools))
     return JSONResponse(
@@ -323,7 +329,7 @@ def admin_system_health(refresh_tools: bool = False):
         "revision_at": BACKEND_REVISION_AT or None,
         "service": "korymb-backend",
         "system": _system_metrics_snapshot(),
-        "database": _database_runtime_snapshot(include_probe=True),
+        "database": _database_runtime_snapshot(include_probe=True, public=False),
         **_integration_health_snapshot(refresh_tools=bool(refresh_tools)),
     }
     return JSONResponse(
@@ -332,7 +338,7 @@ def admin_system_health(refresh_tools: bool = False):
     )
 
 
-@router.get("/health/tools")
+@router.get("/health/tools", dependencies=[Depends(resolve_tenant)])
 def health_tools(refresh: bool = False):
     return _web_tools_probe_json(refresh=refresh)
 
@@ -374,7 +380,7 @@ def llm_public_info():
     )
 
 
-@router.get("/tokens")
+@router.get("/tokens", dependencies=[Depends(resolve_tenant)])
 def get_tokens():
     return JSONResponse(
         tokens_payload(),
