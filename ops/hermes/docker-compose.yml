@@ -2,8 +2,40 @@
 # WebUI partage ./data avec l'agent et appelle http://hermes-agent:4860 sur le réseau Docker.
 
 services:
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy@sha256:9e4b9e7517a6b660f2cc903a19b257b1852d5b3344794e3ea334ff00ae677ac2
+    restart: unless-stopped
+    # Only Hermes needs Docker for execute_code. Keep the real socket off the agent.
+    environment:
+      CONTAINERS: 1
+      IMAGES: 1
+      NETWORKS: 1
+      INFO: 1
+      VERSION: 1
+      EVENTS: 1
+      POST: 1
+      EXEC: 1
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      NODES: 0
+      PLUGINS: 0
+      SECRETS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      SYSTEM: 0
+      TASKS: 0
+      VOLUMES: 0
+      AUTH: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - default
+
   hermes-agent:
-    image: ghcr.io/hostinger/hvps-hermes-agent:latest
+    image: ghcr.io/hostinger/hvps-hermes-agent@sha256:8bf68cad92c236d6ed0760c1cc268449aad781922277c7d7c994b40ba16a9fd6
     restart: unless-stopped
     # Remote model: 1.5g is enough for the Python agent and leaves RAM for
     # Coolify builds on the 8 GB host. memswap_limit = mem_limit so the cap
@@ -25,17 +57,20 @@ services:
       - traefik.http.services.${COMPOSE_PROJECT_NAME}.loadbalancer.server.port=4860
     env_file:
       - .env
+    environment:
+      DOCKER_HOST: tcp://docker-socket-proxy:2375
     entrypoint: [ /bin/bash, /init-docker-access.sh ]
     volumes:
       - ./data:/opt/data
-      - /var/run/docker.sock:/var/run/docker.sock
       - ./init-docker-access.sh:/init-docker-access.sh:ro
+    depends_on:
+      - docker-socket-proxy
     networks:
       - coolify
       - default
 
   hermes-webui:
-    image: hermes-webui-local:latest
+    image: hermes-webui-local@sha256:5a50cd66bba5d92a309fd30b0598de7b565784293fdb70eab637a3d6210c9168
     restart: unless-stopped
     # Node UI. 768m covers the ~350m steady state and stops a leak
     # from eating the 8 GB host. memswap_limit matches mem_limit.
