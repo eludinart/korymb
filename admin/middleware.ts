@@ -11,6 +11,7 @@ const PUBLIC_PREFIXES = [
   "/api/public",
   "/api/korymb",
   "/api/korymb-bin",
+  "/api/resource-upload",
   "/api/korymb-events",
   "/api/korymb-admin",
   "/confidentialite",
