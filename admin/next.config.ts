@@ -24,13 +24,6 @@ const nextConfig: NextConfig = {
   distDir:
     process.env.NEXT_DIST_DIR ||
     (process.env.NODE_ENV === "production" && !isNextDev ? ".next-build" : ".next"),
-  // Uploads chat PDF (jusqu'à 32 Mo côté backend).
-  experimental: {
-    serverActions: {
-      bodySizeLimit: "35mb",
-    },
-    proxyClientMaxBodySize: "35mb",
-  },
   eslint: {
     // Keep lint in CI/editor, but don't fail production image builds.
     ignoreDuringBuilds: true,
