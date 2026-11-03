@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Path, Query, Request, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -861,6 +861,23 @@ async def business_upload_resource_file_base64(payload: ResourceFileBase64In):
         mime=(payload.mime or "application/octet-stream").strip() or "application/octet-stream",
         data=data,
     )
+
+
+@router.post("/business/resource-files/raw", dependencies=[Depends(resolve_tenant)])
+async def business_upload_resource_file_raw(
+    request: Request,
+    x_filename: str = Header(default="fichier", alias="X-Filename"),
+    x_mime: str = Header(default="application/octet-stream", alias="X-Mime-Type"),
+):
+    """Corps binaire brut (évite multipart/JSON côté proxy Next)."""
+    from urllib.parse import unquote
+
+    data = await request.body()
+    if not data:
+        raise HTTPException(status_code=422, detail="Fichier vide.")
+    name = unquote((x_filename or "fichier").strip())[:160] or "fichier"
+    mime = (x_mime or "application/octet-stream").strip()[:160] or "application/octet-stream"
+    return _save_resource_bytes(filename=name, mime=mime, data=data)
 
 
 @router.get("/business/resource-files/{file_id}/preview", dependencies=[Depends(resolve_tenant)])

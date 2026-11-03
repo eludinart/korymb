@@ -739,15 +739,21 @@ export const businessApi = {
     return data.file;
   },
   uploadResourceFile: async (file: File) => {
-    // Route dédiée /api/resource-upload (FormData → backend).
-    // Évite korymb-bin (Field required) et le JSON base64 (corps tronqué → JSON decode error).
-    const body = new FormData();
-    body.append("file", file, file.name || "fichier");
+    // Binaire brut → /api/resource-upload → backend /resource-files/raw
+    // (pas de multipart ni JSON base64 : les deux cassaient en prod).
+    const mime =
+      file.type ||
+      (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream");
     const res = await fetch("/api/resource-upload", {
       method: "POST",
-      body,
+      body: file,
       credentials: "include",
       cache: "no-store",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Filename": encodeURIComponent(file.name || "fichier"),
+        "X-Mime-Type": mime,
+      },
     });
     const data = (await res.json().catch(() => ({}))) as {
       success?: boolean;

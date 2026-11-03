@@ -6,8 +6,8 @@ export const runtime = "nodejs";
 export const maxDuration = 120;
 
 /**
- * Upload fichier → backend multipart, sans passer par le proxy générique
- * (korymb-bin / korymb JSON) qui cassait le champ `file` ou tronquait le JSON.
+ * Relais binaire brut → POST /business/resource-files/raw
+ * Pas de FormData / JSON : Next ne parse pas le corps, il le forward tel quel.
  */
 export async function POST(request: NextRequest) {
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
@@ -28,46 +28,40 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let incoming: FormData;
-  try {
-    incoming = await request.formData();
-  } catch {
+  const buf = await request.arrayBuffer();
+  if (!buf.byteLength) {
     return NextResponse.json(
-      { detail: "Impossible de lire le fichier (formulaire invalide)." },
-      { status: 400 },
-    );
-  }
-
-  const file = incoming.get("file");
-  if (!file || typeof file === "string") {
-    return NextResponse.json(
-      { detail: "Fichier manquant (champ « file »)." },
+      { detail: "Fichier vide ou non reçu par le serveur web." },
       { status: 422 },
     );
   }
-  if (!file.size) {
-    return NextResponse.json({ detail: "Fichier vide." }, { status: 422 });
-  }
 
-  const filename = (file.name || String(incoming.get("filename") || "fichier")).slice(0, 160);
-
-  const outbound = new FormData();
-  outbound.append("file", file, filename);
+  const filenameHeader =
+    request.headers.get("x-filename") ||
+    request.headers.get("x-file-name") ||
+    "fichier";
+  const mimeHeader =
+    request.headers.get("x-mime-type") ||
+    request.headers.get("content-type") ||
+    "application/octet-stream";
 
   const headers = new Headers();
   headers.set("Authorization", `Bearer ${token}`);
+  headers.set("Content-Type", "application/octet-stream");
+  headers.set("Content-Length", String(buf.byteLength));
+  headers.set("X-Filename", filenameHeader);
+  headers.set("X-Mime-Type", mimeHeader.split(";")[0].trim() || "application/octet-stream");
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
-  // Ne pas fixer Content-Type : fetch pose le boundary multipart.
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("upstream timeout")), 90_000);
   let response: Response;
   try {
-    response = await fetch(`${base}/business/resource-files`, {
+    response = await fetch(`${base}/business/resource-files/raw`, {
       method: "POST",
       headers,
-      body: outbound,
+      body: buf,
       cache: "no-store",
       signal: controller.signal,
     });
@@ -93,8 +87,8 @@ export async function POST(request: NextRequest) {
   }
 
   const contentType = response.headers.get("content-type") || "application/json";
-  const buf = await response.arrayBuffer();
-  return new NextResponse(buf, {
+  const out = await response.arrayBuffer();
+  return new NextResponse(out, {
     status: response.status,
     headers: {
       "Content-Type": contentType,

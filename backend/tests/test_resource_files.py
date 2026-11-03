@@ -27,6 +27,26 @@ def test_upload_resource_base64(client, tmp_path, monkeypatch):
     assert raw.content == payload
 
 
+def test_upload_resource_raw_binary(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    payload = b"%PDF-1.4 raw-upload-ok"
+    res = client.post(
+        "/business/resource-files/raw",
+        content=payload,
+        headers={
+            "X-Filename": "doc%20test.pdf",
+            "X-Mime-Type": "application/pdf",
+            "Content-Type": "application/octet-stream",
+        },
+    )
+    assert res.status_code == 200, res.text
+    meta = res.json().get("file") or {}
+    assert meta.get("id", "").startswith("rfil-")
+    assert meta.get("filename") == "doc test.pdf"
+    assert meta.get("size") == len(payload)
+    assert client.get(f"/business/resource-files/{meta['id']}").content == payload
+
+
 def test_upload_resource_and_subscriber_download(client, tmp_path, monkeypatch):
     monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
 
