@@ -946,6 +946,11 @@ function ChatPageInner() {
       setUploadError(`Maximum ${CHAT_FILE_MAX} fichiers par message.`);
       return;
     }
+    const tooBig = picked.find((f) => f.size > 32 * 1024 * 1024);
+    if (tooBig) {
+      setUploadError(`« ${tooBig.name} » dépasse 32 Mo.`);
+      return;
+    }
     setUploadBusy(true);
     try {
       const uploaded: ChatFile[] = [];
@@ -954,13 +959,18 @@ function ChatPageInner() {
         uploaded.push({
           id: saved.id,
           filename: saved.filename || file.name,
-          mime: saved.mime || file.type,
+          mime: saved.mime || file.type || (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : ""),
           size: saved.size || file.size,
         });
       }
       setPendingFiles((prev) => [...prev, ...uploaded].slice(0, CHAT_FILE_MAX));
     } catch (err) {
-      setUploadError(err instanceof Error ? err.message : "Upload impossible");
+      const raw = err instanceof Error ? err.message : "Upload impossible";
+      setUploadError(
+        /401|authentif/i.test(raw)
+          ? "Session expirée — reconnectez-vous puis joignez à nouveau le fichier."
+          : raw,
+      );
     } finally {
       setUploadBusy(false);
     }

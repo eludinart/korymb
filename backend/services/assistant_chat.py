@@ -799,19 +799,30 @@ def start_assistant_chat_job(
     linked_job_id: str | None,
     chat_session_id: str | None,
     chat_use_mode: Any = CHAT_USE_MODE_OPERATIONNEL,
+    attachment_refs: list[dict] | None = None,
 ) -> dict:
     job_id = str(uuid.uuid4())[:8]
     now_iso = datetime.utcnow().isoformat()
     linked_parent_id = (linked_job_id or "").strip()[:16]
     session_id = (chat_session_id or "").strip()[:64] or ""
-    msg_snap = message
+    msg_raw = (message or "").strip()
+    att_refs = list(attachment_refs or [])
+    # Aperçu court pour le job : pas d'extraction PDF ici (fait dans le thread).
+    if att_refs:
+        names = ", ".join(
+            str(a.get("filename") or a.get("id") or "fichier")[:80] for a in att_refs[:6]
+        )
+        preview = f"{msg_raw}\n[Fichiers: {names}]".strip() if msg_raw else f"[Fichiers: {names}]"
+    else:
+        preview = msg_raw
+    msg_snap = preview
     mode = normalize_chat_use_mode(chat_use_mode)
     hist_snap = list(history or [])
 
     save_job(
         job_id,
         "assistant",
-        (message or "")[:500],
+        preview[:500],
         source="chat",
         parent_job_id=linked_parent_id or None,
         chat_session_id=session_id or None,
@@ -839,6 +850,7 @@ def start_assistant_chat_job(
 
     def execute() -> None:
         try:
+            from services.chat_attachments import compose_user_turn_with_attachments
             from services.mission_journal import note_mission
             from state import emit_job_event
 
@@ -847,12 +859,18 @@ def start_assistant_chat_job(
                 job_id,
                 kind="activity",
                 agent="assistant",
-                excerpt="Je lis votre message",
+                excerpt="Je lis votre message" + (" et les fichiers joints" if att_refs else ""),
                 graph_node="chat",
             )
+            # Extraction PDF / vision hors requête HTTP — évite timeout proxy / silence UI.
+            turn_message = (
+                compose_user_turn_with_attachments(msg_raw, att_refs) if att_refs else msg_raw
+            )
+            if not turn_message.strip():
+                turn_message = msg_snap
             emit_job_event(job_id, "synthesis_start", "assistant", {"phase": "reply"})
             turn = run_assistant_turn(
-                message=msg_snap,
+                message=turn_message,
                 history=hist_snap,
                 chat_use_mode=mode,
                 chat_session_id=session_id or None,
@@ -908,7 +926,7 @@ def start_assistant_chat_job(
                     turn_count = len([h for h in hist_snap if h.get("role") == "user"]) + 1
                     compress_chat_session(
                         session_id,
-                        user_message=msg_snap,
+                        user_message=turn_message,
                         assistant_message=surface,
                         turn_count=turn_count,
                     )

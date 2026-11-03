@@ -1102,6 +1102,11 @@ export default function ChatShell({
           className={pickInputClass}
           onChange={onPickFromInput}
         />
+        {uploadBusy ? (
+          <p className="mx-auto mb-1 max-w-3xl lg:max-w-none text-[11px] font-medium text-violet-700 dark:text-violet-300" role="status">
+            Ajout du fichier en cours…
+          </p>
+        ) : null}
         {attachments.length > 0 ? (
           <div className="mx-auto mb-1.5 flex max-w-3xl lg:max-w-none flex-wrap gap-1.5">
             {attachments.map((f) => {
@@ -1120,6 +1125,9 @@ export default function ChatShell({
                     />
                   ) : null}
                   <span className="max-w-[9rem] truncate text-[11px] font-medium text-slate-800">{f.filename}</span>
+                  {kind === "pdf" ? (
+                    <span className="shrink-0 rounded bg-rose-100 px-1 text-[10px] font-semibold text-rose-800">PDF</span>
+                  ) : null}
                   {f.size ? (
                     <span className="shrink-0 text-[10px] text-slate-500">{formatChatFileSize(f.size)}</span>
                   ) : null}

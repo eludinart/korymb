@@ -179,17 +179,18 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
             use_mode = normalize_chat_use_mode(request.chat_use_mode)
             logger.info(
-                "chat route=assistant mode=%s session=%s",
+                "chat route=assistant mode=%s session=%s atts=%s",
                 use_mode,
                 (request.chat_session_id or "")[:24],
+                len(att_snap),
             )
-            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
-            turn = _user_turn_text(msg_raw, att_block)
             hist = list(request.history or [])
             draft_context = (request.reply_context or "").strip()
             if draft_context:
+                # Réponse brouillon sync : extraction acceptable (pas de job).
+                att_block = build_attachment_mission_block(att_snap) if att_snap else ""
                 return run_assistant_chat_sync(
-                    message=turn,
+                    message=_user_turn_text(msg_raw, att_block),
                     history=hist,
                     chat_use_mode=use_mode,
                     chat_session_id=request.chat_session_id,
@@ -205,18 +206,20 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
             )
             if use_mode == CHAT_USE_MODE_QUOTIDIEN and not att_snap and not needs_tools:
                 return run_assistant_chat_sync(
-                    message=turn,
+                    message=msg_raw,
                     history=hist,
                     chat_use_mode=use_mode,
                     chat_session_id=request.chat_session_id,
                     use_tools=False,
                 )
+            # Pièces jointes : extraction dans le thread du job (évite timeout HTTP silencieux).
             return start_assistant_chat_job(
-                message=turn,
+                message=msg_raw,
                 history=hist,
                 linked_job_id=request.linked_job_id,
                 chat_session_id=request.chat_session_id,
                 chat_use_mode=use_mode,
+                attachment_refs=att_snap or None,
             )
 
         if agent_key == "coordinateur" or group_id:
@@ -601,16 +604,15 @@ async def chat(request: ChatRequest, background_tasks: BackgroundTasks):
 
         if agent_key == "assistant":
             from services.assistant_chat import normalize_chat_use_mode, start_assistant_chat_job
-            from services.chat_attachments import build_attachment_mission_block
 
             logger.warning("chat assistant via fallback guard")
-            att_block = build_attachment_mission_block(att_snap) if att_snap else ""
             return start_assistant_chat_job(
-                message=_user_turn_text(msg_raw, att_block),
+                message=msg_raw,
                 history=list(request.history or []),
                 linked_job_id=request.linked_job_id,
                 chat_session_id=request.chat_session_id,
                 chat_use_mode=normalize_chat_use_mode(request.chat_use_mode),
+                attachment_refs=att_snap or None,
             )
 
         system_prompt = (
@@ -716,7 +718,6 @@ async def chat_stream(request: ChatRequest):
         normalize_chat_use_mode,
         start_assistant_chat_job,
     )
-    from services.chat_attachments import build_attachment_mission_block
     from services.chat_intelligence import (
         chat_message_needs_action,
         chat_message_needs_confirmation,
@@ -749,8 +750,6 @@ async def chat_stream(request: ChatRequest):
             "action_label": label,
         }
 
-    att_block = build_attachment_mission_block(att_snap) if att_snap else ""
-    turn = _user_turn_text(msg_raw, att_block)
     hist = list(request.history or [])
 
     if (
@@ -760,17 +759,19 @@ async def chat_stream(request: ChatRequest):
         or chat_turn_needs_science_write(msg_raw, hist)
         or chat_turn_needs_korymb_agency(msg_raw)
     ):
+        # Extraction PDF/vision différée dans le job (pas avant le JSON accepted).
         return start_assistant_chat_job(
-            message=turn,
+            message=msg_raw,
             history=hist,
             linked_job_id=request.linked_job_id,
             chat_session_id=request.chat_session_id,
             chat_use_mode=use_mode,
+            attachment_refs=att_snap or None,
         )
 
     def gen():
         yield from iter_assistant_chat_stream(
-            message=turn,
+            message=msg_raw,
             history=hist,
             chat_use_mode=use_mode,
             chat_session_id=request.chat_session_id,

@@ -48,6 +48,16 @@ def load_resolved_attachments(refs: list[dict[str, Any]]) -> list[dict[str, Any]
     for ref in refs:
         item = load_local_file(str(ref.get("id") or ""))
         if not item:
+            resolved.append(
+                {
+                    "id": str(ref.get("id") or ""),
+                    "filename": str(ref.get("filename") or "fichier"),
+                    "mime": str(ref.get("mime") or "application/octet-stream"),
+                    "size": int(ref.get("size") or 0),
+                    "data": b"",
+                    "missing": True,
+                }
+            )
             continue
         try:
             data = read_file_bytes(item)
@@ -61,20 +71,40 @@ def load_resolved_attachments(refs: list[dict[str, Any]]) -> list[dict[str, Any]
                 "mime": str(item.get("mime") or ref.get("mime") or "application/octet-stream"),
                 "size": int(item.get("size") or len(data) or 0),
                 "data": data,
+                "missing": False,
             }
         )
     return resolved
 
 
+def compose_user_turn_with_attachments(message: str, refs: list[dict[str, Any]] | None) -> str:
+    """Assemble message + extrait des pièces jointes (peut être lent : PDF / vision)."""
+    msg = (message or "").strip()
+    att_block = build_attachment_mission_block(refs) if refs else ""
+    if msg and att_block:
+        return f"{msg}\n\n{att_block}"
+    if att_block:
+        return att_block
+    return msg
+
+
 def build_attachment_mission_block(refs: list[dict[str, Any]] | None) -> str:
-    files = load_resolved_attachments(normalize_attachment_refs(refs))
-    if not files:
+    normalized = normalize_attachment_refs(refs)
+    if not normalized:
         return ""
+    files = load_resolved_attachments(normalized)
     parts: list[str] = [
         "Fichiers joints par le dirigeant dans ce tour (à prendre en compte) :",
     ]
     used = 0
     for f in files:
+        if f.get("missing"):
+            name = str(f.get("filename") or "fichier")
+            parts.append(
+                f"### {name}\nFichier introuvable côté serveur "
+                "(upload perdu ou volume non monté). Demande au dirigeant de le renvoyer."
+            )
+            continue
         block = _file_block(f)
         if used + len(block) > MAX_TOTAL_CHARS:
             parts.append(f"- {f['filename']} : extrait tronqué (limite de contexte).")

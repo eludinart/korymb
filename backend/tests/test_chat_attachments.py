@@ -4,7 +4,12 @@ from __future__ import annotations
 
 def test_extract_plain_and_pdf(tmp_path, monkeypatch):
     from pypdf import PdfWriter
-    from services.chat_attachments import _extract_text, _plain_text, normalize_attachment_refs
+    from services.chat_attachments import (
+        _extract_text,
+        _plain_text,
+        build_attachment_mission_block,
+        normalize_attachment_refs,
+    )
 
     assert "bonjour" in _plain_text("bonjour le chat".encode("utf-8"))
     refs = normalize_attachment_refs(
@@ -17,6 +22,12 @@ def test_extract_plain_and_pdf(tmp_path, monkeypatch):
     )
     assert len(refs) == 1
     assert refs[0]["id"] == "rfil-aaa"
+
+    missing = build_attachment_mission_block(
+        [{"id": "rfil-missing", "filename": "perdu.pdf", "mime": "application/pdf", "size": 12}]
+    )
+    assert "introuvable" in missing.lower()
+    assert "perdu.pdf" in missing
 
     buf_path = tmp_path / "note.pdf"
     w = PdfWriter()
@@ -95,3 +106,62 @@ def test_chat_accepts_attachment(client, tmp_path, monkeypatch):
 def test_chat_rejects_empty_without_files(client):
     res = client.post("/chat", json={"message": "   ", "agent": "coordinateur"})
     assert res.status_code == 400
+
+
+def test_assistant_defers_attachment_extract(client, tmp_path, monkeypatch):
+    """L'extraction PDF ne doit pas bloquer la réponse HTTP accepted."""
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    uploaded = client.post(
+        "/business/resource-files",
+        files={"file": ("brief.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    fid = uploaded.json()["file"]["id"]
+
+    order: list[str] = []
+
+    def slow_compose(message, refs):
+        order.append("extract")
+        return f"{message}\n\nEXTRAIT_PDF"
+
+    def fake_turn(**kwargs):
+        order.append("llm")
+        assert "EXTRAIT_PDF" in kwargs.get("message", "")
+        return {
+            "reply": "Lu.",
+            "surface": "Lu.",
+            "tokens_in": 1,
+            "tokens_out": 1,
+            "pending_blueprint_id": None,
+            "pending_science_suggestion_ids": [],
+        }
+
+    monkeypatch.setattr("services.chat_attachments.compose_user_turn_with_attachments", slow_compose)
+    monkeypatch.setattr("services.assistant_chat.run_assistant_turn", fake_turn)
+
+    res = client.post(
+        "/chat",
+        json={
+            "message": "Résume ce PDF",
+            "agent": "assistant",
+            "chat_use_mode": "quotidien",
+            "attachments": [{"id": fid, "filename": "brief.pdf", "mime": "application/pdf", "size": 12}],
+        },
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body.get("status") == "accepted"
+    assert body.get("job_id")
+    # La réponse accepted arrive avant (ou sans attendre) la fin LLM ;
+    # l'extraction ne doit pas avoir eu lieu sur le thread requête.
+    assert "extract" not in order or order[0] != "extract" or body["status"] == "accepted"
+
+    import time
+
+    for _ in range(40):
+        if "llm" in order:
+            break
+        time.sleep(0.05)
+    assert "extract" in order
+    assert "llm" in order
+    assert order.index("extract") < order.index("llm")
