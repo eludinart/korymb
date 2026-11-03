@@ -32,7 +32,7 @@ Utiliser requêtes de `fleur-growth-snapshot`.
 
 ### Cron post Fleur existant
 
-Job Hermes « Post quotidien Fleur » — **ne pas dupliquer**. Proposer compléments, pas remplacement.
+Job Hermes « Post quotidien Fleur d'Amôurs » (`fcc2887493f1`) — **ne pas dupliquer**. La carte vient de `/opt/data/scripts/fleur-card-of-day.sh` (skill `fleur-card-of-day`). Ne pas en proposer une autre.
 
 ## Format livrable
 

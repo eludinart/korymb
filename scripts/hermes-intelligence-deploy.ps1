@@ -39,6 +39,7 @@ $skills = @(
 $scripts = @(
   "korymb-sql.sh",
   "fleur-sql.sh",
+  "fleur-card-of-day.sh",
   "eludein-db-check.sh",
   "eludein-sql.sh",
   "korymb-api.sh",
@@ -53,6 +54,7 @@ $scripts = @(
 $hostScripts = @(
   "korymb-sql.sh",
   "fleur-sql.sh",
+  "fleur-card-of-day.sh",
   "eludein-db-check.sh",
   "eludein-sql.sh",
   "korymb-api.sh",
