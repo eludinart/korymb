@@ -969,7 +969,9 @@ function ChatPageInner() {
       setUploadError(
         /401|authentif/i.test(raw)
           ? "Session expirée — reconnectez-vous puis joignez à nouveau le fichier."
-          : raw,
+          : /field required/i.test(raw)
+            ? "Le fichier n'a pas atteint le serveur. Réessayez, ou rechargez la page."
+            : raw,
       );
     } finally {
       setUploadBusy(false);

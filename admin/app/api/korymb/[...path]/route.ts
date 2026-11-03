@@ -18,6 +18,7 @@ function upstreamTimeoutMs(joinedPath: string): number {
   if (p.includes("emails/sync") || p === "business/emails/sync") return 90_000;
   if (p.includes("emails/suggest-replies")) return 60_000;
   if (p.includes("emails/send")) return 60_000;
+  if (p.includes("resource-files/base64") || p.includes("email-files/base64")) return 90_000;
   if (p === "tokens" || p === "jobs/light") return 15_000;
   if (p.startsWith("jobs/") && p.includes("log_offset")) return 60_000;
   return 30_000;

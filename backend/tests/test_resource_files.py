@@ -1,7 +1,30 @@
 """Upload et téléchargement des ressources planning."""
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta
+
+
+def test_upload_resource_base64(client, tmp_path, monkeypatch):
+    monkeypatch.setenv("KORYMB_RESOURCE_FILES_DIR", str(tmp_path))
+    payload = b"%PDF-1.4 brief-korymb"
+    res = client.post(
+        "/business/resource-files/base64",
+        json={
+            "filename": "brief.pdf",
+            "mime": "application/pdf",
+            "content_base64": base64.b64encode(payload).decode("ascii"),
+        },
+    )
+    assert res.status_code == 200, res.text
+    meta = res.json().get("file") or {}
+    assert meta.get("id", "").startswith("rfil-")
+    assert meta.get("filename") == "brief.pdf"
+    assert meta.get("size") == len(payload)
+
+    raw = client.get(f"/business/resource-files/{meta['id']}")
+    assert raw.status_code == 200
+    assert raw.content == payload
 
 
 def test_upload_resource_and_subscriber_download(client, tmp_path, monkeypatch):

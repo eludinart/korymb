@@ -810,23 +810,57 @@ async def business_get_email_file(file_id: str, inline: bool = Query(default=Fal
     )
 
 
-@router.post("/business/resource-files", dependencies=[Depends(resolve_tenant)])
-async def business_upload_resource_file(file: UploadFile = File(...)):
-    """Dépose un fichier de ressource planning (vidéo, podcast, document)."""
+class ResourceFileBase64In(BaseModel):
+    """Upload JSON (contourne les proxies multipart qui perdent le champ `file`)."""
+
+    filename: str = Field(..., min_length=1, max_length=160)
+    mime: str = Field(default="application/octet-stream", max_length=160)
+    content_base64: str = Field(..., min_length=1)
+
+
+def _save_resource_bytes(*, filename: str, mime: str, data: bytes) -> dict[str, Any]:
     from services.resource_files import save_upload
 
-    data = await file.read()
-    result = save_upload(
-        filename=file.filename or "fichier",
-        mime=file.content_type or "application/octet-stream",
-        data=data,
-    )
+    result = save_upload(filename=filename, mime=mime, data=data)
     if not result.get("success"):
         raise HTTPException(
             status_code=int(result.get("status_code") or 400),
             detail=result.get("error") or "Upload impossible",
         )
     return result
+
+
+@router.post("/business/resource-files", dependencies=[Depends(resolve_tenant)])
+async def business_upload_resource_file(file: UploadFile = File(...)):
+    """Dépose un fichier de ressource planning (vidéo, podcast, document)."""
+    data = await file.read()
+    return _save_resource_bytes(
+        filename=file.filename or "fichier",
+        mime=file.content_type or "application/octet-stream",
+        data=data,
+    )
+
+
+@router.post("/business/resource-files/base64", dependencies=[Depends(resolve_tenant)])
+async def business_upload_resource_file_base64(payload: ResourceFileBase64In):
+    """Même dépôt que multipart, via JSON base64 (chat / proxy Next)."""
+    import base64
+    import binascii
+
+    raw = (payload.content_base64 or "").strip()
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1]
+    try:
+        data = base64.b64decode(raw, validate=False)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Contenu base64 invalide.") from exc
+    if not data:
+        raise HTTPException(status_code=422, detail="Fichier vide.")
+    return _save_resource_bytes(
+        filename=payload.filename or "fichier",
+        mime=(payload.mime or "application/octet-stream").strip() or "application/octet-stream",
+        data=data,
+    )
 
 
 @router.get("/business/resource-files/{file_id}/preview", dependencies=[Depends(resolve_tenant)])

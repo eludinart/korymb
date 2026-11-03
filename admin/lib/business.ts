@@ -739,26 +739,32 @@ export const businessApi = {
     return data.file;
   },
   uploadResourceFile: async (file: File) => {
-    const body = new FormData();
-    body.append("file", file);
-    const res = await fetch(`${BIN_API}/business/resource-files`, {
-      method: "POST",
-      body,
-      credentials: "include",
-      cache: "no-store",
-    });
-    const data = (await res.json().catch(() => ({}))) as {
-      success?: boolean;
-      file?: EmailAttachment;
-      detail?: unknown;
-      error?: string;
-    };
-    if (!res.ok || !data.file) {
-      throw new Error(
-        formatHttpApiErrorPayload(data) || data.error || "Upload impossible",
-      );
+    // JSON base64 via /api/korymb : le proxy multipart korymb-bin perdait le champ
+    // `file` en prod (FastAPI → « Field required »).
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
     }
-    return data.file;
+    const mime =
+      file.type ||
+      (file.name.toLowerCase().endsWith(".pdf") ? "application/pdf" : "application/octet-stream");
+    const { data } = await requestJson("/business/resource-files/base64", {
+      method: "POST",
+      headers: agentHeaders(),
+      timeoutMs: 90_000,
+      body: JSON.stringify({
+        filename: file.name || "fichier",
+        mime,
+        content_base64: btoa(binary),
+      }),
+    });
+    const fileMeta = (data as { file?: EmailAttachment }).file;
+    if (!fileMeta?.id) {
+      throw new Error(formatHttpApiErrorPayload(data) || "Upload impossible");
+    }
+    return fileMeta;
   },
   syncContactEmails: async (contactId: string) => {
     const { data } = await requestJson(

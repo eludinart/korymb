@@ -3,6 +3,7 @@ import { isProxyUnprotected } from "../../../../lib/proxyPaths";
 import { KORYMB_TOKEN_COOKIE, KORYMB_WORKSPACE_COOKIE } from "../../../../lib/authSession";
 import { backendUnreachableMessage, serverKorymbApiBase } from "../../../../lib/serverApiBase";
 
+export const runtime = "nodejs";
 export const maxDuration = 120;
 
 function targetPath(path: string[]) {
@@ -12,12 +13,47 @@ function targetPath(path: string[]) {
 
 function withSessionHeaders(request: NextRequest, contentType: string | null) {
   const headers = new Headers();
+  // Pour multipart/FormData, ne pas fixer Content-Type : fetch doit poser le boundary.
   if (contentType) headers.set("Content-Type", contentType);
   const token = request.cookies.get(KORYMB_TOKEN_COOKIE)?.value?.trim() || "";
   const workspaceId = request.cookies.get(KORYMB_WORKSPACE_COOKIE)?.value?.trim() || "";
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (workspaceId) headers.set("X-Workspace-Id", workspaceId);
   return headers;
+}
+
+async function buildUpstreamBody(
+  request: NextRequest,
+): Promise<{ body?: BodyInit; contentType: string | null; error?: NextResponse }> {
+  const method = request.method.toUpperCase();
+  if (method === "GET" || method === "HEAD") {
+    return { contentType: null };
+  }
+  const incomingType = (request.headers.get("content-type") || "").toLowerCase();
+  if (incomingType.includes("multipart/form-data")) {
+    // Rejouer les bytes bruts casse souvent le boundary (FastAPI → « Field required »).
+    // On parse puis on laisse undici reconstruire un multipart valide.
+    const form = await request.formData();
+    const keys = [...form.keys()];
+    if (!keys.length) {
+      return {
+        contentType: null,
+        error: NextResponse.json(
+          { detail: "Aucun fichier reçu par le proxy (formulaire vide)." },
+          { status: 400 },
+        ),
+      };
+    }
+    return { body: form, contentType: null };
+  }
+  const buf = await request.arrayBuffer();
+  if (!buf.byteLength) {
+    return { contentType: null };
+  }
+  return {
+    body: buf,
+    contentType: request.headers.get("content-type"),
+  };
 }
 
 async function proxy(request: NextRequest, path: string[]) {
@@ -46,10 +82,9 @@ async function proxy(request: NextRequest, path: string[]) {
   const upstream = new URL(`${base}${targetPath(path)}`);
   request.nextUrl.searchParams.forEach((value, key) => upstream.searchParams.set(key, value));
 
-  const method = request.method;
-  const incomingType = request.headers.get("content-type");
-  const hasBody = method !== "GET" && method !== "HEAD";
-  const headers = withSessionHeaders(request, hasBody ? incomingType : null);
+  const prepared = await buildUpstreamBody(request);
+  if (prepared.error) return prepared.error;
+  const headers = withSessionHeaders(request, prepared.contentType);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("upstream timeout")), 60_000);
@@ -57,11 +92,11 @@ async function proxy(request: NextRequest, path: string[]) {
   let response: Response;
   try {
     response = await fetch(upstream, {
-      method,
+      method: request.method,
       headers,
       cache: "no-store",
       signal: controller.signal,
-      body: hasBody ? await request.arrayBuffer() : undefined,
+      body: prepared.body,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
