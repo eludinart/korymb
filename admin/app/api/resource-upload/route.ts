@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
   }
 
   const file = incoming.get("file");
-  if (!(file instanceof File) && !(file instanceof Blob)) {
+  if (!file || typeof file === "string") {
     return NextResponse.json(
       { detail: "Fichier manquant (champ « file »)." },
       { status: 422 },
@@ -49,9 +49,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ detail: "Fichier vide." }, { status: 422 });
   }
 
-  const filename =
-    (file instanceof File && file.name) ||
-    String(incoming.get("filename") || "fichier").slice(0, 160);
+  const filename = (file.name || String(incoming.get("filename") || "fichier")).slice(0, 160);
 
   const outbound = new FormData();
   outbound.append("file", file, filename);
