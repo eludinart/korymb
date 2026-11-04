@@ -1501,6 +1501,9 @@ def _init_db_seeds() -> None:
 
         init_action_tables()
         ensure_sandbox_execute_on()
+        from services.agent_bus import init_agent_bus_tables
+
+        init_agent_bus_tables()
     except Exception:
         pass
     try:

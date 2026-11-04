@@ -84,6 +84,7 @@ from routers.core_auth import router as core_auth_router
 from routers.core_platform import router as core_platform_router
 from routers.core_business import router as core_business_router
 from routers.core_actions import router as core_actions_router
+from routers.core_agent_bus import router as core_agent_bus_router
 from routers.core_telegram import router as core_telegram_router
 from routers.core_storefront import router as core_storefront_router
 from routers.core_studio import router as core_studio_router
@@ -228,6 +229,7 @@ app.include_router(core_auth_router)
 app.include_router(core_platform_router)
 app.include_router(core_business_router)
 app.include_router(core_actions_router)
+app.include_router(core_agent_bus_router)
 app.include_router(core_telegram_router)
 app.include_router(core_storefront_router)
 app.include_router(core_studio_router)
