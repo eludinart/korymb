@@ -83,5 +83,5 @@ Pour `bus_ack` / `bus_done`, passer l’`id` tel quel (ex. `bus-a1b2c3d4e5f6`) d
 ## Références
 
 - Skills Hermes : `ops/hermes-skills/eludein-agent-bus`, `ops/hermes-skills/korymb-api-bridge`
-- Cursor : skill `korymb-mission-bridge` (section Agent bus)
+- Cursor : skill `korymb-mission-bridge` (section Agent bus) + nœud de fond [`AGENT-BUS-CURSOR.md`](./AGENT-BUS-CURSOR.md) (cron 15 min, 08:00–22:45 Europe/Paris)
 - OpenAPI : `docs/agent-bus-grokbot.openapi.json`
