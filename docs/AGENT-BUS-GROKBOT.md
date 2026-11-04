@@ -2,6 +2,8 @@
 
 Canal inter-nœuds Korymb pour **Grok Bot** (`grokbot`), distinct de l’inbox HITL `/admin/inbox`.
 
+**Checklist coller-dans-l’app :** [`GROKBOT-SETUP.md`](./GROKBOT-SETUP.md) (secret + OpenAPI + prompt + `cursor-remind`).
+
 ## API
 
 - **Base URL :** `https://api-korymb.eludein.art`

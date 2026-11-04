@@ -3,7 +3,7 @@
   "info": {
     "title": "Korymb agent-bus (Grokbot)",
     "version": "1.0.0",
-    "description": "Quatre outils HTTP pour le nœud grokbot. Remplacer REPLACE_WITH_AGENT_SECRET dans l'app Grok Bot uniquement — ne jamais committer le vrai secret."
+    "description": "Outils HTTP nœud grokbot (plans→Cursor, rappels cursor-remind, done.comment). Grokbot NE CODE PAS. Remplacer REPLACE_WITH_AGENT_SECRET dans l'app uniquement. Voir docs/GROKBOT-SETUP.md."
   },
   "servers": [
     {
@@ -153,10 +153,39 @@
         }
       }
     },
+    "/agent-bus/messages/{id}/progress": {
+      "post": {
+        "operationId": "bus_progress",
+        "summary": "Avancement Cursor (notes tâche Corimb) — surtout côté Cursor",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "example": "bus-a1b2c3d4e5f6" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["note"],
+                "properties": { "note": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Tâche mise à jour" }
+        }
+      }
+    },
     "/agent-bus/messages/{id}/done": {
       "post": {
         "operationId": "bus_done",
-        "summary": "Terminer — comment = réponse à Cursor",
+        "summary": "Terminer — comment = réponse (ou « rappel transmis » pour cursor-remind)",
         "parameters": [
           {
             "name": "id",

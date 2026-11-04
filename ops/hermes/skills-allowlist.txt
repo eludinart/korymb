@@ -1,0 +1,6 @@
+eludein-ops-rules
+eludein-daily-briefing
+korymb-api-bridge
+coolify-services-map
+hermes-vps-health
+eludein-log-watcher

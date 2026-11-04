@@ -18,22 +18,14 @@ $SkillsRoot = Join-Path $RepoRoot "ops\hermes-skills"
 $ScriptsDir = Join-Path $RepoRoot "ops\hermes-scripts"
 $HostScriptsDir = Join-Path $ScriptsDir "host"
 
+# P0 ops only — hors chemin missions Grokbot↔Cursor (Grokbot ne code pas ; Cursor code).
 $skills = @(
   "eludein-ops-rules",
-  "eludein-ecosystem",
   "eludein-daily-briefing",
   "korymb-api-bridge",
-  "korymb-inbox-triage",
-  "korymb-analytics",
-  "fleur-analytics",
-  "fleur-growth-snapshot",
-  "eludein-content-radar",
   "coolify-services-map",
-  "eludein-backup-checklist",
-  "eludein-log-watcher",
   "hermes-vps-health",
-  "hermes-db-analysis",
-  "hermes-deploy-check"
+  "eludein-log-watcher"
 )
 
 $scripts = @(
@@ -64,7 +56,11 @@ $hostScripts = @(
   "eludein-log-watch.sh"
 )
 
-Write-Host "=== Deploiement intelligence Hermes (P0+P1) ===" -ForegroundColor Cyan
+Write-Host "=== Deploiement intelligence Hermes (P0 ops) ===" -ForegroundColor Cyan
+Write-Host ("Allowlist: " + ($skills -join ", "))
+
+$allowPath = Join-Path $HermesOps "skills-allowlist.txt"
+$skills | Set-Content -Path $allowPath -Encoding ascii
 
 $TarPath = Join-Path $env:TEMP "hermes-intel.tgz"
 $RemoteInstall = Join-Path $PSScriptRoot "hermes-intel-remote-install.sh"
@@ -72,6 +68,7 @@ if (-not (Test-Path $RemoteInstall)) { throw "Script manquant: $RemoteInstall" }
 
 Push-Location (Join-Path $RepoRoot "ops")
 try {
+  if (Test-Path $TarPath) { Remove-Item $TarPath -Force }
   & tar -czf $TarPath hermes hermes-skills hermes-scripts
 } finally {
   Pop-Location
@@ -80,16 +77,17 @@ try {
 scp -o BatchMode=yes $TarPath "${Target}:/tmp/hermes-intel.tgz"
 scp -o BatchMode=yes $RemoteInstall "${Target}:/tmp/hermes-intel-remote-install.sh"
 scp -o BatchMode=yes (Join-Path $HermesOps "crontab-eludein.txt") "${Target}:/tmp/crontab-eludein.txt"
-ssh -o BatchMode=yes $Target "bash /tmp/hermes-intel-remote-install.sh"
+ssh -o BatchMode=yes $Target "sed -i 's/\r$//' /tmp/hermes-intel-remote-install.sh && bash /tmp/hermes-intel-remote-install.sh"
 
 Write-Host "`n=== Verification ===" -ForegroundColor Cyan
 ssh -o BatchMode=yes $Target @'
 echo "Skills deployees:"
-ls -1 /docker/hermes-agent-aoxw/data/skills/ | grep -E "eludein|korymb|fleur|hermes|coolify" | sort
+ls -1 /docker/hermes-agent-aoxw/data/skills/ | sort
 echo ""
 test -f /docker/hermes-agent-aoxw/data/memories/decisions-eric.md && echo "decisions-eric.md OK"
 echo ""
-/opt/data/scripts/eludein-db-check.sh
+sed -i 's/\r$//' /opt/data/scripts/*.sh 2>/dev/null || true
+/opt/data/scripts/eludein-db-check.sh || true
 echo ""
 if grep -qE '^KORYMB_AGENT_SECRET=' /opt/data/.env 2>/dev/null; then
   /opt/data/scripts/korymb-api.sh GET /health | head -5
@@ -98,9 +96,8 @@ else
 fi
 '@
 
-Write-Host "`n=== Skills recommandees ===" -ForegroundColor Yellow
-Write-Host "  P0: eludein-daily-briefing, korymb-api-bridge, coolify-services-map"
-Write-Host "  P1: korymb-inbox-triage, fleur-growth-snapshot, eludein-content-radar"
-Write-Host "  Ops: eludein-backup-checklist, eludein-log-watcher"
+Write-Host "`n=== Skills P0 (ops) ===" -ForegroundColor Yellow
+Write-Host "  eludein-ops-rules, eludein-daily-briefing, korymb-api-bridge,"
+Write-Host "  coolify-services-map, hermes-vps-health, eludein-log-watcher"
 Write-Host "`nCrons: .\scripts\hermes-cron-install.ps1" -ForegroundColor Gray
 Write-Host "Termine." -ForegroundColor Green

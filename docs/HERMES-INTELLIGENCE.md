@@ -34,29 +34,20 @@ Test :
 /opt/data/scripts/korymb-api.sh GET /health
 ```
 
-## Skills — priorité d'activation
+## Skills — sync P0 (strict minimum)
 
-**Toujours** : `eludein-ops-rules`, `eludein-ecosystem`
+Hermes = **ops VPS** (briefings, smoke, alertes, logs). Pas de worker missions Grokbot↔Cursor (seul Cursor code).
 
-**P0 — quotidien** :
-
-| Skill | Usage |
+| Skill (déployée) | Usage |
 |-------|-------|
-| `eludein-daily-briefing` | Format briefing strict |
-| `korymb-api-bridge` | Briefing/inbox via API |
-| `coolify-services-map` | Ne plus confondre les conteneurs |
-
-**P1 — métier** :
-
-| Skill | Usage |
-|-------|-------|
-| `korymb-inbox-triage` | HITL et inbox |
-| `fleur-growth-snapshot` | Croissance app Fleur |
-| `eludein-content-radar` | Idées éditoriales |
-| `eludein-backup-checklist` | Vérif backups |
+| `eludein-ops-rules` | Règles ops |
+| `eludein-daily-briefing` | Format briefing |
+| `korymb-api-bridge` | Lecture API Korymb |
+| `coolify-services-map` | Ne pas confondre les conteneurs |
+| `hermes-vps-health` | Santé VPS |
 | `eludein-log-watcher` | Logs agent |
 
-**Existant** : `korymb-analytics`, `fleur-analytics`, `hermes-vps-health`, `hermes-db-analysis`, `hermes-deploy-check`
+Skills encore présentes sous `ops/hermes-skills/` (analytics, inbox-triage, ecosystem, etc.) mais **hors** `$skills` de `hermes-intelligence-deploy.ps1` — plus poussées en sync par défaut.
 
 ## Crons installés (UTC)
 
