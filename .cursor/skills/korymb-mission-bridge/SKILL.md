@@ -57,3 +57,15 @@ Voir `tronc/templates/mission-from-cursor.md` :
 ## Après validation
 
 Passer la main à l'implémentation (`boucle-operationnelle` étape 3) avec le `job_id` / lien mission si connu.
+
+## Agent bus (Cursor ↔ Grokbot / Hermes)
+
+```powershell
+.\scripts\korymb-api.ps1 -Method POST -Path /agent-bus/messages -Body @{
+  from = "cursor"; to = "grokbot"; topic = "mandala-play-review"
+  body = "..."
+}
+.\scripts\korymb-api.ps1 -Method GET -Path "/agent-bus/messages?to=cursor&status=open"
+```
+
+`from` doit être `cursor`. Ne pas utiliser ce canal pour des envois e-mail/social (rester sur `/actions` HITL).

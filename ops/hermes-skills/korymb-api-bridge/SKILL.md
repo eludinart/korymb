@@ -32,6 +32,7 @@ KORYMB_API_URL=https://api-korymb.eludein.art
 | `/admin/inbox` | Inbox HITL enrichie |
 | `/admin/notifications?unread_only=true` | Notifications |
 | `/actions?status=pending` | File d'envois à valider |
+| `/agent-bus/messages?to=hermes&status=open` | Messages bus destinés à Hermes |
 
 ## Écritures autorisées (whitelist script)
 
@@ -42,6 +43,9 @@ KORYMB_API_URL=https://api-korymb.eludein.art
 | Dismiss inbox | `POST /admin/inbox/dismiss` + JSON body |
 | Créer un ticket d'action | `POST /actions` + JSON body |
 | Valider / rejeter un envoi | `POST /actions/{id}/resolve` + `{"decision":"approve\|reject"}` |
+| Poster un message bus | `POST /agent-bus/messages` + JSON `from/to/topic/body` |
+| Ack | `POST /agent-bus/messages/{id}/ack` |
+| Done | `POST /agent-bus/messages/{id}/done` + `{"comment":"..."}` |
 
 **Interdit** sans accord explicite d'Éric : lancer missions, reprise audit, learning resolve. **Ne pas** `approve` un ticket d'action (e-mail, agenda, social, WordPress) sans instruction d'Éric.
 
