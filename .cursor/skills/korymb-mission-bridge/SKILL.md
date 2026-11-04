@@ -65,7 +65,8 @@ Passer la main à l'implémentation (`boucle-operationnelle` étape 3) avec le `
   from = "cursor"; to = "grokbot"; topic = "mandala-play-review"
   body = "..."
 }
-.\scripts\korymb-api.ps1 -Method GET -Path "/agent-bus/messages?to=cursor&status=open"
+# Résultat = comment du même message passé en done (pas un bus_post réponse)
+.\scripts\korymb-api.ps1 -Method GET -Path "/agent-bus/messages?topic=mandala-play-review&status=done"
 ```
 
-`from` doit être `cursor`. Ne pas utiliser ce canal pour des envois e-mail/social (rester sur `/actions` HITL).
+`from` doit être `cursor`. Réponse Grokbot = `comment` sur `done` (économe). Ne pas utiliser ce canal pour des envois e-mail/social (rester sur `/actions` HITL). Voir `docs/AGENT-BUS-GROKBOT.md` + `docs/agent-bus-grokbot.openapi.json`.

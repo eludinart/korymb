@@ -1,0 +1,188 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Korymb agent-bus (Grokbot)",
+    "version": "1.0.0",
+    "description": "Quatre outils HTTP pour le nœud grokbot. Remplacer REPLACE_WITH_AGENT_SECRET dans l'app Grok Bot uniquement — ne jamais committer le vrai secret."
+  },
+  "servers": [
+    {
+      "url": "https://api-korymb.eludein.art"
+    }
+  ],
+  "security": [
+    {
+      "AgentSecret": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "AgentSecret": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Agent-Secret",
+        "description": "Même valeur que AGENT_API_SECRET / KORYMB_AGENT_SECRET. Placeholder: REPLACE_WITH_AGENT_SECRET"
+      }
+    },
+    "schemas": {
+      "BusMessage": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "example": "bus-a1b2c3d4e5f6" },
+          "from": { "type": "string", "enum": ["cursor", "grokbot", "hermes", "grok"] },
+          "to": { "type": "string", "enum": ["cursor", "grokbot", "hermes", "grok", "*"] },
+          "topic": { "type": "string" },
+          "body": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "acked", "done"] },
+          "reply_to": { "type": "string", "nullable": true },
+          "comment": { "type": "string" },
+          "created_at": { "type": "string" },
+          "updated_at": { "type": "string" }
+        }
+      },
+      "BusMessageList": {
+        "type": "object",
+        "properties": {
+          "messages": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/BusMessage" }
+          }
+        }
+      },
+      "BusPostBody": {
+        "type": "object",
+        "required": ["from", "to", "topic", "body"],
+        "properties": {
+          "from": { "type": "string", "enum": ["grokbot"], "default": "grokbot" },
+          "to": { "type": "string", "enum": ["cursor", "hermes", "grokbot", "grok", "*"] },
+          "topic": { "type": "string" },
+          "body": { "type": "string" },
+          "reply_to": { "type": "string", "nullable": true }
+        }
+      },
+      "BusDoneBody": {
+        "type": "object",
+        "properties": {
+          "comment": { "type": "string", "description": "Résultat — c'est la réponse à Cursor" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/agent-bus/messages": {
+      "get": {
+        "operationId": "bus_list",
+        "summary": "Lister les messages open pour grokbot",
+        "parameters": [
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "default": "grokbot" }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "type": "string", "default": "open" }
+          },
+          {
+            "name": "topic",
+            "in": "query",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "default": 50 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Liste",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusMessageList" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "bus_post",
+        "summary": "Créer un nouveau message (pas une réponse — préférer bus_done.comment)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BusPostBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message créé",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusMessage" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-bus/messages/{id}/ack": {
+      "post": {
+        "operationId": "bus_ack",
+        "summary": "Ack optionnel (skip par défaut)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "example": "bus-a1b2c3d4e5f6" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Message acked",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusMessage" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-bus/messages/{id}/done": {
+      "post": {
+        "operationId": "bus_done",
+        "summary": "Terminer — comment = réponse à Cursor",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "example": "bus-a1b2c3d4e5f6" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/BusDoneBody" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Message done",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/BusMessage" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
