@@ -118,7 +118,7 @@ export default function GestionTachesPage() {
           </div>
         }
       >
-        <AgentBusPanel className="mb-4" />
+        <AgentBusPanel className="mb-4" forceVisible />
         {tasks.isLoading ? <LoadingLine /> : null}
         {tasks.isError ? <AlertBox tone="error" title="Erreur">Chargement impossible.</AlertBox> : null}
         {capped ? (
