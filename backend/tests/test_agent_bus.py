@@ -51,6 +51,36 @@ def test_ack_then_done(client):
     assert "pong" in (body.get("comment") or "")
 
 
+def test_done_from_admin_ui_comment(client):
+    """Simule le bouton Fait de /gestion/taches (session admin via X-Agent-Secret en test)."""
+    created = client.post(
+        "/agent-bus/messages",
+        json={
+            "from": "grokbot",
+            "to": "cursor",
+            "topic": "cursor-task",
+            "body": "Plan: marquer fait depuis l'UI.",
+        },
+    )
+    assert created.status_code == 200, created.text
+    mid = created.json()["id"]
+
+    done = client.post(
+        f"/agent-bus/messages/{mid}/done",
+        json={"comment": "marqué fait depuis gestion/taches"},
+    )
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["status"] == "done"
+    assert body.get("comment") == "marqué fait depuis gestion/taches"
+
+    listed_open = client.get("/agent-bus/messages", params={"to": "cursor", "status": "open"})
+    assert mid not in [m["id"] for m in listed_open.json()["messages"]]
+
+    listed_done = client.get("/agent-bus/messages", params={"to": "cursor", "status": "done"})
+    assert mid in [m["id"] for m in listed_done.json()["messages"]]
+
+
 def test_rejects_unknown_node(client):
     bad = client.post(
         "/agent-bus/messages",
