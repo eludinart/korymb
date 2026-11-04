@@ -79,6 +79,6 @@ Passer la main à l'implémentation (`boucle-operationnelle` étape 3) avec le `
 .\scripts\korymb-api.ps1 -Method POST -Path "/agent-bus/messages/<id>/done" -Body @{ comment = "…" }
 ```
 
-`from` côté Cursor = `cursor`. Un `to=cursor` crée automatiquement une tâche dans `/gestion/taches`. Voir `docs/AGENT-BUS-GROKBOT.md` + `docs/agent-bus-grokbot.openapi.json`.
+`from` côté Cursor = `cursor`. Un `to=cursor` crée automatiquement une tâche dans `/gestion/taches`. Voir `docs/AGENT-BUS-CURSOR.md` (agent de fond + prompt) + `docs/AGENT-BUS-GROKBOT.md` + `docs/agent-bus-grokbot.openapi.json`.
 
 **Secret prod :** `KORYMB_AGENT_SECRET` (Hermes `/opt/data/.env`) ou `AGENT_API_SECRET` Coolify back — le `backend/.env` local peut différer.
