@@ -7,6 +7,7 @@ import ChatShell, { type ChatMsg } from "../../components/chat/ChatShell";
 import ChatSidebar from "../../components/chat/ChatSidebar";
 import ChatHistoryDrawer from "../../components/chat/ChatHistoryDrawer";
 import ChatConversationHeader from "../../components/chat/ChatConversationHeader";
+import AgentBusPanel from "../../components/chat/AgentBusPanel";
 import {
   describeInterlocutor,
   interlocutorFromGroupId,
@@ -1483,6 +1484,9 @@ function ChatPageInner() {
               <MissionContextBanner jobId={missionJobId} />
             </div>
           ) : null}
+          <div className="shrink-0 border-b border-slate-100 px-3 py-2">
+            <AgentBusPanel />
+          </div>
           <ChatShell
             messages={messages}
             draft={draft}

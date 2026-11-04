@@ -76,3 +76,44 @@ def test_agent_bus_not_in_hitl_inbox(client):
         "no-inbox" in str(i.get("title") or "") or "ne doit pas polluer" in str(i.get("body") or "")
         for i in items
     )
+
+
+def test_plan_to_cursor_creates_task_and_progress(client):
+    created = client.post(
+        "/agent-bus/messages",
+        json={
+            "from": "grokbot",
+            "to": "cursor",
+            "topic": "cursor-task",
+            "body": "Plan: brancher le tuyau sans copier-coller.",
+        },
+    )
+    assert created.status_code == 200, created.text
+    msg = created.json()
+    assert msg.get("task_id")
+    mid = msg["id"]
+
+    tasks = client.get("/business/tasks")
+    assert tasks.status_code == 200
+    rows = tasks.json().get("tasks") or []
+    linked = [t for t in rows if t.get("id") == msg["task_id"]]
+    assert linked
+    assert linked[0]["status"] == "open"
+    assert "tuyau" in (linked[0].get("notes") or "")
+
+    prog = client.post(
+        f"/agent-bus/messages/{mid}/progress",
+        json={"note": "Étape 1 faite (smoke local)."},
+    )
+    assert prog.status_code == 200, prog.text
+    assert "Étape 1" in (prog.json().get("task") or {}).get("notes", "")
+
+    done = client.post(
+        f"/agent-bus/messages/{mid}/done",
+        json={"comment": "Terminé sans patch hors Cursor."},
+    )
+    assert done.status_code == 200, done.text
+    assert done.json().get("task_id") == msg["task_id"]
+    task = client.get(f"/business/tasks/{msg['task_id']}")
+    assert task.status_code == 200
+    assert task.json()["status"] == "done"

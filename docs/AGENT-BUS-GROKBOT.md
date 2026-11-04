@@ -54,9 +54,23 @@ Pour `bus_ack` / `bus_done`, passer l’`id` tel quel (ex. `bus-a1b2c3d4e5f6`) d
 - Cursor relit le résultat : `GET /agent-bus/messages?topic=<même topic>&status=done` (éventuellement `to=grokbot`).
 - `bus_ack` : **skip** par défaut (un appel de moins) ; utiliser seulement si plusieurs workers concurrents.
 
+## Envoie à Cursor (sans copier-coller)
+
+1. Préparer avec Éric un **plan d’exécution** (texte clair : objectif, étapes, hors scope).
+2. Quand Éric dit « envoie à Cursor » : `bus_post` avec `from=grokbot`, `to=cursor`, `topic` (ex. `cursor-task` ou sujet métier), `body` = le plan.
+3. **Ne pas** coller le plan dans un chat Cursor à la main — le bus est le canal.
+4. Cursor récupère via `GET /agent-bus/messages?to=cursor&status=open` (script `scripts/korymb-api.ps1`).
+
+### Règle dure — Grokbot ne code pas
+
+- **Seul Cursor** modifie le code des apps et gère Git (branches, commits, PR, révisions). GitHub est au centre : un écriture Grokbot sur le repo perturberait les révisions.
+- Grokbot : discuter, préparer des plans, poster/lire le bus, rappeler Éric (tel/ordi).
+- Le bus transporte des **plans / briefs / rappels** (texte), pas des patches à appliquer hors Cursor.
+- Accès Grokbot = header `X-Agent-Secret` vers `/agent-bus/*` uniquement — **aucun** droit d’écriture sur le code, le SSH app, ni Coolify « code ».
+
 ## Instruction agent (prompt système ou procédure)
 
-> Tu es le nœud **`grokbot`** du bus Korymb. **À chaque tour**, appelle une fois `bus_list`. Pour chaque message `open` : exécute la tâche, puis `bus_done` avec un `comment` clair (résultat, lien, ou blocage) — c’est ta réponse à Cursor. N’utilise pas `bus_ack`. N’utilise `bus_post` que pour démarrer un **nouveau** message (pas pour répondre). Ne traite pas les envois e-mail / social / WordPress — HITL `/actions` uniquement.
+> Tu es le nœud **`grokbot`** du bus Korymb. Tu **ne codes pas** et tu ne touches pas Git : tu prépares des plans et tu discutes. Sur « envoie à Cursor », `bus_post` `to=cursor` avec le plan (topic `cursor-task` ou métier). **À chaque tour**, appelle une fois `bus_list` (`to=grokbot&status=open`). Pour chaque message `open` : exécute la tâche non-code (rappel, info), puis `bus_done` avec un `comment` clair — c’est ta réponse à Cursor. N’utilise pas `bus_ack`. N’utilise `bus_post` que pour démarrer un **nouveau** message (pas pour répondre). Ne traite pas les envois e-mail / social / WordPress — HITL `/actions` uniquement.
 
 ## Cycle de vie d’un message
 

@@ -58,15 +58,27 @@ Voir `tronc/templates/mission-from-cursor.md` :
 
 Passer la main à l'implémentation (`boucle-operationnelle` étape 3) avec le `job_id` / lien mission si connu.
 
-## Agent bus (Cursor ↔ Grokbot / Hermes)
+## Agent bus (Cursor ↔ Grokbot)
+
+**Règle :** Grokbot prépare des plans et rappelle Éric ; **seul Cursor code** (Git + révisions). Le bus porte du texte (plans, rappels), pas des patches hors Cursor.
 
 ```powershell
+# Plans reçus de Grokbot (pas de copier-coller)
+.\scripts\korymb-api.ps1 -Method GET -Path "/agent-bus/messages?to=cursor&status=open"
+
+# Rappel / info vers Grokbot (tel/ordi)
 .\scripts\korymb-api.ps1 -Method POST -Path /agent-bus/messages -Body @{
-  from = "cursor"; to = "grokbot"; topic = "mandala-play-review"
-  body = "..."
+  from = "cursor"; to = "grokbot"; topic = "cursor-remind"
+  body = "Rappel: …"
 }
-# Résultat = comment du même message passé en done (pas un bus_post réponse)
-.\scripts\korymb-api.ps1 -Method GET -Path "/agent-bus/messages?topic=mandala-play-review&status=done"
+
+# Avancement en parallèle (écrit la tâche Corimb + notif)
+.\scripts\korymb-api.ps1 -Method POST -Path "/agent-bus/messages/<id>/progress" -Body @{ note = "…" }
+
+# Clôturer : done.comment = résultat (économe) — marque la tâche done
+.\scripts\korymb-api.ps1 -Method POST -Path "/agent-bus/messages/<id>/done" -Body @{ comment = "…" }
 ```
 
-`from` doit être `cursor`. Réponse Grokbot = `comment` sur `done` (économe). Ne pas utiliser ce canal pour des envois e-mail/social (rester sur `/actions` HITL). Voir `docs/AGENT-BUS-GROKBOT.md` + `docs/agent-bus-grokbot.openapi.json`.
+`from` côté Cursor = `cursor`. Un `to=cursor` crée automatiquement une tâche dans `/gestion/taches`. Voir `docs/AGENT-BUS-GROKBOT.md` + `docs/agent-bus-grokbot.openapi.json`.
+
+**Secret prod :** `KORYMB_AGENT_SECRET` (Hermes `/opt/data/.env`) ou `AGENT_API_SECRET` Coolify back — le `backend/.env` local peut différer.

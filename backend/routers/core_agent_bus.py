@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from auth import require_admin
 from database import LONG_TEXT_CHARS
 from services import agent_bus
+from services import agent_bus_bridge
 
 router = APIRouter(prefix="/agent-bus", tags=["agent-bus"])
 
@@ -25,10 +26,15 @@ class MessageDoneBody(BaseModel):
     comment: str = Field("", max_length=LONG_TEXT_CHARS)
 
 
+class MessageProgressBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: str = Field(..., min_length=1, max_length=LONG_TEXT_CHARS)
+
+
 @router.post("/messages", dependencies=[Depends(require_admin)])
 def messages_create(body: MessageCreateBody):
     try:
-        return agent_bus.create_message(
+        msg = agent_bus.create_message(
             from_node=body.from_node,
             to_node=body.to_node,
             topic=body.topic,
@@ -37,6 +43,10 @@ def messages_create(body: MessageCreateBody):
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    task = agent_bus_bridge.sync_task_on_bus_create(msg)
+    if task:
+        msg = {**msg, "task_id": task.get("id")}
+    return msg
 
 
 @router.get("/messages", dependencies=[Depends(require_admin)])
@@ -69,9 +79,23 @@ def messages_ack(message_id: str):
         raise HTTPException(status_code=404, detail="Message introuvable.") from None
 
 
+@router.post("/messages/{message_id}/progress", dependencies=[Depends(require_admin)])
+def messages_progress(message_id: str, body: MessageProgressBody):
+    try:
+        return agent_bus_bridge.append_progress(message_id, body.note)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Message ou tâche liée introuvable.") from None
+
+
 @router.post("/messages/{message_id}/done", dependencies=[Depends(require_admin)])
 def messages_done(message_id: str, body: MessageDoneBody | None = None):
     try:
-        return agent_bus.done_message(message_id, comment=(body.comment if body else ""))
+        msg = agent_bus.done_message(message_id, comment=(body.comment if body else ""))
     except KeyError:
         raise HTTPException(status_code=404, detail="Message introuvable.") from None
+    task = agent_bus_bridge.sync_task_on_bus_done(msg)
+    if task:
+        msg = {**msg, "task_id": task.get("id")}
+    return msg

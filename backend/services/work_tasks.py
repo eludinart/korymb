@@ -211,6 +211,11 @@ def _find_origin(origin_key: str) -> dict | None:
     return dict(row) if row else None
 
 
+def get_work_task_by_origin(origin_key: str) -> dict | None:
+    row = _find_origin(origin_key)
+    return _public(row) if row else None
+
+
 def _mirror_google(event: dict | None) -> None:
     """Pousse l'heure ou l'annulation si le créneau est déjà lié à Google."""
     if not event:
