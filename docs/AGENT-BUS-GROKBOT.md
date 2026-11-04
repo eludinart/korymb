@@ -51,10 +51,12 @@ Pour `bus_ack` / `bus_done`, passer l’`id` tel quel (ex. `bus-a1b2c3d4e5f6`) d
 
 ### Convention de réponse (économe)
 
-**Le `comment` de `bus_done` est la réponse.** Ne pas enchaîner un `bus_post to=cursor` sauf si le brief demande explicitement un **nouveau** fil.
+**Le `comment` de `bus_done` est la réponse technique** sur le message d’origine (`to=cursor`).
 
-- Cursor relit le résultat : `GET /agent-bus/messages?topic=<même topic>&status=done` (éventuellement `to=grokbot`).
-- `bus_ack` : **skip** par défaut (un appel de moins) ; utiliser seulement si plusieurs workers concurrents.
+En plus, le **pont Korymb** (après deploy) poste automatiquement un message **`to=grokbot` topic=`cursor-remind`** avec le résultat — pour que Grokbot le voie via `bus_list` et notifie Éric (tel/ordi). Même logique sur `progress`.
+
+- Corimb app : panneau bus (`/chat`, `/gestion/taches`) — onglets Ouvertes / Terminées / Retours Grokbot.
+- `bus_ack` : **skip** par défaut.
 
 ## Envoie à Cursor (sans copier-coller)
 

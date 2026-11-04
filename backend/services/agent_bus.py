@@ -95,6 +95,18 @@ def create_message(
     return _row_to_dict(dict(row))  # type: ignore[arg-type]
 
 
+def get_message(message_id: str) -> dict | None:
+    mid = (message_id or "").strip()
+    if not mid:
+        return None
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM agent_bus_messages WHERE id=? AND workspace_id=?",
+            (mid, _ws()),
+        ).fetchone()
+    return _row_to_dict(dict(row)) if row else None  # type: ignore[arg-type]
+
+
 def list_messages(
     *,
     to_node: str | None = None,
@@ -114,7 +126,7 @@ def list_messages(
     if topic:
         clauses.append("topic = ?")
         params.append(topic.strip()[:128])
-    if status:
+    if status is not None and str(status).strip() != "":
         st = status.strip().lower()
         if st not in ALLOWED_STATUS:
             raise ValueError(f"status invalide: {status}")

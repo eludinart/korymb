@@ -117,3 +117,19 @@ def test_plan_to_cursor_creates_task_and_progress(client):
     task = client.get(f"/business/tasks/{msg['task_id']}")
     assert task.status_code == 200
     assert task.json()["status"] == "done"
+
+    # Retour vers Grokbot (sinon la boucle reste muette côté tel/ordi)
+    remind_id = done.json().get("grokbot_remind_id")
+    assert remind_id
+    for_grok = client.get(
+        "/agent-bus/messages",
+        params={"to": "grokbot", "status": "open"},
+    )
+    assert for_grok.status_code == 200
+    ids = [m["id"] for m in for_grok.json()["messages"]]
+    assert remind_id in ids
+    remind = next(m for m in for_grok.json()["messages"] if m["id"] == remind_id)
+    assert remind["from"] == "cursor"
+    assert remind["topic"] == "cursor-remind"
+    assert "Terminé sans patch" in remind["body"]
+    assert remind.get("reply_to") == mid

@@ -95,7 +95,9 @@ def messages_done(message_id: str, body: MessageDoneBody | None = None):
         msg = agent_bus.done_message(message_id, comment=(body.comment if body else ""))
     except KeyError:
         raise HTTPException(status_code=404, detail="Message introuvable.") from None
-    task = agent_bus_bridge.sync_task_on_bus_done(msg)
-    if task:
-        msg = {**msg, "task_id": task.get("id")}
+    sync = agent_bus_bridge.sync_task_on_bus_done(msg) or {}
+    if sync.get("id"):
+        msg = {**msg, "task_id": sync.get("id")}
+    if sync.get("grokbot_remind_id"):
+        msg = {**msg, "grokbot_remind_id": sync.get("grokbot_remind_id")}
     return msg
