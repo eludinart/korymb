@@ -12,8 +12,6 @@ import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../..
 import WorkTaskList, { missionRefsFromJobs, TaskSortSelect } from "../../../components/director/WorkTaskList";
 import { useTaskSort } from "../../../components/director/useTaskSort";
 import { useWorkTaskActions, WorkTaskEditor } from "../../../components/director/workTaskActions";
-import AgentBusPanel from "../../../components/chat/AgentBusPanel";
-
 export default function GestionTachesPage() {
   const today = todayISO();
   const [showDone, setShowDone] = useState(false);
@@ -118,7 +116,6 @@ export default function GestionTachesPage() {
           </div>
         }
       >
-        <AgentBusPanel className="mb-4" />
         {tasks.isLoading ? <LoadingLine /> : null}
         {tasks.isError ? <AlertBox tone="error" title="Erreur">Chargement impossible.</AlertBox> : null}
         {capped ? (
