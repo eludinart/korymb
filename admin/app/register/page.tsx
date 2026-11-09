@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import StarterPackPicker from "../../components/StarterPackPicker";
+import PasswordInput from "../../components/ui/PasswordInput";
 import { formatHttpApiErrorPayload } from "../../lib/api";
 import {
   FALLBACK_STARTER_PACKS,
@@ -104,14 +105,14 @@ export default function RegisterPage() {
           </label>
           <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
             Mot de passe (8 caractères min.)
-            <input
-              type="password"
+            <PasswordInput
               required
               minLength={8}
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+              wrapperClassName="mt-1"
             />
           </label>
           <StarterPackPicker

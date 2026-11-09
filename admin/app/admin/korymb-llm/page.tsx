@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import HealthDot from "../../../components/HealthDot";
 import MistralReflectionTiersEditor from "../../../components/config/MistralReflectionTiersEditor";
+import PasswordInput from "../../../components/ui/PasswordInput";
 import type { HealthTone } from "../../../lib/healthTone";
 import { DEFAULT_LLM_TIERS_JSON_EXAMPLE } from "../../../lib/defaultLlmTiersExample";
 import { defaultMistralTiersJson } from "../../../lib/mistralReflectionTiers";
@@ -535,10 +536,9 @@ export default function KorymbLlmAdminPage() {
                 <p className="mb-1.5 text-xs text-slate-500">
                   {data?.groq_api_key_set ? "Déjà enregistrée — ne remplis que pour la remplacer." : "console.groq.com — palier gratuit."}
                 </p>
-                <input
+                <PasswordInput
                   id="groq_api_key"
                   name="groq_api_key"
-                  type="password"
                   autoComplete="off"
                   placeholder={data?.groq_api_key_set ? "Laisser vide pour conserver" : "gsk_…"}
                   className={`${inputClass} font-mono`}
@@ -553,10 +553,9 @@ export default function KorymbLlmAdminPage() {
                     ? "Déjà enregistrée — le palier gratuit peut servir à l’entraînement des modèles Google."
                     : "AI Studio — le palier gratuit peut servir à l’entraînement des modèles Google."}
                 </p>
-                <input
+                <PasswordInput
                   id="gemini_api_key"
                   name="gemini_api_key"
-                  type="password"
                   autoComplete="off"
                   placeholder={data?.gemini_api_key_set ? "Laisser vide pour conserver" : "AIza…"}
                   className={`${inputClass} font-mono`}
@@ -571,10 +570,9 @@ export default function KorymbLlmAdminPage() {
                     ? "Déjà enregistrée. Dernier seau, après tous les gratuits. Laissez vide pour conserver."
                     : "Optionnel. platform.deepseek.com — quelques euros suffisent pour le dernier recours."}
                 </p>
-                <input
+                <PasswordInput
                   id="deepseek_api_key"
                   name="deepseek_api_key"
-                  type="password"
                   autoComplete="off"
                   placeholder={data?.deepseek_api_key_set ? "Laisser vide pour conserver" : "sk-…"}
                   className={`${inputClass} font-mono`}
@@ -741,7 +739,7 @@ export default function KorymbLlmAdminPage() {
                 <label className={`${labelClass} mb-1.5 block`} htmlFor="essential_api_key">
                   Clé API {providerDraft === "mistral" ? "Mistral" : providerDraft === "anthropic" ? "Anthropic" : "OpenRouter"}
                 </label>
-                <input
+                <PasswordInput
                   id="essential_api_key"
                   name={
                     providerDraft === "mistral"
@@ -750,7 +748,6 @@ export default function KorymbLlmAdminPage() {
                         ? "anthropic_api_key"
                         : "openrouter_api_key"
                   }
-                  type="password"
                   autoComplete="off"
                   placeholder="Laisser vide pour conserver la clé actuelle"
                   className={`${inputClass} font-mono`}
@@ -791,10 +788,9 @@ export default function KorymbLlmAdminPage() {
                   <p className="mb-1.5 text-xs text-slate-500">
                     {data.anthropic_api_key_set ? "Déjà enregistrée — ne remplis que pour la faire tourner." : "Obligatoire pour appeler Anthropic."}
                   </p>
-                  <input
+                  <PasswordInput
                     id="anthropic_api_key"
                     name="anthropic_api_key"
-                    type="password"
                     autoComplete="off"
                     placeholder={data.anthropic_api_key_set ? "Laisser vide pour conserver" : "sk-ant-…"}
                     className={`${inputClass} font-mono`}
@@ -847,10 +843,9 @@ export default function KorymbLlmAdminPage() {
                       ? "Déjà enregistrée — elle sert aussi à générer les images du Studio (Flux)."
                       : "Une seule clé : chat des missions et images du Studio."}
                   </p>
-                  <input
+                  <PasswordInput
                     id="mistral_api_key"
                     name="mistral_api_key"
-                    type="password"
                     autoComplete="off"
                     placeholder={data.mistral_api_key_set ? "Laisser vide pour conserver" : "Votre clé Mistral…"}
                     className={`${inputClass} font-mono`}
@@ -938,10 +933,9 @@ export default function KorymbLlmAdminPage() {
                   <p className="mb-1.5 text-xs text-slate-500">
                     {data.openrouter_api_key_set ? "Déjà enregistrée — optionnel pour rotation." : "Requis pour OpenRouter."}
                   </p>
-                  <input
+                  <PasswordInput
                     id="openrouter_api_key"
                     name="openrouter_api_key"
-                    type="password"
                     autoComplete="off"
                     placeholder={data.openrouter_api_key_set ? "Laisser vide pour conserver" : "sk-or-…"}
                     className={`${inputClass} font-mono`}

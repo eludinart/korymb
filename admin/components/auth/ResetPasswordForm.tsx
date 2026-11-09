@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
+import PasswordInput from "../ui/PasswordInput";
 import { formatHttpApiErrorPayload } from "../../lib/api";
 
 function ResetPasswordFormInner() {
@@ -73,26 +74,26 @@ function ResetPasswordFormInner() {
             ) : null}
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
               Nouveau mot de passe
-              <input
-                type="password"
+              <PasswordInput
                 required
                 minLength={8}
                 autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                wrapperClassName="mt-1"
               />
             </label>
             <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
               Confirmer
-              <input
-                type="password"
+              <PasswordInput
                 required
                 minLength={8}
                 autoComplete="new-password"
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950"
+                wrapperClassName="mt-1"
               />
             </label>
             {error ? (

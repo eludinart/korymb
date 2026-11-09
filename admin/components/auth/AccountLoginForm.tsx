@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
+import PasswordInput from "../ui/PasswordInput";
 import { formatHttpApiErrorPayload } from "../../lib/api";
 import { queryClient } from "../../lib/queryClient";
 
@@ -87,13 +88,13 @@ export function AccountLoginForm({
           </label>
           <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
             Mot de passe
-            <input
-              type="password"
+            <PasswordInput
               required
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-100"
+              wrapperClassName="mt-1"
             />
           </label>
           {error ? (

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import PasswordInput from "../ui/PasswordInput";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 
 type Props = {
@@ -82,13 +83,13 @@ export default function AdminPasswordActions({ userId, label = "Mot de passe" }:
         <form className="mt-2 flex flex-wrap items-end gap-2" onSubmit={onSetPassword}>
           <label className="font-semibold text-slate-600 dark:text-slate-300">
             Nouveau mot de passe
-            <input
-              type="password"
+            <PasswordInput
               required
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-0.5 block w-44 rounded-lg border border-slate-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-950"
+              className="block w-44 rounded-lg border border-slate-300 px-2 py-1 dark:border-slate-600 dark:bg-slate-950"
+              wrapperClassName="mt-0.5"
             />
           </label>
           <button

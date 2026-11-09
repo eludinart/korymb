@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import HealthDot from "../../../components/HealthDot";
 import { ConnectorRepairPanel, ConnectorStatusBadge } from "../../../components/ConnectorStatusBlock";
 import { PageHeader, SectionCard } from "../../../components/ui/PageChrome";
+import PasswordInput from "../../../components/ui/PasswordInput";
 import { agentHeaders, requestJson } from "../../../lib/api";
 import type { HealthTone } from "../../../lib/healthTone";
 import {
@@ -347,20 +348,28 @@ function FieldGrid({
                       ) : null}
                       <SetupLink href={field.setup_url} label={field.setup_label} />
                     </div>
-                    <input
-                      type={secret ? "password" : "text"}
-                      autoComplete="off"
-                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
-                      placeholder={
-                        secret
-                          ? setFlag
+                    {secret ? (
+                      <PasswordInput
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                        placeholder={
+                          setFlag
                             ? "••••••••  (laisser vide pour conserver)"
                             : field.placeholder || "Coller la clé API"
-                          : field.placeholder || ""
-                      }
-                      value={fieldValue(field.key, secret)}
-                      onChange={(e) => setField(field.key, e.target.value)}
-                    />
+                        }
+                        value={fieldValue(field.key, secret)}
+                        onChange={(e) => setField(field.key, e.target.value)}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+                        placeholder={field.placeholder || ""}
+                        value={fieldValue(field.key, secret)}
+                        onChange={(e) => setField(field.key, e.target.value)}
+                      />
+                    )}
                     {field.hint ? <p className="text-[11px] text-slate-500">{field.hint}</p> : null}
                     {secret && setFlag ? (
                       <button

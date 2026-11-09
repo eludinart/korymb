@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import PasswordInput from "../../../../components/ui/PasswordInput";
 import { formatHttpApiErrorPayload } from "../../../../lib/api";
 import type { StorefrontPublic } from "../../../../lib/storefront";
 
@@ -108,14 +109,14 @@ function InvitationForm() {
           </label>
           <label className="block text-sm font-semibold text-slate-700">
             Mot de passe
-            <input
-              type="password"
+            <PasswordInput
               required
               minLength={8}
               autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              wrapperClassName="mt-1"
             />
           </label>
           {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">{error}</p> : null}

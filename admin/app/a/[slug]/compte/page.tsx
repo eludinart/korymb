@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { SessionList } from "../../../../components/espace/SubscriberLists";
+import PasswordInput from "../../../../components/ui/PasswordInput";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../../../lib/api";
 import { accountDisplayName, type AuthMeResponse } from "../../../../lib/authSession";
 import { queryClient } from "../../../../lib/queryClient";
 import { useSubscriberSpace } from "../../../../lib/subscriberHome";
-import { SessionList } from "../../../../components/espace/SubscriberLists";
 
 export default function SubscriberComptePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -123,23 +124,23 @@ export default function SubscriberComptePage() {
           </label>
           <label className="block text-sm font-semibold text-slate-700">
             Mot de passe actuel
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              wrapperClassName="mt-1"
             />
           </label>
           <label className="block text-sm font-semibold text-slate-700">
             Nouveau mot de passe
-            <input
-              type="password"
+            <PasswordInput
               autoComplete="new-password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
               minLength={8}
-              className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+              wrapperClassName="mt-1"
             />
           </label>
           <p className="text-xs text-slate-500">Laissez les mots de passe vides pour ne changer que le nom.</p>
