@@ -150,13 +150,16 @@ def test_platform_owner_can_search_and_reset_any_user(client, monkeypatch):
     client_user = get_user_by_email("client-mer@example.com")
     assert client_user
 
+    listed = client.get("/auth/users", headers=_auth(owner_token, owner_ws))
+    assert listed.status_code == 200, listed.text
+    emails = {u.get("email") for u in listed.json().get("users") or []}
+    assert "client-mer@example.com" in emails
     search = client.get(
         "/auth/users/search?q=mer%20et%20decouverte",
         headers=_auth(owner_token, owner_ws),
     )
     assert search.status_code == 200, search.text
-    emails = {u.get("email") for u in search.json().get("users") or []}
-    assert "client-mer@example.com" in emails
+    assert "client-mer@example.com" in {u.get("email") for u in search.json().get("users") or []}
 
     forced = client.post(
         f"/auth/users/{client_user['id']}/password",

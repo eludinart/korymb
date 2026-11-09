@@ -1103,48 +1103,89 @@ def mark_password_reset_used(reset_id: str) -> None:
         conn.commit()
 
 
-def search_users_platform(query: str, *, limit: int = 30) -> list[dict[str, Any]]:
-    """Recherche users + espaces (owner plateforme). Pas de password_hash."""
+def list_users_platform(*, limit: int = 200) -> list[dict[str, Any]]:
+    """Tous les comptes (1 ligne / user) avec espaces agrégés — owner plateforme."""
     from database import get_conn
 
-    q = (query or "").strip().lower()
-    if len(q) < 2:
-        return []
-    lim = max(1, min(int(limit or 30), 50))
-    like = f"%{q}%"
+    lim = max(1, min(int(limit or 200), 500))
     with get_conn() as conn:
-        rows = conn.execute(
+        user_rows = conn.execute(
             """
-            SELECT DISTINCT u.id, u.email, u.display_name, u.created_at,
-                   w.id AS workspace_id, w.name AS workspace_name, w.slug AS workspace_slug,
-                   m.role AS membership_role
-            FROM korymb_users u
-            LEFT JOIN korymb_memberships m ON m.user_id = u.id
-            LEFT JOIN korymb_workspaces w ON w.id = m.workspace_id
-            WHERE LOWER(u.email) LIKE ?
-               OR LOWER(COALESCE(u.display_name, '')) LIKE ?
-               OR LOWER(COALESCE(w.name, '')) LIKE ?
-               OR LOWER(COALESCE(w.slug, '')) LIKE ?
-            ORDER BY u.email ASC
+            SELECT id, email, display_name, created_at
+            FROM korymb_users
+            ORDER BY LOWER(email) ASC
             LIMIT ?
             """,
-            (like, like, like, like, lim),
+            (lim,),
         ).fetchall()
-    out: list[dict[str, Any]] = []
-    for row in rows:
+        membership_rows = conn.execute(
+            """
+            SELECT m.user_id, m.role, w.id AS workspace_id, w.name AS workspace_name, w.slug AS workspace_slug
+            FROM korymb_memberships m
+            JOIN korymb_workspaces w ON w.id = m.workspace_id
+            ORDER BY w.name ASC
+            """
+        ).fetchall()
+    by_user: dict[str, list[dict[str, Any]]] = {}
+    for row in membership_rows:
         item = dict(row)
-        out.append(
+        uid = str(item.get("user_id") or "")
+        if not uid:
+            continue
+        by_user.setdefault(uid, []).append(
             {
-                "id": item.get("id"),
-                "email": item.get("email"),
-                "display_name": item.get("display_name") or "",
-                "created_at": item.get("created_at") or "",
                 "workspace_id": item.get("workspace_id") or "",
                 "workspace_name": item.get("workspace_name") or "",
                 "workspace_slug": item.get("workspace_slug") or "",
-                "membership_role": item.get("membership_role") or "",
+                "membership_role": item.get("membership_role") or item.get("role") or "",
             }
         )
+    out: list[dict[str, Any]] = []
+    for row in user_rows:
+        item = dict(row)
+        uid = str(item.get("id") or "")
+        spaces = by_user.get(uid) or []
+        names = [str(s.get("workspace_name") or "").strip() for s in spaces if s.get("workspace_name")]
+        roles = sorted({str(s.get("membership_role") or "") for s in spaces if s.get("membership_role")})
+        primary = spaces[0] if spaces else {}
+        out.append(
+            {
+                "id": uid,
+                "email": item.get("email") or "",
+                "display_name": item.get("display_name") or "",
+                "created_at": item.get("created_at") or "",
+                "workspace_id": primary.get("workspace_id") or "",
+                "workspace_name": primary.get("workspace_name") or "",
+                "workspace_slug": primary.get("workspace_slug") or "",
+                "membership_role": primary.get("membership_role") or "",
+                "workspaces_label": " · ".join(names) if names else "",
+                "roles_label": ", ".join(roles) if roles else "",
+            }
+        )
+    return out
+
+
+def search_users_platform(query: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    """Recherche users + espaces (owner plateforme). Pas de password_hash."""
+    q = (query or "").strip().lower()
+    if not q:
+        return list_users_platform(limit=limit)
+    lim = max(1, min(int(limit or 30), 200))
+    rows = list_users_platform(limit=500)
+    out: list[dict[str, Any]] = []
+    for item in rows:
+        blob = " ".join(
+            [
+                str(item.get("email") or ""),
+                str(item.get("display_name") or ""),
+                str(item.get("workspaces_label") or ""),
+                str(item.get("workspace_slug") or ""),
+            ]
+        ).lower()
+        if q in blob:
+            out.append(item)
+            if len(out) >= lim:
+                break
     return out
 
 

@@ -44,6 +44,7 @@ from workspace_db import (
     new_invite_code,
     normalize_participant_status,
     participant_is_active,
+    list_users_platform,
     search_users_platform,
     serialize_participant,
     set_subscriber_status,
@@ -805,4 +806,9 @@ def admin_send_password_reset(auth: dict[str, Any], *, user_id: str) -> dict[str
 
 def platform_search_users(*, query: str, limit: int = 30) -> dict[str, Any]:
     rows = search_users_platform(query, limit=limit)
+    return {"users": rows, "count": len(rows)}
+
+
+def platform_list_users(*, limit: int = 200) -> dict[str, Any]:
+    rows = list_users_platform(limit=limit)
     return {"users": rows, "count": len(rows)}

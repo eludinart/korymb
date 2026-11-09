@@ -330,6 +330,11 @@ def auth_admin_send_password_reset(user_id: str, auth: dict = Depends(auth_svc.r
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/users", dependencies=[Depends(auth_svc.require_platform_owner)])
+def auth_list_users(limit: int = 200):
+    return auth_svc.platform_list_users(limit=limit)
+
+
 @router.get("/users/search", dependencies=[Depends(auth_svc.require_platform_owner)])
 def auth_search_users(q: str = "", limit: int = 30):
     return auth_svc.platform_search_users(query=q, limit=limit)

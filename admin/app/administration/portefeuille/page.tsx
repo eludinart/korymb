@@ -456,91 +456,84 @@ function CreateClient({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-type UserSearchHit = {
+type PlatformUserHit = {
   id: string;
   email: string;
   display_name?: string;
   workspace_name?: string;
-  workspace_slug?: string;
-  membership_role?: string;
+  workspaces_label?: string;
+  roles_label?: string;
 };
 
+function userOptionLabel(u: PlatformUserHit): string {
+  const name = (u.display_name || "").trim() || u.email;
+  const spaces = (u.workspaces_label || u.workspace_name || "").trim();
+  if (spaces) return `${name} — ${u.email} (${spaces})`;
+  return `${name} — ${u.email}`;
+}
+
 function PlatformUserPasswordSearch() {
-  const [q, setQ] = useState("");
-  const [submitted, setSubmitted] = useState("");
-  const search = useQuery({
-    queryKey: ["platform-user-search", submitted],
-    enabled: submitted.trim().length >= 2,
+  const [selectedId, setSelectedId] = useState("");
+  const usersQ = useQuery({
+    queryKey: ["platform-users"],
     queryFn: async () => {
-      const { data } = await requestJson(
-        `/auth/users/search?q=${encodeURIComponent(submitted.trim())}&limit=30`,
-        { headers: agentHeaders() },
-      );
-      return data as { users?: UserSearchHit[]; count?: number };
+      const { data } = await requestJson("/auth/users?limit=200", { headers: agentHeaders() });
+      return data as { users?: PlatformUserHit[]; count?: number };
     },
   });
-  const rows = search.data?.users || [];
+  const rows = usersQ.data?.users || [];
+  const selected = rows.find((u) => u.id === selectedId) || null;
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
       <h2 className="text-lg font-bold text-slate-900 dark:text-slate-50">Comptes — mot de passe</h2>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-        Cherchez un compte (e-mail, nom ou espace, ex. Mer et Découverte) pour forcer un mot de passe ou envoyer un
-        lien de reset.
+        Sélectionnez un compte, puis définissez un nouveau mot de passe ou envoyez un lien de reset.
       </p>
-      <form
-        className="mt-3 flex flex-wrap gap-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setSubmitted(q.trim());
-        }}
-      >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="ex. mer et decouverte"
-          className="min-w-[16rem] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
-        />
-        <button
-          type="submit"
-          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
-          disabled={q.trim().length < 2}
-        >
-          Chercher
-        </button>
-      </form>
-      {search.isFetching ? <p className="mt-3 text-sm text-slate-500">Recherche…</p> : null}
-      {search.isError ? (
+      {usersQ.isLoading ? <p className="mt-3 text-sm text-slate-500">Chargement des comptes…</p> : null}
+      {usersQ.isError ? (
         <p className="mt-3 text-sm text-red-700" role="alert">
-          {(search.error as Error).message}
+          {(usersQ.error as Error).message}
         </p>
       ) : null}
-      {search.isSuccess && rows.length === 0 ? (
-        <p className="mt-3 text-sm text-slate-500">Aucun compte trouvé.</p>
+      {usersQ.isSuccess && rows.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Aucun compte sur l&apos;instance.</p>
       ) : null}
       {rows.length > 0 ? (
-        <ul className="mt-3 space-y-2 text-sm">
-          {rows.map((u) => (
-            <li
-              key={`${u.id}-${u.workspace_slug || ""}-${u.membership_role || ""}`}
-              className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between"
+        <div className="mt-3 space-y-3">
+          <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200">
+            Compte utilisateur
+            <select
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+              className="mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm dark:border-slate-600 dark:bg-slate-950"
             >
-              <div>
+              <option value="">Choisir un compte…</option>
+              {rows.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {userOptionLabel(u)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {selected ? (
+            <div className="rounded-xl bg-slate-50 px-3 py-3 dark:bg-slate-950/50">
+              <p className="mb-2 text-sm">
                 <span className="font-semibold text-slate-900 dark:text-slate-50">
-                  {u.display_name || u.email}
+                  {selected.display_name || selected.email}
                 </span>
-                <span className="ml-2 text-slate-500">{u.email}</span>
-                {u.workspace_name ? (
+                <span className="ml-2 text-slate-500">{selected.email}</span>
+                {selected.workspaces_label || selected.workspace_name ? (
                   <span className="mt-0.5 block text-xs text-slate-500">
-                    {u.workspace_name}
-                    {u.membership_role ? ` · ${u.membership_role}` : ""}
+                    {selected.workspaces_label || selected.workspace_name}
+                    {selected.roles_label ? ` · ${selected.roles_label}` : ""}
                   </span>
                 ) : null}
-              </div>
-              <AdminPasswordActions userId={u.id} />
-            </li>
-          ))}
-        </ul>
+              </p>
+              <AdminPasswordActions userId={selected.id} />
+            </div>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
