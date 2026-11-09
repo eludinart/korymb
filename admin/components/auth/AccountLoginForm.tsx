@@ -109,6 +109,20 @@ export function AccountLoginForm({
             {loading ? "Connexion…" : "Se connecter"}
           </button>
         </form>
+        <p className="mt-3 text-center text-sm">
+          <Link
+            href={
+              isOperator
+                ? "/mot-de-passe-oublie"
+                : workspace
+                  ? `/p/${encodeURIComponent(workspace)}/mot-de-passe-oublie`
+                  : "/mot-de-passe-oublie"
+            }
+            className="font-semibold text-violet-700 hover:underline dark:text-violet-300"
+          >
+            Mot de passe oublié ?
+          </Link>
+        </p>
         {isOperator ? (
           <p className="mt-4 text-center text-sm text-slate-600 dark:text-slate-300">
             <Link href="/" className="font-semibold text-slate-500 hover:text-violet-700 dark:text-slate-300 dark:hover:text-violet-300">

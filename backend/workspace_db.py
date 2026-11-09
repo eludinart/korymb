@@ -134,8 +134,25 @@ def ensure_saas_tables(conn) -> None:
     """)
     _ensure_workspace_public_columns(conn)
     _ensure_membership_participant_columns(conn)
+    _ensure_password_reset_table(conn)
     _ensure_default_workspace_row(conn)
     _seed_legacy_storefront(conn)
+
+
+def _ensure_password_reset_table(conn) -> None:
+    text_pk = "VARCHAR(191)" if _is_mariadb_conn(conn) else "TEXT"
+    conn.execute(f"""
+        CREATE TABLE IF NOT EXISTS korymb_password_resets (
+            id {text_pk} PRIMARY KEY,
+            user_id {text_pk} NOT NULL,
+            token_hash {text_pk} NOT NULL UNIQUE,
+            expires_at TEXT NOT NULL,
+            used_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            created_by_user_id TEXT NOT NULL DEFAULT '',
+            audience TEXT NOT NULL DEFAULT ''
+        )
+    """)
 
 
 def _ensure_workspace_public_columns(conn) -> None:
@@ -1012,6 +1029,123 @@ def set_user_password_hash(user_id: str, password_hash: str) -> dict[str, Any] |
         conn.execute("UPDATE korymb_users SET password_hash = ? WHERE id = ?", (hashed, uid))
         conn.commit()
     return get_user_by_id(uid)
+
+
+def create_password_reset_token(
+    user_id: str,
+    *,
+    token_hash: str,
+    expires_at: str,
+    created_by_user_id: str = "",
+    audience: str = "",
+) -> str:
+    from database import get_conn
+
+    uid = (user_id or "").strip()
+    th = (token_hash or "").strip()
+    if not uid or not th:
+        raise ValueError("Jeton de reset invalide.")
+    rid = f"pwr_{secrets.token_hex(8)}"
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_password_reset_table(conn)
+        conn.execute(
+            "UPDATE korymb_password_resets SET used_at = ? "
+            "WHERE user_id = ? AND (used_at IS NULL OR used_at = '')",
+            (now, uid),
+        )
+        conn.execute(
+            "INSERT INTO korymb_password_resets "
+            "(id, user_id, token_hash, expires_at, used_at, created_at, created_by_user_id, audience) "
+            "VALUES (?, ?, ?, ?, '', ?, ?, ?)",
+            (
+                rid,
+                uid,
+                th,
+                (expires_at or "").strip(),
+                now,
+                (created_by_user_id or "").strip(),
+                (audience or "").strip()[:20],
+            ),
+        )
+        conn.commit()
+    return rid
+
+
+def get_password_reset_by_token_hash(token_hash: str) -> dict[str, Any] | None:
+    from database import get_conn
+
+    th = (token_hash or "").strip()
+    if not th:
+        return None
+    with get_conn() as conn:
+        _ensure_password_reset_table(conn)
+        row = conn.execute(
+            "SELECT * FROM korymb_password_resets WHERE token_hash = ?",
+            (th,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def mark_password_reset_used(reset_id: str) -> None:
+    from database import get_conn
+
+    rid = (reset_id or "").strip()
+    if not rid:
+        return
+    now = datetime.utcnow().isoformat()
+    with get_conn() as conn:
+        _ensure_password_reset_table(conn)
+        conn.execute(
+            "UPDATE korymb_password_resets SET used_at = ? WHERE id = ?",
+            (now, rid),
+        )
+        conn.commit()
+
+
+def search_users_platform(query: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    """Recherche users + espaces (owner plateforme). Pas de password_hash."""
+    from database import get_conn
+
+    q = (query or "").strip().lower()
+    if len(q) < 2:
+        return []
+    lim = max(1, min(int(limit or 30), 50))
+    like = f"%{q}%"
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT u.id, u.email, u.display_name, u.created_at,
+                   w.id AS workspace_id, w.name AS workspace_name, w.slug AS workspace_slug,
+                   m.role AS membership_role
+            FROM korymb_users u
+            LEFT JOIN korymb_memberships m ON m.user_id = u.id
+            LEFT JOIN korymb_workspaces w ON w.id = m.workspace_id
+            WHERE LOWER(u.email) LIKE ?
+               OR LOWER(COALESCE(u.display_name, '')) LIKE ?
+               OR LOWER(COALESCE(w.name, '')) LIKE ?
+               OR LOWER(COALESCE(w.slug, '')) LIKE ?
+            ORDER BY u.email ASC
+            LIMIT ?
+            """,
+            (like, like, like, like, lim),
+        ).fetchall()
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        out.append(
+            {
+                "id": item.get("id"),
+                "email": item.get("email"),
+                "display_name": item.get("display_name") or "",
+                "created_at": item.get("created_at") or "",
+                "workspace_id": item.get("workspace_id") or "",
+                "workspace_name": item.get("workspace_name") or "",
+                "workspace_slug": item.get("workspace_slug") or "",
+                "membership_role": item.get("membership_role") or "",
+            }
+        )
+    return out
 
 
 def new_invite_code() -> str:

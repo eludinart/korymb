@@ -2,9 +2,10 @@
 
 import { FormEvent, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import AdminPasswordActions from "../../../components/auth/AdminPasswordActions";
 import StarterPackPicker from "../../../components/StarterPackPicker";
 import { PageHeader, StatCard } from "../../../components/ui/PageChrome";
-import { formatHttpApiErrorPayload, requestJson } from "../../../lib/api";
+import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../../lib/api";
 import { FALLBACK_STARTER_PACKS, fetchStarterPacks, starterPackLabel, type StarterPackSummary } from "../../../lib/starterPacks";
 
 type SpaceState = "calme" | "a_traiter" | "bloque" | "archive";
@@ -455,6 +456,96 @@ function CreateClient({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+type UserSearchHit = {
+  id: string;
+  email: string;
+  display_name?: string;
+  workspace_name?: string;
+  workspace_slug?: string;
+  membership_role?: string;
+};
+
+function PlatformUserPasswordSearch() {
+  const [q, setQ] = useState("");
+  const [submitted, setSubmitted] = useState("");
+  const search = useQuery({
+    queryKey: ["platform-user-search", submitted],
+    enabled: submitted.trim().length >= 2,
+    queryFn: async () => {
+      const { data } = await requestJson(
+        `/auth/users/search?q=${encodeURIComponent(submitted.trim())}&limit=30`,
+        { headers: agentHeaders() },
+      );
+      return data as { users?: UserSearchHit[]; count?: number };
+    },
+  });
+  const rows = search.data?.users || [];
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <h2 className="text-lg font-bold text-slate-900 dark:text-slate-50">Comptes — mot de passe</h2>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+        Cherchez un compte (e-mail, nom ou espace, ex. Mer et Découverte) pour forcer un mot de passe ou envoyer un
+        lien de reset.
+      </p>
+      <form
+        className="mt-3 flex flex-wrap gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setSubmitted(q.trim());
+        }}
+      >
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="ex. mer et decouverte"
+          className="min-w-[16rem] flex-1 rounded-xl border border-slate-300 px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-950"
+        />
+        <button
+          type="submit"
+          className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-50"
+          disabled={q.trim().length < 2}
+        >
+          Chercher
+        </button>
+      </form>
+      {search.isFetching ? <p className="mt-3 text-sm text-slate-500">Recherche…</p> : null}
+      {search.isError ? (
+        <p className="mt-3 text-sm text-red-700" role="alert">
+          {(search.error as Error).message}
+        </p>
+      ) : null}
+      {search.isSuccess && rows.length === 0 ? (
+        <p className="mt-3 text-sm text-slate-500">Aucun compte trouvé.</p>
+      ) : null}
+      {rows.length > 0 ? (
+        <ul className="mt-3 space-y-2 text-sm">
+          {rows.map((u) => (
+            <li
+              key={`${u.id}-${u.workspace_slug || ""}-${u.membership_role || ""}`}
+              className="flex flex-col gap-2 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-950/50 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div>
+                <span className="font-semibold text-slate-900 dark:text-slate-50">
+                  {u.display_name || u.email}
+                </span>
+                <span className="ml-2 text-slate-500">{u.email}</span>
+                {u.workspace_name ? (
+                  <span className="mt-0.5 block text-xs text-slate-500">
+                    {u.workspace_name}
+                    {u.membership_role ? ` · ${u.membership_role}` : ""}
+                  </span>
+                ) : null}
+              </div>
+              <AdminPasswordActions userId={u.id} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export default function PortefeuillePage() {
   const qc = useQueryClient();
   const portfolio = useQuery({
@@ -497,6 +588,7 @@ export default function PortefeuillePage() {
 
       {portfolio.isError ? null : (
       <>
+      <PlatformUserPasswordSearch />
       <CreateClient
         onCreated={() => {
           void qc.invalidateQueries({ queryKey: ["platform-portfolio"] });

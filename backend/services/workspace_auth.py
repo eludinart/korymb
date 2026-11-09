@@ -28,19 +28,23 @@ from tenant_context import (
 from workspace_db import (
     _DEFAULT_WORKSPACE_ID,
     add_member,
+    create_password_reset_token,
     create_user,
     create_workspace,
     get_guest_membership_by_code,
     get_membership,
+    get_password_reset_by_token_hash,
     get_user_by_email,
     get_user_by_id,
     get_workspace_by_id,
     get_workspace_by_slug,
     list_user_workspaces,
     list_workspace_operators,
+    mark_password_reset_used,
     new_invite_code,
     normalize_participant_status,
     participant_is_active,
+    search_users_platform,
     serialize_participant,
     set_subscriber_status,
     set_user_password_hash,
@@ -589,3 +593,216 @@ def _platform_home_workspace_id(user_id: str) -> str | None:
     if not spaces:
         return None
     return str(spaces[0].get("id") or "") or None
+
+
+_PASSWORD_RESET_TTL = timedelta(hours=1)
+_PASSWORD_RESET_GENERIC_OK = (
+    "Si un compte correspond, un e-mail avec un lien de réinitialisation a été envoyé."
+)
+
+
+def _hash_reset_token(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
+def _user_matches_password_reset_audience(
+    user_id: str,
+    *,
+    audience: str | None,
+    workspace_slug: str | None,
+) -> bool:
+    aud = (audience or "").strip().lower()
+    spaces = list_user_workspaces(user_id)
+    if aud == "subscriber":
+        slug = (workspace_slug or "").strip()
+        if not slug:
+            return False
+        ws = get_workspace_by_slug(slug)
+        if not ws:
+            return False
+        membership = get_membership(str(ws["id"]), user_id)
+        return bool(membership and str(membership.get("role") or "") == "subscriber")
+    if aud == "operator":
+        return any(is_operator_role(str(w.get("role") or "")) for w in spaces)
+    return bool(spaces)
+
+
+def can_manage_user_password(auth: dict[str, Any], target_user_id: str) -> bool:
+    """Owner plateforme : tout compte. Admin d'espace : membres/participants de l'espace courant."""
+    if auth.get("mode") != "user":
+        return False
+    actor_id = str(auth.get("user_id") or "").strip()
+    target = (target_user_id or "").strip()
+    if not actor_id or not target or not get_user_by_id(target):
+        return False
+    from services.llm_envelope import is_platform_owner
+
+    if is_platform_owner(actor_id):
+        return True
+    if auth.get("role") != "admin":
+        return False
+    ws = str(auth.get("workspace_id") or "").strip()
+    if not ws:
+        return False
+    return get_membership(ws, target) is not None
+
+
+def _send_password_reset_email(*, to: str, name: str, reset_url: str) -> tuple[bool, str]:
+    body = (
+        f"Bonjour {name},\n\n"
+        "Une demande de réinitialisation de mot de passe a été faite pour votre compte Korymb.\n\n"
+        f"Lien (valide 1 heure) : {reset_url}\n\n"
+        "Si vous n'êtes pas à l'origine de cette demande, ignorez cet e-mail.\n"
+    )
+    try:
+        from tools.google_api import run_send_gmail
+
+        result = run_send_gmail(to, "Réinitialisation de mot de passe — Korymb", body)
+        text = str(result or "")
+        lowered = text.lower()
+        if "simul" in lowered or "non configuré" in lowered or "requis" in lowered:
+            return False, text
+        return True, text
+    except Exception as exc:
+        logger.warning("password reset email failed: %s", exc)
+        return False, str(exc)
+
+
+def issue_password_reset_for_user(
+    user_id: str,
+    *,
+    audience: str = "",
+    created_by_user_id: str = "",
+    workspace_slug: str = "",
+) -> dict[str, Any]:
+    """Crée un jeton et envoie l'e-mail. Retourne token brut uniquement pour les tests."""
+    import os
+    from urllib.parse import quote
+
+    user = get_user_by_id(user_id)
+    if not user:
+        raise ValueError("Utilisateur introuvable.")
+    raw = secrets.token_urlsafe(32)
+    expires = (datetime.now(timezone.utc) + _PASSWORD_RESET_TTL).isoformat()
+    create_password_reset_token(
+        user_id,
+        token_hash=_hash_reset_token(raw),
+        expires_at=expires,
+        created_by_user_id=created_by_user_id,
+        audience=audience,
+    )
+    public = (os.getenv("KORYMB_PUBLIC_URL") or "http://127.0.0.1:3000").strip().rstrip("/")
+    params = f"token={quote(raw)}"
+    slug = (workspace_slug or "").strip()
+    if slug:
+        params += f"&workspace={quote(slug)}"
+    reset_url = f"{public}/mot-de-passe/reinitialiser?{params}"
+    mail_sent, mail_note = _send_password_reset_email(
+        to=str(user.get("email") or ""),
+        name=str(user.get("display_name") or user.get("email") or ""),
+        reset_url=reset_url,
+    )
+    return {
+        "user_id": user_id,
+        "mail_sent": mail_sent,
+        "mail_note": mail_note,
+        "reset_url": reset_url,
+        "token": raw,
+    }
+
+
+def request_password_reset(
+    *,
+    email: str,
+    audience: str | None = None,
+    workspace_slug: str | None = None,
+) -> dict[str, Any]:
+    """Self-service. Réponse toujours générique (pas d'énumération d'e-mails)."""
+    mail = (email or "").strip().lower()
+    row = get_user_by_email(mail) if mail else None
+    issued = False
+    mail_sent = False
+    if row and _user_matches_password_reset_audience(
+        str(row["id"]),
+        audience=audience,
+        workspace_slug=workspace_slug,
+    ):
+        result = issue_password_reset_for_user(
+            str(row["id"]),
+            audience=(audience or "").strip(),
+            workspace_slug=(workspace_slug or "").strip(),
+        )
+        issued = True
+        mail_sent = bool(result.get("mail_sent"))
+    return {
+        "ok": True,
+        "message": _PASSWORD_RESET_GENERIC_OK,
+        "issued": issued,
+        "mail_sent": mail_sent,
+    }
+
+
+def confirm_password_reset(*, token: str, new_password: str) -> dict[str, Any]:
+    raw = (token or "").strip()
+    if not raw:
+        raise ValueError("Lien invalide ou expiré.")
+    new_pwd = (new_password or "").strip()
+    if len(new_pwd) < 8:
+        raise ValueError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+    row = get_password_reset_by_token_hash(_hash_reset_token(raw))
+    if not row:
+        raise ValueError("Lien invalide ou expiré.")
+    if str(row.get("used_at") or "").strip():
+        raise ValueError("Ce lien a déjà été utilisé.")
+    expires_raw = str(row.get("expires_at") or "").strip()
+    try:
+        expires = datetime.fromisoformat(expires_raw.replace("Z", "+00:00"))
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise ValueError("Lien invalide ou expiré.") from exc
+    if expires < datetime.now(timezone.utc):
+        raise ValueError("Lien invalide ou expiré.")
+    user_id = str(row.get("user_id") or "")
+    if not get_user_by_id(user_id):
+        raise ValueError("Lien invalide ou expiré.")
+    set_user_password_hash(user_id, hash_password(new_pwd))
+    mark_password_reset_used(str(row.get("id") or ""))
+    return {"ok": True, "user": get_user_by_id(user_id)}
+
+
+def admin_set_user_password(auth: dict[str, Any], *, user_id: str, new_password: str) -> dict[str, Any]:
+    if not can_manage_user_password(auth, user_id):
+        raise PermissionError("Vous ne pouvez pas modifier le mot de passe de ce compte.")
+    new_pwd = (new_password or "").strip()
+    if len(new_pwd) < 8:
+        raise ValueError("Le nouveau mot de passe doit contenir au moins 8 caractères.")
+    user = set_user_password_hash(user_id, hash_password(new_pwd))
+    if not user:
+        raise ValueError("Utilisateur introuvable.")
+    return {"ok": True, "user": user}
+
+
+def admin_send_password_reset(auth: dict[str, Any], *, user_id: str) -> dict[str, Any]:
+    if not can_manage_user_password(auth, user_id):
+        raise PermissionError("Vous ne pouvez pas réinitialiser le mot de passe de ce compte.")
+    result = issue_password_reset_for_user(
+        user_id,
+        created_by_user_id=str(auth.get("user_id") or ""),
+        audience="admin",
+    )
+    return {
+        "ok": True,
+        "mail_sent": result.get("mail_sent"),
+        "mail_note": result.get("mail_note"),
+        "message": (
+            "E-mail de réinitialisation envoyé."
+            if result.get("mail_sent")
+            else "Le jeton a été créé mais l'e-mail n'a pas pu partir."
+        ),
+    }
+
+
+def platform_search_users(*, query: str, limit: int = 30) -> dict[str, Any]:
+    rows = search_users_platform(query, limit=limit)
+    return {"users": rows, "count": len(rows)}

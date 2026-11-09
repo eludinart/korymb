@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import AdminPasswordActions from "../../components/auth/AdminPasswordActions";
 import StarterPackPicker from "../../components/StarterPackPicker";
 import { agentHeaders, formatHttpApiErrorPayload, requestJson } from "../../lib/api";
 import type { AuthMeResponse } from "../../lib/authSession";
@@ -118,9 +119,12 @@ export default function EspacePage() {
         <h2 className="text-lg font-bold text-slate-900">Membres de l&apos;équipe</h2>
         <ul className="mt-3 space-y-2 text-sm">
           {(me?.members || []).map((m) => (
-            <li key={m.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2">
-              <span>{m.display_name || m.email}</span>
-              <span className="text-xs font-bold uppercase text-violet-700">{m.role}</span>
+            <li key={m.id} className="flex flex-col gap-2 rounded-lg bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center justify-between gap-3 sm:block">
+                <span>{m.display_name || m.email}</span>
+                <span className="text-xs font-bold uppercase text-violet-700">{m.role}</span>
+              </div>
+              {m.id ? <AdminPasswordActions userId={m.id} /> : null}
             </li>
           ))}
         </ul>

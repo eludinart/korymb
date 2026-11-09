@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import AdminPasswordActions from "../../../components/auth/AdminPasswordActions";
 import { PracticeTheme } from "../../../components/practice/PracticeTheme";
 import { StorefrontView } from "../../../components/practice/StorefrontView";
 import { AlertBox, LoadingLine, PageHeader, PageShell, SectionCard } from "../../../components/ui/PageChrome";
@@ -500,7 +501,7 @@ function ParticipantRow({
   });
   const status = participant.status || "active";
   return (
-    <li className="flex flex-wrap items-center justify-between gap-2 py-2">
+    <li className="flex flex-col gap-2 py-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
       <div>
         <span className="font-semibold text-slate-900">{participant.display_name || participant.email}</span>
         <span className="ml-2 text-slate-500">{participant.email}</span>
@@ -511,11 +512,14 @@ function ParticipantRow({
           <span className="ml-2 font-mono text-xs text-slate-600">code {participant.invite_code}</span>
         ) : null}
       </div>
-      {status === "pending" ? (
-        <button type="button" className="btn-secondary text-xs" disabled={validate.isPending} onClick={() => validate.mutate()}>
-          {validate.isPending ? "Validation…" : "Valider l’inscription"}
-        </button>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-2">
+        {status === "pending" ? (
+          <button type="button" className="btn-secondary text-xs" disabled={validate.isPending} onClick={() => validate.mutate()}>
+            {validate.isPending ? "Validation…" : "Valider l’inscription"}
+          </button>
+        ) : null}
+        {participant.id ? <AdminPasswordActions userId={participant.id} /> : null}
+      </div>
     </li>
   );
 }

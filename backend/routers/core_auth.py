@@ -73,6 +73,24 @@ class ProfilePatchBody(BaseModel):
     new_password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
+class PasswordResetRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    email: EmailStr
+    audience: str | None = Field(default=None, max_length=20)
+    workspace_slug: str | None = Field(default=None, max_length=48)
+
+
+class PasswordResetConfirmBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    token: str = Field(min_length=16, max_length=256)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class AdminSetPasswordBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 @router.post("/register")
 def auth_register(body: RegisterBody):
     try:
@@ -262,3 +280,56 @@ def auth_update_profile(body: ProfilePatchBody, auth: dict = Depends(auth_svc.re
         "workspace": workspace or profile.get("workspace"),
         "role": auth.get("role"),
     }
+
+
+@router.post("/password-reset/request")
+def auth_password_reset_request(body: PasswordResetRequestBody):
+    audience = (body.audience or "").strip().lower() or None
+    if audience and audience not in ("operator", "subscriber"):
+        raise HTTPException(status_code=422, detail="audience invalide (operator ou subscriber).")
+    return auth_svc.request_password_reset(
+        email=str(body.email),
+        audience=audience,
+        workspace_slug=body.workspace_slug,
+    )
+
+
+@router.post("/password-reset/confirm")
+def auth_password_reset_confirm(body: PasswordResetConfirmBody):
+    try:
+        return auth_svc.confirm_password_reset(token=body.token, new_password=body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/users/{user_id}/password")
+def auth_admin_set_password(
+    user_id: str,
+    body: AdminSetPasswordBody,
+    auth: dict = Depends(auth_svc.require_admin),
+):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Action réservée aux utilisateurs connectés.")
+    try:
+        return auth_svc.admin_set_user_password(auth, user_id=user_id, new_password=body.new_password)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/users/{user_id}/password-reset")
+def auth_admin_send_password_reset(user_id: str, auth: dict = Depends(auth_svc.require_admin)):
+    if auth.get("mode") == "agent_secret":
+        raise HTTPException(status_code=400, detail="Action réservée aux utilisateurs connectés.")
+    try:
+        return auth_svc.admin_send_password_reset(auth, user_id=user_id)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/users/search", dependencies=[Depends(auth_svc.require_platform_owner)])
+def auth_search_users(q: str = "", limit: int = 30):
+    return auth_svc.platform_search_users(query=q, limit=limit)

@@ -7,6 +7,8 @@ import { KORYMB_TOKEN_COOKIE } from "./lib/authSession";
 const PUBLIC_PREFIXES = [
   "/login",
   "/register",
+  "/mot-de-passe-oublie",
+  "/mot-de-passe",
   "/api/auth",
   "/api/public",
   "/api/korymb",
